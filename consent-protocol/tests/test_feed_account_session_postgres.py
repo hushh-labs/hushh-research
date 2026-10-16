@@ -234,6 +234,39 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
     assert fresh.list_feed(OWNER)["items"] == []
 
 
+def test_historical_pwm_attention_is_hidden_without_hiding_reviewable_drafts(feed_db):
+    draft = str(uuid.uuid4())
+    rows = seed(
+        feed_db,
+        OWNER,
+        [
+            ("failed", "pwm", "pwm_research", {"draft_id": draft, "pwm_outcome": "attention"}),
+            ("missing", "pwm", "pwm_research", {"draft_id": str(uuid.uuid4())}),
+            ("other", "kai", "kai_analysis_completed", {}),
+            (
+                "ready",
+                "pwm",
+                "pwm_research",
+                {"draft_id": str(uuid.uuid4()), "pwm_outcome": "ready"},
+            ),
+            (
+                "partial",
+                "pwm",
+                "pwm_research",
+                {"draft_id": str(uuid.uuid4()), "pwm_outcome": "partial"},
+            ),
+        ],
+    )
+    owner = session(feed_db)
+    assert listed_ids(owner, OWNER) == [rows["partial"], rows["ready"], rows["other"]]
+    assert owner.unread_count(OWNER) == 3
+    assert [item["id"] for item in owner.list_feed(OWNER, limit=2)["items"]] == [
+        str(rows["partial"]),
+        str(rows["ready"]),
+    ]
+    assert listed_ids(session(feed_db), OTHER) == []
+
+
 def test_drive_removal_reads_the_current_payment_status(feed_db):
     with feed_db.begin() as connection:
         for request_id, order_status in (

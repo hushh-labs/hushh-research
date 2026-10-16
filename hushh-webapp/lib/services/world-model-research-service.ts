@@ -6,6 +6,7 @@ import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import {
   profileFactSchema,
   profileSectionKindSchema,
+  profileSourceSchema,
 } from "@/lib/services/profile-research-service";
 import type { PwmOwnerDecisions } from "@/lib/services/world-model-decision-service";
 
@@ -14,6 +15,7 @@ export const pwmPreferencesSchema = z
     enabled: z.boolean(),
     email_enabled: z.boolean(),
     consent_version: z.literal("pwm-native-v1"),
+    research_provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
   })
   .strict();
 export type PwmPreferences = z.infer<typeof pwmPreferencesSchema>;
@@ -73,6 +75,18 @@ export const pwmProgressSchema = z
   })
   .strict();
 export type PwmProgress = z.infer<typeof pwmProgressSchema>;
+/** Cited findings from a research checkpoint, shown read-only until a full draft is offered. */
+export const pwmValidatedFactSchema = z.object({
+  id: z.string().min(1).max(160),
+  topic: profileSectionKindSchema,
+  statement: z.string().min(1).max(600),
+  confidence: z.enum(["supported", "uncertain", "conflicting"]),
+  sources: z.array(profileSourceSchema).min(1).max(3),
+  identity_state: z.enum(["owner_linked", "candidate_for_review"]),
+}).strict();
+export const pwmValidatedFactsSchema = z.array(pwmValidatedFactSchema).max(269);
+export type PwmValidatedFact = z.infer<typeof pwmValidatedFactSchema>;
+const pwmPartialSchema = z.object({ validated_facts: pwmValidatedFactsSchema }).strict();
 /** PWM alone has room for a deep draft; Magic Intelligence keeps its eight-fact bound. */
 export const pwmReportSchema = z
   .object({
@@ -107,6 +121,50 @@ export const pwmReportSchema = z
       new Set(facts.map((fact) => fact.statement.trim().replace(/\s+/g, " ").toLowerCase())).size === facts.length
     );
   });
+
+const azureGroundedCitationSchema = z
+  .object({
+    start_index: z.number().int().min(0),
+    end_index: z.number().int().positive(),
+    title: z.string().min(1).max(1024),
+    url: z.string().url().max(2048).refine((value) => {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+    }),
+  })
+  .strict();
+
+const groundedAnswerSchema = z
+  .object({
+    answer: z.string().max(100_000),
+    sources: z
+      .array(
+        z
+          .object({
+            title: z.string().max(160),
+            url: z.string().url(),
+          })
+          .strict(),
+      )
+      .max(200),
+    citations: z.array(azureGroundedCitationSchema).max(200).optional(),
+    search_suggestions: z.array(z.string().max(40_000)).max(2),
+  })
+  .strict()
+  .superRefine(({ answer, citations }, context) => {
+    let previousEnd = 0;
+    for (const citation of citations ?? []) {
+      if (
+        citation.start_index < previousEnd ||
+        citation.end_index <= citation.start_index ||
+        citation.end_index > answer.length
+      ) {
+        context.addIssue({ code: "custom", message: "Invalid or overlapping Azure citation span" });
+      }
+      previousEnd = citation.end_index;
+    }
+  });
+
 export const pwmResultSchema = z.discriminatedUnion("status", [
   z
     .object({
@@ -114,26 +172,7 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
       pkm_written: z.literal(false),
       draft_id: z.string().uuid(),
       report: pwmReportSchema,
-      grounded_answers: z
-        .array(
-          z
-            .object({
-              answer: z.string().max(100_000),
-              sources: z
-                .array(
-                  z
-                    .object({
-                      title: z.string().max(160),
-                      url: z.string().url(),
-                    })
-                    .strict(),
-                )
-                .max(200),
-              search_suggestions: z.array(z.string().max(40_000)).max(2),
-            })
-            .strict(),
-        )
-        .max(32),
+      grounded_answers: z.array(groundedAnswerSchema).max(32),
       search_suggestions: z.array(z.string().max(40_000)).max(64),
       research: z
         .object({
@@ -154,18 +193,35 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
                 .strict(),
             )
             .max(6),
-          source_use: z.literal("google_grounded_display_only"),
-          provider: z.literal("vertex_google_search"),
+          source_use: z.enum([
+            "google_grounded_display_only",
+            "azure_web_grounded_display_only",
+          ]),
+          provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
         })
-        .strict(),
+        .strict()
+        .refine(
+          ({ source_use, provider }) =>
+            (source_use === "google_grounded_display_only" &&
+              provider === "vertex_google_search") ||
+            (source_use === "azure_web_grounded_display_only" &&
+              provider === "azure_openai_web_search"),
+        ),
     })
-    .strict(),
+    .strict()
+    .refine(
+      ({ research, grounded_answers }) =>
+        research.provider !== "azure_openai_web_search" ||
+        grounded_answers.every((answer) => answer.citations && answer.citations.length > 0),
+      { message: "Azure web research requires original citation spans" },
+    ),
   z
     .object({
       status: z.enum(["pending", "paused"]),
       pkm_written: z.literal(false),
       restart_required: z.boolean(),
       progress: pwmProgressSchema.optional(),
+      validated_facts: pwmValidatedFactsSchema.optional(),
     })
     .strict(),
   z
@@ -178,6 +234,8 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
       reason: z.string().max(64).optional(),
       /** Seconds before another attempt could succeed; the run ends here. */
       retry_after_s: z.number().int().min(1).optional(),
+      progress: pwmProgressSchema.optional(),
+      validated_facts: pwmValidatedFactsSchema.optional(),
     })
     .strict(),
   z
@@ -231,6 +289,7 @@ const MAX_STREAM_BYTES = 10 * 1024 * 1024;
 type StreamInput = PwmAuthority & {
   signal: AbortSignal;
   onProgress: (progress: PwmProgress) => void;
+  onPartial?: (facts: PwmValidatedFact[]) => void;
   onResult: (result: PwmResult) => void;
 };
 
@@ -291,6 +350,9 @@ async function stream(input: StreamInput) {
       for (const frame of parsed.events) {
         if (frame.event === "progress") {
           input.onProgress(pwmProgressSchema.parse(JSON.parse(frame.data)));
+        } else if (frame.event === "partial") {
+          const partial = pwmPartialSchema.parse(JSON.parse(frame.data));
+          input.onPartial?.(partial.validated_facts);
         } else if (frame.event === "result") {
           input.onResult(pwmResultSchema.parse(JSON.parse(frame.data)));
           return;
@@ -361,6 +423,8 @@ type Observation = PwmAuthority & {
   onResult: (result: PwmResult) => void;
   /** Live progress, from a stream frame or a polled pending result. */
   onProgress?: (progress: PwmProgress) => void;
+  /** Validated, cited findings; still read-only until a full offer arrives. */
+  onPartial?: (facts: PwmValidatedFact[]) => void;
   /** A read or stream failed; the service keeps retrying on its own. */
   onInterrupted?: () => void;
   ownerDecisions?: PwmOwnerDecisions;
@@ -413,11 +477,12 @@ function settle(
   result: PwmResult,
 ): "done" | number {
   session.failures = 0;
-  if (
-    (result.status === "pending" || result.status === "paused") &&
-    result.progress
-  )
-    input.onProgress?.(result.progress);
+  const hasCheckpoint =
+    result.status === "pending" || result.status === "paused" || result.status === "unavailable";
+  if (hasCheckpoint) {
+    if (result.validated_facts) input.onPartial?.(result.validated_facts);
+    if (result.progress) input.onProgress?.(result.progress);
+  }
   input.onResult(result);
   if (result.status !== "pending" && result.status !== "paused") return "done";
   session.next = result.restart_required
@@ -453,6 +518,7 @@ async function streamStep(
       assertCurrent: input.assertCurrent,
       signal: local.signal,
       onProgress: (progress) => input.onProgress?.(progress),
+      onPartial: (facts) => input.onPartial?.(facts),
       onResult: (result) => {
         final = result;
       },
@@ -496,6 +562,10 @@ async function step(
 ): Promise<"done" | number> {
   let { path, method } = session.next;
   const now = Date.now();
+  const waitingToPost =
+    !readOnly &&
+    method === "POST" &&
+    (now < session.postBlockedUntil || now < session.lastPostAt + MIN_POST_INTERVAL_MS);
   if (
     method === "POST" &&
     (readOnly ||
@@ -520,6 +590,12 @@ async function step(
           : undefined,
       ),
     );
+    // A refused POST has not started the new run. GET /jobs can still report
+    // the previous run's terminal unavailable result while the POST waits.
+    // Keep watching until the POST is allowed; a pending or completed result
+    // can still come from another tab that started the new run meanwhile.
+    if (waitingToPost && result.status === "unavailable")
+      return DRIVER_POLL_MS;
     return settle(input, session, result);
   } catch (error) {
     if (input.signal.aborted) throw error;
@@ -565,12 +641,15 @@ export const WorldModelResearchService = {
   },
   async updatePreferences(
     input: PwmAuthority,
-    value: Pick<PwmPreferences, "enabled" | "email_enabled">,
+    value: Pick<PwmPreferences, "enabled" | "email_enabled" | "research_provider">,
   ) {
+    const { research_provider, ...preferences } = value;
     return pwmPreferencesSchema.parse(
       await request(input, "preferences", "PUT", {
-        ...value,
-        consent_version: "pwm-native-v1",
+        ...preferences,
+        consent_version: research_provider === "azure_openai_web_search"
+          ? "pwm-azure-bing-v1"
+          : "pwm-native-v1",
       }),
     );
   },

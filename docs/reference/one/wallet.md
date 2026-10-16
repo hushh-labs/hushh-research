@@ -409,11 +409,14 @@ recognition. No new official artwork or network partnership claim is introduced.
 ### Architecture and failure causes
 
 - `wallet-card-scanner.tsx` owns camera/gallery acquisition, unsaved Blob URLs,
-  suggested edges, keyboard-adjustable corners and the scan Back layer.
+  suggested edges, four draggable 44px corner handles (also adjustable with
+  arrow keys) and the scan Back layer. Handles cannot cross or collapse the crop.
   `wallet-live-card-capture.tsx` uses the rear camera in the current browser page
   with an ID-1 guide; every stream stops on cancel, hiding or unmount. Android
   uses the system camera through `HushhCardCapture`; iOS uses Capacitor Camera.
   Native system camera UI has its own guide controls; Wallet crop review follows capture.
+  Web capture crops the exact visible object-cover guide, including portrait
+  camera sensors, so the captured photo matches the preview.
   The featured Add scanner also exposes photo selection. Live capture offers
   the same fallback when permission is denied or a frame cannot be captured;
   controls wrap on narrow screens. Partial and empty readings keep camera and
@@ -434,9 +437,14 @@ recognition. No new official artwork or network partnership claim is introduced.
   validated PANs stay ambiguous across composed readings. Checksum-invalid
   readings are correction drafts; they cannot veto an independently valid PAN.
   Grouped low-confidence glyphs remain marked for review.
+  A usable number, expiry and name draft stop redundant orientation passes;
+  an unlabelled name need not become a confirmed field to be reviewed. Partial
+  structured readings survive a later worker failure/deadline, but never cancel,
+  lock or owner/session changes. Generic 12-digit numbers are supported too.
 - `secure-card-add-form.tsx` preserves manual corrections, fills independently
   readable fields and offers one **Add to Wallet** confirmation. It does not
   save automatically. A backend metadata failure keeps the recognized fields.
+  Typed and scanned cardholder names become uppercase in the form and save.
   Lock, owner change, cancellation and a second capture fence delayed effects.
 - `wallet-service.ts` reuses backend network authority and the existing PKM
   AES-256-GCM write. A logical draft keeps one canonical card ID across uncertain
@@ -447,7 +455,8 @@ recognition. No new official artwork or network partnership claim is introduced.
 Inputs are JPEG, PNG or WebP, at most 15 MB compressed and 24 megapixels.
 Native acquisition converts compatible library images to a fresh JPEG; unsupported
 browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
-card recognition is bounded to 1600 pixels. Add requests fields only, with at most
+rectified crops use at most 1600 pixels, while full photos retain their proportions.
+Add requests fields only, with at most
 five recognition passes; it uses the existing automatic catalog artwork on save.
 Explicit photo-artwork callers can additionally use four masking and four
 final-inspection passes. The complete scan has
@@ -455,6 +464,8 @@ a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,
 and acquisition 180. Pixel processing and OCR run in the owned local worker.
 No camera/photo/transcript goes to a cloud vision service. Real-device latency,
 embossed metal and severe glare are not guaranteed by these bounds.
+Only the bundled public English language model is cached by Tesseract for reuse;
+photos, credentials, transcripts and display approvals are not cached there.
 
 ### Authorized catalog and coverage
 

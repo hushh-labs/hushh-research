@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PwmClaim, PwmMemory } from "@/lib/services/world-model-decision-service";
-import type { PwmProgress } from "@/lib/services/world-model-research-service";
+import type { PwmProgress, PwmValidatedFact } from "@/lib/services/world-model-research-service";
 
 const mock = vi.hoisted(() => ({
   research: {} as Record<string, unknown>,
@@ -160,6 +160,8 @@ function research(
   preferences = { enabled: true, email_enabled: true },
   live: Partial<{
     progress: PwmProgress | null;
+    validatedFacts: PwmValidatedFact[];
+    retrying: boolean;
     live: boolean;
     lastActivityAt: number | null;
     /** When a named wait ends, anchored by the store when the answer arrived. */
@@ -169,9 +171,11 @@ function research(
   mock.research = {
     mounted: true,
     result,
-    preferences: { ...preferences, consent_version: "pwm-native-v1" },
+    preferences: { ...preferences, consent_version: "pwm-native-v1", research_provider: "vertex_google_search" },
     failed: false,
     progress: null,
+    validatedFacts: [],
+    retrying: false,
     live: true,
     lastActivityAt: null,
     retryAt: null,
@@ -201,6 +205,14 @@ const progressOf = (over: Partial<PwmProgress> = {}): PwmProgress => ({
   slice: 1,
   ...over,
 });
+const provisionalFact: PwmValidatedFact = {
+  id: "candidate-a:career:fact-1",
+  topic: "career",
+  statement: "Works at Acme Corp",
+  confidence: "supported",
+  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
+  identity_state: "owner_linked",
+};
 
 /** Moves the clock forward and wakes every reader of it. */
 function advance(ms: number) {
@@ -427,6 +439,117 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText("Checking your settings…")).toBeInTheDocument();
   });
 
+  it("shows Bing's privacy boundary before Azure research opt-in, while Vertex keeps Google copy", async () => {
+    research({ status: "consent_required", pkm_written: false }, { enabled: false, email_enabled: true });
+    const vertex = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText("Research and email"));
+    expect(screen.getByText(/find pages about you with Google Search through Vertex AI/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bing may receive your name/)).not.toBeInTheDocument();
+    vertex.unmount();
+
+    research({ status: "consent_required", pkm_written: false }, { enabled: false, email_enabled: true });
+    (mock.research.preferences as Record<string, unknown>).research_provider = "azure_openai_web_search";
+    render(<PersonalWorldModelPage embedded />);
+    const directOptIn = screen.getByText(/GPT-5-mini on Microsoft Azure AI checks public pages/);
+    expect(directOptIn).toHaveTextContent("Bing receives search terms that can include your name and verified email or phone");
+    expect(directOptIn).toHaveTextContent("outside Azure's compliance and data residency boundary");
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("Research and email"));
+    expect(screen.getByText(/Bing may receive your name and verified email or phone/)).toHaveTextContent(
+      "outside Azure's compliance and data residency boundary",
+    );
+  });
+
+  it("shows an Azure grounded answer with its original UTF-16 citation and link", async () => {
+    const draft = offered([{ statement: "Works at Hushh", kind: "career" }]);
+    draft.research = {
+      ...draft.research,
+      provider: "azure_openai_web_search",
+      source_use: "azure_web_grounded_display_only",
+    };
+    const answer = "Alex 🧭 appears on the Hushh team page.";
+    const citationText = "Hushh team page";
+    draft.grounded_answers = [{
+      answer,
+      sources: [],
+      citations: [{
+        start_index: answer.indexOf(citationText),
+        end_index: answer.indexOf(citationText) + citationText.length,
+        title: "Hushh original title",
+        url: "https://hushh.ai/team?source=bing",
+      }],
+      search_suggestions: [],
+    }];
+    research(draft);
+    render(<PersonalWorldModelPage embedded />);
+
+    const result = await screen.findByTestId("pwm-azure-grounded-answer");
+    expect(result.querySelector("p")?.textContent).toBe(answer);
+    expect(within(result).getByRole("link", { name: citationText })).toHaveAttribute(
+      "href", "https://hushh.ai/team?source=bing",
+    );
+    expect(within(result).getByRole("link", { name: "Hushh original title" })).toHaveAttribute(
+      "href", "https://hushh.ai/team?source=bing",
+    );
+    expect(screen.getByText("Bing web research")).toBeInTheDocument();
+    expect(screen.queryByText("Related Google searches")).not.toBeInTheDocument();
+  });
+
+  it("keeps approved details and the last checkpoint visible after an unavailable result", async () => {
+    const saved = await claim("Works at Hushh");
+    mock.load.mockResolvedValue(memoryOf([saved]));
+    research(
+      { status: "unavailable", pkm_written: false },
+      undefined,
+      {
+        progress: progressOf({ stage: "report" }),
+        validatedFacts: [provisionalFact],
+        lastActivityAt: Date.now(),
+      },
+    );
+    render(<PersonalWorldModelPage embedded />);
+
+    expect(await screen.findByText("Works at Hushh")).toBeInTheDocument();
+    expect(screen.getByTestId("pwm-status-row")).toHaveTextContent("Your saved details remain below.");
+    const checkpoint = screen.getByTestId("pwm-progress-row");
+    expect(checkpoint).toHaveTextContent("Last research checkpoint · 9 of 32 searches");
+    expect(checkpoint).toHaveTextContent("5 sources found · 4 topics checked");
+    expect(screen.getByTestId("pwm-sources-row")).toHaveTextContent("Sources in last checkpoint");
+    expect(screen.queryByTestId("pwm-progress-bar")).toBeNull();
+    expect(screen.queryByText("Nothing was saved.")).toBeNull();
+    const provisional = screen.getByTestId("pwm-provisional-fact");
+    expect(provisional).toHaveTextContent("Works at Acme Corp");
+    expect(within(provisional).getByRole("link", { name: "Acme team page" })).toHaveAttribute("href", "https://acme.example/team");
+    expect(within(provisional).queryByRole("button")).toBeNull();
+    expect(screen.getByText("These cited findings are awaiting the full review. They are not saved details yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("shows partial research while running without memory actions", async () => {
+    research(pending, undefined, {
+      validatedFacts: [{ ...provisionalFact, identity_state: "candidate_for_review", confidence: "uncertain" }],
+    });
+    render(<PersonalWorldModelPage embedded />);
+    const provisional = await screen.findByTestId("pwm-provisional-fact");
+    expect(provisional).toHaveTextContent("Possible match · check the cited pages");
+    expect(screen.queryByRole("button", { name: /Yes, this is right/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /No, this is not right/ })).toBeNull();
+  });
+
+  it("shows an immediate retry state while preserving the stopped checkpoint", async () => {
+    research(null, undefined, {
+      retrying: true,
+      progress: progressOf({ stage: "report" }),
+      live: false,
+    });
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText("Retrying research…")).toBeInTheDocument();
+    expect(screen.getByTestId("pwm-status-row")).toHaveTextContent("Checking the last research checkpoint.");
+    expect(screen.getByTestId("pwm-progress-row")).toHaveTextContent("Last research checkpoint · 9 of 32 searches");
+    expect(screen.queryByTestId("pwm-progress-bar")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("shows a claimed invitation's preview in Add a public source right away", async () => {
     mock.claimable = true;
     research(pending);
@@ -528,9 +651,9 @@ describe("Personal World Model page", () => {
     expect(row).toHaveTextContent("5 sources found · 4 topics checked");
     const bar = screen.getByTestId("pwm-progress-bar");
     expect(bar).toHaveAttribute("role", "progressbar");
-    // Composite: 30 + 55 × max(4/20, 9/32) = 45.
-    expect(bar).toHaveAttribute("aria-valuenow", "45");
-    expect(row).toHaveTextContent("45%");
+    // Counts are observed; a stage is not a completion percentage.
+    expect(bar).not.toHaveAttribute("aria-valuenow");
+    expect(row).not.toHaveTextContent(/\d+%/);
     const sources = screen.getByTestId("pwm-sources-row");
     expect(sources).toHaveTextContent("Sources so far");
     expect(sources).toHaveTextContent("Acme Corp – Team · Example Uni – Alumni");
@@ -539,7 +662,7 @@ describe("Personal World Model page", () => {
     expect(within(sources).queryByRole("link")).toBeNull();
     expect(screen.getByTestId("pwm-freshness")).toHaveTextContent("Last activity just now");
     // The owner is told they need not wait here.
-    expect(screen.getByText(/You can leave this page/)).toBeInTheDocument();
+    expect(screen.getByText("You can leave this page. Research status will update here.")).toBeInTheDocument();
     // The clock ticks every 5 s while research runs.
     expect(clock.intervals).toContain(5_000);
     // Every card in the pane is compact, and nothing in it is a static block.
@@ -547,24 +670,36 @@ describe("Personal World Model page", () => {
       expect(group).toHaveAttribute("data-settings-density", "compact");
   });
 
-  it("never drops the percent within a run and marks a resume", async () => {
+  it("shows observed counts and marks a resume without inventing a completion percentage", async () => {
     research(pending, undefined, { progress: progressOf(), lastActivityAt: Date.now() });
     const { rerender } = render(<PersonalWorldModelPage embedded />);
-    expect(await screen.findByTestId("pwm-progress-bar")).toHaveAttribute("aria-valuenow", "45");
-    // A paused turn reports fewer searches for a moment: the bar holds.
+    expect(await screen.findByTestId("pwm-progress-bar")).not.toHaveAttribute("aria-valuenow");
+    // A paused turn can report a new slice with a different search count.
     research(
       { status: "paused", pkm_written: false, restart_required: true },
       undefined,
       { progress: progressOf({ searches_used: 2, topics_checked: ["career"], slice: 2 }), lastActivityAt: Date.now() },
     );
     rerender(<PersonalWorldModelPage embedded />);
-    expect(screen.getByTestId("pwm-progress-bar")).toHaveAttribute("aria-valuenow", "45");
+    expect(screen.getByTestId("pwm-progress-bar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.getByTestId("pwm-progress-row")).toHaveTextContent("2 of 32 searches");
     // A continued run says which part this is; the first run never does.
     expect(screen.getByTestId("pwm-progress-row")).toHaveTextContent("Continuing, part 2");
     expect(screen.getByTestId("pwm-status-row")).toHaveTextContent("Picking up again · Step 2 of 3");
     expect(screen.getByTestId("pwm-freshness")).toHaveTextContent(
       "Paused. Picking up where it left off…",
     );
+  });
+
+  it("does not call the report stage 90% complete", async () => {
+    research(pending, undefined, {
+      progress: progressOf({ stage: "report" }),
+      lastActivityAt: Date.now(),
+    });
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText("Step 3 of 3 · Writing up what it found")).toBeInTheDocument();
+    expect(screen.getByTestId("pwm-progress-bar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.queryByText("90%")).toBeNull();
   });
 
   it("says it is reading sources when pages arrive without another search", async () => {

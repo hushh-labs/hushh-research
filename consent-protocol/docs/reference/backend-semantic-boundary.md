@@ -471,6 +471,30 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Live eval before promotion: none yet. Mocked contract tests only; whether One
   follows each template turn after turn is unmeasured.
 
+### Declared: explicit onboarding preferred-name answer
+
+- Owning agent and manifest: `agent_one`, `agents/one/agent.yaml`. While the
+  device's Something else name question is active, One assesses the reply using
+  `propose_style_settings` with `onboarding_action` and `onboarding_request_id`.
+  No host name-shaped, keyword or regex classifier decides meaning.
+- Output: `onboarding_name_assessed`, the matching request id, and a decision
+  (`name`, `skip`, `clarify`, `other`). Only `name` carries `preferred_name`.
+  This is distinct from the ordinary `offer_ready` Settings proposal.
+- Validators: authenticated typed-chat vault admission, current screen nonce,
+  closed action choices, no other style fields, and the existing 64-character
+  name bound. The nonce grants no authority. Missing or invalid output never
+  triggers a fallback name extraction.
+- Authority: the person's answer to the explicit name-entry question permits
+  the device's existing onboarding writer to merge only that name into encrypted
+  `identity.communication_preferences`. It commits after successful turn completion,
+  with current-owner, vault-session, question and turn checks before storage.
+  Skip, ambiguity, unrelated replies, cancellation and stale results write nothing.
+  Ordinary chat preferences still require Settings confirmation.
+- Evidence: backend tool tests in `tests/test_one_owner_style.py` and frontend
+  onboarding, stream and browser regression tests. Live semantic behavior remains
+  unmeasured until evaluated with the deployed model; mocked decisions prove
+  validation and persistence, not the model's interpretation accuracy.
+
 ### Declared: consent scope catalog search (contract C4)
 
 Keyword and synonym matching in `consent-protocol/hushh_mcp/consent/scope_matcher.py`

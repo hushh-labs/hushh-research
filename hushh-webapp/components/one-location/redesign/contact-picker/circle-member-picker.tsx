@@ -329,9 +329,6 @@ export function CircleMemberPicker({
                           <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {row.label}
                           </span>
-                          {row.fromContacts ? (
-                            <ContactSourceBadge className="mt-px shrink-0" />
-                          ) : null}
                         </span>
                         {row.blockedReason ? (
                           <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -343,6 +340,7 @@ export function CircleMemberPicker({
                           </span>
                         ) : null}
                       </span>
+                      {row.fromContacts ? <ContactSourceBadge /> : null}
                       <span
                         aria-hidden
                         className={cn(

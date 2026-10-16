@@ -46,4 +46,22 @@ describe("owned local scan supervisor", () => {
     vi.useFakeTimers(); const pending = scanWalletCard(photo(), new AbortController().signal), rejection = expect(pending).rejects.toThrow("unavailable");
     await vi.advanceTimersByTimeAsync(100); const worker = ScanWorker.last!; expect(worker).not.toBeNull(); await vi.advanceTimersByTimeAsync(90000); await rejection; expect(worker.terminate).toHaveBeenCalledOnce();
   });
+  it("retains a useful local reading when a later OCR pass exceeds the deadline", async () => {
+    vi.useFakeTimers();
+    const pending = scanWalletCardForReview(photo(), new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(100);
+    const worker = ScanWorker.last!;
+    worker.onmessage?.({ data: { reading: parseCardScanReading("4242424242424242\n12/30\nALEX SAMPLE"), progress: true } });
+    await vi.advanceTimersByTimeAsync(90000);
+    expect(await pending).toMatchObject({ fields: { pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" } });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+  it("discards partial OCR on vault lock instead of using deadline recovery", async () => {
+    const pending = scanWalletCardForReview(photo(), new AbortController().signal);
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    const worker = await started();
+    worker.onmessage?.({ data: { reading: parseCardScanReading("4242424242424242"), progress: true } });
+    advanceVaultSessionEpoch(); await rejection;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
 });

@@ -10,13 +10,17 @@ import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleCalendarService, GoogleCalendarError } from "@/lib/services/google-calendar-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
+import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 const fixture = vi.hoisted(() => {
   const user = { uid: "owner", email: "owner@example.com", displayName: "Owner", getIdToken: async () => "test-id-token" };
   return {
     captureReady: false,
+    nameOnboarding: false,
     auth: { user, loading: false, sessionVerificationRequired: false },
-    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: () => "test-owner-token" },
+    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => "test-owner-token" },
     persona: { activePersona: "investor", primaryNavPersona: "investor", personaTransitionTarget: null, riaSetupAvailable: false, riaSwitchAvailable: false, riaOnboardingStatus: null, switchPersona: vi.fn() },
     onboarding: { turns: [], shownTurns: new Map(), shownTurnTimes: new Map(), captureComposerText: () => false, dailyTip: null },
     memory: { text: "", domains: [], totalAttributes: 0, updatedAt: null },
@@ -29,7 +33,15 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ()
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => fixture.auth }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => fixture.vault }));
 vi.mock("@/lib/persona/persona-context", () => ({ usePersonaState: () => fixture.persona }));
-vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", () => ({ useChatOnboarding: () => fixture.onboarding }));
+vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", async importOriginal => {
+  const actual = await importOriginal<typeof import("@/lib/agent/chat-onboarding/use-chat-onboarding")>();
+  return { ...actual, useChatOnboarding: (input: Parameters<typeof actual.useChatOnboarding>[0]) =>
+    fixture.nameOnboarding ? actual.useChatOnboarding(input) : fixture.onboarding };
+});
+vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain: vi.fn() } }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
+  syncOneChatOnboarding: vi.fn(async () => ({})),
+} }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => fixture.gmail }));
 vi.mock("@/lib/navigation/use-root-chat-deferred-ready", () => ({ useRootChatDeferredReady: () => true }));
 vi.mock("@/lib/one-voice/readiness", () => ({ useOneVoiceLiveEnabled: () => false }));
@@ -61,6 +73,9 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
   fixture.captureReady = false;
+  fixture.nameOnboarding = false;
+  useChatOnboardingSession.getState().reset(null);
+  vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockReset().mockResolvedValue({ success: true, saveState: "saved" } as never);
   fixture.vault.isVaultUnlocked = true;
   fixture.auth.user.uid = "owner";
   publishValidatedAuthSessionOwner("owner");
@@ -75,7 +90,73 @@ function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
 }
 
+it.each(["Create new chat", "Start new chat"])("allows %s to reset a locked-vault draft without reading saved history", async entry => {
+  fixture.vault.isVaultUnlocked = false;
+  Object.assign(fixture.vault, { vaultKey: null, vaultOwnerToken: null });
+  vi.spyOn(fixture.vault, "getVaultOwnerToken").mockReturnValue(null);
+  try {
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "A fresh question 👋" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+    const create = await screen.findByRole("button", { name: entry });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Close chat history" })).not.toBeInTheDocument());
+    expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("");
+    expect(ApiService.listAgentChatConversations).not.toHaveBeenCalled();
+    expect(ApiService.getAgentChatHistory).not.toHaveBeenCalled();
+  } finally {
+    Object.assign(fixture.vault, { vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token" });
+  }
+}, 15_000);
+
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it.each(["completed", "failed"] as const)("applies a semantic onboarding name only after a %s stream", async outcome => {
+    fixture.nameOnboarding = true;
+    const started = reduceChatOnboarding(null, { type: "start", displayName: "Owner", firstName: "Owner", anchor: null }).state;
+    const pending = reduceChatOnboarding(started, { type: "chip", chipId: "name_other", firstName: "Owner", anchor: null, today: "2026-10-16" }).state;
+    useChatOnboardingSession.getState().reset("owner");
+    useChatOnboardingSession.getState().patch({ machine: pending, durable: null });
+    let channel!: ReadableStreamDefaultController<Uint8Array>;
+    const encoder = new TextEncoder();
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response(
+      new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Please call me Roopmann" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledOnce());
+    const wire = JSON.parse(String(fetchStream.mock.calls[0][1]?.body));
+    const requestId = wire.forwardedProps.screenContext.screen_state.onboarding_name_request;
+    expect(requestId).toMatch(/^[a-p]{32}$/);
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const nameWrites = () => vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls
+      .filter(([params]) => params.confirmation.source === "one_chat_onboarding");
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "name-run" });
+    push({ type: "TOOL_CALL_START", toolCallId: "name-call", toolCallName: "propose_style_settings" });
+    push({ type: "TOOL_CALL_ARGS", toolCallId: "name-call", delta: "{}" });
+    push({ type: "TOOL_CALL_END", toolCallId: "name-call" });
+    push({ type: "TOOL_CALL_RESULT", toolCallId: "name-call", messageId: "name-result", role: "tool", content: JSON.stringify({
+      status: "onboarding_name_assessed", request_id: requestId, decision: "name", preferred_name: "Roopmann",
+    }) });
+    expect(nameWrites()).toHaveLength(0);
+    push(outcome === "completed"
+      ? { type: "RUN_FINISHED", threadId: "same-conversation", runId: "name-run" }
+      : { type: "RUN_ERROR", code: "MODEL_FAILED", message: "Please try again." });
+    act(() => channel.close());
+    if (outcome === "completed") {
+      await waitFor(() => expect(nameWrites()).toHaveLength(1));
+      expect(useChatOnboardingSession.getState().machine?.progress.questions.name).toBe("answered");
+    } else {
+      await screen.findByRole("button", { name: "Try again" });
+      expect(nameWrites()).toHaveLength(0);
+    }
+    expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
+  });
+
   it.each(["result", "error"] as const)("shows working during a tool call and settles after its %s", async outcome => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     let channel!: ReadableStreamDefaultController<Uint8Array>;

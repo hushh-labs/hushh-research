@@ -73,7 +73,7 @@ def test_trusted_auto_attention_follows_linked_search_state(search_state, attent
 @pytest.mark.parametrize(
     "direction,bucket", [("incoming", "incoming_requests"), ("outgoing", "outgoing_requests")]
 )
-def test_v1_trusted_checking_is_passive_until_payment(direction, bucket):
+def test_v1_checking_is_passive_until_payment(direction, bucket):
     row = {
         "source": "share",
         "id": f"document_share_request:{uuid4()}",
@@ -116,7 +116,17 @@ def test_v1_trusted_checking_is_passive_until_payment(direction, bucket):
     assert entry(row)["metadata"]["automatic_progress_active"] is False
     row["payment_status"] = None
     row["trusted_authority_ready"] = False
-    assert entry(row)["metadata"]["automatic_progress_active"] is False
+    row["preparation_error_code"] = None
+    non_trusted = entry(row)["metadata"]
+    assert non_trusted["automatic_progress_active"] is True
+    assert non_trusted["automatic_progress_stage"] == "checking"
+    assert non_trusted["owner_attention_required"] is False
+    row["owner_search_state"] = "failed"
+    row["owner_evaluation_state"] = "pending"
+    failed_search = entry(row)["metadata"]
+    assert failed_search["automatic_progress_active"] is False
+    assert failed_search["v1_evaluation_unavailable"] is True
+    assert failed_search["owner_attention_required"] is False
 
 
 def test_consent_projects_locked_quote_and_owner_setup_without_an_order():

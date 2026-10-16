@@ -52,7 +52,7 @@
 .accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
 .accountButton { position: static; }
 .backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
-.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid #0071e3; outline-offset: 3px; }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible { outline: 3px solid #0071e3; outline-offset: 3px; }
 .surface {
   display: flex;
   flex-direction: column;
@@ -105,7 +105,11 @@
   line-height: 21px !important; box-shadow: none !important;
 }
 .phoneForm :global([data-slot="input-group-control"]::placeholder) { color: var(--phone-muted); opacity: 1; }
-.phoneForm :global([data-slot="input-group"]:focus-within) { border-color: #0071e3 !important; }
+.phoneForm :global([data-slot="input-group"]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border) !important;
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--phone-field)) !important;
+}
+.phoneForm :global([data-slot="input-group"]:focus-within) { box-shadow: 0 0 0 2px var(--app-focus-ring) !important; }
 .phoneForm :global([data-figma-phone-helper]) {
   margin: 14px 0 17px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
   font-size: 13px !important; font-weight: 400; line-height: 20px !important; letter-spacing: -.005em;

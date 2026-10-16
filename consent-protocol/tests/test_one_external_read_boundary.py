@@ -1494,3 +1494,128 @@ def test_calendar_invitation_continuation_admits_only_exact_client_review_tool()
     assert before_external_read_tool(FunctionTool(same_name), {}, context)["status"] == "blocked"
     context.state.pop(STATE_EXTERNAL_READ_CONTINUATION)
     assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["propose_calendar_event", "propose_calendar_reschedule", "propose_calendar_cancellation"],
+)
+def test_calendar_proposal_continuation_requires_exact_identity_and_typed_chat(name):
+    from hushh_mcp.agents.calendar import tools as calendar_tools
+
+    context = SimpleNamespace(
+        invocation_id="read",
+        state={
+            STATE_EXECUTION_SURFACE: "typed_chat",
+            STATE_EXTERNAL_READ: "read",
+            STATE_EXTERNAL_READ_CONTINUATION: "read",
+        },
+    )
+    exact = FunctionTool(getattr(calendar_tools, name))
+    assert before_external_read_tool(exact, {}, context) is None
+
+    async def spoof():
+        raise AssertionError("Must never execute")
+
+    spoof.__name__ = name
+    assert before_external_read_tool(FunctionTool(spoof), {}, context)["status"] == "blocked"
+    context.state[STATE_EXECUTION_SURFACE] = "voice"
+    assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
+    context.state[STATE_EXECUTION_SURFACE] = "typed_chat"
+    context.state.pop(STATE_EXTERNAL_READ_CONTINUATION)
+    assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
+
+
+@pytest.mark.parametrize("needs_permission", [False, True])
+async def test_calendar_read_then_booking_prepares_review_without_executing_and_redacts(
+    monkeypatch,
+    needs_permission,
+):
+    from hushh_mcp.agents.calendar import tools as calendar_tools
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    plan = {
+        "title": "PRIVATE_PROPOSAL_TITLE",
+        "description": "PRIVATE_PROPOSAL_DESCRIPTION",
+        "start_at": "2030-10-17T10:00:00Z",
+        "end_at": "2030-10-17T10:30:00Z",
+        "attendees": ["guest@example.test"],
+        "send_updates": True,
+        "conflicts": [],
+    }
+    service = SimpleNamespace(
+        propose=AsyncMock(
+            return_value={
+                "proposal_id": "review-only",
+                "expires_at": "2030-10-17T09:30:00Z",
+                "plan": plan,
+            }
+        ),
+        execute=AsyncMock(),
+    )
+    if needs_permission:
+        from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+        service.propose.side_effect = GoogleConnectionError(
+            "Scheduling requires manage access",
+            status_code=403,
+            reason_code="google_permission_required",
+        )
+    monkeypatch.setattr(calendar_tools, "get_google_calendar_service", lambda: service)
+
+    async def calendar_free_slots(tool_context: ToolContext) -> dict:
+        return {"status": "ok", "slots": [{"start_at": plan["start_at"], "end_at": plan["end_at"]}]}
+
+    args = {key: plan[key] for key in ("title", "description", "start_at", "end_at", "attendees")}
+    model = _Model(
+        [
+            [_call("calendar_free_slots")],
+            [
+                types.Part(
+                    function_call=types.FunctionCall(name="propose_calendar_event", args=args)
+                )
+            ],
+            [types.Part(text="Review the meeting before scheduling.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [calendar_free_slots, calendar_tools.propose_calendar_event]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="booking")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="booking",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="Check free time and prepare a meeting.")]
+                ),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"},
+            )
+        ]
+        responses = [response for event in events for response in event.get_function_responses()]
+        proposal = next(
+            response.response for response in responses if response.name == "propose_calendar_event"
+        )
+        if needs_permission:
+            assert proposal["status"] == "connection_required"
+            assert proposal["reason_code"] == "google_permission_required"
+            assert proposal["directive"]["payload"]["type"] == "calendar.connect"
+            assert proposal["directive"]["payload"]["accessLevel"] == "manage"
+        else:
+            assert proposal["status"] == "confirmation_required"
+            assert proposal["directive"]["payload"]["description"] == plan["description"]
+        assert model._advertised[1] == {"propose_calendar_event"}
+        service.propose.assert_awaited_once()
+        service.execute.assert_not_awaited()
+        session = await sessions.get_session(app_name="one", user_id="owner", session_id="booking")
+        assert session.state["hussh:pending_directive:calendar"]
+        projected = durable_external_read_projection(session)
+        assert "PRIVATE_PROPOSAL" not in projected.model_dump_json()
+        assert "hussh:pending_directive:calendar" not in projected.state
+        assert session.state["hussh:pending_directive:calendar"]
+    finally:
+        await runner.close()

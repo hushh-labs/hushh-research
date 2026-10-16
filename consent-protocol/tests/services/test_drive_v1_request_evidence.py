@@ -4,6 +4,7 @@ import pytest
 
 from hushh_mcp.services.drive_request_package_assessment import (
     BoundDocumentBatchAssessment,
+    EvidenceQuote,
     PackageAssessment,
     verify_v1_document_batch,
     verify_v1_package,
@@ -121,6 +122,162 @@ def test_broad_financial_request_uses_content_not_filename():
         batch, request=request, retrieved=_retrieved(body, name="untitled.xlsx")
     )
     assert checked.documents[0].decision == "include"
+
+
+MEETING_REQUEST = {
+    "purpose": "3 months of meeting notes",
+    "periodStart": "2026-09-02",
+    "periodEnd": "2026-10-02",
+    "semanticIntent": "other",
+}
+
+
+def _meeting_batch(body, *, event="2026-09-29", role="event_date"):
+    batch = _batch(body, start=event, end=event)
+    batch.documents[0].record_type_claim = "meeting notes"
+    batch.documents[0].entity_claim = None
+    batch.documents[0].period_role = role
+    return batch
+
+
+def test_meeting_notes_accept_sync_standup_with_cited_event_date():
+    body = (
+        "Example Team Sync and Standup — 2026/09/29. "
+        "Decisions: follow up on onboarding. Action items: send draft."
+    )
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body, name="Untitled")
+    )
+    assert checked.documents[0].decision == "include"
+
+
+def test_meeting_notes_accept_past_standup_decisions_as_bullets():
+    body = (
+        "Team Standup 2026/09/29. Attendees: engineering and product.\n"
+        "Decisions\n- Ship the revised onboarding checklist.\n"
+        "Action items\n1. Review the rollout tomorrow."
+    )
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body, name="doc_001")
+    )
+    assert checked.documents[0].decision == "include"
+
+
+def test_meeting_notes_recover_omitted_type_and_subject_quotes_from_same_source():
+    body = "Example Team Meeting Notes — 2026-09-29. Decisions: approved the revised checklist."
+    batch = _meeting_batch(body)
+    batch.documents[0].entity_claim = "Example Team"
+    batch.documents[0].citations = [EvidenceQuote(source_ref="s1", quote="2026-09-29")]
+    checked = verify_v1_document_batch(
+        batch, request=MEETING_REQUEST, retrieved=_retrieved(body, name="Untitled")
+    )
+    result = checked.documents[0]
+    assert result.decision == "include"
+    assert len(result.citations) > 1
+    assert all(cite.source_ref == "s1" and cite.quote in body for cite in result.citations)
+
+
+def test_meeting_retrospective_sentence_can_establish_notes_without_literal_label():
+    body = "Example Team Sync — 2026-09-29. We discussed onboarding and agreed on next steps."
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body)
+    )
+    assert checked.documents[0].decision == "include"
+
+
+def test_meeting_agenda_with_past_reference_is_still_uncertain():
+    body = (
+        "Example Team Sync Agenda — 2026-09-29. "
+        "We discussed onboarding last week. Planned topics for this meeting."
+    )
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body)
+    )
+    assert checked.documents[0].decision == "uncertain"
+
+
+def test_meeting_recovery_does_not_promote_unavailable_notes():
+    body = "Example Team Meeting Notes are not available — 2026-09-29. Agenda for the next sync."
+    batch = _meeting_batch(body)
+    batch.documents[0].citations = [EvidenceQuote(source_ref="s1", quote="2026-09-29")]
+    checked = verify_v1_document_batch(batch, request=MEETING_REQUEST, retrieved=_retrieved(body))
+    assert checked.documents[0].decision == "uncertain"
+    direct = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body)
+    )
+    assert direct.documents[0].decision == "uncertain"
+
+
+def test_meeting_recovery_never_uses_filename_or_another_document():
+    body = "Example Team Sync — 2026-09-29. Planned discussion topics."
+    batch = _meeting_batch(body)
+    batch.documents[0].entity_claim = "Example Team"
+    batch.documents[0].citations = [EvidenceQuote(source_ref="s1", quote="2026-09-29")]
+    retrieved = _retrieved(body, name="Example Team Meeting Notes — 2026-09-29")
+    retrieved["untrusted_external_content"].append(
+        {
+            "document_ref": "p2",
+            "source_ref": "s2",
+            "text": "Example Team Meeting Notes. Decisions: completed the checklist.",
+            "name": "Untitled",
+        }
+    )
+    checked = verify_v1_document_batch(batch, request=MEETING_REQUEST, retrieved=retrieved)
+    assert checked.documents[0].decision == "uncertain"
+
+
+def test_meeting_recovery_does_not_relabel_a_scheduled_date_as_event_date():
+    body = "Example Team Meeting Notes. Next meeting scheduled 2026-09-29."
+    batch = _meeting_batch(body)
+    batch.documents[0].entity_claim = "Example Team"
+    batch.documents[0].citations = [
+        EvidenceQuote(source_ref="s1", quote="Next meeting scheduled 2026-09-29")
+    ]
+    checked = verify_v1_document_batch(batch, request=MEETING_REQUEST, retrieved=_retrieved(body))
+    assert checked.documents[0].decision == "uncertain"
+
+
+def test_meeting_recovery_does_not_create_a_missing_date_citation():
+    body = "Example Team Meeting Notes — 2026-09-29. Decisions: approved the revised checklist."
+    batch = _meeting_batch(body)
+    batch.documents[0].entity_claim = "Example Team"
+    batch.documents[0].citations = [
+        EvidenceQuote(source_ref="s1", quote="Decisions: approved the revised checklist.")
+    ]
+    checked = verify_v1_document_batch(batch, request=MEETING_REQUEST, retrieved=_retrieved(body))
+    assert checked.documents[0].decision == "uncertain"
+
+
+@pytest.mark.parametrize(
+    ("body", "event", "role"),
+    [
+        ("Team Sync Agenda — 2026/09/29. Planned discussion topics.", "2026-09-29", "event_date"),
+        ("Q3 budget report — 2026/09/29. Decisions: cut costs.", "2026-09-29", "event_date"),
+        (
+            "Team Sync Notes — 2026/08/01. Decisions: follow up.",
+            "2026-08-01",
+            "event_date",
+        ),
+        (
+            "Team Sync Notes — 2026/09/29. Decisions: follow up.",
+            "2026-09-29",
+            "reporting_period",
+        ),
+        (
+            "Team Sync Notes. Next meeting scheduled 2026/09/29. Decisions: follow up.",
+            "2026-09-29",
+            "event_date",
+        ),
+    ],
+)
+def test_meeting_notes_abstain_on_unrelated_old_or_wrong_date_evidence(body, event, role):
+    checked = verify_v1_document_batch(
+        _meeting_batch(body, event=event, role=role),
+        request=MEETING_REQUEST,
+        retrieved=_retrieved(body),
+    )
+    assert checked.documents[0].decision == "uncertain"
+    assert checked.documents[0].confidence == 0
 
 
 def test_false_issuer_claim_cannot_use_a_different_issuers_citation():
