@@ -3690,13 +3690,25 @@ export function PersonRow({
               size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className={cn("h-11 min-h-11 min-w-0 gap-1 bg-[#0071E3] px-2 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-[#0071E3] sm:min-w-[104px] sm:gap-1.5 sm:px-3", LOCATION_COMPACT_ACTION_SHAPE)}
+              className={cn(
+                "h-11 min-h-11 min-w-0 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline sm:min-w-[104px]",
+                LOCATION_COMPACT_ACTION_SHAPE,
+              )}
               aria-label={`Share your location with ${name}`}
             >
-              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
-                <LocationMenuGlyph name="share" size={17} />
+              {/* A compact fill inside the unchanged 44px touch target. */}
+              <span
+                data-location-action-surface
+                className={cn(
+                  "inline-flex h-10 w-full items-center justify-center gap-1 bg-[color:var(--app-accent)] px-2 sm:gap-1.5 sm:px-3",
+                  LOCATION_COMPACT_ACTION_SHAPE,
+                )}
+              >
+                <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
+                  <LocationMenuGlyph name="share" size={17} />
+                </span>
+                Share
               </span>
-              Share
             </Button>
           ) : null}
           {onAsk ? (
@@ -3705,13 +3717,24 @@ export function PersonRow({
               variant="secondary"
               size="compact"
               onClick={onAsk}
-              className={cn("h-11 min-h-11 min-w-0 gap-1 bg-[#F2F2F7] px-2 font-medium text-[#1C1C1E] shadow-none [--type-compact-button-label-weight:500] hover:bg-[#F2F2F7] sm:min-w-[104px] sm:gap-1.5 sm:px-3", LOCATION_COMPACT_ACTION_SHAPE)}
+              className={cn(
+                "h-11 min-h-11 min-w-0 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent sm:min-w-[104px]",
+                LOCATION_COMPACT_ACTION_SHAPE,
+              )}
               aria-label={`Ask ${name} for their location`}
             >
-              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
-                <LocationMenuGlyph name="ask" size={17} />
+              <span
+                data-location-action-surface
+                className={cn(
+                  "inline-flex h-10 w-full items-center justify-center gap-1 bg-[#F2F2F7] px-2 sm:gap-1.5 sm:px-3",
+                  LOCATION_COMPACT_ACTION_SHAPE,
+                )}
+              >
+                <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
+                  <LocationMenuGlyph name="ask" size={17} />
+                </span>
+                Ask
               </span>
-              Ask
             </Button>
           ) : null}
         </div>

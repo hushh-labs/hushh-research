@@ -265,15 +265,30 @@ for (const dark of [false, true]) {
             personCenter: (personBox.top + personBox.bottom) / 2,
             actions: actions.map((action) => {
               const box = action.getBoundingClientRect();
+              const surface = action.querySelector<HTMLElement>(
+                "[data-location-action-surface]",
+              )!;
+              const surfaceBox = surface.getBoundingClientRect();
               const icon = action.querySelector<SVGElement>("svg");
               const iconBox = icon?.getBoundingClientRect();
               return {
                 label: action.textContent?.trim(),
-                background: getComputedStyle(action).backgroundColor,
+                background: getComputedStyle(surface).backgroundColor,
+                surfaceColor: getComputedStyle(surface).color,
+                targetBackground: getComputedStyle(action).backgroundColor,
                 color: getComputedStyle(action).color,
                 weight: getComputedStyle(action).fontWeight,
                 shadow: getComputedStyle(action).boxShadow,
-                radius: getComputedStyle(action).borderRadius,
+                radius: getComputedStyle(surface).borderRadius,
+                surfaceHeight: surfaceBox.height,
+                surfaceTopInset: surfaceBox.top - box.top,
+                surfaceBottomInset: box.bottom - surfaceBox.bottom,
+                surfaceWidth: surfaceBox.width,
+                iconColor: icon ? getComputedStyle(icon).color : null,
+                iconFills: icon
+                  ? Array.from(icon.querySelectorAll('[fill="currentColor"]'))
+                      .map((path) => getComputedStyle(path).fill)
+                  : [],
                 left: box.left,
                 right: box.right,
                 top: box.top,
@@ -321,10 +336,10 @@ for (const dark of [false, true]) {
         expect(row.nameOverflow).toBe("ellipsis");
         expect(row.actions).toHaveLength(2);
         expect(row.actions.map((action) => action.label)).toEqual(["Share", "Ask"]);
-        expect(row.actions[0].background).toBe("rgb(0, 113, 227)");
+        expect(row.actions[0].background).toBe("rgb(0, 122, 255)");
         expect(row.actions[0].color).toBe("rgb(255, 255, 255)");
         expect(row.actions[1].background).toBe("rgb(242, 242, 247)");
-        expect(row.actions[1].color).toBe("rgb(28, 28, 30)");
+        expect(row.actions[1].color).toBe("rgb(0, 122, 255)");
         expect(row.actions[1].left - row.actions[0].right).toBe(8);
         expect(row.actions[0].height).toBe(row.actions[1].height);
         expect(row.height).toBeLessThanOrEqual(90);
@@ -332,13 +347,22 @@ for (const dark of [false, true]) {
         for (const action of row.actions) {
           expect(action.weight).toBe("500");
           expect(action.radius).toBe("16px");
+          expect(action.targetBackground).toBe("rgba(0, 0, 0, 0)");
+          expect(action.surfaceHeight).toBe(40);
+          expect(action.surfaceTopInset).toBe(2);
+          expect(action.surfaceBottomInset).toBe(2);
+          expect(action.surfaceWidth).toBe(action.width);
+          expect(action.surfaceColor).toBe(action.color);
+          expect(action.iconColor).toBe(action.color);
+          expect(action.iconFills.length).toBeGreaterThan(0);
+          expect(action.iconFills.every((fill) => fill === action.color)).toBe(true);
           // Tailwind's empty focus-ring layers serialize as transparent
           // shadows even when the control has no visible shadow.
           const shadowColors = action.shadow.match(/rgba?\([^)]+\)/g) ?? [];
           expect(action.shadow === "none" || shadowColors.every(
             (color) => color === "rgba(0, 0, 0, 0)",
           )).toBe(true);
-          expect(action.height).toBeGreaterThanOrEqual(44);
+          expect(action.height).toBe(44);
           expect(action.width).toBeGreaterThanOrEqual(44);
           expect(action.inside).toBe(true);
           expect(action.iconVisible).toBe(true);

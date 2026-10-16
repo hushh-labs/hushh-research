@@ -662,7 +662,7 @@ export function CreateCircleFlow({
         Name your Circle, then add at least one person.
       </p>
 
-      <label className="block space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-[15px] font-semibold leading-5 text-foreground">
           Circle name
         </span>
