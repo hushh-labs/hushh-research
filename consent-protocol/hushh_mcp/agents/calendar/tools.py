@@ -650,6 +650,7 @@ async def _propose(
             "timeZone": plan.get("time_zone") or _timezone(tool_context),
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
+            "description": event_fields["description"],
             "googleMeet": google_meet,
             **(
                 {
@@ -807,6 +808,7 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
             "endAt": _flat_iso(current.get("end")),
             "attendees": _current_attendee_emails(plan),
             "location": current.get("location") or None,
+            "description": current.get("description") or None,
         }
     if action == "reschedule":
         change = plan.get("attendee_change")
@@ -824,6 +826,7 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
             "attendeesAdded": [str(item) for item in change.get("added", [])],
             "attendeesRemoved": [str(item) for item in change.get("removed", [])],
             "location": plan.get("location") or current.get("location") or None,
+            "description": plan.get("description") or current.get("description") or None,
         }
     return {
         "title": plan.get("title"),
@@ -831,6 +834,7 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
         "endAt": _flat_iso(plan.get("end_at")),
         "attendees": [str(item) for item in plan.get("attendees", [])],
         "location": plan.get("location") or None,
+        "description": plan.get("description") or None,
     }
 
 

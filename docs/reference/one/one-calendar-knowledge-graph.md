@@ -62,7 +62,7 @@ These are code-path findings, not measured production incident rates. The dispos
 
 | ID | Failure edge | Disposition and remaining limit |
 | --- | --- | --- |
-| K01 | Untrusted event text can enter a model turn that still has action tools. | Closed in one_adk/external_read_boundary.py and external_read_projection.py: Calendar reads block later same-turn effects and durable projection removes raw event text. |
+| K01 | Untrusted event text can enter a model turn that still has action tools. | Closed in one_adk/external_read_boundary.py and external_read_projection.py: Calendar reads block later same-turn effects. Exact application-owned proposal tools may prepare owner review after the read completes in typed chat; they cannot execute changes. Durable projection removes read and proposal arguments/results and pending Calendar directives. |
 | K02 | A mid-read disconnect or account switch can release old-account events. | Closed for service reads: GoogleCalendarService verifies owner/account/grant binding after token resolution and provider response, and rejects changes. |
 | K03 | A failed free/busy calendar may be treated as free. | Closed: embedded per-calendar errors, malformed busy intervals and incomplete group expansion fail the availability read, including opening suggestions. |
 | K04 | Quota failure can look like lost permission. | Closed for recognized Google quota reasons: 403 rate limits map to retryable 429; other permission errors remain permission errors. See [Google Calendar errors](https://developers.google.com/workspace/calendar/api/guides/errors). |
@@ -75,7 +75,7 @@ These are code-path findings, not measured production incident rates. The dispos
 Google exposes several read-only Calendar scopes. This product read surface will use the narrow grants needed for subscribed-calendar discovery, event list/detail/search, and availability, with incremental consent for newly requested access. It will not request unrelated ACL or settings scopes solely because they are read-only. See [Google Calendar scopes](https://developers.google.com/workspace/calendar/api/auth). Existing grants must keep working during rollout.
 
 1. One chooses the tool from meaning; deterministic code validates exact arguments, owner, grant, account, bounds, and result freshness. Keyword matching is not a parallel semantic router.
-2. An event is untrusted information. Its description, title and attendees cannot authorize another tool call or proposal.
+2. An event is untrusted information. Its description, title and attendees never authorize a provider change. Typed chat may prepare a review-only proposal from a completed read; the owner must confirm the exact proposed change through the existing authenticated execution boundary.
 3. A failed provider or per-calendar result is unknown, not free or empty.
 4. A voice screen frame and spoken sentence are presentation, not a provider or permission result. The operational Live model receives only bounded, non-content receipts; spoken details use an isolated narration path.
 5. Calendar write proposals and reviewed actions remain outside the read-only Voice release.
