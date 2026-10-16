@@ -303,7 +303,7 @@ describe("CalendarConnectedWorkspace", () => {
     await waitFor(() => expect(pending.has(60)).toBe(true));
     expect(mocks.availability.mock.calls.slice(0, 2).every(([request]) => request.signal.aborted)).toBe(true);
     await act(async () => { pending.get(30)!({ ...freeResponse(undefined, 30), full_count: 30 }); pending.get(15)!({ ...freeResponse(), full_count: 15 }); });
-    expect(screen.getByRole("heading", { name: "Checking availability…" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Free time" })).toBeInTheDocument();
     await act(async () => pending.get(60)!(freeResponse(undefined, 60)));
     expect(screen.getByText("No free slots in this window.")).toBeInTheDocument();
     expect(screen.queryByText(/(?:15|30) available slots/)).toBeNull();
@@ -387,7 +387,7 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.today.mockImplementationOnce(() => new Promise((_resolve, fail) => { rejectRefresh = fail; }));
     vi.setSystemTime(new Date("2026-10-14T06:00:08Z"));
     await act(async () => { window.dispatchEvent(new Event("online")); });
-    expect(screen.getByText("Updating events…")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Today's events" })).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByText("No events today.")).toBeNull();
     expect(screen.queryByText("Your included calendars are clear.")).toBeNull();
     await act(async () => rejectRefresh(new GoogleCalendarError("Calendar refresh failed", "calendar_invalid_response", 503)));
@@ -595,7 +595,7 @@ describe("CalendarConnectedWorkspace", () => {
         await act(async () => { await vi.advanceTimersByTimeAsync(44_999); });
         expect(mocks.availability).not.toHaveBeenCalled();
       }
-      expect(screen.getByText("Checking availability…")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Free time" })).toHaveAttribute("aria-busy", "true");
       expect(screen.queryByRole("alert")).toBeNull();
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(screen.getByRole("alert")).toHaveTextContent("The availability check timed out. Try again.");
@@ -1102,7 +1102,7 @@ describe("CalendarConnectedWorkspace", () => {
     await act(async () => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online")); });
     expect(mocks.today).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: /^Current partner meeting/i })).toBeInTheDocument();
-    expect(screen.getByText("Updating events…")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Today's events" })).toHaveAttribute("aria-busy", "true");
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     expect(mocks.today).toHaveBeenCalledTimes(2);
     vi.setSystemTime(new Date("2026-10-14T06:00:08Z"));
