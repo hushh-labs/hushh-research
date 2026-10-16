@@ -938,6 +938,8 @@ export function SettingsRow({
 export type AdaptiveDetailSurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Controlled callers without a DialogTrigger own the surviving return target. */
+  onCloseAutoFocus?: (event: Event) => void;
   leading?: ReactNode;
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -963,6 +965,7 @@ export type AdaptiveDetailSurfaceProps = {
 export function AdaptiveDetailSurface({
   open,
   onOpenChange,
+  onCloseAutoFocus,
   leading,
   eyebrow,
   title,
@@ -1027,6 +1030,7 @@ export function AdaptiveDetailSurface({
         <Sheet open={open} onOpenChange={onOpenChange} modal>
           <SheetContent
             side="bottom"
+            onCloseAutoFocus={onCloseAutoFocus}
             showCloseButton={showMobileCloseButton}
             className={cn("gap-0", surfaceClassName, contentClassName)}
             onOpenAutoFocus={(event) => {
@@ -1087,6 +1091,7 @@ export function AdaptiveDetailSurface({
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
+          onCloseAutoFocus={onCloseAutoFocus}
           className={cn(
             "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]",
             mobilePresentation === "fullscreen"
@@ -1148,6 +1153,7 @@ export function AdaptiveDetailSurface({
     <Dialog open={open} onOpenChange={onOpenChange} modal>
       <DialogContent
         data-settings-detail-panel="true"
+        onCloseAutoFocus={onCloseAutoFocus}
         showCloseButton={false}
         style={desktopMaxWidth ? { maxWidth: desktopMaxWidth } : undefined}
         className={cn(
