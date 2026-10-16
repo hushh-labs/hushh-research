@@ -4262,7 +4262,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "df05c389c756dfc89676cb3ef2bb415dbbc8c473e3de9106f168bb0db3acc14b",
+      "system_instruction_sha256": "e1ccb3e48ce3b81515aede09e892530c3a94f323b41887dc8d4c6f1b5a956db3",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

@@ -6,9 +6,12 @@ import { ChatOnboardingTurns } from "@/components/agent/chat-onboarding/chat-onb
 import {
   useChatOnboarding,
   useChatOnboardingSession,
+  beginChatOnboardingNameTurn,
+  runChatOnboardingEvent,
 } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { clearConnectorStatus, primeConnectorStatus, useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: { getStatus: vi.fn(async () => ({
@@ -264,7 +267,7 @@ describe("onboarding conversation", () => {
     });
   });
 
-  it("Something else closes recommendations and leaves ordinary chat input alone", async () => {
+  it("Something else opens an explicit name question and leaves interpretation to One", async () => {
     setReducedMotion(true);
     render(<Harness />);
     await screen.findByRole("button", { name: "Call me Kushal" });
@@ -272,14 +275,14 @@ describe("onboarding conversation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Something else" }));
     await waitFor(() =>
-      expect(screen.getByTestId("capture").textContent).toBe("null"),
+      expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"),
     );
-    expect(await screen.findByText("Okay. What would you like help with?")).toBeInTheDocument();
-    // A question goes to One without repeating name or focus recommendations.
+    expect(await screen.findByText("Okay. What should I call you?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
-    await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));
+    await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"));
     expect(screen.queryByRole("button", { name: "Call me Kushal" })).toBeNull();
-    expect(screen.queryByTestId("chat-onboarding-chips")).toBeNull();
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeInTheDocument();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 
   it("moves between chips with the arrow keys", async () => {
@@ -291,5 +294,82 @@ describe("onboarding conversation", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Something else" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skip for now" }));
+  });
+});
+
+describe("semantic name assessment and encrypted write boundary", () => {
+  const host = {
+    anchor: () => "answer",
+    vault: () => ({ vaultKey: "vault-key", vaultOwnerToken: "owner-token" }),
+    focusComposer: () => undefined,
+  };
+  function pending() {
+    useChatOnboardingSession.getState().reset("u1");
+    runChatOnboardingEvent({ type: "start", displayName: "Owner", firstName: "Owner", anchor: null }, host);
+    runChatOnboardingEvent({ type: "chip", chipId: "name_other", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    return beginChatOnboardingNameTurn(host)!;
+  }
+  function answer(turn: ReturnType<typeof pending>, extra: Record<string, unknown> = {}) {
+    return { status: "onboarding_name_assessed", request_id: turn.screenState.onboarding_name_request,
+      decision: "name", preferred_name: "Roopmann", ...extra };
+  }
+
+  it.each(["Roopmann", "Love", "Zoë 🦋", "نور", "李 小龍", "A".repeat(64)])("saves %s only after a successful turn, then advances", async name => {
+    const turn = pending();
+    turn.stage(JSON.stringify(answer(turn, { preferred_name: name })), "call");
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    turn.finish(true);
+    turn.finish(true);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("focus"));
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledOnce();
+    const write = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls[0][0];
+    expect(write).toMatchObject({ userId: "u1", domain: "identity", confirmation: { source: "one_chat_onboarding" } });
+    const built = await write.build({ currentDomainData: { communication_preferences: { tone: "warm" }, untouched: true } } as never);
+    expect(built.domainData).toMatchObject({ untouched: true, communication_preferences: { preferred_name: name, tone: "warm" } });
+    expect(JSON.stringify(built.summary)).not.toContain(name);
+    expect(JSON.stringify(vi.mocked(PreVaultUserStateService.syncOneChatOnboarding).mock.calls)).not.toContain(name);
+  });
+
+  it.each([
+    null, { status: "invalid" }, { preferred_name: "" }, { preferred_name: "A".repeat(65) },
+    { preferred_name: " Kay " }, { preferred_name: "K\u0000ay" },
+    { request_id: "stale" }, { decision: "guessed" }, { decision: "skip" },
+  ])("never saves malformed or mismatched model output: %j", async invalid => {
+    const turn = pending();
+    turn.stage(invalid === null ? null : answer(turn, invalid), "call");
+    turn.finish(true);
+    await Promise.resolve();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    expect(useChatOnboardingSession.getState().machine?.step).toBe("name_typing");
+  });
+
+  it.each(["error", "missing", "skip", "owner", "epoch", "new answer", "conflict", "question changed"])("rejects an obsolete answer after %s", async reason => {
+    const turn = pending();
+    if (reason !== "missing") turn.stage(answer(turn), "call");
+    if (reason === "owner") useChatOnboardingSession.getState().reset("u2");
+    if (reason === "epoch") advanceVaultSessionEpoch();
+    if (reason === "new answer") beginChatOnboardingNameTurn(host);
+    if (reason === "conflict") turn.stage(answer(turn, { preferred_name: "Other" }), "second-call");
+    if (reason === "skip" || reason === "question changed")
+      runChatOnboardingEvent({ type: "chip", chipId: "skip", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    turn.finish(reason !== "error");
+    await Promise.resolve();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates a repeated result and rejects a write if the vault changes before dispatch", async () => {
+    const turn = pending();
+    turn.stage(answer(turn), "call");
+    turn.stage(answer(turn), "call");
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(async params => {
+      advanceVaultSessionEpoch();
+      await params.beforeEffect?.();
+      throw new Error("must not reach storage");
+    });
+    turn.finish(true);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("name_save_failed"));
+    runChatOnboardingEvent({ type: "chip", chipId: "retry_save", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("focus"));
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(2);
   });
 });

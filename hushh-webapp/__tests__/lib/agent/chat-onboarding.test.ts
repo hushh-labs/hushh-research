@@ -107,24 +107,56 @@ describe("unrelated input never breaks onboarding", () => {
     expect(idle.state).toBe(started);
   });
 
-  it("Something else ends recommendations immediately without capturing the next message as a name", () => {
+  it("Something else asks for a name with Skip and saves only One's semantic name decision", () => {
     const started = start().state;
     const dismissed = chip(started, "name_other");
-    expect(dismissed.state.step).toBe("done");
+    expect(dismissed.state.step).toBe("name_typing");
     expect(dismissed.state.turns.at(-1)).toMatchObject({
-      role: "assistant", text: "Okay. What would you like help with?",
+      role: "assistant", text: "Okay. What should I call you?", chips: [{ id: "skip", label: "Skip for now" }],
     });
-    expect(dismissed.state.progress.status).toBe("completed");
-    expect(dismissed.effects).toEqual([
-      { type: "persist_progress", progress: dismissed.state.progress }, { type: "focus_composer" },
-    ]);
+    expect(dismissed.state.progress.status).toBe("in_progress");
+    expect(dismissed.effects).toEqual([{ type: "focus_composer" }]);
     const ordinary = run(dismissed.state, { type: "typed_answer", text: "tell me the news", anchor: "msg-1", today: TODAY });
     expect(ordinary.consumed).toBe(false);
     expect(ordinary.state.draft.name).toBeNull();
-    const resumed = run(null, {
-      type: "resume", progress: dismissed.state.progress, firstName: "Kushal", anchor: null, today: TODAY,
+    expect(ordinary.state).toBe(dismissed.state);
+    const assessed = run(dismissed.state, {
+      type: "name_assessment", decision: "name", name: "Love", anchor: "msg-1", today: TODAY,
     });
-    expect(resumed.state.turns).toEqual([]);
+    expect(assessed.state.step).toBe("saving_name");
+    expect(assessed.effects).toEqual([{ type: "save_preferences", name: "Love", tone: null }]);
+    expect(assessed.state.progress.questions.name).toBe("pending");
+    const saved = run(assessed.state, { type: "save_result", ok: true, anchor: "msg-1", today: TODAY });
+    expect(saved.state.step).toBe("focus");
+    expect(saved.state.progress.questions.name).toBe("answered");
+    expect(saved.state.draft.name).toBeNull();
+    expect(lastAssistant(saved.state).text).toBe("Nice to meet you, Love. What should I help with first?");
+    expect(JSON.stringify(saved.effects)).not.toContain("Love");
+  });
+
+  it("keeps ambiguous and unrelated replies pending, and skips without writing", () => {
+    const pending = chip(start().state, "name_other").state;
+    for (const decision of ["clarify", "other"] as const) {
+      expect(run(pending, { type: "name_assessment", decision, anchor: null, today: TODAY }))
+        .toEqual({ state: pending, effects: [] });
+    }
+    const skipped = run(pending, { type: "name_assessment", decision: "skip", anchor: null, today: TODAY });
+    expect(skipped.state.step).toBe("focus");
+    expect(skipped.state.progress.questions.name).toBe("skipped");
+    expect(skipped.effects.every(effect => effect.type !== "save_preferences")).toBe(true);
+    expect(chip(pending, "skip").state.progress.questions.name).toBe("skipped");
+  });
+
+  it("offers retry after a name write failure without marking the name saved", () => {
+    const pending = chip(start().state, "name_other").state;
+    const saving = run(pending, { type: "name_assessment", decision: "name", name: "Roopmann", anchor: null, today: TODAY }).state;
+    const failed = run(saving, { type: "save_result", ok: false, anchor: null, today: TODAY }).state;
+    expect(failed.step).toBe("name_save_failed");
+    expect(failed.progress.questions.name).toBe("pending");
+    expect(chip(failed, "retry_save").effects).toEqual([{ type: "save_preferences", name: "Roopmann", tone: null }]);
+    const declined = chip(failed, "dont_save");
+    expect(declined.state.draft.name).toBeNull();
+    expect(declined.effects.every(effect => effect.type !== "save_preferences")).toBe(true);
   });
 });
 
