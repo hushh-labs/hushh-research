@@ -972,12 +972,15 @@ describe("CalendarConnectedWorkspace", () => {
     ] });
     render(workspace());
     await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
+    await openSettings();
+    fireEvent.change(screen.getByRole("textbox", { name: "Time zone" }), { target: { value: "Asia/Kolkata" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings", exact: true }));
     fireEvent.click(control("Free time"));
     expect(await screen.findByText(/Midnight \(next day\)/)).toBeInTheDocument();
     expect(screen.queryByText(/24:00/)).toBeNull();
     expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ startTime: "00:00", endTime: "24:00" }));
     fireEvent.click(screen.getByRole("button", { name: /^Ask One about/ }));
-    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: "Asia/Kolkata" }));
   });
 
   it("keeps a repeated-hour window's real UTC bounds in the Calendar chat handoff", async () => {
