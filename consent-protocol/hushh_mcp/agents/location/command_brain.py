@@ -21,7 +21,10 @@ from hushh_mcp.operons.location.plan import (
     LocationStepDependency,
     LocationStepReference,
 )
-from hushh_mcp.runtime_providers.gemini_config import build_generate_content_config
+from hushh_mcp.runtime_providers.gemini_config import (
+    build_generate_content_config,
+    thinking_config_for,
+)
 
 _LOCATION_MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 _TRANSCRIBER_GENE_ID = "agent_location_transcriber"
@@ -277,7 +280,11 @@ class LocationCommandBrain:
             disallow_transfer_to_parent=True,
             disallow_transfer_to_peers=True,
             generate_content_config=build_generate_content_config(
-                types, self.model, temperature=0, max_output_tokens=4096
+                types,
+                self.model,
+                temperature=0,
+                max_output_tokens=4096,
+                thinking_config=thinking_config_for(self.model, "low", types),
             ),
         )
         sessions = InMemorySessionService()
