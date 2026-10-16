@@ -11,12 +11,9 @@ import {
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
 
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
-import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
-import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { CloudAiChoice } from "./cloud-ai-choice";
 import { GeminiKeyChoice, type CredentialValidationState } from "./gemini-key-choice";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -960,74 +957,23 @@ function OwnerRuntimeSettingsCard({
             testId="profile-gemini-runtime"
             separatorInset
           >
-            <SettingsRow
-              asChild
-              leading={
-                placement === "azure" ? <MicrosoftAzureLogo decorative className="h-8 w-8" />
-                  : placement === "gcp" ? <GoogleCloudLogo decorative className="h-8 w-8" /> : (
-                  <GeminiLogo className="h-8 w-8" />
-                )
-              }
+            <CloudAiChoice
+              placement={placement}
               title={defaultLabel}
               disabled={managedChoiceDisabled}
-              description={
-                placement === "azure"
-                  ? `Azure AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
-                  : placement === "gcp"
-                    ? `Vertex AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
-                    : placement === "shared"
-                      ? "Managed Gemini. No key needed."
-                      : placement === "pending"
-                        ? "Your cloud setup is still finishing."
-                        : placement === "loading"
-                          ? "Checking your hosting…"
-                          : "Reconnect your hosting to choose its AI."
-              }
-              // The default we want people to take. Until it is chosen the row says
-              // so out loud, so the fast path is the obvious one rather than the one
-              // you work out by elimination.
-              trailing={
-                requiresExplicitSelection ? (
-                  <span
-                    aria-hidden
-                    className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground"
-                  >
-                    {selectedOption === "hushh_managed_vertex" ? (
-                      <span className="size-3 rounded-full bg-primary" />
-                    ) : null}
-                  </span>
-                ) : mode === "hushh_managed_vertex" &&
-                  hasExplicitSelection &&
-                  !otherProvider ? (
-                  <Badge variant="secondary">Selected</Badge>
-                ) : (
-                  <Badge variant="outline">Recommended</Badge>
-                )
-              }
-              testId="profile-managed-runtime"
-            >
-              {requiresExplicitSelection ? (
-                <RadioPrimitive.Item
-                  value="hushh_managed_vertex"
-                  disabled={managedChoiceDisabled}
-                  onClick={() => {
-                    if (
-                      selectedOption === "hushh_managed_vertex" &&
-                      (!hasExplicitSelection ||
-                        (privateCloud && !cloudAiVerified))
-                    )
-                      void selectManaged();
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  disabled={managedChoiceDisabled}
-                  onClick={() => void selectManaged()}
-                  aria-pressed={mode === "hushh_managed_vertex"}
-                />
-              )}
-            </SettingsRow>
+              requiresExplicitSelection={requiresExplicitSelection}
+              selectedOption={selectedOption}
+              mode={mode}
+              hasExplicitSelection={hasExplicitSelection}
+              otherProvider={Boolean(otherProvider)}
+              cloudAiVerified={cloudAiVerified}
+              onSelect={() => {
+                if (!requiresExplicitSelection ||
+                  (selectedOption === "hushh_managed_vertex" &&
+                    (!hasExplicitSelection || (privateCloud && !cloudAiVerified))))
+                  void selectManaged();
+              }}
+            />
 
             {!compactDefault ? geminiKeyChoice : null}
             {!compactDefault ? otherProviderChoices : null}

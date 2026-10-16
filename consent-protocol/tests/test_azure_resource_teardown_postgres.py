@@ -12,74 +12,11 @@ from pathlib import Path
 import asyncpg
 import pytest
 
-
-def _seed_qualified_history(
-    pg, owner, hushh_id, subscription, tenant, group, *, creates_group=True, initially_absent=True
-):
-    pg.execute(
-        "INSERT INTO personal_agent_registry(user_id,hushh_id,status) VALUES (%s,%s,'unprovisioned')",
-        (owner, hushh_id),
-    )
-    target = f"/subscriptions/{subscription}/resourceGroups/{group}"
-    pg.execute(
-        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES (%s,'setup-1',%s,'running')",
-        (owner, target),
-    )
-    intent = {
-        "version": 1,
-        "jobId": "setup-1",
-        "hushhId": hushh_id,
-        "tenantId": tenant,
-        "subscriptionId": subscription,
-        "resourceGroup": group,
-        "location": "eastus2",
-        "setupNonce": "0123456789abcdef",
-        "groupInitiallyAbsent": initially_absent,
-    }
-    assert (
-        pg.execute(
-            "SELECT retain_byoc_azure_setup_intent(%s,'setup-1',%s::jsonb)",
-            (owner, json.dumps(intent)),
-        )[0][0]
-        is True
-    )
-    execution, request_id = str(uuid.uuid4()), str(uuid.uuid4())
-    assert (
-        pg.execute("SELECT begin_byoc_azure_worker(%s,'setup-1',%s)", (owner, execution))[0][0]
-        is True
-    )
-    events = [
-        {
-            "stage": "azure_provider_request",
-            "requestId": request_id,
-            "method": "PUT",
-            "path": target,
-            "apiVersion": "2021-04-01",
-            "purpose": "creating_resource_group",
-        },
-        {
-            "stage": "azure_provider_ack",
-            "requestId": request_id,
-            "status": 201,
-            "operationUrl": None,
-            "operationUrlSha256": None,
-        },
-        {"stage": "azure_provider_terminal", "requestId": request_id, "outcome": "succeeded"},
-        {"stage": "azure_worker_exited"},
-    ]
-    if not creates_group:
-        events = [events[-1]]
-    for event in events:
-        value = {"jobId": "setup-1", "executionId": execution, **event}
-        assert (
-            pg.execute(
-                "SELECT retain_byoc_azure_worker_event(%s,'setup-1',%s::jsonb)",
-                (owner, json.dumps(value)),
-            )[0][0]
-            is True
-        )
-    pg.execute("SELECT pg_advisory_unlock(hashtextextended(%s,206))", (owner,))
-    pg.execute("UPDATE byoc_setup_jobs SET status='recorded' WHERE user_id=%s", (owner,))
+from tests.fixtures.azure_teardown import (
+    partial_setup_state,
+    retain_provider_checkpoint,
+    seed_qualified_history,
+)
 
 
 @pytest.fixture
@@ -90,10 +27,8 @@ def cleanup_pg(monkeypatch, request):
         OWNER,
         SUB,
         TENANT,
-        _checkpoint,
         _reserve,
         _resource_group,
-        _retain_checkpoint,
     )
     from tests.test_personal_agent_notification_checkpoint import _notification_server
 
@@ -111,63 +46,18 @@ def cleanup_pg(monkeypatch, request):
             server.apply_file(parked / name)
         group = f"/subscriptions/{SUB}/resourceGroups/{_resource_group()}"
         if getattr(request, "param", True):
-            _seed_qualified_history(
+            seed_qualified_history(
                 server,
                 OWNER,
                 HUSHH_ID,
                 SUB,
                 TENANT,
                 _resource_group(),
-                creates_group=getattr(request, "param", True)
-                not in {"read_only", "read_only_existing"},
-                initially_absent=getattr(request, "param", True) != "read_only_existing",
+                getattr(request, "param", True),
             )
-            if getattr(request, "param", True) in {
-                "read_only",
-                "read_only_existing",
-                "predeployment",
-            }:
-                server.execute(
-                    "INSERT INTO pod_lifecycle_events(user_id,seq,hushh_id,event,stage,registry_status) VALUES (%s,1,%s,'stage','registry_row','pending')",
-                    (OWNER, HUSHH_ID),
-                )
-            if getattr(request, "param", True) in {"read_only", "read_only_existing"}:
-                server.execute(
-                    "UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,)
-                )
-                yield server, OWNER, None, None
-                return
-            if getattr(request, "param", True) == "predeployment":
-                server.execute(
-                    "UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,)
-                )
-                snapshot = server.execute(
-                    "SELECT to_jsonb(p) FROM personal_agent_registry p WHERE user_id=%s", (OWNER,)
-                )[0][0]
-                assert (
-                    server.execute(
-                        "SELECT azure_setup_never_deployed(%s,%s::jsonb)",
-                        (OWNER, json.dumps(snapshot)),
-                    )[0][0]
-                    is True
-                )
-                digest = server.execute(
-                    "SELECT azure_cleanup_candidate_digest(%s::jsonb)", (json.dumps(snapshot),)
-                )[0][0]
-                for invalid in (None, "0" * 64):
-                    assert (
-                        server.execute(
-                            "SELECT reserve_azure_account_cleanup(%s,%s)", (OWNER, invalid)
-                        )[0][0]
-                        is None
-                    )
-                reservation = server.execute(
-                    "SELECT reserve_azure_account_cleanup(%s,%s)", (OWNER, digest)
-                )[0][0]
-                assert reservation and "agentCryptoErase" not in reservation
-                context = server.execute("SELECT azure_erasure_context(%s)", (OWNER,))[0][0]
-                assert context["neverDeployed"] is True
-                yield server, OWNER, reservation, context
+            partial = partial_setup_state(server, getattr(request, "param", True), OWNER, HUSHH_ID)
+            if partial is not None:
+                yield partial
                 return
             if getattr(request, "param", True) == "untracked_hosted":
                 # The trigger preserves original setup receipts across job
@@ -195,15 +85,7 @@ def cleanup_pg(monkeypatch, request):
             reservation = server.execute(
                 "SELECT reserve_personal_agent_erasure(%s,'attempt-1')", (OWNER,)
             )[0][0]
-            checkpoint = _checkpoint()
-            provider_case = getattr(request, "param", True)
-            if provider_case == "provider_legacy":
-                checkpoint["agentErased"].pop("providerCoverage")
-            elif provider_case == "provider_pending":
-                checkpoint["agentErased"]["providerUnconfirmed"] = 1
-            elif provider_case == "provider_unavailable":
-                checkpoint["agentErased"].update(providerRevoked=0, providerUnavailable=1)
-            assert _retain_checkpoint(server, reservation, checkpoint) is True
+            retain_provider_checkpoint(server, reservation, getattr(request, "param", True))
         else:
             server.execute(
                 "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES (%s,'setup-1',%s,'recorded')",
@@ -897,112 +779,3 @@ def test_compatibility_preflight_snapshot_cannot_reserve_a_changed_or_different_
     reserved = pg.execute("SELECT reserve_azure_account_cleanup(%s,%s)", (owner, digest))[0][0]
     assert reserved["registrySnapshot"]["user_id"] == owner
     assert "agentCryptoErase" not in reserved
-
-
-@pytest.mark.parametrize("cleanup_pg", ["predeployment"], indirect=True)
-async def test_failed_setup_cleans_exact_resources_without_fabricating_pod_erasure(settled_cleanup):
-    pg, owner, current, _connection = settled_cleanup
-    assert "agentCryptoErase" not in current
-    assert "ownerAccessErasure" not in current
-    assert current["azureTeardown"]["plan"]["context"]["neverDeployed"] is True
-    assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is True
-    snapshot = current["registrySnapshot"]
-    for changed in (
-        {**snapshot, "user_id": "other-owner"},
-        {**snapshot, "backend_metadata": {"serviceUid": "unrecorded-pod"}},
-        {**snapshot, "external_agent_id": "/unrecorded-pod"},
-    ):
-        assert (
-            pg.execute(
-                "SELECT azure_setup_never_deployed(%s,%s::jsonb)", (owner, json.dumps(changed))
-            )[0][0]
-            is False
-        )
-
-
-@pytest.mark.parametrize("cleanup_pg", ["read_only"], indirect=True)
-def test_early_model_refusal_with_zero_requests_can_delete_account_state(cleanup_pg):
-    from hushh_mcp.services.account_service import AccountService
-    from tests.standby_postgres_support import Db
-
-    pg, owner, _reservation, _context = cleanup_pg
-    assert pg.execute("SELECT azure_setup_no_effects(%s)", (owner,))[0][0] is True
-    snapshot = pg.execute(
-        "SELECT to_jsonb(p) FROM personal_agent_registry p WHERE user_id=%s", (owner,)
-    )[0][0]
-    assert (
-        pg.execute(
-            "SELECT azure_setup_never_deployed(%s,%s::jsonb)", (owner, json.dumps(snapshot))
-        )[0][0]
-        is False
-    )
-    from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
-
-    pg.execute(
-        "UPDATE personal_agent_registry SET space_id='unresolved-old-custody' WHERE user_id=%s",
-        (owner,),
-    )
-    assert pg.execute("SELECT azure_setup_no_effects(%s)", (owner,))[0][0] is False
-    pg.execute("UPDATE personal_agent_registry SET space_id=NULL WHERE user_id=%s", (owner,))
-    # A second genuine read-only retry has a fresh nonce but no old cloud group.
-    original = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (owner,))[0][0]
-    intent = next(x["intent"] for x in original if x["stage"] == "azure_setup_intent")
-    pg.execute(
-        "UPDATE byoc_setup_jobs SET job_id='setup-2',status='running',stages='[]'::jsonb WHERE user_id=%s",
-        (owner,),
-    )
-    intent = {**intent, "jobId": "setup-2", "setupNonce": "fedcba9876543210"}
-    assert (
-        pg.execute(
-            "SELECT retain_byoc_azure_setup_intent(%s,'setup-2',%s::jsonb)",
-            (owner, json.dumps(intent)),
-        )[0][0]
-        is True
-    )
-    execution = str(uuid.uuid4())
-    assert (
-        pg.execute("SELECT begin_byoc_azure_worker(%s,'setup-2',%s)", (owner, execution))[0][0]
-        is True
-    )
-    event = {"stage": "azure_worker_exited", "jobId": "setup-2", "executionId": execution}
-    assert (
-        pg.execute(
-            "SELECT retain_byoc_azure_worker_event(%s,'setup-2',%s::jsonb)",
-            (owner, json.dumps(event)),
-        )[0][0]
-        is True
-    )
-    pg.execute("SELECT pg_advisory_unlock(hashtextextended(%s,206))", (owner,))
-    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (owner,))
-    assert pg.execute("SELECT azure_setup_no_effects(%s)", (owner,))[0][0] is True
-
-    pg.execute("SELECT pg_advisory_lock(hashtextextended(%s,206))", (owner,))
-    try:
-        with pytest.raises(PersonalAgentDeprovisioningRequiredError), Db(pg).engine.begin() as conn:
-            AccountService()._delete_personal_agent_state(
-                conn, params={"user_id": owner}, results={}
-            )
-    finally:
-        pg.execute("SELECT pg_advisory_unlock(hashtextextended(%s,206))", (owner,))
-    results = {}
-    with Db(pg).engine.begin() as conn:
-        AccountService()._delete_personal_agent_state(
-            conn, params={"user_id": owner}, results=results
-        )
-    assert results["personal_agent_external_resources_absent"] is True
-    assert pg.execute("SELECT count(*) FROM byoc_setup_jobs WHERE user_id=%s", (owner,))[0][0] == 0
-
-
-@pytest.mark.parametrize("cleanup_pg", ["read_only_existing"], indirect=True)
-def test_zero_new_requests_cannot_discard_a_preexisting_cloud_group(cleanup_pg):
-    from hushh_mcp.services.account_service import (
-        AccountService,
-        PersonalAgentDeprovisioningRequiredError,
-    )
-    from tests.standby_postgres_support import Db
-
-    pg, owner, _reservation, _context = cleanup_pg
-    assert pg.execute("SELECT azure_setup_no_effects(%s)", (owner,))[0][0] is False
-    with pytest.raises(PersonalAgentDeprovisioningRequiredError), Db(pg).engine.begin() as conn:
-        AccountService()._delete_personal_agent_state(conn, params={"user_id": owner}, results={})
-    assert pg.execute("SELECT count(*) FROM byoc_setup_jobs WHERE user_id=%s", (owner,))[0][0] == 1

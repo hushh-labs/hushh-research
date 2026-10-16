@@ -28,11 +28,22 @@ from hushh_mcp.services.account_external_connector_erasure import (
 from hushh_mcp.services.account_external_connector_erasure import (
     clear_external_connector_data,
 )
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE as PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PersonalAgentDeprovisioningRequiredError as PersonalAgentDeprovisioningRequiredError,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    assert_external_resources_absent,
+)
 from hushh_mcp.services.account_push_erasure import (
     erase_push_registrations,
     push_registration_erasure_queries,
 )
-from hushh_mcp.services.byoc_setup_intent import is_untouched_intent
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
@@ -40,18 +51,10 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     is_attested_hushh_tech_uat_database,
     parse_connected_database_identity,
 )
-from hushh_mcp.services.personal_agent_standby_guard import standby_present
 
 logger = logging.getLogger(__name__)
 
 DeleteAccountTarget = Literal["investor", "ria", "both"]
-PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE = (
-    "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"
-)
-PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE = (
-    "Your private agent or cloud setup must be removed before the account can be "
-    "deleted. Please try again later or contact support."
-)
 # Emitted when the erasure transaction raised and was rolled back. A commit that
 # fails on a dropped connection can still be ambiguous, so clients confirm the
 # outcome through the tombstone-aware status route before keeping the session.
@@ -64,10 +67,6 @@ _RELEASE_FENCE_MESSAGE = "during a lifecycle release"
 
 def _is_release_fence_refusal(exc: BaseException) -> bool:
     return _postgres_sqlstate(exc) == "55000" and _RELEASE_FENCE_MESSAGE in str(exc)
-
-
-class PersonalAgentDeprovisioningRequiredError(RuntimeError):
-    """Account deletion cannot safely orphan external personal-agent resources."""
 
 
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
@@ -992,192 +991,12 @@ class AccountService:
             results[table_name] = True
 
     def _assert_personal_agent_external_resources_absent(
-        self,
-        conn,
-        *,
-        params: dict[str, Any],
-        finalize_erasure: bool = False,
+        self, conn, *, params: dict[str, Any], finalize_erasure: bool = False
     ) -> dict[str, bool]:
-        """Verify absence or qualified erasure under the caller's owner locks.
-
-        Only the account transaction requests finalization. The SQL authority
-        validates terminal receipts and archives them before removing recovery
-        rows atomically; missing migrations and uncertain outcomes remain refused.
-        """
-        state_tables = (
-            "byoc_setup_jobs",
-            "pod_lifecycle_events",
-            "personal_agent_registry",
-            "pod_migration_jobs",
+        """Verify absence under this account transaction's existing owner locks."""
+        return assert_external_resources_absent(
+            conn, params=params, table_exists=self._table_exists, finalize_erasure=finalize_erasure
         )
-        table_presence = {
-            table_name: self._table_exists(conn, table_name) for table_name in state_tables
-        }
-        if not any(table_presence.values()):
-            return table_presence
-
-        registry_row = None
-        if table_presence["personal_agent_registry"]:
-            registry_row = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT to_jsonb(registry) AS registry
-                        FROM personal_agent_registry AS registry
-                        WHERE registry.user_id = :user_id
-                        FOR UPDATE
-                        """
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-        byoc_row = None
-        if table_presence["byoc_setup_jobs"]:
-            byoc_row = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT to_jsonb(job) AS job FROM byoc_setup_jobs AS job
-                        WHERE job.user_id = :user_id
-                        FOR UPDATE
-                        """
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-        lifecycle_row = None
-        if table_presence["pod_lifecycle_events"]:
-            lifecycle_row = (
-                conn.execute(
-                    text(
-                        "SELECT TRUE AS present FROM pod_lifecycle_events "
-                        "WHERE user_id = :user_id LIMIT 1 FOR UPDATE"
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-
-        migration_row = None
-        if table_presence["pod_migration_jobs"]:
-            migration_row = conn.execute(
-                text(
-                    "SELECT TRUE FROM pod_migration_jobs WHERE user_id = :user_id LIMIT 1 FOR UPDATE"
-                ),
-                params,
-            ).first()
-
-        registry = dict((registry_row or {}).get("registry") or {})
-        status = str(registry.get("status") or "").strip().lower()
-        erasure = (registry.get("backend_metadata") or {}).get("erasure")
-        if isinstance(erasure, dict) and erasure:
-            # Parked private migrations must never become a prerequisite for the
-            # shared runtime's ordinary unprovisioned-account deletion path.
-            available = conn.execute(
-                text(
-                    "SELECT to_regprocedure('public.personal_agent_erasure_complete(text)') "
-                    "IS NOT NULL AND "
-                    "to_regprocedure('public.finalize_personal_agent_erasure(text)') IS NOT NULL"
-                )
-            ).scalar()
-            if available is True and not standby_present(conn, params, self._table_exists):
-                statement = (
-                    "SELECT public.finalize_personal_agent_erasure(:user_id)"
-                    if finalize_erasure
-                    else "SELECT public.personal_agent_erasure_complete(:user_id)"
-                )
-                if conn.execute(text(statement), params).scalar() is True:
-                    return table_presence
-            raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
-        external_coordinate_fields = (
-            "space_id",
-            "external_agent_id",
-            "a2a_route",
-            "backend",
-            "backend_metadata",
-            "attestation_ref",
-            "pod_pubkey",
-            "pod_key_id",
-            "pod_key_wrapping_alg",
-            "region",
-            "provisioned_at",
-            "deployment_target",
-            "user_cloud_project",
-            "user_cloud_region",
-            "user_cloud_bootstrap_sa",
-            "user_cloud_authorized_at",
-        )
-        has_external_coordinates = any(
-            registry.get(field_name) not in (None, "", {}, [])
-            for field_name in external_coordinate_fields
-        )
-        has_pending_deprovision = False
-        hushh_id = str(registry.get("hushh_id") or "").strip()
-        if hushh_id and self._table_exists(conn, "personal_agent_deletion_tombstones"):
-            has_pending_deprovision = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT TRUE
-                        FROM personal_agent_deletion_tombstones
-                        WHERE hushh_id = :hushh_id
-                        LIMIT 1
-                        FOR UPDATE
-                        """
-                    ),
-                    {"hushh_id": hushh_id},
-                ).first()
-                is not None
-            )
-
-        demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
-            registry_row is not None
-            and lifecycle_row is None
-            and status == "unprovisioned"
-            and not has_external_coordinates
-        )
-        # Positive joined, zero-request Azure history is read-only setup, not
-        # external resources. Serialize with its worker before account erasure.
-        if (
-            byoc_row is not None
-            and registry_row is not None
-            and not erasure
-            and str((byoc_row.get("job") or {}).get("project_id") or "").startswith(
-                "/subscriptions/"
-            )
-            and not has_pending_deprovision
-            and not has_external_coordinates
-        ):
-            available = conn.execute(
-                text("SELECT to_regprocedure('public.azure_setup_no_effects(text)') IS NOT NULL")
-            ).scalar()
-            if (
-                available is True
-                and conn.execute(
-                    text(
-                        "SELECT pg_try_advisory_xact_lock(hashtextextended(:user_id,206)) "
-                        "AND public.azure_setup_no_effects(:user_id)"
-                    ),
-                    params,
-                ).scalar()
-                is True
-            ):
-                return table_presence
-        if (
-            (byoc_row is not None and not is_untouched_intent(byoc_row.get("job")))
-            or migration_row is not None
-            or has_pending_deprovision
-            or not demonstrably_unprovisioned
-            or standby_present(conn, params, self._table_exists)
-        ):
-            raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
-
-        return table_presence
 
     def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
         """Observe absence under existing database locks; perform no cleanup.
@@ -2106,20 +1925,10 @@ class AccountService:
             # enables the same owner-reviewed cleanup; never infer from an error.
             from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
 
-            if owner_row:
-                store = AzureTeardownStore(registry)
-                available = await store._value(
-                    "SELECT to_regprocedure('public.azure_setup_never_deployed(text,jsonb)') "
-                    "IS NOT NULL AS value",
-                    {},
-                )
-                snapshot = (
-                    ((owner_row or {}).get("backend_metadata") or {})
-                    .get("erasure", {})
-                    .get("registrySnapshot", owner_row or {})
-                )
-                if available is True and await store.never_deployed(user_id, snapshot):
-                    return {**result, "cleanup_provider": "user_azure"}
+            if owner_row and await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(
+                user_id, owner_row
+            ):
+                return {**result, "cleanup_provider": "user_azure"}
             await service.deprovision(user_id=user_id)
         except Exception as exc:
             logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)

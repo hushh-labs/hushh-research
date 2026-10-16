@@ -32,7 +32,7 @@ from hushh_mcp.services.azure_arm_mutations import ArmMutationJournal
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
 from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_keyed import digest_matches
-from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, SetupApplier
+from hushh_mcp.services.azure_setup_applier import ApplyResult, AzureSetupRefused, SetupApplier
 from hushh_mcp.services.azure_setup_plan import (
     BINDING_TAG,
     IMAGE_DIGEST,
@@ -234,6 +234,65 @@ def prove(
     return fqdn, app
 
 
+def _setup_inputs(
+    arm: ArmClient,
+    *,
+    tenant_id: str,
+    subscription_id: str,
+    location: str,
+    spec: PodSpec,
+    adopt: bool,
+) -> PlanInputs:
+    """Bind the original owner group observation to the deterministic setup plan."""
+    if adopt:
+        nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=True)
+        group_initially_absent = False
+    else:
+        nonce, group_initially_absent = _bound_nonce_observation(
+            arm,
+            subscription_id=subscription_id,
+            hushh_id=spec.hushh_id,
+        )
+    return PlanInputs(
+        hushh_id=spec.hushh_id,
+        tenant_id=tenant_id,
+        subscription_id=subscription_id,
+        location=location,
+        resource_group=resource_group_name(spec.hushh_id),
+        nonce=nonce,
+        files_enabled=spec.files_library_enabled,
+        group_initially_absent=group_initially_absent,
+    )
+
+
+def _setup_result(
+    inputs: PlanInputs,
+    plan: SetupPlan,
+    result: ApplyResult,
+    *,
+    app: dict,
+    fqdn: str,
+    digest: str,
+    incarnation: str,
+) -> AzureSetupResult:
+    """Return only the observed identity, serving endpoint and model outcome."""
+    return AzureSetupResult(
+        tenant_id=inputs.tenant_id,
+        subscription_id=inputs.subscription_id,
+        resource_group=inputs.resource_group,
+        location=inputs.location,
+        nonce=inputs.nonce,
+        model_credential_mode="user_azure_mi" if result.model_available else "byok_per_turn",
+        model_outcome=result.model_outcome,
+        image_digest=digest,
+        app_id=str(app.get("id") or Scopes(plan.inputs, plan.names).app),
+        fqdn=fqdn,
+        pod_principal_id=result.values.get("podPrincipalId", ""),
+        pod_client_id=result.values.get("podClientId", ""),
+        incarnation=incarnation,
+    )
+
+
 def run_agent_setup(
     *,
     access_token: str,
@@ -264,15 +323,14 @@ def run_agent_setup(
     if image_credentials is None:
         image_credentials = import_credentials(registry)
     arm = arm or ArmClient(access_token, sleep=sleep, before_write=guard, mutations=mutations)
-    if adopt:
-        nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=True)
-        group_initially_absent = False
-    else:
-        nonce, group_initially_absent = _bound_nonce_observation(
-            arm,
-            subscription_id=subscription_id,
-            hushh_id=spec.hushh_id,
-        )
+    inputs = _setup_inputs(
+        arm,
+        tenant_id=tenant_id,
+        subscription_id=subscription_id,
+        location=location,
+        spec=spec,
+        adopt=adopt,
+    )
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id
     if not principal:
         raise AzureSetupRefused(
@@ -281,16 +339,6 @@ def run_agent_setup(
     incarnation = uuid.uuid4().hex
     plan_for = plan_factory(
         spec, source_registry=registry, source_repository=repository, incarnation=incarnation
-    )
-    inputs = PlanInputs(
-        hushh_id=spec.hushh_id,
-        tenant_id=tenant_id,
-        subscription_id=subscription_id,
-        location=location,
-        resource_group=resource_group_name(spec.hushh_id),
-        nonce=nonce,
-        files_enabled=spec.files_library_enabled,
-        group_initially_absent=group_initially_absent,
     )
     values = {"husshPrincipalId": principal, "imageDigest": digest}
     from hushh_mcp.services.azure_model_eligibility import require_model_eligibility
@@ -321,20 +369,8 @@ def run_agent_setup(
         http = requests
     plan = result.plan or plan_for(inputs)
     fqdn, app = prove(arm, plan, result.values, http=http, sleep=sleep)
-    return AzureSetupResult(
-        tenant_id=tenant_id,
-        subscription_id=subscription_id,
-        resource_group=inputs.resource_group,
-        location=location,
-        nonce=nonce,
-        model_credential_mode="user_azure_mi" if result.model_available else "byok_per_turn",
-        model_outcome=result.model_outcome,
-        image_digest=digest,
-        app_id=str(app.get("id") or Scopes(plan.inputs, plan.names).app),
-        fqdn=fqdn,
-        pod_principal_id=result.values.get("podPrincipalId", ""),
-        pod_client_id=result.values.get("podClientId", ""),
-        incarnation=incarnation,
+    return _setup_result(
+        inputs, plan, result, app=app, fqdn=fqdn, digest=digest, incarnation=incarnation
     )
 
 

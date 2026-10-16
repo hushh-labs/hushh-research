@@ -66,7 +66,10 @@ converted to zero. Failed setup cleanup separates journal-qualified resources
 from positively proved zero-effect attempts. An old group, missing original
 absence observation, active worker, stale custody or unresolved request cannot
 qualify automatic erasure. Focused PostgreSQL and UI checks are recorded with the
-candidate; live disposable cleanup remains a release acceptance requirement.
+candidate. Bounded cleanup and presentation extractions pass the architecture
+ratchet without a baseline waiver; 174 backend checks plus the corrected 42-case
+boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
+Live disposable cleanup remains a release acceptance requirement.
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported

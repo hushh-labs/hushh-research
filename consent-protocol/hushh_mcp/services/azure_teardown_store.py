@@ -62,6 +62,18 @@ class AzureTeardownStore:
             raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
         return value
 
+    async def can_offer_failed_setup_cleanup(self, owner: str, row: dict) -> bool:
+        """Read an optional admission hint; reservation still owns cleanup authority."""
+        available = await self._value(
+            "SELECT to_regprocedure('public.azure_setup_never_deployed(text,jsonb)') "
+            "IS NOT NULL AS value",
+            {},
+        )
+        snapshot = (
+            (row.get("backend_metadata") or {}).get("erasure", {}).get("registrySnapshot", row)
+        )
+        return available is True and await self.never_deployed(owner, snapshot)
+
     async def never_deployed(self, owner: str, snapshot: dict) -> bool:
         return (
             await self._value(
