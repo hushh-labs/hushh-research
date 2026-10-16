@@ -6,6 +6,7 @@ import base64
 import os
 from dataclasses import dataclass
 
+from hushh_mcp.runtime_settings import hydrate_runtime_environment
 from hushh_mcp.services.email_auth.contracts import EmailAuthError
 
 
@@ -22,6 +23,7 @@ class EmailAuthConfig:
 
     @classmethod
     def from_env(cls) -> EmailAuthConfig:
+        hydrate_runtime_environment()
         enabled = os.getenv("EMAIL_AUTH_ENABLED", "").lower() == "true"
 
         def key(name: str) -> bytes:

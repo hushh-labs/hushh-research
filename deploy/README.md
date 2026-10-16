@@ -72,6 +72,36 @@ Production is a separate explicit authority transition. UAT success does not
 authorize it, and UAT credentials or runtime identities must never be reused in
 production.
 
+### Email OTP in UAT
+
+`EMAIL_AUTH_ENABLED_UAT=true` enables the independent email sign-in rollout.
+It defaults off. The runtime configuration compiler owns its four nonsecret
+settings; encryption and verification keys never enter runtime configuration JSON.
+Provision three distinct base64-encoded 32-byte secrets in `hushh-pda-uat`:
+`EMAIL_AUTH_VERIFIER_KEY`, `EMAIL_AUTH_PAYLOAD_KEY`, and `EMAIL_AUTH_LOOKUP_KEY`.
+Keep these stable across redeploys, especially the lookup key used for persistent
+mailbox budgets and bindings. UAT backend deployment binds the existing `MAIL_API_KEY`
+secret as `EMAIL_AUTH_MAIL_API_KEY`.
+
+Before building enabled candidates, the UAT workflow validates key readiness and
+the packaged risk manifest, proves that the existing mail API accepts the One
+consumer with a deliberately invalid request that cannot send mail, and refreshes
+delegated `gmail.send` authority for `one@hushh.ai` using the candidate's credential
+source. A generic non-One key or a sender refresh failure blocks rollout.
+
+After migration and schema verification, the workflow activates the same reviewed
+policy through `scripts/email_auth_policy.py` using its already-attested UAT
+connection. The activation receipt retains the actor, release SHA and risk version.
+The backend candidate must expose enabled email capabilities before promotion.
+Manifest activation does not renew evidence expiry; refresh the reviewed snapshot
+before its recorded deadline. No company administrator setup or WorkOS is involved.
+
+Traffic rollback preserves the database policy and keys. The process enable flag
+does not disable other running revisions: drain or disable every enabled issuer
+and delivery worker before applying migration359's destructive rollback or
+scrubbing challenges. Do not rotate keys or delete policy records as a traffic
+rollback shortcut.
+
 ## Hosted revision maintenance
 
 UAT and production deployments complete after release verification, artifact publication, quick

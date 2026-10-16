@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib.util
 import json
 import os
 import secrets
@@ -31,6 +32,132 @@ from hushh_mcp.services.email_auth.delivery import EmailAuthDeliveryWorker
 from hushh_mcp.services.email_auth.domain_policy import DomainEvaluator, RiskSnapshot
 from hushh_mcp.services.email_auth.service import EmailAuthService
 from hushh_mcp.services.email_auth.store import PostgresEmailAuthStore
+
+
+def release_module():
+    path = Path(__file__).resolve().parents[3] / "scripts/ops/email_auth_uat_release.py"
+    spec = importlib.util.spec_from_file_location("email_auth_release", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("missing_key", [None, "EMAIL_AUTH_LOOKUP_KEY"])
+def test_enabled_release_requires_all_distinct_keys_before_sender_authority(
+    monkeypatch, missing_key
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.email_auth.one_sender import OneSenderTokenProvider
+
+    module = release_module()
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    for name in (
+        *module.KEYS,
+        "EMAIL_AUTH_ENABLED",
+        "EMAIL_AUTH_MAIL_API_KEY",
+        "EMAIL_AUTH_RISK_MANIFEST",
+        "EMAIL_AUTH_MAIL_API_ENDPOINT",
+        "EMAIL_AUTH_MAIL_FROM",
+        "FIREBASE_ADMIN_CREDENTIALS_JSON",
+        "SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    values = {
+        name: base64.b64encode(bytes([index]) * 32).decode()
+        for index, name in enumerate(module.KEYS, 1)
+    }
+    values.update(
+        {
+            "MAIL_API_KEY": "synthetic-one-key",
+            "FIREBASE_ADMIN_CREDENTIALS_JSON": "synthetic-credential",
+        }
+    )
+    if missing_key:
+        values[missing_key] = ""
+    monkeypatch.setattr(module, "read_secret", values.__getitem__)
+    monkeypatch.setattr(module, "reviewed_risk", lambda: SimpleNamespace(version="fixture"))
+    requests = []
+
+    def post(url, **kwargs):
+        requests.append(kwargs)
+        assert kwargs["json"] == {"transport": "one-delegated"}
+        return httpx.Response(400, json={"error": "Invalid One OTP request"})
+
+    monkeypatch.setattr(module.httpx, "post", post)
+    sender = AsyncMock(return_value="synthetic-ephemeral-token")
+    monkeypatch.setattr(OneSenderTokenProvider, "__init__", lambda self: None)
+    monkeypatch.setattr(OneSenderTokenProvider, "get", sender)
+    if missing_key:
+        with pytest.raises(EmailAuthError):
+            module.preflight()
+        assert not requests
+        sender.assert_not_called()
+    else:
+        result = module.preflight()
+        assert result["sender_ready"]
+        assert result["mail_consumer"] == "one"
+        assert "synthetic" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("attested", [True, False])
+def test_policy_activation_uses_only_the_attested_database_and_process_credentials(
+    monkeypatch, attested
+):
+    module = release_module()
+    from urllib.parse import unquote, urlsplit
+
+    values = {
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME": module.INSTANCE
+        if attested
+        else "another:region:instance",
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": "6543",
+        "DB_NAME": "postgres",
+        "HUSSH_RELEASE_ENVIRONMENT": "uat",
+        "DB_USER": "synthetic-user",
+        "DB_PASSWORD": "synthetic-password/@",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(module, "reviewed_risk", lambda: SimpleNamespace(version="fixture"))
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        assert "synthetic-password" not in " ".join(command)
+        target = urlsplit(kwargs["env"]["EMAIL_AUTH_POLICY_DATABASE_URL"])
+        assert target.hostname == "127.0.0.1" and target.port == 6543
+        assert unquote(target.password) == values["DB_PASSWORD"]
+        assert "email_auth_policy.py" in command[1]
+        return SimpleNamespace(
+            returncode=0, stdout=json.dumps({"action": "activated", "risk": "fixture"})
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    if attested:
+        assert module.activate("release-actor", "a" * 40)["action"] == "activated"
+        assert len(calls) == 1
+    else:
+        with pytest.raises(module.ReleaseError, match="database_target"):
+            module.activate("release-actor", "a" * 40)
+        assert calls == []
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_enabled_candidate_must_offer_email_sign_in_before_promotion(monkeypatch, available):
+    module = release_module()
+    monkeypatch.setattr(
+        module.httpx,
+        "get",
+        lambda *args, **kwargs: httpx.Response(200, json={"enabled": available}),
+    )
+    url = "https://candidate---consent-protocol-example-uc.a.run.app"
+    if available:
+        assert module.verify_candidate(url)["candidate_ready"]
+    else:
+        with pytest.raises(module.ReleaseError, match="candidate_capabilities"):
+            module.verify_candidate(url)
 
 
 class Answer(list):
