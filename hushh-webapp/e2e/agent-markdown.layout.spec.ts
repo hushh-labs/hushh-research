@@ -241,6 +241,15 @@ for (const width of [390, 1280]) for (const theme of ["light", "dark"] as const)
     await expect(section()).toHaveCSS("background-image", "none");
     await expect(section()).toHaveCSS("box-shadow", "none");
     await expect(region).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(activity()).toHaveCSS("position", "relative");
+    const rippleHost = activity().locator(":scope > .morphy-ripple-host");
+    await expect(rippleHost).toHaveCount(1);
+    await expect(rippleHost).toHaveCSS("overflow", "hidden");
+    const controlBox = (await activity().boundingBox())!;
+    const rippleBox = (await rippleHost.boundingBox())!;
+    for (const dimension of ["x", "y", "width", "height"] as const) {
+      expect(rippleBox[dimension]).toBeCloseTo(controlBox[dimension], 1);
+    }
     expect((await activity().boundingBox())!.height + 0.001).toBeGreaterThanOrEqual(44);
     await expect(activity()).toHaveAttribute("aria-expanded", "false");
     await page.keyboard.press("Tab");
