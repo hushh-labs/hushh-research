@@ -568,7 +568,7 @@ steps:
           --cpu=2 \
           --memory=2Gi \
           --max-retries=0 \
-          --task-timeout=300s \
+          --task-timeout=420s \
           --quiet
         set +e
         gcloud run jobs execute "${job_name}" \

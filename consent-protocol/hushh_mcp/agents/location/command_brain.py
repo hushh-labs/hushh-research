@@ -26,6 +26,11 @@ from hushh_mcp.runtime_providers.gemini_config import build_generate_content_con
 _LOCATION_MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 _TRANSCRIBER_GENE_ID = "agent_location_transcriber"
 _LOCATION_CONSENT_SCOPE = "location.transcribe"
+_SEMANTIC_PROVIDER_TIMEOUT_MS = 60_000
+# A read-tool turn can require a second managed model call. Keep a bounded
+# assessment above two provider deadlines; the proxy and clients wait longer.
+_SEMANTIC_ASSESS_TIMEOUT_SECONDS = 130
+
 _TRANSCRIPTION_SCHEMA: dict[str, object] = {
     "type": "OBJECT",
     "properties": {"transcript": {"type": "STRING"}},
@@ -261,7 +266,8 @@ class LocationCommandBrain:
             or build_managed_gemini_adk_model(
                 self.model,
                 http_options=types.HttpOptions(
-                    timeout=20_000, retry_options=types.HttpRetryOptions(attempts=1)
+                    timeout=_SEMANTIC_PROVIDER_TIMEOUT_MS,
+                    retry_options=types.HttpRetryOptions(attempts=1),
                 ),
             ),
             instruction=self.manifest.capabilities["command_instruction"],
@@ -307,7 +313,7 @@ class LocationCommandBrain:
             ],
         )
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_SEMANTIC_ASSESS_TIMEOUT_SECONDS):
                 async for _event in runner.run_async(
                     user_id=transient_user,
                     session_id=session_id,

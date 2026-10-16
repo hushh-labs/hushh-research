@@ -534,7 +534,7 @@ def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
     readiness_deploy = backend_build[deploy_start:execute_start]
 
     # A 1 vCPU cold start reached the 90s task kill before any verdict.
-    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=300s"):
+    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=420s"):
         assert flag in readiness_deploy
     assert "--task-timeout=90s" not in readiness_deploy
 
