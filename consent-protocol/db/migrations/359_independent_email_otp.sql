@@ -71,4 +71,14 @@ CREATE INDEX IF NOT EXISTS email_auth_challenge_expiry_idx ON email_auth_challen
 -- Restrict grants through the environment's existing application DB role.
 REVOKE ALL ON email_auth_policy_state, email_auth_domain_decisions, email_auth_budgets,
     email_auth_enrollments, email_auth_challenges FROM PUBLIC;
+
+-- Extend the canonical deletion guards to the new Firebase UID binding.
+-- Ordered releases include migration 201; isolated migration fixtures may not.
+DO $$
+BEGIN
+    IF to_regprocedure('public.install_account_deletion_write_guards()') IS NOT NULL THEN
+        PERFORM public.install_account_deletion_write_guards();
+    END IF;
+END;
+$$;
 COMMIT;
