@@ -6,6 +6,8 @@ describe("local card scan parsing", () => {
       .toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "Alex Sample" });
     expect(parseCardScan("4242 4242 4242 4242 12/30"))
       .toEqual({ pan: "4242424242424242", expiry: "12/30" });
+    expect(parseCardScan("9999 9999 9997\nEXPIRY 12/30"))
+      .toEqual({ pan: "999999999997", expiry: "12/30" });
   });
   it("rejects invalid, truncated and ambiguous numbers", () => {
     for (const text of ["424242424242424200000", "4242424242424242\n5555555555554444", "no card"]) expect(parseCardScan(text)).toBeNull();

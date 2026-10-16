@@ -96,7 +96,7 @@ public class HushhCardScannerPlugin: CAPPlugin, CAPBridgedPlugin {
                         let range = NSRange(line.startIndex..<line.endIndex, in: line)
                         let numeric = date.stringByReplacingMatches(in: line, range: range, withTemplate: "/")
                         for match in pan.matches(in: numeric, range: NSRange(numeric.startIndex..<numeric.endIndex, in: numeric)) {
-                            if let value = Range(match.range, in: numeric) { let candidate = String(numeric[value]); let count = candidate.filter { $0.isNumber }.count; if count >= 13 && count <= 19 { fields.append(candidate) } }
+                            if let value = Range(match.range, in: numeric) { let candidate = String(numeric[value]); let count = candidate.filter { $0.isNumber }.count; if count >= 12 && count <= 19 { fields.append(candidate) } }
                         }
                         for match in date.matches(in: line, range: range) {
                             if let value = Range(match.range, in: line) {
@@ -117,12 +117,12 @@ public class HushhCardScannerPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                     // Rejoin only adjacent numeric observations on the same printed
                     // row. Transcript order can otherwise concatenate a short code.
-                    let numeric = (request.results ?? []).compactMap { observation -> (String, CGRect)? in
-                        guard let candidate = observation.topCandidates(1).first, candidate.confidence >= 0.65,
-                              candidate.string.range(of: "^[0-9]{3,6}$", options: .regularExpression) != nil else { return nil }
-                        return (candidate.string, observation.boundingBox)
+                    let numeric = (request.results ?? []).compactMap { observation -> (String, CGRect, Bool)? in
+                        guard let candidate = observation.topCandidates(1).first,
+                              candidate.string.range(of: "^[0-9]{1,6}$", options: .regularExpression) != nil else { return nil }
+                        return (candidate.string, observation.boundingBox, candidate.confidence >= 0.65)
                     }.sorted { $0.1.minX < $1.1.minX }
-                    var rows: [[(String, CGRect)]] = []
+                    var rows: [[(String, CGRect, Bool)]] = []
                     for item in numeric {
                         if let index = rows.firstIndex(where: { row in
                             let anchor = row[0].1, height = min(anchor.height, item.1.height)
@@ -130,18 +130,18 @@ public class HushhCardScannerPlugin: CAPPlugin, CAPBridgedPlugin {
                         }) { rows[index].append(item) } else { rows.append([item]) }
                     }
                     for row in rows {
-                        var value = "", previous: CGRect? = nil
+                        var value = "", previous: CGRect? = nil, confident = true
                         for item in row.sorted(by: { $0.1.minX < $1.1.minX }) {
                             if let box = previous {
                                 let height = min(box.height, item.1.height)
                                 if item.1.minX < box.maxX - height * 0.2 || item.1.minX - box.maxX > height * 1.5 || max(box.height, item.1.height) > height * 1.5 {
-                                    if value.count >= 13 && value.count <= 19 { fields.append(value) }
-                                    value = ""
+                                    if confident && value.count >= 12 && value.count <= 19 { fields.append(value) }
+                                    value = ""; confident = true
                                 }
                             }
-                            value += item.0; previous = item.1
+                            value += item.0; previous = item.1; confident = confident && item.2
                         }
-                        if value.count >= 13 && value.count <= 19 { fields.append(value) }
+                        if confident && value.count >= 12 && value.count <= 19 { fields.append(value) }
                     }
                     call.resolve(["cardText": fields.joined(separator: "\n")])
                 } catch {

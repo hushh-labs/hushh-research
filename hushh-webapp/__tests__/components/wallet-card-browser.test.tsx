@@ -132,7 +132,7 @@ describe("Approved payment-card artwork", () => {
     expect(within(face).queryByText("Synthetic Owner")).toBeNull();
     expect(screen.getByText(/Synthetic Owner ·/)).toBeInTheDocument();
   });
-  it("keeps the blue fallback hidden while approval or image decoding is pending and settles image failure", () => {
+  it("hides unknown artwork, paints approved originals without an opacity delay, and settles image failure", () => {
     const view = render(<WalletCardFace summary={summary} artwork={artwork} artworkPending cardholderName="Synthetic Owner" />);
     const face = screen.getByTestId("wallet-card-face");
     expect(face).toHaveAttribute("data-card-artwork", "pending");
@@ -141,13 +141,13 @@ describe("Approved payment-card artwork", () => {
     expect(within(face).getByText("Synthetic Owner")).toBeInTheDocument();
     view.rerender(<WalletCardFace summary={summary} artwork={artwork} cardholderName="Synthetic Owner" />);
     const image = face.querySelector("img")!;
-    expect(image).not.toBeVisible();
+    expect(image).toBeVisible();
     Object.defineProperties(image, { naturalWidth: { configurable: true, value: 856 }, naturalHeight: { configurable: true, value: 540 } });
     fireEvent.load(image);
     expect(image).toBeVisible();
     expect(face).toHaveAttribute("aria-busy", "false");
     view.rerender(<WalletCardFace summary={summary} artwork={{ ...artwork, digest: "b".repeat(64), image: "data:image/png;base64,bmV4dA==" }} cardholderName="Synthetic Owner" />);
-    expect(image).not.toBeVisible();
+    expect(image).toBeVisible();
     expect(face).toHaveAttribute("aria-busy", "true");
     fireEvent.error(image);
     expect(face).toHaveAttribute("data-card-artwork", "neutral");

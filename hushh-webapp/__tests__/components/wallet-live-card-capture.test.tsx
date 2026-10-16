@@ -24,6 +24,7 @@ it("waits for a frame and offers a photo fallback after capture failure", async 
   await act(async () => {});
   const video = container.querySelector("video")!;
   Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 }, readyState: { value: 2 } });
+  vi.spyOn(video, "getBoundingClientRect").mockReturnValue({ width: 400, height: 250 } as DOMRect);
   fireEvent.loadedMetadata(video);
   const capture = screen.getByRole("button", { name: "Take photo", exact: true });
   expect(capture).toBeDisabled();
