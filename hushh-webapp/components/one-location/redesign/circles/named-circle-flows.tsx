@@ -592,19 +592,29 @@ export function CirclesSection({
   );
 }
 
+const CIRCLE_KIND_OPTIONS: {
+  value: OneLocationCircleKind;
+  label: string;
+}[] = [
+  { value: "family", label: "Family" },
+  { value: "friends", label: "Friends" },
+  { value: "other", label: "Other" },
+];
+
 export function CreateCircleFlow({
   busy,
   onSubmit,
+  showCircleType = true,
 }: {
   busy: boolean;
   onSubmit: (name: string, kind: OneLocationCircleKind) => Promise<void>;
+  /** Location hides the choice and retains the existing family default. */
+  showCircleType?: boolean;
 }) {
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
-  // Keep the existing creation default for the API; Circle type is no longer
-  // a choice in this form.
-  const kind: OneLocationCircleKind = "family";
+  const [kind, setKind] = useState<OneLocationCircleKind>("family");
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
@@ -672,7 +682,6 @@ export function CreateCircleFlow({
           onFocus={() => setNameFocused(true)}
           onBlur={() => {
             setNameFocused(false);
-            if (nameMissing) setNameRequirementActive(true);
           }}
           onChange={(event) => {
             const next = event.target.value;
@@ -703,6 +712,77 @@ export function CreateCircleFlow({
           </span>
         ) : null}
       </label>
+
+      {showCircleType ? (
+        <div className="space-y-2">
+          <p
+            id="one-location-create-circle-kind-label"
+            className="text-[15px] font-semibold leading-5 text-foreground"
+          >
+            Circle type
+          </p>
+          <div
+            role="radiogroup"
+            aria-labelledby="one-location-create-circle-kind-label"
+            className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"
+            onKeyDown={(event) => {
+              const currentIndex = CIRCLE_KIND_OPTIONS.findIndex(
+                (option) => option.value === kind,
+              );
+              const move = (nextIndex: number) => {
+                event.preventDefault();
+                const next = CIRCLE_KIND_OPTIONS[nextIndex];
+                if (next) {
+                  setKind(next.value);
+                  event.currentTarget.querySelector<HTMLButtonElement>(
+                    `[data-testid="one-location-circle-kind-${next.value}"]`,
+                  )?.focus();
+                  if (nameMissing) setNameRequirementActive(true);
+                }
+              };
+              if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                move((currentIndex + 1) % CIRCLE_KIND_OPTIONS.length);
+              } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                move(
+                  (currentIndex - 1 + CIRCLE_KIND_OPTIONS.length) %
+                    CIRCLE_KIND_OPTIONS.length,
+                );
+              } else if (event.key === "Home") {
+                move(0);
+              } else if (event.key === "End") {
+                move(CIRCLE_KIND_OPTIONS.length - 1);
+              }
+            }}
+          >
+            {CIRCLE_KIND_OPTIONS.map((option) => {
+              const selected = kind === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  data-testid={`one-location-circle-kind-${option.value}`}
+                  onClick={() => {
+                    setKind(option.value);
+                    if (nameMissing) setNameRequirementActive(true);
+                  }}
+                  className={cn(
+                    "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                    selected
+                      ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-primary-label)]"
+                      : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+                  )}
+                >
+                  {selected ? <Check className="size-4 shrink-0" aria-hidden="true" /> : null}
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
         <Button

@@ -599,7 +599,7 @@ describe("named Circle flows", () => {
       .mockRejectedValueOnce(new Error("Circle limit reached."))
       .mockResolvedValueOnce(undefined);
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} showCircleType={false} />);
 
     expect(screen.queryByText("Circle type")).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
@@ -641,8 +641,13 @@ describe("named Circle flows", () => {
     fireEvent.change(input, { target: { value: "   " } });
     expect(create).toBeDisabled();
 
-    // Leaving an empty name explains the blocked CTA.
+    // Leaving the field alone must not validate when a host closes the form.
     fireEvent.blur(input);
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(input).not.toHaveAttribute("aria-invalid", "true");
+
+    // Choosing a Type is not the Circle name; the form explains the blocked CTA.
+    fireEvent.click(screen.getByRole("radio", { name: "Friends" }));
     await waitFor(() =>
       expect(input).toHaveAttribute("aria-invalid", "true"),
     );
@@ -658,7 +663,7 @@ describe("named Circle flows", () => {
     expect(input).not.toHaveAttribute("aria-describedby");
 
     fireEvent.click(create);
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "family"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "friends"));
   });
 
   it("finds a connection from the first letter of any of their names", async () => {

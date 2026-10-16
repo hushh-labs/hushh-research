@@ -1750,6 +1750,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}
+            showCircleType={false}
             onSubmit={async (name, kind) => {
               const circle = await vm.onCreateNamedCircle(name, kind);
               openCircleDetail(circle.id, "replace");
