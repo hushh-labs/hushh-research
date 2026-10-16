@@ -319,7 +319,7 @@ class ProfileResearchJobs:
         if not one_profile_research_enabled():
             return {"status": "disabled", "pkm_written": False}
         context = await self.job_context(user_id, consent_token)
-        state = await self.store.get(user_id)
+        state = self.prepare_start_state(await self.store.get(user_id))
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         if state and same_context and self.reusable(state):
             if state["status"] == "pending":
@@ -489,6 +489,14 @@ class ProfileResearchJobs:
 
     async def job_context(self, user_id, consent_token):
         return {}
+
+    def prepare_start_state(self, state: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Allow a feature to translate an older checkpoint before budget validation.
+
+        The returned state retains its revision and fence for the store's CAS.
+        Generic research never changes its paid attempt ledger.
+        """
+        return state
 
     def committed(self):
         pass

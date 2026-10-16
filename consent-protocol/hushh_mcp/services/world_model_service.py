@@ -189,6 +189,86 @@ class WorldModelJobs(ProfileResearchJobs):
         # not return a write time; this is the best per-process stand-in.
         self.activity: dict[str, tuple[int, float]] = {}
 
+    def budget_scope(self) -> str:
+        # Slot numbers are meaningful only within a provider's ledger layout.
+        version = 1
+        if POLICY["provider"] == "azure_openai_web_search":
+            from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
+
+            version = AZURE_WORK_VERSION
+        return (
+            f"{POLICY['provider']}:v{version}:"
+            f"{self.search_slots}:{self.stored_attempts - self.search_slots}"
+        )
+
+    def prepare_start_state(self, state):
+        if state is None:
+            return state
+        from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
+
+        scope = self.budget_scope()
+        prior_scope = state.get("budget_scope")
+        if prior_scope == scope:
+            return state
+        work = state.get("work")
+        if isinstance(work, dict) and "azure_work_version" in work:
+            if (
+                type(work["azure_work_version"]) is not int
+                or work["azure_work_version"] != AZURE_WORK_VERSION
+            ):
+                raise RuntimeError("Unsupported discovery work version")
+        if prior_scope is not None:
+            # A same-provider layout change needs its own migration, even if
+            # every old slot index happens to fit the new range.
+            known_limits = {
+                "vertex_google_search:v1:32:128": 160,
+                "azure_openai_web_search:v1:8:16": 24,
+            }
+            prior_limit = known_limits.get(prior_scope) if isinstance(prior_scope, str) else None
+            if prior_limit is None:
+                raise RuntimeError("Unsupported discovery budget scope")
+            prior_provider = prior_scope.split(":", 1)[0]
+            if prior_provider == POLICY["provider"]:
+                raise RuntimeError("Unsupported discovery budget scope")
+            prior = state.get("attempted_combinations", [])
+            if (
+                not isinstance(prior, list)
+                or any(type(index) is not int or not 1 <= index <= prior_limit for index in prior)
+                or len(set(prior)) != len(prior)
+            ):
+                raise RuntimeError("Invalid discovery attempt budget")
+            incompatible = True
+        elif POLICY["provider"] == "vertex_google_search":
+            incompatible = isinstance(work, dict) and "azure_work_version" in work
+        elif isinstance(work, dict) and "azure_work_version" in work:
+            # Azure checkpoints written before the scope marker shipped.
+            return {**state, "budget_scope": scope}
+        else:
+            prior = state.get("attempted_combinations", [])
+            valid_vertex_slots = (
+                isinstance(prior, list)
+                and all(type(index) is int and 1 <= index <= 160 for index in prior)
+                and len(set(prior)) == len(prior)
+            )
+            incompatible = valid_vertex_slots and (
+                work or any(index > self.stored_attempts for index in prior)
+            )
+
+        if incompatible:
+            # A provider switch gets a fresh provider ledger and private work.
+            # Hourly starts survive so switching cannot evade start limits.
+            return {
+                **{key: value for key, value in state.items() if key not in {"work", "inputs"}},
+                "budget_scope": prior_scope or "legacy-provider-checkpoint",
+                "identity_binding": "",
+                "resume_binding": "",
+                "attempted_combinations": [],
+                "discovery_started_at": self.clock(),
+            }
+        # No incompatible evidence exists. Carry ambiguous paid slots rather
+        # than granting a second Azure budget after an early provider failure.
+        return {**state, "budget_scope": scope}
+
     def activity_at(self, user_id, state):
         revision = state.get("revision")
         seen = self.activity.get(user_id)
@@ -245,7 +325,10 @@ class WorldModelJobs(ProfileResearchJobs):
             )
         ):
             raise PermissionError("Research consent required")
-        return {"consent_generation": str(consent["generation"])}
+        return {
+            "consent_generation": str(consent["generation"]),
+            "budget_scope": self.budget_scope(),
+        }
 
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         # Azure/Bing needs a fresh owner opt-in; existing Vertex preferences

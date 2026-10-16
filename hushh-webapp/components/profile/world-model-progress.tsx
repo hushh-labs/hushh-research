@@ -132,7 +132,7 @@ export function activityLine(input: {
   // a promised resume that never comes must not read as progress.
   if (age !== null && age >= LONG_STALL_MS)
     return {
-      text: "Taking longer than usual. Your private agent is still working.",
+      text: "Taking longer than usual. No new research update.",
       notice: true,
     };
   if (age !== null && age >= STALL_MS) {
