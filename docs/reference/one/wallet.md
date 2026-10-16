@@ -458,7 +458,8 @@ Native acquisition converts compatible library images to a fresh JPEG; unsupport
 browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
 rectified crops use at most 1600 pixels, while full photos retain their proportions.
 Add requests fields only, with at most
-five recognition passes; it uses the existing automatic catalog artwork on save.
+five recognition passes. Owner Add uses the same explicit bank/product matching
+on save; scanned credentials alone do not select a bank design.
 Explicit photo-artwork callers can additionally use four masking and four
 final-inspection passes. The complete scan has
 a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,

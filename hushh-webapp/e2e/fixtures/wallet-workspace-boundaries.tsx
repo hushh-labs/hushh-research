@@ -82,6 +82,7 @@ function summaryOf(card: FixtureCard) {
 
 export class WalletService {
   static async resolveCardArtwork() { return { match: "unknown", catalogVersion: "empty-1", network: "visa", variants: [] }; }
+  static async cardProductChoices() { return { catalogVersion: "empty-1", banks: [], variants: [], nextOffset: null }; }
   static async supportedCardNetworks() { return ["visa", "mastercard", "amex", "discover", "rupay", "other"]; }
   static async resolveCardNetwork(_context: unknown, input: { selectedNetwork?: string }) { return { network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }; }
 

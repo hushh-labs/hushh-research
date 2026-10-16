@@ -86,6 +86,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       isEnabled: () => true,
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
+      cardProductChoices: vi.fn().mockResolvedValue({ banks: [], variants: [], catalogVersion: "empty-1", nextOffset: null }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
@@ -157,6 +158,8 @@ describe("Wallet video browser workspace", () => {
     fireEvent.change(screen.getByLabelText("Card number", { exact: true }), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "Synthetic owner" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)", { exact: true }), { target: { value: "12/30" } });
+    fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Visa", exact: true }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Add to Wallet", exact: true }));
     await waitFor(() => expect(finish).toBeTypeOf("function"));

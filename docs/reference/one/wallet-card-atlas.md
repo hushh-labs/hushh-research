@@ -7,8 +7,8 @@ flowchart LR
   pdf[Hash-pinned local PDF] --> originals[100 lossless source extractions]
   originals --> review[Recorded crop / field removal / size / split recipes]
   review --> catalog[Reviewed private bank-design catalog]
-  catalog --> bank[Owner provides card network]
-  bank --> choice[Local unused-image suggestion]
+  catalog --> bank[Owner provides network / bank / product]
+  bank --> choice[One eligible product design or neutral]
   choice --> confirm[Owner reviews Add]
   confirm --> wallet[Existing encrypted Wallet artwork per card ID]
 ```
@@ -24,6 +24,15 @@ The 100 source entries produce **101 display designs**: the IndiGo two-card
 image is split into Mastercard and RuPay variants. TROY remains labelled a
 **network illustration**, available under the explicitly selected Other network;
 this release does not add TROY prefix recognition or claim it is a bank product.
+
+The bundled `atlas-adapted-20261016-v2` catalog covers 25 issuer/country pairs in
+16 countries: AE, AU, BR, CA, EG, FR, GB, HK, ID, IN, JP, MY, PH, SG, TR and US.
+It contains 168 immutable records: 101 selectable designs and 67 superseded rows.
+This is the complete supplied atlas, not a worldwide bank-card library.
+New countries, products and physical editions need reviewed source artwork and
+provenance; generating illustrations cannot establish an original bank design.
+The existing [approved-feed importer](./wallet-artwork-providers.md) is the
+publication path for a maintained supplier catalog. No live supplier is configured.
 
 All images originate from the supplied PDF. The complete
 [review manifest](./wallet-card-atlas.manifest.json) records its SHA-256, page,
@@ -58,29 +67,29 @@ dimension and pixel-integrity checks. OCR alone is not a blank-art approval.
 
 ## Manual Add behavior
 
-After network recognition, Add automatically assigns a design from that
-network's approved backend catalog without a bank or image chooser. This is a
-cosmetic illustration; it does not verify the issuer or physical card product.
+Owner Add accepts Bank name and Card product after explicit network selection.
+Issuing region disambiguates same-named banks. Matching normalizes Unicode,
+spacing and case, then requires exactly one bank and product design; missing or
+ambiguous products keep a neutral card. No image chooser is required. The
+selected product artwork remains an adapted illustration, not proof of the
+physical edition. Manual matching does not use BIN/IIN or scanning.
 Artwork browsing does not send a number, prefix, expiry, name, photograph, card ID or vault key.
 No IIN association is inferred from a printed sample number in the PDF.
 
-The unlocked Wallet service reads its existing encrypted artwork and secrets
-in memory. The same full normalized number reuses an eligible existing design.
-A different number prefers an unused image digest for that network;
-after every available image is used it selects the least-used design with a
-stable tie-break. Aliases of identical image bytes do not count as new designs.
-Last-four digits and PAN hashes are not used as card identity. No allocation
-counter, additional server record or plaintext storage is introduced.
+The same bank/product uses the same eligible design across different card
+numbers. Neither Add nor display recovery allocates images by network, number
+or usage count. Bank/product names stay inside encrypted Wallet secrets; no
+allocation counter, additional server record or plaintext storage is introduced.
 
 Add omits the simple-design control and empty design section;
 Cancel stays left of Add to Wallet in one row at phone and desktop widths.
 Add remains available while bank artwork loads and can save a neutral
 design if artwork is unavailable. Saving pins the chosen reference under the
 existing card ID. Listing or adding another card does not rotate pinned designs,
-alter credentials or change grants. Missing and neutral artwork is recovered
-in the background after Cards loads; it is not silently written back to PKM. Recovery uses
-unused image digests and leaves saved photos and withdrawn references alone.
-Focus and visible-minute rechecks also retry an initially neutral collection.
+alter credentials or change grants. Only missing artwork with explicit saved
+bank/product names can recover after Cards loads, without another PKM write.
+Legacy cards without those names remain neutral. Explicit neutral choices,
+saved photos and withdrawn references retain their existing rules.
 
 The supplied Atlas designs permit an owner-only display layer containing the
 name, masked number and expiry inside the card. Full numbers still require the
@@ -99,15 +108,18 @@ display validates the exact prior identity and both current approvals, loads the
 new bytes with hash verification, then revalidates the original mapping after
 download. Withdrawal or mapping changes fail closed. Retiring a target does not
 disable unrelated catalog entries. Upgrades are memory-only and never rewrite
-PKM; allocation recognizes these reviewed aliases so same-number reuse and
-unused-first selection still work.
+PKM; the saved card retains its identity and the approved same-design replacement.
 
-Automatic requests use `automatic: true`; their response has
+The compatibility network-illustration API accepts `automatic: true`; its response has
 `selectionBasis: network_illustration` and `requiresConfirmation: false`.
-The optional bank-browsing API retains `selectionBasis: owner_selected_bank`
+Owner Add uses bank browsing with `selectionBasis: owner_selected_bank`
 and `requiresConfirmation: true`. Neither response has exact-match proof. Catalog entries with
 `bank_design: true` are excluded from exact physical-variant matching, including
 when an injected metadata provider happens to return their identifiers.
+
+Card faces and artwork previews create temporary `Blob` objects and `blob:`
+image URLs from the approved bytes. Stored artwork remains encrypted; object URLs
+are never persisted and are revoked on replacement, unmount and vault changes.
 
 ## Catalog and API integration
 
@@ -125,8 +137,9 @@ no-store, encrypted storage and revocation contracts still apply.
 ```
 
 `country`, `bankKey`, `offset` and `automatic` are optional. Wallet Add and
-owner display recovery send only network, `automatic: true` and offset,
-without inferring a country from the user's profile. Use the returned 32-character
+owner display recovery send only network, the explicitly saved issuing region,
+opaque bank key and offset. Names are matched locally, without inferring a
+country from the user's profile. Use the returned 32-character
 hexadecimal bank key for a design request. Without a bank key the response
 lists approved bank choices. With one it returns up to 24 designs and a
 `nextOffset` cursor. The key binds provider namespace, issuer and country; network and approval are
@@ -167,9 +180,10 @@ storage, with only external authentication/API responses substituted. Network
 cases use the actual packaged Visa, Mastercard, Amex, Discover and RuPay image
 bytes at 320, 390 and 1440 pixels. They check embedded-field bounds, long names,
 masking and landscape dimensions, then add two synthetic card
-numbers, assert different artwork digests, reload and assert both assignments
-remain unchanged. Legacy Amex, Discover and RuPay cases save during an outage,
-then recover two distinct approved images without another encrypted write.
+numbers for the same bank/product, assert identical artwork digests, reload and
+assert both assignments remain unchanged. Amex, Discover and RuPay cases save
+explicit bank/product names during an outage, then recover their matching image
+without another encrypted write. Blob decoding and revocation are exercised too.
 The complete pack covers crop Back, OCR review, provider outage, encrypted save, revocation and lock in Chromium
 and WebKit. This is browser fixture proof, not physical-device camera proof.
 
@@ -177,9 +191,9 @@ Reviewed WebKit screenshots: [390px](../../assets/wallet-artwork/atlas-two-cards
 and [1440px](../../assets/wallet-artwork/atlas-two-cards-1440.png).
 The [landscape RuPay examples](../../assets/wallet-artwork/atlas-landscape-rupay-390.png)
 also reserve the network logo area; expiry and holder details do not share that space.
-The nearest service and form tests protect private unused-first allocation,
-retired aliases, same-number reuse, suffix edits, resume, immutable-choice
-restoration and owner-epoch cancellation. Backend tests read and decode every
+The nearest service and form tests protect exact-name product matching,
+ambiguity, no network-based allocation, explicit neutral choices, retired aliases,
+resume, immutable-choice restoration and owner-epoch cancellation. Backend tests read and decode every
 packaged asset through the production serving boundary, verify provenance
 bindings and reject incomplete provider state, retired choices and exact-match
 promotion of cosmetic designs.

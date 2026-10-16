@@ -76,6 +76,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       isEnabled: () => true,
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
+      cardProductChoices: vi.fn().mockResolvedValue({ banks: [], variants: [], catalogVersion: "empty-1", nextOffset: null }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       deleteCard: serviceMock.deleteCard,
@@ -202,7 +203,10 @@ describe("Wallet visit introduction", () => {
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
-    fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
+    fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Visa", exact: true }));
+    fireEvent.keyDown(screen.getByLabelText("Issuing region"), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "India", exact: true }));
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true"));
