@@ -143,6 +143,7 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /agent-new-chat\.layout\.spec\.ts/,
         /todo-agent-feed\.spec\.ts/,
         /initial-contacts-welcome\.layout\.spec\.ts/,
         /circle-invite-picker\.layout\.spec\.ts/,

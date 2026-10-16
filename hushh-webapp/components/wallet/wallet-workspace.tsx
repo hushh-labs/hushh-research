@@ -288,6 +288,7 @@ export function WalletWorkspace() {
     cardholderNames: Record<string, string>;
     artworks: Record<string, WalletCardArtwork | undefined>;
     pendingArtworkIds: ReadonlySet<string>;
+    artworkExpiresAt: number;
   } | null>(null);
   const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
   const cardSnapshotRef = useRef(cardSnapshot);
@@ -511,7 +512,7 @@ export function WalletWorkspace() {
       }
       if (!options?.quiet) dispatch({ type: "load_started" });
       try {
-        const presentations = await WalletService.listCardPresentations(context);
+        const presentations = await WalletService.listCardPresentations(context, { recoverArtwork: true });
         const summaries = presentations.map((card) => card.summary);
         if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         setCardSnapshot({
@@ -519,13 +520,10 @@ export function WalletWorkspace() {
           cards: summaries,
           cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
           artworks: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.artwork])),
-          pendingArtworkIds: new Set(presentations.filter(card => card.summary.brand !== "other" && (!card.artwork || card.artwork.source === "neutral")).map(card => card.summary.cardId)),
+          pendingArtworkIds: new Set(),
+          artworkExpiresAt: Date.now() + 60_000,
         });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
-        // Optional network images must not hold otherwise readable cards behind a loader.
-        if (presentations.some(card => card.summary.brand !== "other" && (!card.artwork || card.artwork.source === "neutral"))) {
-          setArtworkRetryRevision(revision => revision + 1);
-        }
       } catch {
         if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
@@ -541,8 +539,25 @@ export function WalletWorkspace() {
     void refresh();
   }, [refresh]);
 
-  // Saved versions remain pinned; neutral cards retry automatic artwork too.
-  // Hide catalog copies while rechecking on resume and every visible minute.
+  // Expiry belongs to the owner snapshot, independently of any request or
+  // mutation. Adding/deleting a card cannot strand a stalled recheck's lease.
+  useEffect(() => {
+    const context = vaultContextRef.current(), expiry = cardSnapshot?.artworkExpiresAt;
+    if (!context || expiry === undefined || cardSnapshot?.ownerId !== context.userId) return;
+    const epoch = snapshotVaultSessionEpoch();
+    const timer = window.setTimeout(() => {
+      if (!isVaultSessionEpochCurrent(epoch) || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+      setCardSnapshot(previous => previous?.ownerId === context.userId && previous.artworkExpiresAt === expiry ? {
+        ...previous,
+        pendingArtworkIds: new Set(previous.cards.filter(card => previous.artworks[card.cardId]?.source === "catalog").map(card => card.cardId)),
+        artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])),
+      } : previous);
+    }, Math.max(0, expiry - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [cardSnapshot?.ownerId, cardSnapshot?.artworkExpiresAt, renderedOwnerId, vaultKey, vaultOwnerToken]);
+
+  // A display approval lasts at most one visible minute, only in this unlocked
+  // owner snapshot. Refresh before it expires without blanking current pixels.
   useEffect(() => {
     let disposed = false, inFlight = false;
     const recheck = async () => {
@@ -554,18 +569,38 @@ export function WalletWorkspace() {
       // Cosmetic work cannot invalidate an authoritative card load or mutation.
       const revision = cardReadRevision.current;
       const isCurrent = () => !disposed && revision === cardReadRevision.current && cardSnapshotRef.current?.cards === before.cards && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey;
-      setCardSnapshot(previous => previous?.ownerId === context.userId ? {
+      const hideExpiredArtwork = () => { if (isCurrent()) setCardSnapshot(previous => previous?.ownerId === context.userId ? {
         ...previous,
         pendingArtworkIds: new Set(previous.cards.filter(card => previous.artworks[card.cardId]?.source === "catalog" || (card.brand !== "other" && previous.artworks[card.cardId]?.source !== "photo")).map(card => card.cardId)),
         artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])),
-      } : previous);
+      } : previous); };
+      const remainingApproval = before.artworkExpiresAt - Date.now();
+      if (remainingApproval <= 0) hideExpiredArtwork();
       try {
-        const rows = await WalletService.listCardPresentations(context, { recoverArtwork: true });
+        const rows = await WalletService.listCardPresentations(context, { recoverArtwork: true, onArtworkRejected: references => {
+          // A known denial takes effect immediately, even if another card's
+          // image is still loading or the collection changed during this read.
+          if (disposed || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+          setCardSnapshot(previous => {
+            if (previous?.ownerId !== context.userId) return previous;
+            const artworks = { ...previous.artworks }, pendingArtworkIds = new Set(previous.pendingArtworkIds);
+            for (const reference of references) {
+              const current = artworks[reference.cardId];
+              // A read-only cleaned revision still depends on the persisted
+              // source approval. Its displayed digest differs from that source.
+              const capturedDisplay = current === before.artworks[reference.cardId];
+              const sameReference = current?.source === "catalog" && current.assetId === reference.assetId && current.digest === reference.digest;
+              if (current?.source !== "catalog" || (!capturedDisplay && !sameReference)) continue;
+              artworks[reference.cardId] = { source: "neutral", version: 1 }; pendingArtworkIds.delete(reference.cardId);
+            }
+            return { ...previous, artworks, pendingArtworkIds };
+          });
+        } });
         if (!isCurrent()) return;
-        setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set(), artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
+        setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set(), artworkExpiresAt: Date.now() + 60_000, artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
       } catch {
-        // Approval is unknown: settle the fallback rather than leave a permanent placeholder.
-        if (isCurrent()) setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set() } : previous);
+        // A failed check ends the lease immediately; never cache an approval.
+        if (isCurrent()) setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set(), artworkExpiresAt: 0, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
       }
       finally { inFlight = false; }
     };
@@ -574,7 +609,7 @@ export function WalletWorkspace() {
       consumedArtworkRetryRevision.current = artworkRetryRevision;
       resume();
     }
-    const timer = window.setInterval(resume, 60_000);
+    const timer = window.setInterval(resume, 45_000);
     window.addEventListener("focus", resume);
     document.addEventListener("visibilitychange", resume);
     return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
@@ -1064,22 +1099,32 @@ export function WalletWorkspace() {
                       if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
                       // A list request begun before this receipt cannot remove the new card.
                       cardReadRevision.current += 1;
+                      const priorSnapshot = cardSnapshotRef.current;
+                      const retryExpired = priorSnapshot?.ownerId === context.userId && priorSnapshot.cards.length > 0 && priorSnapshot.artworkExpiresAt <= Date.now();
                       setCardSnapshot((previous) => {
                         const owned = previous?.ownerId === context.userId ? previous : null;
+                        const now = Date.now(), expired = !owned || owned.artworkExpiresAt <= now;
                         const pendingArtworkIds = new Set(owned?.pendingArtworkIds);
+                        const artworks = { ...owned?.artworks };
+                        if (expired) for (const [id, artwork] of Object.entries(artworks)) {
+                          if (artwork?.source === "catalog") { artworks[id] = { source: "neutral", version: 1 }; pendingArtworkIds.add(id); }
+                        }
                         pendingArtworkIds.delete(saved.cardId);
                         if (saved.summary.brand !== "other" && (!saved.artwork || saved.artwork.source === "neutral")) pendingArtworkIds.add(saved.cardId);
                         return {
                           ownerId: context.userId,
                           cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
                           cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
-                          artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
+                          artworks: { ...artworks, [saved.cardId]: saved.artwork },
                           pendingArtworkIds,
+                          // A fresh save may start a lease after clearing expired
+                          // old images; it must never extend those old approvals.
+                          artworkExpiresAt: expired ? now + 60_000 : owned.artworkExpiresAt,
                         };
                       });
                       setSelectedDeckCardId(saved.cardId);
                       savedCardId = saved.cardId;
-                      retryArtwork = !saved.artwork || saved.artwork.source === "neutral";
+                      retryArtwork = !saved.artwork || saved.artwork.source === "neutral" || retryExpired;
                       if (activeOwnerIdRef.current === context.userId) {
                         trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
                       }

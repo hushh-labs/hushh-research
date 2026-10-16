@@ -581,6 +581,41 @@ describe("automatic network artwork saves", () => {
     await expect(WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true })).rejects.toThrow("Wallet changed");
   });
 
+  it("downloads different cards on one network together without allocating the same design", async () => {
+    const designs = await recoveryCatalog();
+    const pans = ["378282246310005", "371449635398431"];
+    mockLoadDomainData.mockResolvedValue({
+      summary: Object.fromEntries(pans.map((pan, i) => [`card_${i}`, { ...DOMAIN_DATA.summary[CARD_ID], brand: "amex", last4: pan.slice(-4), created_at: String(i) }])),
+      secrets: Object.fromEntries(pans.map((pan, i) => [`card_${i}`, { pan, cardholder_name: "Synthetic owner" }])),
+    });
+    const transport = networkApi.fetch.getMockImplementation()!;
+    const downloads: string[] = []; let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    networkApi.fetch.mockImplementation(async (url, options) => {
+      if (url.includes("/assets/")) { downloads.push(url); await gate; }
+      return transport(url, options);
+    });
+    const pending = WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true });
+    await vi.waitFor(() => expect(downloads).toHaveLength(2));
+    expect(new Set(downloads).size).toBe(2); finish();
+    expect((await pending).map(row => row.artwork?.source === "catalog" ? row.artwork.digest : null)).toEqual(designs.slice(0, 2).map(row => row.variant.digest));
+  });
+
+  it("reports a denied saved reference before unrelated recovery finishes", async () => {
+    const designs = await recoveryCatalog(), rejected = vi.fn();
+    const saved = { ...designs[0]!.variant, source: "catalog", version: 1, catalogVersion: "old-v1", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected", assetId: "withdrawn" };
+    mockLoadDomainData.mockResolvedValue({
+      summary: { old: { ...DOMAIN_DATA.summary[CARD_ID], brand: "amex" }, missing: { ...DOMAIN_DATA.summary[CARD_ID], brand: "amex" } },
+      secrets: { old: { pan: "378282246310005" }, missing: { pan: "371449635398431" } }, artwork: { old: saved },
+    });
+    const transport = networkApi.fetch.getMockImplementation()!;
+    let finish!: () => void; const gate = new Promise<void>(resolve => { finish = resolve; });
+    networkApi.fetch.mockImplementation(async (url, options) => { if (url.includes("/assets/")) await gate; return transport(url, options); });
+    const pending = WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true, onArtworkRejected: rejected });
+    await vi.waitFor(() => expect(rejected).toHaveBeenCalledWith([{ cardId: "old", assetId: "withdrawn", digest: saved.digest }]));
+    finish(); await pending;
+  });
+
   it("tries the next approved design when the first image fails integrity validation", async () => {
     const designs = await recoveryCatalog();
     mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, summary: { [CARD_ID]: { ...DOMAIN_DATA.summary[CARD_ID], brand: "amex" } } });

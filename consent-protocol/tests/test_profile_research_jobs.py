@@ -915,6 +915,11 @@ class ProviderDenied(Exception):
     status = "PERMISSION_DENIED"
 
 
+class ProviderThrottled(Exception):
+    code = 429
+    status = "RESOURCE_EXHAUSTED"
+
+
 class TurnFailed(RuntimeError):
     pass
 
@@ -947,6 +952,60 @@ def paused_with_evidence(now):
         "revision": 1,
         "fence": "seed",
     }
+
+
+@pytest.mark.asyncio
+async def test_pwm_repeated_429_waits_then_resumes_saved_work_without_new_hourly_starts(
+    monkeypatch,
+):
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls, cause=ProviderThrottled),
+        clock=lambda: now[0],
+    )
+    instance.store.rows["owner"] = paused_with_evidence(now[0])
+    original_job = instance.store.rows["owner"]["job_id"]
+    for failure in range(3):
+        assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+        await settle(instance)
+        row = instance.store.rows["owner"]
+        assert row["status"] == "unavailable"
+        assert row["result"]["reason"] == "provider_throttled"
+        assert row["job_id"] == original_job
+        assert row["work"] == {"attempts": {"1": {"state": "received"}}}
+        assert row["starts"] == [10_000.0 - 300]
+        assert row["attempted_combinations"][:2] == [1, 33]
+        assert len(row["attempted_combinations"]) == 3 + failure
+        assert (await instance.start("owner", "fixture-token"))["retry_after_s"] == 900
+        assert len(calls) == failure + 1
+        now[0] += jobs.PROVIDER_THROTTLE_COOLDOWN_SECONDS + 1
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_pwm_429_before_first_checkpoint_reuses_paid_start_without_work(monkeypatch):
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls, cause=ProviderThrottled),
+        clock=lambda: now[0],
+    )
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    first = instance.store.rows["owner"]
+    assert first["starts"] == [now[0]] and "work" not in first
+    now[0] += jobs.PROVIDER_THROTTLE_COOLDOWN_SECONDS + 1
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    second = instance.store.rows["owner"]
+    assert second["starts"] == [10_000.0]
+    assert second["job_id"] == first["job_id"]
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio
@@ -1100,11 +1159,15 @@ async def test_pwm_failure_is_reported_not_masked_as_pending_restart(monkeypatch
         "draft_id": draft_id,
     }
     cooling = {**failed, "retry_after_s": jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS}
-    assert await instance.status("owner", "fixture-token") == cooling
+    observed = await instance.status("owner", "fixture-token")
+    assert {key: observed[key] for key in cooling} == cooling
+    assert observed["validated_facts"] == [] and "progress" in observed
     # A second client inside the cooldown is told the outcome, not pending.
     assert await instance.start("owner", "fixture-token") == cooling
     now[0] += jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS + 1
-    assert await instance.status("owner", "fixture-token") == failed
+    observed = await instance.status("owner", "fixture-token")
+    assert {key: observed[key] for key in failed} == failed
+    assert observed["validated_facts"] == [] and "progress" in observed
     assert len(calls) == 1
     # A fresh owner request after the cooldown may still retry.
     assert (await instance.start("owner", "fixture-token"))["status"] == "pending"

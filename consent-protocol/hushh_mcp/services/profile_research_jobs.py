@@ -50,6 +50,7 @@ FAILURE_COOLDOWN_SECONDS = 60
 #: A provider that refuses credentials or billing refuses every owner: no run
 #: can succeed until the project is repaired, so retries wait much longer.
 PROVIDER_FAILURE_COOLDOWN_SECONDS = 900
+PROVIDER_THROTTLE_COOLDOWN_SECONDS = 900
 PROVIDER_BREAKER_FAILURES = 3
 PROVIDER_BREAKER_SECONDS = 600
 MAX_LOCAL_JOBS = 8
@@ -77,6 +78,11 @@ def provider_error(error: BaseException) -> tuple[int | None, str | None]:
 def provider_rejected(code: int | None, status: str | None) -> bool:
     """The provider refused the request before inference; no owner can fix it."""
     return code in {401, 403} or status in {"PERMISSION_DENIED", "UNAUTHENTICATED"}
+
+
+def provider_throttled(code: int | None, status: str | None) -> bool:
+    """A provider quota refusal is owner-retryable after a bounded wait."""
+    return code == 429 or status == "RESOURCE_EXHAUSTED"
 
 
 class ProviderBreaker:
@@ -222,6 +228,8 @@ class ProfileResearchJobs:
     def cooldown(state: dict[str, Any]) -> int:
         if state.get("result", {}).get("reason") == "provider_unavailable":
             return PROVIDER_FAILURE_COOLDOWN_SECONDS
+        if state.get("result", {}).get("reason") == "provider_throttled":
+            return PROVIDER_THROTTLE_COOLDOWN_SECONDS
         return FAILURE_COOLDOWN_SECONDS
 
     def reported(self, state: dict[str, Any]) -> dict[str, Any]:
@@ -351,8 +359,26 @@ class ProfileResearchJobs:
         if self.active >= MAX_LOCAL_JOBS:
             self.decision("start", "capacity_busy", None, state)
             raise RuntimeError("Discovery capacity is temporarily busy")
+        throttle_resume = bool(
+            self.progressive
+            and state
+            and same_context
+            and state.get("status") == "unavailable"
+            and state.get("result", {}).get("reason") == "provider_throttled"
+            and self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
+        )
+        if throttle_resume:
+            refused, binding = await self.check(user_id, consent_token)
+            if refused:
+                return refused
+            current = await self.store.get(user_id)
+            if current is None or any(
+                current.get(key) != state.get(key) for key in ("revision", "fence")
+            ):
+                return pending(restart=True)
+            throttle_resume = state.get("identity_binding") == binding
         starts = [at for at in (state or {}).get("starts", []) if at > self.clock() - 3600]
-        if len(starts) >= 3:
+        if len(starts) >= 3 and not throttle_resume:
             # Nothing is persisted for this refusal, so the only way the owner
             # learns how long to wait is here: a start is accepted again once
             # the oldest counted start ages out of the hour.
@@ -405,7 +431,7 @@ class ProfileResearchJobs:
         ):
             next_state["work"] = state.get("work", {})
             next_state["job_id"] = state["job_id"]
-            resumed = state["status"] in {"pending", "paused"}
+            resumed = state["status"] in {"pending", "paused"} or throttle_resume
         # Caller-supplied model inputs stay sealed with the job and carry across
         # resumes; they never change the reuse context above.
         carried = (state or {}).get("inputs") if inputs is None else inputs
@@ -433,7 +459,13 @@ class ProfileResearchJobs:
                     retained.__exit__(None, None, None)
 
             coroutine = self._run(
-                user_id, consent_token, next_state, revision, release_key, resumed=resumed
+                user_id,
+                consent_token,
+                next_state,
+                revision,
+                release_key,
+                resumed=resumed,
+                paid_start_reusable=throttle_resume,
             )
             try:
                 task = asyncio.create_task(coroutine, name="magic-discovery")
@@ -470,6 +502,7 @@ class ProfileResearchJobs:
         release_key: Callable[[], None],
         *,
         resumed: bool = False,
+        paid_start_reusable: bool = False,
     ) -> None:
         stage = "admission"
         began = time.monotonic()
@@ -501,7 +534,17 @@ class ProfileResearchJobs:
                     else:
                         # Charge only research, not setup/policy reads. Commit
                         # that charge before the provider call, under this lease.
-                        if not (self.progressive and resumed and state.get("work")):
+                        if not (
+                            self.progressive
+                            and resumed
+                            and (
+                                state.get("work")
+                                or (
+                                    paid_start_reusable
+                                    and state.get("resume_binding") == original_binding
+                                )
+                            )
+                        ):
                             charged_start = self.clock()
                             state = {**state, "starts": [*state["starts"], charged_start]}
                         charged = await self.store.write(user_id, state, revision)
@@ -593,6 +636,7 @@ class ProfileResearchJobs:
                     frame = frame.tb_next
                 provider_code, provider_status = provider_error(error)
                 rejected = provider_rejected(provider_code, provider_status)
+                throttled = provider_throttled(provider_code, provider_status)
                 refund: tuple[int, ...] = ()
                 if rejected:
                     self.breaker.record(self.clock())
@@ -615,7 +659,7 @@ class ProfileResearchJobs:
                         ],
                     }
                 logger.warning(
-                    "%sfailed stage=%s job=%s error_type=%s cause_type=%s cause_origin=%s provider_code=%s provider_status=%s provider_rejected=%s refunded=%s provider_failures=%s llm_calls=%s elapsed_ms=%s duration_ms=%s",
+                    "%sfailed stage=%s job=%s error_type=%s cause_type=%s cause_origin=%s provider_code=%s provider_status=%s provider_rejected=%s provider_throttled=%s refunded=%s provider_failures=%s llm_calls=%s elapsed_ms=%s duration_ms=%s",
                     self.log_event,
                     stage,
                     state.get("job_id"),
@@ -625,6 +669,7 @@ class ProfileResearchJobs:
                     provider_code,
                     provider_status,
                     rejected,
+                    throttled,
                     len(refund),
                     len(self.breaker.recent(self.clock())),
                     getattr(partial, "llm_calls", None),
@@ -634,6 +679,10 @@ class ProfileResearchJobs:
                 result = {"status": "unavailable", "pkm_written": False}
                 if rejected:
                     result["reason"] = "provider_unavailable"
+                elif throttled:
+                    # 429 may arrive after a partial response; keep every paid
+                    # provider slot unless the provider proved it did no work.
+                    result["reason"] = "provider_throttled"
             # Never persist token/key. A lost CAS means a new lease superseded
             # this run; discard the draft rather than overwriting its result.
             if self.review_ids and (

@@ -116,7 +116,7 @@ describe("Wallet video browser workspace", () => {
     vaultMock.locked = false;
     vaultMock.token = "owner_token";
     navigationMock.search = "";
-    serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
+    serviceMock.listCardSummaries.mockReset().mockResolvedValue(makeCards(2));
     serviceMock.deleteCard.mockResolvedValue(undefined);
     serviceMock.getCardSecurityCode.mockReset().mockResolvedValue("007");
     serviceMock.getCard.mockReset().mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242424242", cvv: "123", pin: "9876" } });
@@ -160,7 +160,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "New draft" } });
     await act(async () => finish(makeCards(3)));
     expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("Name on card", { exact: true })).toHaveValue("New draft");
+    expect(screen.getByLabelText("Name on card", { exact: true })).toHaveValue("NEW DRAFT");
     expect(screen.queryByText("Your cards could not be loaded. Please try again.")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(3));
@@ -169,29 +169,28 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(serviceMock.listCardSummaries.mock.calls.some(([context]) => context.vaultOwnerToken === "renewed_after_recovery")).toBe(true));
     expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
   });
-  it("shows decrypted cards while optional cold-load artwork recovery is still pending", async () => {
+  it("publishes the initial cards after the single artwork-aware read", async () => {
     let finish!: (cards: unknown[]) => void;
-    serviceMock.listCardSummaries.mockResolvedValueOnce(makeCards(2)).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await open();
-    expect(finish).toBeTypeOf("function");
-    expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
-    expect(screen.queryByText("Opening your wallet…")).toBeNull();
-    expect(document.querySelectorAll('[data-card-artwork="pending"]')).toHaveLength(2);
-    expect(document.querySelector('[data-card-artwork="neutral"]')).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    expect(screen.getByTestId("wallet-selected-card").querySelector('[data-card-artwork="pending"]')).not.toBeNull();
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.queryByTestId("wallet-card-browser")).toBeNull();
     await act(async () => finish(makeCards(2)));
+    expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
     expect(document.querySelector('[data-card-artwork="pending"]')).toBeNull();
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledWith(expect.any(Object), { recoverArtwork: true });
   });
-  it("settles the card fallback if background artwork recovery fails", async () => {
+  it("shows a retry after the initial private read fails", async () => {
     let fail!: (reason: Error) => void;
-    serviceMock.listCardSummaries.mockResolvedValueOnce(makeCards(2)).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
-    await open();
-    expect(document.querySelectorAll('[data-card-artwork="pending"]')).toHaveLength(2);
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(fail).toBeTypeOf("function"));
     await act(async () => fail(new Error("Artwork unavailable")));
-    expect(document.querySelector('[data-card-artwork="pending"]')).toBeNull();
-    expect(document.querySelectorAll('[data-card-artwork="neutral"]')).toHaveLength(2);
-    expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
+    expect(await screen.findByText("Your cards could not be loaded. Please try again.")).toBeVisible();
+    expect(screen.queryByTestId("wallet-card-browser")).toBeNull();
   });
   it("keeps a post-delete reload authoritative when focus starts artwork recovery", async () => {
     await open();
@@ -204,7 +203,7 @@ describe("Wallet video browser workspace", () => {
     const readsBeforeFocus = serviceMock.listCardSummaries.mock.calls.length;
     fireEvent.focus(window);
     await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(readsBeforeFocus + 1));
-    expect(serviceMock.listCardSummaries.mock.calls.at(-1)?.[1]).toEqual({ recoverArtwork: true });
+    expect(serviceMock.listCardSummaries.mock.calls.at(-1)?.[1]).toMatchObject({ recoverArtwork: true });
     await act(async () => {});
     await act(async () => finishReload([{ ...makeCards(2)[1]!, nickname: "Updated card" }]));
     expect(await screen.findByRole("button", { name: "Open Updated card, ending 1001" })).toBeVisible();

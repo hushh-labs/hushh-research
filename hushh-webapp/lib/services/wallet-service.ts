@@ -122,6 +122,7 @@ export interface WalletCardPresentation {
   cardholderName: string;
   artwork?: WalletCardArtwork;
 }
+export interface WalletArtworkRejection { cardId: string; assetId: string; digest: string }
 
 interface VaultContextParams {
   userId: string;
@@ -162,12 +163,12 @@ function summariesFromDomain(data: Record<string, unknown> | null): WalletCardSu
 }
 
 /** Allocation uses the current decrypted snapshot, including after a CAS conflict. */
-function chooseUnusedWalletArtwork(data: Record<string, unknown> | null, inputPan: string, candidates: readonly WalletArtworkVariant[]): WalletArtworkVariant | null {
+function chooseUnusedWalletArtwork(data: Record<string, unknown> | null, inputPan: string, candidates: readonly WalletArtworkVariant[], reserved?: ReadonlyMap<string, number>): WalletArtworkVariant | null {
   const sorted = [...candidates].sort((a, b) => a.assetId.localeCompare(b.assetId));
   const seen = new Set<string>();
   const unique = sorted.filter(row => { if (seen.has(row.digest)) return false; seen.add(row.digest); return true; });
   if (!unique.length) return null;
-  const counts = new Map(unique.map(row => [row.digest, 0]));
+  const counts = new Map(unique.map(row => [row.digest, reserved?.get(row.digest) ?? 0]));
   const artwork = isRecord(data?.artwork) ? data.artwork : {}, secrets = isRecord(data?.secrets) ? data.secrets : {};
   const pan = normalizePan(inputPan);
   for (const [cardId, record] of Object.entries(artwork)) {
@@ -441,7 +442,7 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
-    options?: { recoverArtwork?: boolean },
+    options?: { recoverArtwork?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
@@ -466,11 +467,22 @@ export class WalletService {
     catalogCards.forEach(row => { row.artwork = { source: "neutral", version: 1 }; });
     if (catalogCards.length || recoverable.length) await artworkDeadline(undefined, async signal => {
       const assertDisplayCurrent = networkSessionGuard(params, signal);
+      const downloads = new Set<Promise<void>>();
+      const readImage = async (variant: WalletArtworkVariant, version: string) => {
+        while (downloads.size >= 4) await Promise.race(downloads);
+        assertDisplayCurrent();
+        const operation = this.readCatalogArtwork(params, variant, version, signal);
+        const settled = operation.then(() => {}, () => {});
+        downloads.add(settled);
+        try { return await operation; } finally { downloads.delete(settled); }
+      };
       const validateSaved = async () => {
         for (let offset = 0; offset < catalogCards.length; offset += 24) {
           const batch = savedReferences.slice(offset, offset + 24);
           const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(() => []);
           assertDisplayCurrent();
+          const rejected = batch.flatMap((artwork, index) => !approvals[index]?.approved ? [{ cardId: catalogCards[offset + index]!.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }] : []);
+          if (rejected.length) options?.onArtworkRejected?.(rejected);
           let next = 0;
           const refreshSaved = async () => {
             while (next < batch.length) {
@@ -483,14 +495,14 @@ export class WalletService {
               }
               try {
                 const { variant, catalogVersion } = approval.replacement;
-                const cleaned = await this.readCatalogArtwork(params, variant, catalogVersion, signal);
+                const cleaned = await readImage(variant, catalogVersion);
                 // Both ends must still be approved after the binary read. A
                 // withdrawn source may never authorize a replacement display.
                 const final = (await this.validateArtworkReferences(params, [artwork], signal, "saved"))[0];
                 assertDisplayCurrent();
                 if (final?.approved && final.replacement?.catalogVersion === catalogVersion && final.replacement.variant.assetId === variant.assetId && final.replacement.variant.digest === variant.digest) {
                   row.artwork = { ...cleaned, allowOverlay: final.replacement.variant.allowOverlay, evidence: artwork.evidence };
-                }
+                } else options?.onArtworkRejected?.([{ cardId: row.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }]);
               } catch { assertDisplayCurrent(); }
             }
           };
@@ -508,31 +520,50 @@ export class WalletService {
           try {
             const catalog = await this.networkArtwork(params, network, signal);
             const unavailable = new Set<string>();
-            const images = new Map<string, Extract<WalletCardArtwork, { source: "catalog" }>>();
-            for (const row of recoverable.filter(card => card.summary.brand === network)) {
+            const images = new Map<string, Promise<Extract<WalletCardArtwork, { source: "catalog" }>>>();
+            const reserved = new Map<string, number>();
+            await Promise.all(recoverable.filter(card => card.summary.brand === network).map(async row => {
               assertDisplayCurrent();
               const secret = secrets[row.summary.cardId];
               const pan = isRecord(secret) ? normalizePan(String(secret.pan ?? "")) : "";
-              if (!/^[0-9]{13,19}$/.test(pan)) continue;
+              if (!/^[0-9]{13,19}$/.test(pan)) return;
               while (!signal.aborted) {
-                const candidate = chooseUnusedWalletArtwork(allocation, pan, catalog.variants.filter(variant => !unavailable.has(variant.digest)));
+                const candidate = chooseUnusedWalletArtwork(allocation, pan, catalog.variants.filter(variant => !unavailable.has(variant.digest)), reserved);
                 if (!candidate) break;
+                reserved.set(candidate.digest, (reserved.get(candidate.digest) ?? 0) + 1);
                 try {
-                  const artwork = images.get(candidate.digest) ?? { ...await this.readCatalogArtwork(params, candidate, catalog.catalogVersion, signal), evidence: "network_assigned" as const };
+                  let image = images.get(candidate.digest);
+                  if (!image) {
+                    image = readImage(candidate, catalog.catalogVersion).then(artwork => ({ ...artwork, evidence: "network_assigned" as const }));
+                    images.set(candidate.digest, image);
+                  }
+                  const artwork = await image;
                   assertDisplayCurrent();
-                  images.set(candidate.digest, artwork);
                   allocation.artwork[row.summary.cardId] = artwork;
                   row.artwork = artwork;
                   break;
                 } catch { assertDisplayCurrent(); unavailable.add(candidate.digest); }
+                finally { reserved.set(candidate.digest, (reserved.get(candidate.digest) ?? 1) - 1); }
               }
-            }
+            }));
           } catch { assertDisplayCurrent(); }
         }
       };
       // At most four concurrent downloads, under one total deadline.
-      await validateSaved();
-      await Promise.all(Array.from({ length: Math.min(4, networks.length) }, recoverNetwork));
+      await Promise.all([validateSaved(), ...Array.from({ length: Math.min(4, networks.length) }, recoverNetwork)]);
+      // Decode approved originals before the first card paint. Browser decoding
+      // overlaps the remaining hydration instead of starting after a gray face mounts.
+      if (typeof Image !== "undefined" && typeof Image.prototype.decode === "function") {
+        const images = [...new Set(presentations.flatMap(row => row.artwork?.source === "catalog" ? [row.artwork.image] : []))];
+        await Promise.all(images.map(async source => {
+          assertDisplayCurrent();
+          const image = new Image();
+          const cancel = () => { image.src = ""; };
+          signal.addEventListener("abort", cancel, { once: true });
+          try { image.src = source; await image.decode().catch(() => {}); assertDisplayCurrent(); }
+          finally { signal.removeEventListener("abort", cancel); }
+        }));
+      }
     }).catch(() => { assertCurrent(); });
     assertCurrent();
     return presentations;

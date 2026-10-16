@@ -20,7 +20,7 @@ const fixture = vi.hoisted(() => {
     captureReady: false,
     nameOnboarding: false,
     auth: { user, loading: false, sessionVerificationRequired: false },
-    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: () => "test-owner-token" },
+    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => "test-owner-token" },
     persona: { activePersona: "investor", primaryNavPersona: "investor", personaTransitionTarget: null, riaSetupAvailable: false, riaSwitchAvailable: false, riaOnboardingStatus: null, switchPersona: vi.fn() },
     onboarding: { turns: [], shownTurns: new Map(), shownTurnTimes: new Map(), captureComposerText: () => false, dailyTip: null },
     memory: { text: "", domains: [], totalAttributes: 0, updatedAt: null },
@@ -89,6 +89,27 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOw
 function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
 }
+
+it.each(["Create new chat", "Start new chat"])("allows %s to reset a locked-vault draft without reading saved history", async entry => {
+  fixture.vault.isVaultUnlocked = false;
+  Object.assign(fixture.vault, { vaultKey: null, vaultOwnerToken: null });
+  vi.spyOn(fixture.vault, "getVaultOwnerToken").mockReturnValue(null);
+  try {
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "A fresh question 👋" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+    const create = await screen.findByRole("button", { name: entry });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Close chat history" })).not.toBeInTheDocument());
+    expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("");
+    expect(ApiService.listAgentChatConversations).not.toHaveBeenCalled();
+    expect(ApiService.getAgentChatHistory).not.toHaveBeenCalled();
+  } finally {
+    Object.assign(fixture.vault, { vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token" });
+  }
+}, 15_000);
 
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
   it.each(["completed", "failed"] as const)("applies a semantic onboarding name only after a %s stream", async outcome => {

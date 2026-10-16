@@ -182,6 +182,11 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert "FROM grouped WHERE" in sql
     assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
     assert "LIMIT :page_size" in sql
+    assert "COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial')" in sql
+    assert (
+        "COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial')"
+        in service._db.raw_calls[-1][0]
+    )
     assert service._db.raw_calls[-1][1] == {"user_id": "user-1"}
 
 

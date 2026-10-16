@@ -201,11 +201,16 @@ New selection (`purpose: selection`, default) requires current catalog version,
 selectable state and complete source. Existing display (`purpose: saved`) keeps
 the immutable asset/product/variant/digest pinned across unrelated catalog
 changes, while still requiring current approval, rights and grant. Revocation
-and provider removal override both modes. Wallet clears catalog presentations
-while rechecking approval on focus/visibility resume and every visible 60 seconds.
-There is no push revocation claim; an already displayed card can remain visible
-within that bounded interval. Failed approval rechecks use neutral presentation.
-The same bounded display-status check applies to open picker tiles and selected
+and provider removal override both modes. Saved Wallet faces use an in-memory
+display approval lasting at most 60 seconds in the current unlocked owner
+snapshot. Focus/visibility resume rechecks approval, and a visible 45-second
+timer refreshes it before expiry. Currently approved pixels remain visible
+during that refresh; an expired approval hides them even if the request stalls.
+A denied or failed recheck immediately uses neutral presentation. Cold loads
+perform one recovery read and decode approved pixels before publishing faces.
+Neither approvals nor image bytes are persisted in a new browser cache; image
+transport remains `private, no-store`. There is no push revocation claim.
+The existing immediate-hide display-status check applies to open picker tiles and selected
 Add/editor previews. It hides imagery while approval is unknown, preserves the
 owner's chosen reference, and never creates a persistence approval. Photo
 artwork is unaffected. Owner/epoch/reference changes cancel stale display checks.
