@@ -372,4 +372,24 @@ describe("semantic name assessment and encrypted write boundary", () => {
     await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("focus"));
     expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(2);
   });
+
+  it("does not claim nothing was stored when navigation changes after dispatch", async () => {
+    pending();
+    let current = true;
+    let finishWrite!: (value: never) => void;
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(async params => {
+      await params.beforeEffect?.();
+      return new Promise(resolve => { finishWrite = resolve; });
+    });
+    const turn = beginChatOnboardingNameTurn({ ...host, isCurrent: () => current })!;
+    turn.stage(answer(turn), "call");
+    turn.finish(true);
+    await waitFor(() => expect(finishWrite).toBeTypeOf("function"));
+    current = false;
+    finishWrite({ success: true, saveState: "saved", fullBlob: {} } as never);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("name_save_failed"));
+    const text = useChatOnboardingSession.getState().machine!.turns.at(-1)!.text;
+    expect(text).toContain("couldn't confirm");
+    expect(text).not.toContain("nothing was stored");
+  });
 });

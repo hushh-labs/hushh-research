@@ -292,7 +292,9 @@ export function reduceChatOnboarding(
         { ...state, step: state.step === "saving_name" ? "name_save_failed" : "save_failed" },
         {
           role: "assistant",
-          text: SAVE_FAILED_TEXT,
+          text: state.step === "saving_name"
+            ? "I couldn't confirm your name was saved. Try again, or tell me later."
+            : SAVE_FAILED_TEXT,
           anchor: event.anchor,
           chips: [
             { id: "retry_save", label: "Try again" },
