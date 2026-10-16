@@ -230,6 +230,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     first_delete_offset = executed_sql.index("DELETE FROM")
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
+        "DELETE FROM email_auth_challenges",
+        "DELETE FROM email_auth_enrollments",
         "DELETE FROM contact_sync_lookup_budgets",
         "DELETE FROM account_legal_acceptances",
         "DELETE FROM kai_gmail_receipts",
