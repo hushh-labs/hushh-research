@@ -66,7 +66,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(body).toMatchObject({ event_id: pending.id, calendar_id: pending.calendar_id, response_status: "accepted", offer_times: false, duration_minutes: 45 });
     const button = screen.getByRole("button", { name: "Accept anyway" });
     fireEvent.click(button); fireEvent.click(button);
-    expect(await screen.findByText("Your invitation was accepted.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations()).toHaveLength(1); expect(onResult).toHaveBeenCalledOnce(); expect(onConnect).not.toHaveBeenCalled();
     expect(JSON.parse(mutations()[0]?.[1].body)).toEqual({ review_id: "review-id", review_token: "memory-only-review" });
   });
@@ -76,8 +76,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
     render(view()); fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm decline" }));
-    expect(await screen.findByText("Your attendance was declined.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Invitations", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
     expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();

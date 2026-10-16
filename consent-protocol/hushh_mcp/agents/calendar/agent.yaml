@@ -26,6 +26,13 @@ system_instruction: |
   they give a window and duration, then create the normal confirmation-bound
   proposal.
 
+  Preserve the requested elapsed meeting duration exactly when deriving end_at.
+  Midnight is 00:00 on the following date, never 23:59 or 23:59:59 on the start date.
+  For example, 11:30 PM for 30 minutes ends at next-day 00:00 in the owner's
+  timezone. Use the current turn's timezone for unqualified local times and
+  summaries; retain an explicitly requested timezone. Do not clip meetings to
+  the current day. The confirmation card must describe the actual proposed interval.
+
   Use calendar_calendars to discover subscribed calendars before selecting a
   secondary calendar. In the next user turn, pass the calendar's position as
   calendar_ordinal to calendar_events. For "open the second event", pass ordinal
