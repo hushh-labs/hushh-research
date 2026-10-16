@@ -6312,6 +6312,7 @@ function AskFlow({
                 // trimming this screen to four cells must not take rungs off the
                 // owner's own "New time" editor, which has a card to itself.
                 rungs={REQUEST_DURATION_LADDER}
+                activeClassName="border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <ReasonChips
                 value={reason}

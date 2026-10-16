@@ -128,7 +128,7 @@ export function DurationSelector({
   /** `select` only: height and radius overrides for the trigger. */
   selectClassName?: string;
   /**
-   * `buttons` only. Overrides the selected-option border/background/text
+   * `buttons` and `ladder`. Overrides the selected-option border/background/text
    * classes for this one call site, leaving every other caller's default
    * `--app-accent` look untouched.
    */
@@ -180,6 +180,7 @@ export function DurationSelector({
           centered={centered}
           compact={compact}
           labelledBy={label ? labelId : undefined}
+          activeClassName={activeClassName}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
       ) : presentation === "wheel" ? (
