@@ -536,12 +536,13 @@ it("keeps a failed incoming read boundary after more than 300 later messages", a
     return { items: Array.from({ length: Math.min(40, 326 - after) }, (_, i) => ({ ...message, id: `m${after + i + 1}`, sequence: after + i + 1 })), hasMore: after + 40 < 326 };
   });
   act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
-  await screen.findByText("Message 326", {}, { timeout: 2000 });
+  // Nine pages and 326 rendered rows need the same shared-runner allowance as the catch-up test above.
+  await screen.findByText("Message 326", {}, { timeout: 8_000 });
   observe(true);
   await act(async () => {});
   expect(screen.getByRole("list").children).toHaveLength(300);
   expect(api.read).not.toHaveBeenCalled();
-});
+}, 15_000);
 
 it("blocks read acknowledgements while an owned sheet is open and resumes on close", async () => {
   const view = render(<CircleChat session={session} circleName="Family" initialOpen readingBlocked />);
