@@ -141,6 +141,8 @@ class ArtworkAsset(BaseModel):
     height: int | None = Field(default=None, ge=1, le=2048)
     approved_until: AwareDatetime | None = None
     selectable: bool = True
+    # Explicit reviewed local-art revision, never inferred from bank/network.
+    replacement_asset_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,100}$")
 
     @model_validator(mode="after")
     def imported_asset_requires_review(self):
@@ -179,6 +181,31 @@ class ArtworkCatalog(BaseModel):
     assets: list[ArtworkAsset] = Field(max_length=10000)
     metadata_bindings: list[ArtworkMetadataBinding] = Field(default_factory=list, max_length=10000)
     provider_states: dict[str, ArtworkProviderState] = Field(default_factory=dict, max_length=20)
+
+    @model_validator(mode="after")
+    def reviewed_replacements(self):
+        assets = {asset.asset_id: asset for asset in self.assets}
+        for source in self.assets:
+            if not source.replacement_asset_id:
+                continue
+            target = assets.get(source.replacement_asset_id)
+            if (
+                not target
+                or target is source
+                or source.selectable
+                or target.replacement_asset_id
+                or source.provider_id is not None
+                or target.provider_id is not None
+                or not source.bank_design
+                or not target.bank_design
+                or source.digest == target.digest
+                or any(
+                    getattr(source, field) != getattr(target, field)
+                    for field in ("issuer_id", "product_id", "variant_id", "network", "country")
+                )
+            ):
+                raise ValueError("invalid_artwork_replacement")
+        return self
 
 
 def load_catalog(
@@ -422,11 +449,19 @@ def validate_artwork_selections(
             and selection["productId"] == asset.product_id
             and selection["variantId"] == asset.variant_id
         )
-        results.append(
-            {
-                "assetId": selection["assetId"],
-                "approved": approved,
-                "allowOverlay": asset.allow_overlay if approved else False,
-            }
-        )
+        result = {
+            "assetId": selection["assetId"],
+            "approved": approved,
+            "allowOverlay": asset.allow_overlay if approved else False,
+        }
+        if approved and purpose == "saved" and asset.replacement_asset_id:
+            replacement = assets.get(asset.replacement_asset_id)
+            if replacement and replacement.selectable and selection_ready(catalog, replacement):
+                result["replacement"] = {
+                    "catalogVersion": catalog.version,
+                    "variant": artwork_variant(replacement),
+                }
+            else:
+                result.update(approved=False, allowOverlay=False)
+        results.append(result)
     return results

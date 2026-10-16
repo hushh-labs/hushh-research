@@ -9,8 +9,10 @@ import { productFontStyle, stripAppFontFaces, awaitProductFont } from "./fixture
 let server: Server, origin: string, card: Buffer, record: Record<string, any> | null = null;
 const wire: string[] = [];
 let artworkMode: "unknown" | "ambiguous" | "exact" | "outage" | "revoked" = "unknown";
-let approvedArt: { bytes: Buffer; variant: Record<string, unknown>; mime?: string; network?: string }[] = [];
+let approvedArt: { bytes: Buffer; variant: Record<string, unknown>; mime?: string; network?: string; selectable?: boolean; replacementId?: string; historical?: boolean }[] = [];
 let atlasArt: typeof approvedArt = [], bankMode = false, atlasVersion = "";
+let atlasRevision: "previous" | "current" = "current";
+let focusedArtworkId: string | null = null;
 test.beforeAll(async () => {
   const root = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), "wallet-full-flow-"));
   const { build } = await import("vite"), { Scanner } = await import("@tailwindcss/oxide"), { compile } = await import("tailwindcss");
@@ -19,7 +21,7 @@ test.beforeAll(async () => {
   const atlasRoot = path.join(root, "../consent-protocol/hushh_mcp/resources/wallet-artwork");
   const atlas = JSON.parse(fs.readFileSync(path.join(atlasRoot, "catalog.json"), "utf8"));
   atlasVersion = atlas.version;
-  atlasArt = atlas.assets.map((row: any) => ({ network: row.network, mime: row.mime, bytes: fs.readFileSync(path.join(atlasRoot, "assets", row.digest + ".webp")), variant: { assetId: row.asset_id, issuerId: row.issuer_id, productId: row.product_id, variantId: row.variant_id, label: row.label, issuerName: row.issuer_name, productName: row.product_name, variantName: row.variant_name, country: row.country, digest: row.digest, allowOverlay: false, image: `/api/one/wallet/card-access/artwork/assets/${row.digest}` } }));
+  atlasArt = atlas.assets.map((row: any) => ({ network: row.network, mime: row.mime, selectable: row.selectable !== false, historical: !row.asset_id.endsWith("-clean-v2"), replacementId: row.replacement_asset_id, bytes: fs.readFileSync(path.join(atlasRoot, "assets", row.digest + ".webp")), variant: { assetId: row.asset_id, issuerId: row.issuer_id, productId: row.product_id, variantId: row.variant_id, label: row.label, issuerName: row.issuer_name, productName: row.product_name, variantName: row.variant_name, country: row.country, digest: row.digest, allowOverlay: row.allow_overlay, image: `/api/one/wallet/card-access/artwork/assets/${row.digest}`, replaces: atlas.assets.filter((old: any) => old.replacement_asset_id === row.asset_id).map((old: any) => ({ assetId: old.asset_id, digest: old.digest })) } }));
   card = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="756"><rect width="1200" height="756" fill="#dbe8f8"/><g font-family="Arial" font-size="54" fill="#101827"><text x="80" y="135">SYNTHETIC CARD</text><text x="80" y="350">4242 4242 4242 4242</text><text x="80" y="480">VALID THRU 12/30</text><text x="80" y="630">ALEX SAMPLE</text></g></svg>')).png().toBuffer();
   // Owned blank test pixels; no bank branding, sample PAN or issuer coverage.
   approvedArt = await Promise.all([{ name: "Blue", width: 856, height: 540, color: "#223852" }, { name: "Gold", width: 540, height: 856, color: "#9a773e" }].map(async (design, index) => {
@@ -63,15 +65,23 @@ test.beforeAll(async () => {
         if (req.headers.authorization !== "Bearer synthetic-test-token" || req.headers["x-hushh-consent"] !== "synthetic-owner-token") { res.statusCode = 403; json({ error: "Unavailable" }); return; }
         const input = JSON.parse(body);
         if (artworkMode === "outage") { res.statusCode = 503; json({ error: "Unavailable" }); return; }
-        const variants = bankMode ? atlasArt.filter(row => row.network === input.network).map(row => row.variant) : artworkMode === "ambiguous" || artworkMode === "exact" ? approvedArt.map(row => row.variant) : [];
-        json({ catalogVersion: bankMode ? atlasVersion : "owned-1", network: input.network, selectionBasis: "network_illustration", requiresConfirmation: false, bankKey: null, banks: [], variants: variants.slice(input.offset, input.offset + 24), nextOffset: variants.length > input.offset + 24 ? input.offset + 24 : null }); return;
+        const variants = bankMode ? atlasArt.filter(row => row.network === input.network && (!focusedArtworkId || row.variant.assetId === focusedArtworkId) && (atlasRevision === "previous" ? row.historical : row.selectable)).map(row => atlasRevision === "previous" ? { ...row.variant, allowOverlay: false, replaces: [] } : row.variant) : artworkMode === "ambiguous" || artworkMode === "exact" ? approvedArt.map(row => row.variant) : [];
+        json({ catalogVersion: bankMode ? atlasRevision === "previous" ? "atlas-adapted-20261015-v1" : atlasVersion : "owned-1", network: input.network, selectionBasis: "network_illustration", requiresConfirmation: false, bankKey: null, banks: [], variants: variants.slice(input.offset, input.offset + 24), nextOffset: variants.length > input.offset + 24 ? input.offset + 24 : null }); return;
       }
 
       if (url.endsWith("/artwork/resolve")) {
         if (artworkMode === "outage") { res.statusCode = 503; json({ error: "Unavailable" }); return; }
         json({ match: artworkMode === "exact" ? "exact" : artworkMode === "ambiguous" ? "ambiguous" : "unknown", provider: artworkMode === "unknown" ? "unconfigured" : "configured", issuerId: "owned-test-bank", catalogVersion: "owned-1", variants: artworkMode === "exact" ? [approvedArt[0]!.variant] : artworkMode === "ambiguous" ? approvedArt.map(row => row.variant) : [] }); return;
       }
-      if (url.endsWith("/artwork/validate")) { json({ selections: JSON.parse(body).selections.map((selection: { assetId: string }) => ({ assetId: selection.assetId, approved: artworkMode !== "revoked", allowOverlay: false })) }); return; }
+      if (url.endsWith("/artwork/validate")) {
+        const input = JSON.parse(body);
+        json({ selections: input.selections.map((selection: Record<string, string>) => {
+          const asset = (bankMode ? atlasArt : approvedArt).find(row => row.variant.assetId === selection.assetId);
+          const target = bankMode && atlasRevision === "current" && input.purpose === "saved" ? atlasArt.find(row => row.variant.assetId === asset?.replacementId) : undefined;
+          const approved = Boolean(asset && artworkMode !== "revoked" && ["digest", "issuerId", "productId", "variantId"].every(key => asset.variant[key] === selection[key]) && (input.purpose === "saved" || !bankMode || (atlasRevision === "previous" ? asset.historical : asset.selectable)));
+          return { assetId: selection.assetId, approved, allowOverlay: approved && (atlasRevision !== "previous" || !bankMode) && asset!.variant.allowOverlay === true, ...(approved && target ? { replacement: { catalogVersion: atlasVersion, variant: target.variant } } : {}) };
+        }) }); return;
+      }
     }
     if (url.endsWith("/networks")) { json({ networks: ["visa", "mastercard", "amex", "rupay", "discover", "diners", "other"] }); return; }
     const file = url === "/wallet/card-scan-worker.js" ? path.join(root, "public/wallet/card-scan-worker.js") : url.startsWith("/vendor/wallet-ocr/") ? path.join(root, "public/vendor/wallet-ocr", path.basename(url)) : url.startsWith("/wallet/") ? path.join(root, "public/wallet", path.basename(url)) : null;
@@ -195,9 +205,9 @@ const networkPans: Record<string, [string, string]> = {
   Discover: ["6011111111111117", "6011000990139424"],
   RuPay: ["6080018765432101", "6080010000000009"],
 };
-async function addNetworkCard(page: import("@playwright/test").Page, network: string, pan: string) {
+async function addNetworkCard(page: import("@playwright/test").Page, network: string, pan: string, holder = "SYNTHETIC OWNER") {
   await page.getByLabel("Card number", { exact: true }).fill(pan);
-  await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
+  await page.getByLabel("Name on card", { exact: true }).fill(holder);
   await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
   await page.getByTestId("secure-card-network-select").click();
   await page.getByRole("option", { name: network, exact: true }).click();
@@ -207,15 +217,36 @@ async function addNetworkCard(page: import("@playwright/test").Page, network: st
   await expect(page.getByRole("region", { name: "Cards", exact: true })).toBeVisible();
 }
 
-for (const width of [390, 1440]) for (const [network, pans] of Object.entries(networkPans)) test(`atlas ${network} designs rotate automatically and persist at ${width}px`, async ({ page }, testInfo) => {
+async function expectEmbeddedDetails(page: import("@playwright/test").Page) {
+  for (const face of await page.locator('[data-card-artwork="catalog"]').all()) {
+    await expect(face).toHaveAttribute("data-artwork-ready", "true");
+    await expect(face.locator("img")).toBeVisible();
+    const geometry = await face.evaluate(el => {
+      const bounds = el.getBoundingClientRect(), plane = el.querySelector('[data-slot="wallet-card-artwork-plane"]')!.getBoundingClientRect();
+      const fields = [...el.querySelectorAll('[data-slot="wallet-card-number"] > [aria-hidden], [data-slot="wallet-card-holder"], [data-slot="wallet-card-expiry"]')].map(field => field.getBoundingClientRect());
+      const holder = el.querySelector('[data-slot="wallet-card-holder"]')!.getBoundingClientRect(), expiry = el.querySelector('[data-slot="wallet-card-expiry"]')!.getBoundingClientRect();
+      const details = el.querySelector('[data-slot="wallet-card-embedded-details"]')!.getBoundingClientRect();
+      return { ratio: bounds.width / bounds.height, planeWidth: plane.width, width: bounds.width, contained: fields.every(field => field.left >= plane.left - 1 && field.right <= plane.right + 1 && field.top >= plane.top - 1 && field.bottom <= plane.bottom + 1), separated: holder.right < expiry.left, brandingReserved: details.right <= bounds.left + bounds.width * 0.71 };
+    });
+    expect(geometry.ratio).toBeCloseTo(85.6 / 53.98, 2);
+    expect(Math.abs(geometry.planeWidth - geometry.width)).toBeLessThan(3);
+    expect(geometry.contained).toBe(true); expect(geometry.separated).toBe(true); expect(geometry.brandingReserved).toBe(true);
+    await expect(face.locator('[data-slot="wallet-card-holder"]')).toContainText("SYNTHETIC OWNER");
+    await expect(face.locator('[data-slot="wallet-card-expiry"]')).toContainText("12/30");
+  }
+}
+
+for (const width of [320, 390, 1440]) for (const [network, pans] of Object.entries(networkPans)) test(`atlas ${network} designs rotate automatically and persist at ${width}px`, async ({ page }, testInfo) => {
   record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true;
   try {
     await page.setViewportSize({ width, height: width > 800 ? 1300 : 1000 }); await page.goto(origin); await awaitProductFont(page);
     const add = async (pan: string) => {
-      await addNetworkCard(page, network, pan);
+      await addNetworkCard(page, network, pan, width === 320 ? "SYNTHETIC OWNER WITH A VERY LONG FULL NAME" : "SYNTHETIC OWNER");
       const faces = page.locator('[data-card-artwork="catalog"]');
       const digests = await faces.evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
       for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      await expectEmbeddedDetails(page);
+      for (const pan of pans) expect(await page.getByRole("region", { name: "Cards", exact: true }).innerText()).not.toContain(pan);
       return digests.at(-1)!;
     };
     const first = await add(pans[0]);
@@ -231,6 +262,52 @@ for (const width of [390, 1440]) for (const [network, pans] of Object.entries(ne
     expect(wire.every(body => pans.every(pan => !body.includes(pan)))).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`atlas-${network}-two-cards-${width}.png`), fullPage: true });
   } finally { bankMode = false; }
+});
+
+for (const width of [320, 390]) test(`embedded details reserve fixed card branding at ${width}px`, async ({ page }) => {
+  record = null; artworkMode = "unknown"; bankMode = true;
+  try {
+    await page.setViewportSize({ width, height: 1000 }); await page.goto(origin);
+    for (const [index, id] of ["atlas-085", "atlas-056", "atlas-057"].entries()) {
+      if (index) await page.getByRole("button", { name: "Add another card", exact: true }).click();
+      focusedArtworkId = id;
+      await addNetworkCard(page, index ? "RuPay" : "Discover", index ? networkPans.RuPay![index === 1 ? 0 : 1] : networkPans.Discover![0]);
+      await expectEmbeddedDetails(page);
+      const geometry = await page.getByTestId("wallet-card-face").last().evaluate(el => {
+        const face = el.getBoundingClientRect(), details = el.querySelector('[data-slot="wallet-card-embedded-details"]')!.getBoundingClientRect();
+        return { bottom: (details.bottom - face.top) / face.height, right: (details.right - face.left) / face.width };
+      });
+      expect(geometry.bottom).toBeLessThan(index ? 0.86 : 0.73);
+      if (!index) expect(geometry.right).toBeLessThan(0.51);
+    }
+  } finally { focusedArtworkId = null; bankMode = false; }
+});
+
+for (const network of ["American Express", "RuPay"]) test(`saved ${network} blurred or portrait artwork adopts the clean landscape revision without rewriting the vault`, async ({ page }) => {
+  record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true; atlasRevision = "previous";
+  try {
+    await page.setViewportSize({ width: 390, height: 1000 }); await page.goto(origin);
+    for (const [index, pan] of networkPans[network]!.entries()) {
+      if (index) await page.getByRole("button", { name: "Add another card", exact: true }).click();
+      await addNetworkCard(page, network, pan);
+    }
+    const old = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
+    const saved = JSON.stringify(record);
+    atlasRevision = "current"; await page.reload(); await awaitProductFont(page);
+    await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(2);
+    await expectEmbeddedDetails(page);
+    const current = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
+    expect(old.some(digest => atlasArt.find(row => row.variant.digest === digest)?.replacementId)).toBe(true);
+    for (const [index, digest] of old.entries()) {
+      const replacement = atlasArt.find(row => row.variant.digest === digest)!.replacementId;
+      expect(current[index]).toBe(replacement ? atlasArt.find(row => row.variant.assetId === replacement)!.variant.digest : digest);
+    }
+    expect(JSON.stringify(record)).toBe(saved);
+    await page.getByRole("button", { name: "Add another card", exact: true }).click();
+    await addNetworkCard(page, network, networkPans[network]![0]);
+    const repeated = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
+    expect(repeated.at(-1)).toBe(current[0]);
+  } finally { bankMode = false; atlasRevision = "current"; }
 });
 
 for (const network of ["American Express", "Discover", "RuPay"]) test(`legacy ${network} blue cards recover original atlas images without rewriting the vault`, async ({ page }, testInfo) => {

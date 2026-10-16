@@ -282,6 +282,7 @@ export function WalletWorkspace() {
     cards: WalletCardSummary[];
     cardholderNames: Record<string, string>;
     artworks: Record<string, WalletCardArtwork | undefined>;
+    pendingArtworkIds: ReadonlySet<string>;
   } | null>(null);
   const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
   const cardSnapshotRef = useRef(cardSnapshot);
@@ -492,6 +493,7 @@ export function WalletWorkspace() {
           cards: summaries,
           cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
           artworks: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.artwork])),
+          pendingArtworkIds: new Set(presentations.filter(card => card.summary.brand !== "other" && (!card.artwork || card.artwork.source === "neutral")).map(card => card.summary.cardId)),
         });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
         // Optional network images must not hold otherwise readable cards behind a loader.
@@ -525,12 +527,20 @@ export function WalletWorkspace() {
       inFlight = true;
       // Cosmetic work cannot invalidate an authoritative card load or mutation.
       const revision = cardReadRevision.current;
-      setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
+      const isCurrent = () => !disposed && revision === cardReadRevision.current && cardSnapshotRef.current?.cards === before.cards && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey;
+      setCardSnapshot(previous => previous?.ownerId === context.userId ? {
+        ...previous,
+        pendingArtworkIds: new Set(previous.cards.filter(card => previous.artworks[card.cardId]?.source === "catalog" || (card.brand !== "other" && previous.artworks[card.cardId]?.source !== "photo")).map(card => card.cardId)),
+        artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])),
+      } : previous);
       try {
         const rows = await WalletService.listCardPresentations(context, { recoverArtwork: true });
-        if (disposed || revision !== cardReadRevision.current || cardSnapshotRef.current?.cards !== before.cards || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
-      } catch { /* Approval is unknown: keep the neutral presentation. */ }
+        if (!isCurrent()) return;
+        setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set(), artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
+      } catch {
+        // Approval is unknown: settle the fallback rather than leave a permanent placeholder.
+        if (isCurrent()) setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, pendingArtworkIds: new Set() } : previous);
+      }
       finally { inFlight = false; }
     };
     const resume = () => void recheck();
@@ -734,7 +744,7 @@ export function WalletWorkspace() {
         if (previous?.ownerId !== context.userId) return previous;
         const names = { ...previous.cardholderNames };
         delete names[cardId];
-        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names };
+        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names, pendingArtworkIds: new Set([...previous.pendingArtworkIds].filter(id => id !== cardId)) };
       });
       dispatch({ type: "unfocus" });
       await refresh({ quiet: true });
@@ -961,6 +971,7 @@ export function WalletWorkspace() {
               cards={cards}
               cardholderNames={cardholderNames}
               artworks={artworks}
+              pendingArtworkIds={ownedSnapshot?.pendingArtworkIds}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
               onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
@@ -1013,11 +1024,15 @@ export function WalletWorkspace() {
                     cardReadRevision.current += 1;
                     setCardSnapshot((previous) => {
                       const owned = previous?.ownerId === context.userId ? previous : null;
+                      const pendingArtworkIds = new Set(owned?.pendingArtworkIds);
+                      pendingArtworkIds.delete(saved.cardId);
+                      if (saved.summary.brand !== "other" && (!saved.artwork || saved.artwork.source === "neutral")) pendingArtworkIds.add(saved.cardId);
                       return {
                         ownerId: context.userId,
                         cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
                         cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
                         artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
+                        pendingArtworkIds,
                       };
                     });
                     setSelectedDeckCardId(saved.cardId);
