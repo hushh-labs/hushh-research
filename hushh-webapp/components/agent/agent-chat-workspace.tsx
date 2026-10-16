@@ -8521,6 +8521,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       activeConversationId={isPuppySurface ? puppyConversationId : conversationId}
       loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}
       disabled={isPuppySurface ? false : (!hasChatAccess || historyInteractionDisabled)}
+      createNewDisabled={isPuppySurface ? false : historyInteractionDisabled}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}

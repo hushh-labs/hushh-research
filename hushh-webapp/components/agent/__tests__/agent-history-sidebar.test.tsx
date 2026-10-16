@@ -35,6 +35,28 @@ function renderSidebar(extra: Partial<Parameters<typeof AgentHistorySidebar>[0]>
 }
 
 describe("AgentHistorySidebar", () => {
+  it.each([
+    { mode: "mobile" as const, collapsed: false },
+    { mode: "desktop" as const, collapsed: false },
+    { mode: "desktop" as const, collapsed: true },
+  ])("allows only local creation while $mode history is locked (collapsed=$collapsed)", layout => {
+    const create = vi.fn();
+    const select = vi.fn();
+    const props = { ...layout, conversations, activeConversationId: "conv_1", disabled: true,
+      onCreateNew: create, onSelectConversation: select, onRenameConversation: vi.fn(), onDeleteConversation: vi.fn() };
+    const view = render(<AgentHistorySidebar {...props} />);
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeDisabled();
+    view.rerender(<AgentHistorySidebar {...props} createNewDisabled={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create new chat" }));
+    expect(create).toHaveBeenCalledOnce();
+    const history = screen.getByRole("button", { name: /^What needs a reply today/ });
+    expect(history).toBeDisabled();
+    fireEvent.click(history);
+    expect(select).not.toHaveBeenCalled();
+    view.rerender(<AgentHistorySidebar {...props} createNewDisabled />);
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeDisabled();
+  });
+
   it("places Drive activity above chats on One and hides it on Puppy", () => {
     const activity = <div data-testid="drive-activity">Drive sharing update</div>;
     const first = renderSidebar({ driveActivity: activity });
