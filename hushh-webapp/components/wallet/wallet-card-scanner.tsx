@@ -90,8 +90,7 @@ export function WalletCardScanner({ active, disabled, featured = false, showPhot
     {live ? <WalletLiveCardCapture onCancel={release} onChoosePhoto={() => { release(); choose("photos"); }} onPhoto={file => { setLive(false); void acquire(async () => file); }} /> : !photo ? <>
       {featured ? <div className={styles.scanIntro}><button type="button" className={styles.scanArtwork} aria-label="Scan card" disabled={disabled || busy || !active} onClick={() => choose("camera")}>
         <span className={styles.scanVisual} aria-hidden="true">
-          <Image src="/wallet/card-scan-blank-gold-v3.webp" alt="" width={768} height={768} unoptimized className={styles.scanReference} />
-          <Image src="/wallet/shushing-emoji.svg" alt="" width={512} height={512} unoptimized className={styles.scanEmoji} />
+          <Image src="/wallet/card-scan-complete-v4.webp" alt="" width={1536} height={1536} unoptimized className={styles.scanReference} />
         </span>
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan to add card</span>
       </button></div> : null}

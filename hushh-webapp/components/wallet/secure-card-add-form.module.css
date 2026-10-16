@@ -72,7 +72,6 @@
 .scanArtwork:disabled { opacity:.55; cursor:default; }
 .scanVisual { position:relative; display:block; width:100%; max-width:260px; aspect-ratio:1; }
 .scanReference { display:block; width:100%; height:100%; object-fit:contain; }
-.scanEmoji { position:absolute; left:42.5%; top:40.2%; width:16%; height:auto; transform:translate(-50%,-50%) matrix(1,.16,-.23,1,0,0); }
 
 @layer base {
   .scanActions .scanAction { font-size: 13px !important; }

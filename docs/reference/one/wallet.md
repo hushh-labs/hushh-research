@@ -625,7 +625,8 @@ Manual entry inserts spaces after every four number digits and an expiry slash a
 
 Wallet swipe controls use a 3px header-to-details gap (75% less than the inherited 12px Profile margin), with a compact heading and 48px read-only summary rows; the close target remains 44px. The versioned Agent One artwork reduces the shushing mark by 20% in both dimensions; Apple Wallet actions use a transparent icon. Timed profile recipients see the canonical card face using only their permitted name; membership dates, wallet identifiers and public QR links are excluded from this projection. Existing contact actions and grant expiry/revocation still apply.
 
-The Scan to add card illustration composes the supplied shushing SVG unchanged
-on a slim black card, above a phone with gold sides. The scanner assembly has
+The Scan to add card illustration is one complete lossless WebP with the supplied
+shushing emoji embedded on a slim black card, above a phone with gold sides.
+It preserves the complete source image's visible pixels. The scanner assembly has
 black faces and gold borders; the front card has no printed QR or profile text.
 The illustration and its surrounding Scan surface have transparent backgrounds.

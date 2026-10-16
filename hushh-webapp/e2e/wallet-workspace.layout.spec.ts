@@ -226,11 +226,11 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/card-scan-blank-gold-v3.webp") {
+    if (assetPath === "/wallet/card-scan-complete-v4.webp") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/shushing-emoji.svg" || /^\/wallet\/artwork\/(profile|referral|nws)-v[123]\.svg$/.test(assetPath)) {
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[123]\.svg$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
       return;
     }
@@ -644,11 +644,10 @@ for (const width of [320, 393, 1440]) {
     const scan = page.getByRole("button", { name: "Scan card", exact: true });
     await expect(scan).toBeVisible();
     await expect(scan.getByText("Scan to add card", { exact: true })).toBeVisible();
-    const artwork = scan.locator('img[src$="card-scan-blank-gold-v3.webp"]');
-    const emoji = scan.locator('img[src$="shushing-emoji.svg"]');
-    await expect(emoji).toBeVisible();
-    await expect.poll(() => emoji.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
-    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-blank-gold-v3.webp");
+    const artwork = scan.locator("img");
+    await expect(artwork).toHaveCount(1);
+    await expect(artwork).toBeVisible();
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-complete-v4.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
     if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
       await scan.click();
