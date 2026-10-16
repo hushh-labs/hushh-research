@@ -40,7 +40,7 @@ THIS_FILE = Path(__file__).resolve().relative_to(ROOT).as_posix()
 # shells are excluded from the web side: the web lanes read them as data, and
 # a release-lane script named in a plist comment is not a web-lane dependency.
 LANE_CODE_ROOTS = {
-    "frontend": ("hushh-webapp/",),
+    "frontend": ("hushh-webapp/", "deploy/mail-api/"),
     "backend": ("consent-protocol/", "packages/hushh-mcp/"),
 }
 LANE_CODE_EXCLUDED = (

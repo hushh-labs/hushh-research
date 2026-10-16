@@ -81,6 +81,9 @@ dependencies = [
     "cachetools==7.1.7",
     "stripe>=13,<20",
     "openpyxl>=3.1.5,<4",
+    "dnspython>=2.8,<3",
+    "idna>=3.10,<4",
+    "certifi>=2026.2.25",
 ]
 
 [dependency-groups]
