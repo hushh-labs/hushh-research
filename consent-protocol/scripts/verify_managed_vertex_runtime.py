@@ -10,7 +10,9 @@ import json
 import os
 import sys
 import wave
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +41,26 @@ from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  
 from hushh_mcp.runtime_settings import managed_ai_settings  # noqa: E402
 
 PROBE_TIMEOUT_SECONDS = 25
+PROBE_START_INTERVAL_SECONDS = 30
+
+
+async def _run_paced_probes(
+    labelled: list[tuple[str, Callable[[], Awaitable[None]]]],
+) -> list[Exception | None]:
+    """Retain every verdict while avoiding parallel bursts against one project."""
+    outcomes: list[Exception | None] = []
+    next_start = 0.0
+    for _, probe in labelled:
+        delay = max(0.0, next_start - monotonic())
+        if delay:
+            await asyncio.sleep(delay)
+        next_start = monotonic() + PROBE_START_INTERVAL_SECONDS
+        try:
+            outcomes.append(await probe())
+        except Exception as error:
+            outcomes.append(error)
+    return outcomes
+
 
 #: Stable prefix the Cloud Build step greps for in the job's logs.
 RESULT_PREFIX = "managed_vertex_probe_result"
@@ -183,14 +205,14 @@ async def _probe_scoped_projects() -> dict[str, object]:
     live_config = configured_live if configured_live.enabled else None
     voice_project = live_config.vertex_project if live_config else None
 
-    labelled: list[tuple[str, object]] = []
+    labelled: list[tuple[str, Callable[[], Awaitable[None]]]] = []
     model = ""
     if chat_project:
         _, model, binding = _one_chat_target()
         labelled.append(
             (
                 f"one_chat:{model}@{','.join(binding.locations_for_model(model))}",
-                _probe_adk_response(binding.build_regional_adk_model(model), model),
+                lambda: _probe_adk_response(binding.build_regional_adk_model(model), model),
             )
         )
 
@@ -209,11 +231,11 @@ async def _probe_scoped_projects() -> dict[str, object]:
         labelled.append(
             (
                 f"one_voice_live:{live_config.model_id}@{live_config.location}",
-                asyncio.wait_for(probe_voice(), timeout=PROBE_TIMEOUT_SECONDS),
+                lambda: asyncio.wait_for(probe_voice(), timeout=PROBE_TIMEOUT_SECONDS),
             )
         )
 
-    outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
+    outcomes = await _run_paced_probes(labelled)
     probes = []
     for (name, _), outcome in zip(labelled, outcomes, strict=True):
         if isinstance(outcome, BaseException):
@@ -311,16 +333,17 @@ async def main() -> dict[str, object]:
             + ",".join(unsupported_models)
         )
 
-    # Labelled so a failure is attributable to one model/location, and gathered
-    # with return_exceptions so ALL probe outcomes survive. Without it the first
-    # exception cancels the rest, discarding exactly the evidence that separates
-    # an outage ("every probe failed the same way") from a candidate defect
-    # ("only this model, only this location").
-    labelled: list[tuple[str, object]] = []
+    # Keep each target and verdict distinct. Lazy factories arm deadlines only
+    # after the preceding request and pacing interval have completed.
+    labelled: list[tuple[str, Callable[[], Awaitable[None]]]] = []
     for model in models:
         for location in locations_for(model):
-            labelled.append((f"text:{model}@{location}", probe_text(model, location)))
-            labelled.append((f"adk:{model}@{location}", probe_adk_text(model, location)))
+            labelled.append(
+                (f"text:{model}@{location}", lambda m=model, loc=location: probe_text(m, loc))
+            )
+            labelled.append(
+                (f"adk:{model}@{location}", lambda m=model, loc=location: probe_adk_text(m, loc))
+            )
 
     if chat_binding is not None:
         chat_model = resolve_fleet_model_name("gemini-default")
@@ -332,7 +355,7 @@ async def main() -> dict[str, object]:
         labelled.append(
             (
                 f"one_chat:{chat_model}@{','.join(chat_locations)}",
-                probe_chat(),
+                probe_chat,
             )
         )
 
@@ -363,8 +386,8 @@ async def main() -> dict[str, object]:
         if not plan.steps or assessment.unsupported:
             raise RuntimeError("The Location command readiness proposal was unusable.")
 
-    labelled.append(("location_command:audio", probe_command_audio()))
-    labelled.append(("location_command:semantics", probe_command_semantics()))
+    labelled.append(("location_command:audio", probe_command_audio))
+    labelled.append(("location_command:semantics", probe_command_semantics))
 
     # One Live Voice: when the lane has the flag on, prove the pinned Live model
     # opens a session on ADC in its region. Reads the same env contract the
@@ -398,14 +421,14 @@ async def main() -> dict[str, object]:
                 f"one_voice_live:{live_config.model_id}@{live_config.location}",
                 # Live setup can await a WebSocket response indefinitely. Keep
                 # text/ADK and Location's own command deadlines unchanged.
-                asyncio.wait_for(probe_live_connect(), timeout=PROBE_TIMEOUT_SECONDS),
+                lambda: asyncio.wait_for(probe_live_connect(), timeout=PROBE_TIMEOUT_SECONDS),
             )
         )
 
     # Arm no provider deadline until the command flow's one-time setup is paid;
     # otherwise its synchronous import burst is charged to every other probe.
     await _rehearse_command_flow()
-    outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
+    outcomes = await _run_paced_probes(labelled)
 
     probes: list[dict[str, object]] = []
     for (name, _), outcome in zip(labelled, outcomes, strict=True):
