@@ -79,6 +79,39 @@ def _v1_statement_plan():
     }
 
 
+@pytest.mark.asyncio
+async def test_failed_query_compilation_does_not_clear_terminal_request(monkeypatch):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value={"jobId": "saved", "status": "limited"}),
+        create=AsyncMock(),
+        clear_terminal_request=AsyncMock(),
+        clear_legacy_completed_request=AsyncMock(),
+    )
+
+    def fail_compile(*_args, **_kwargs):
+        raise DriveReadError("invalid_argument")
+
+    monkeypatch.setattr(search_module, "compile_request_queries", fail_compile)
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.create_for_request(
+            user_id="owner",
+            request_id=str(uuid4()),
+            request_revision=1,
+            purpose={
+                "purpose": "Standup notes from last 3 months",
+                "periodStart": "2026-07-01",
+                "periodEnd": "2026-10-01",
+            },
+            plan={},
+            require_current=AsyncMock(),
+        )
+
+    store.create.assert_not_awaited()
+    store.clear_terminal_request.assert_not_awaited()
+    store.clear_legacy_completed_request.assert_not_awaited()
+
+
 def test_meeting_notes_expand_to_sync_and_standup_without_using_file_dates():
     purpose = {
         "purpose": "3 months of meeting notes",
