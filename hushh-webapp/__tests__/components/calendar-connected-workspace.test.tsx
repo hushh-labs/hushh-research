@@ -48,7 +48,7 @@ vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
 }));
 
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
-import { availabilityTimeRangeLabel } from "@/components/calendar/calendar-schedule-presentation";
+import { CalendarTimelineRow, availabilityTimeRangeLabel } from "@/components/calendar/calendar-schedule-presentation";
 import { GoogleCalendarError } from "@/lib/services/google-calendar-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -197,35 +197,35 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.queryByRole("listitem", { name: "Shared" })).toBeNull();
   });
 
-  it("adopts the primary calendar zone and preserves an explicit settings override", async () => {
+  it("retains the chat device zone despite provider metadata and preserves an explicit settings override", async () => {
     mocks.today.mockImplementation(async () => ({ ...dailyResponse(), calendars: [{ id: "primary", primary: true, time_zone: "America/Los_Angeles" }] }));
     render(workspace());
-    await waitFor(() => expect(mocks.today).toHaveBeenCalledWith(expect.objectContaining({ timeZone: "America/Los_Angeles" })));
+    await waitFor(() => expect(mocks.today).toHaveBeenCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
     await openSettings();
     fireEvent.change(screen.getByLabelText("Time zone"), { target: { value: "Europe/London" } });
     fireEvent.click(screen.getByRole("button", { name: "Save settings", exact: true }));
     await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: "Europe/London" })));
   });
 
-  it.each(["America/Los_Angeles", "America/New_York", "America/Phoenix", "Asia/Kolkata", "Europe/London", "Asia/Kathmandu"])("uses primary zone %s for every duration request", async primaryZone => {
+  it.each(["America/Los_Angeles", "America/New_York", "America/Phoenix", "Asia/Kolkata", "Europe/London", "Asia/Kathmandu"])("ignores provider zone %s for every duration request", async primaryZone => {
     mocks.today.mockImplementation(async ({ date, timeZone }) => ({ ...dailyResponse([], date, timeZone), calendars: [{ id: "primary", primary: true, time_zone: primaryZone }] }));
     render(workspace());
-    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: primaryZone })));
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
     fireEvent.click(control("Free time"));
     for (const minutes of [15, 30, 60]) {
       fireEvent.click(control(`${minutes} min`));
-      await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: primaryZone, durationMinutes: minutes, startTime: "00:00", endTime: "24:00" })));
+      await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, durationMinutes: minutes, startTime: "00:00", endTime: "24:00" })));
     }
     expect(screen.queryByText(`09:00 – 17:00 · ${primaryZone}`)).toBeNull();
   });
 
-  it.each(["Europe/London", undefined])("resolves the replacement Google account zone (%s) without reusing the previous account", async replacementZone => {
+  it.each(["Europe/London", undefined])("uses the device zone for a replacement Google account (%s)", async replacementZone => {
     mocks.today.mockImplementation(async ({ date, timeZone }) => ({ ...dailyResponse([], date, timeZone), calendars: [{ id: "primary", primary: true, time_zone: "America/Los_Angeles" }] }));
     const view = render(workspace());
-    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: "America/Los_Angeles" })));
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
     mocks.today.mockImplementation(async ({ date, timeZone }) => ({ ...dailyResponse([], date, timeZone), calendars: [{ id: "primary", primary: true, time_zone: replacementZone }] }));
     view.rerender(workspace("owner", { ...status, google_email: "replacement@example.com" }));
-    const expectedZone = replacementZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const expectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: expectedZone })));
     fireEvent.click(control("Free time"));
     await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: expectedZone })));
@@ -270,11 +270,11 @@ describe("CalendarConnectedWorkspace", () => {
     expect(observed).toEqual({ aborted: false, current: false });
   });
 
-  it("discards an old account's pending availability and resolves Today across the new primary zone's midnight", async () => {
+  it("discards an old account's pending availability while retaining the device date", async () => {
     vi.setSystemTime(new Date("2026-10-14T00:15:00Z"));
     mocks.today.mockImplementation(async ({ date, timeZone }) => ({ ...dailyResponse([], date, timeZone), calendars: [{ id: "primary", primary: true, time_zone: "America/Los_Angeles" }] }));
     const view = render(workspace());
-    await waitFor(() => expect(screen.getByLabelText("Selected date")).toHaveValue("2026-10-13"));
+    await waitFor(() => expect(screen.getByLabelText("Selected date")).toHaveValue("2026-10-14"));
     let resolveOld!: (value: ReturnType<typeof freeResponse>) => void;
     mocks.availability.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
     fireEvent.click(control("Free time"));
@@ -282,7 +282,7 @@ describe("CalendarConnectedWorkspace", () => {
     const oldRequest = mocks.availability.mock.calls[0][0];
     mocks.availability.mockImplementation(async ({ date, durationMinutes }) => ({ ...freeResponse(date, durationMinutes), calendars: [{ id: "replacement", primary: true, time_zone: "Europe/London" }] }));
     view.rerender(workspace("owner", { ...status, google_email: "replacement@example.com" }));
-    await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-14", timeZone: "Europe/London" })));
+    await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-14", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
     expect(oldRequest.signal.aborted).toBe(true);
     expect(oldRequest.isEffectCurrent()).toBe(false);
     await act(async () => resolveOld({ ...freeResponse("2026-10-13"), full_count: 99 }));
@@ -440,6 +440,17 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.queryByText("Up next")).toBeNull();
     const next = screen.getByRole("button", { name: /^Next planning session/i });
     expect(ongoing.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("ends an event at its actual instant regardless of the display timezone", () => {
+    const event = { ...dailyEvents[1], start: { dateTime: "2026-10-16T17:30:00Z" }, end: { dateTime: "2026-10-16T18:00:00Z" } };
+    const props = { event, zone: "Asia/Kolkata", onOpen: vi.fn() };
+    const view = render(<CalendarTimelineRow {...props} active ongoing now={Date.parse("2026-10-16T17:52:00Z")} />);
+    expect(screen.getByText("Happening now")).toBeVisible();
+    expect(screen.queryByText("Ended")).toBeNull();
+    view.rerender(<CalendarTimelineRow {...props} active={false} ongoing={false} now={Date.parse("2026-10-16T18:00:00Z")} />);
+    expect(screen.queryByText("Happening now")).toBeNull();
+    expect(screen.getByText("Ended")).toBeVisible();
   });
 
   it("highlights the next upcoming event when no meeting is ongoing", async () => {
@@ -960,13 +971,13 @@ describe("CalendarConnectedWorkspace", () => {
       { start_at: "2026-10-14T18:00:00Z", end_at: "2026-10-14T18:30:00Z", duration_minutes: 30 },
     ] });
     render(workspace());
-    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: "Asia/Kolkata" })));
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
     fireEvent.click(control("Free time"));
     expect(await screen.findByText(/Midnight \(next day\)/)).toBeInTheDocument();
     expect(screen.queryByText(/24:00/)).toBeNull();
     expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ startTime: "00:00", endTime: "24:00" }));
     fireEvent.click(screen.getByRole("button", { name: /^Ask One about/ }));
-    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: "Asia/Kolkata" }));
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
   });
 
   it("keeps a repeated-hour window's real UTC bounds in the Calendar chat handoff", async () => {

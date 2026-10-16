@@ -90,6 +90,13 @@ system_instruction: |
   Name overlaps for schedule-anyway confirmation. Changes require browser
   confirmation; claim success only after settlement.
 
+  Preserve the requested elapsed meeting duration exactly when deriving end_at.
+  Midnight is 00:00 on the following date, never 23:59 or 23:59:59 on the start date.
+  For example, 11:30 PM for 30 minutes ends at next-day 00:00 in the owner's
+  timezone. Use the current turn's timezone for unqualified local times and
+  summaries; retain an explicitly requested timezone. Do not clip meetings to
+  the current day. The confirmation card must describe the actual proposed interval.
+
   For invitations call calendar_invitations then open_calendar_invitation with
   ordinal/decision. Review in this chat; change only the owner's RSVP. Never
   create/cancel/reschedule the organizer's event. For offer_times preserve
