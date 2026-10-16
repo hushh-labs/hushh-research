@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -8,9 +9,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
 import yaml
+from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
 
@@ -144,7 +148,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "#!/bin/bash\n"
         'printf "%s\\n" "$*" >> "$GCLOUD_CALLS_PATH"\n'
         'if [[ "$1 $2 $3" == "run jobs executions" ]]; then echo "azure-pwm-exec-1"; fi\n'
-        'if [[ "$1 $2" == "logging read" ]]; then printf \'{"azure_pwm_runtime_probe_result":"%s"}\\n\' "$PROBE_VERDICT"; fi\n',
+        'if [[ "$1 $2" == "logging read" ]]; then printf \'[{"jsonPayload":{"azure_pwm_runtime_probe_result":"%s"}}]\\n\' "$PROBE_VERDICT"; fi\n',
         encoding="utf-8",
     )
     fake_gcloud.chmod(0o755)
@@ -193,8 +197,61 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             )
             assert "--clear-secrets" in invoked
             assert "run.googleapis.com/execution_name" in invoked
+            assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
         else:
             assert not invoked
+
+
+@pytest.mark.parametrize(("timeouts", "should_pass"), [(1, True), (2, False)])
+def test_azure_pwm_phi_probe_retries_one_timeout_but_never_waives_a_second(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    timeouts: int,
+    should_pass: bool,
+) -> None:
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = 0
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        @property
+        def chat(self):
+            return SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= timeouts:
+                raise APITimeoutError(request=httpx.Request("POST", "https://example.test"))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
+
+    monkeypatch.setattr(module, "AsyncOpenAI", lambda **_kwargs: FakeClient())
+    config = {"phi_endpoint": "https://example.test/", "phi_deployment": "synthetic-phi"}
+    if should_pass:
+        asyncio.run(module._probe_phi(config, "synthetic-token"))
+    else:
+        with pytest.raises(APITimeoutError):
+            asyncio.run(module._probe_phi(config, "synthetic-token"))
+    assert calls == 2
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [event["result"] for event in events] == (
+        ["start", "timeout", "start", "ok"]
+        if should_pass
+        else ["start", "timeout", "start", "timeout"]
+    )
+    assert all(
+        set(event) == {"azure_pwm_runtime_probe_stage", "result", "elapsed_ms", "attempt"}
+        for event in events
+    )
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
