@@ -29,9 +29,9 @@ import {
 } from "@/lib/world-model/research-store";
 
 /**
- * One app-level reader. Research is on by default: the server enrolls the
- * owner on ensure and answers consent_required only after an explicit opt-out.
- * Python owns preparation, confidence and durable state.
+ * One app-level reader. The server enrolls the legacy Google research choice
+ * on ensure; Azure/Bing in UAT requires a separate explicit owner opt-in.
+ * Python owns provider consent, preparation, confidence and durable state.
  *
  * It is the only writer of the research store and renders nothing of its own:
  * surfaces read the store, so the Profile pane, which is mounted beside this

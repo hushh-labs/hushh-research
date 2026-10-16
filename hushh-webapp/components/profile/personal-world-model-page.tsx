@@ -21,6 +21,7 @@ import {
   ProfilePaneWorldModelIcon,
 } from "@/components/profile/profile-pane-icons";
 import { useWorldModelResearch } from "@/components/profile/world-model-provider";
+import { PWM_AZURE_RESEARCH_DISCLOSURE } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { WorldModelClaimInvitation } from "@/components/profile/world-model-claim-invitation";
 import { WorldModelFactRow } from "@/components/profile/world-model-fact-row";
 import {
@@ -30,6 +31,7 @@ import {
   type WorldModelFactDetail,
 } from "@/components/profile/world-model-fact-sheet";
 import { WorldModelOptions } from "@/components/profile/world-model-options";
+import { AzureGroundedAnswer } from "@/components/profile/world-model-azure-grounded-answer";
 import {
   LONG_STALL_MS,
   WorldModelIdentityGroup,
@@ -696,8 +698,12 @@ export function PersonalWorldModelPage({
   ) {
     const owner = ownerAuthority();
     if (!owner) throw new Error("Vault is locked");
+    if (!preferences) throw new Error("Research preferences are unavailable");
     // The confirmed switches stay on screen while research restarts.
-    reload(await WorldModelResearchService.updatePreferences(owner.authority, value));
+    reload(await WorldModelResearchService.updatePreferences(owner.authority, {
+      ...value,
+      research_provider: preferences.research_provider,
+    }));
   }
 
   async function turnOn() {
@@ -929,6 +935,11 @@ export function PersonalWorldModelPage({
               <HelperText role="status" className="profile-account-note">
                 Nothing is looked up while it’s off.
               </HelperText>
+              {preferences?.research_provider === "azure_openai_web_search" ? (
+                <HelperText className="profile-account-note">
+                  {PWM_AZURE_RESEARCH_DISCLOSURE}
+                </HelperText>
+              ) : null}
               <Button
                 type="button"
                 size="compact"
@@ -1058,6 +1069,17 @@ export function PersonalWorldModelPage({
                     onClick={onManageDetails}
                   />
                 ) : null}
+              </SettingsGroup>
+            ) : null}
+            {offered?.research.provider === "azure_openai_web_search" &&
+            offered.grounded_answers.length > 0 ? (
+              <SettingsGroup title="Bing web research" density="compact">
+                <HelperText className="profile-account-note px-4 py-3">
+                  These are the public search results used to prepare your review draft. Links open the cited pages.
+                </HelperText>
+                {offered.grounded_answers.map((answer, index) => (
+                  <AzureGroundedAnswer key={index} answer={answer} index={index} />
+                ))}
               </SettingsGroup>
             ) : null}
             {offered && offered.search_suggestions.length > 0 ? (

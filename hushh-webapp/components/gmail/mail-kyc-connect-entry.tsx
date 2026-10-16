@@ -1,9 +1,11 @@
 "use client";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { MediumRowLabel, RowDescription } from "@/components/app-ui/typography";
+import { GmailAgentIcon, CalendarAgentIcon } from "@/components/icons/agents/agent-icons";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RefreshCw } from "@/components/icons";
+import { FileText, LockKeyhole, RefreshCw, ShoppingBag } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import type { GmailStatusSummary } from "@/lib/profile/mail-flow";
 
@@ -37,6 +39,65 @@ export function MailConnectionStatus({
   onRetry?: () => void;
   connectActionId?: "setup.connect_gmail";
 }) {
+  // Keep recovery/error detail available; the first connection needs one clear action.
+  if (!isConnected && !loadingStatus && statusSummary.tone !== "error" && !onRetry) {
+    return (
+      <SurfaceInset
+        data-testid="mail-connection-status"
+        className="grid items-center gap-1.5 overflow-hidden p-3 sm:grid-cols-2 sm:gap-3.5"
+      >
+        <div aria-hidden="true" className="relative mx-auto flex size-48 items-center justify-center sm:size-60">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/illustrations/mail-connect-envelope.png" alt="" className="absolute inset-0 size-full object-contain" />
+          <span className="absolute left-0 top-9 flex size-10 items-center justify-center rounded-xl border border-border/60 bg-card">
+            <GmailAgentIcon size={26} />
+          </span>
+          <span className="absolute right-0 top-3 flex size-10 items-center justify-center rounded-xl border border-border/60 bg-card">
+            <CalendarAgentIcon size={26} />
+          </span>
+          <span className="absolute bottom-3 left-5 flex size-10 items-center justify-center rounded-xl border border-border/60 bg-card text-[color:var(--app-accent)]">
+            <FileText className="size-6" />
+          </span>
+        </div>
+        <div className="flex min-w-0 flex-col items-center text-center sm:items-start sm:text-left">
+          <MediumRowLabel as="h2" className="!text-base !leading-6">Connect your Mail</MediumRowLabel>
+          <RowDescription className="mt-0.5 !text-xs !leading-5">Emails and receipts, together.</RowDescription>
+          <ul className="mt-4 w-full space-y-3 text-left">
+            {[
+              { icon: FileText, title: "Auto-sync receipts", detail: "Find and organize receipts automatically.", tone: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-400" },
+              { icon: ShoppingBag, title: "Build shopping memory", detail: "Keep purchases together for useful insights.", tone: "text-violet-600 bg-violet-500/10 dark:text-violet-400" },
+              { icon: LockKeyhole, title: "You control access", detail: "Only what you allow. Disconnect anytime.", tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)]" },
+            ].map(({ icon: Icon, title, detail, tone }) => (
+              <li key={title} className="flex items-start gap-3">
+                <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+                  <Icon aria-hidden="true" className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <MediumRowLabel as="p" className="!text-sm !leading-5">{title}</MediumRowLabel>
+                  <RowDescription className="mt-0.5 !text-xs !leading-5">{detail}</RowDescription>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex flex-col items-center sm:col-span-2">
+          <Button
+            onClick={onConnect}
+            disabled={busy}
+            className="min-h-12 w-full max-w-sm justify-center gap-3 !text-sm"
+            data-voice-control-id="open_gmail_connector"
+            data-voice-action-id={connectActionId}
+            data-voice-label={primaryActionLabel}
+            data-voice-purpose="starts Mail connection from this workspace."
+          >
+            {primaryActionLabel}
+          </Button>
+
+        </div>
+      </SurfaceInset>
+    );
+  }
+
   // Loading stays neutral while the authoritative connection status resolves.
   const statusToneClassName =
     statusSummary.tone === "success"
