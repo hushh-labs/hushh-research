@@ -235,7 +235,7 @@ steps:
           false) ;;
           true)
             if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_DEPLOY_ENV}" != "uat" ||
-                  "${_DEPLOY_SOURCE}" != "deploy-uat" || "${_DEPLOY_SHA}" != "3ac26e6e1ceb835e257087f11bd274467708c217" ||
+                  "${_DEPLOY_SOURCE}" != "deploy-uat" || "${_DEPLOY_SHA}" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
                   "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ||
                   ! "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ||
                   ! "${_GITHUB_RUN_ID}" =~ ^[0-9]+$ || "${_CLOUD_RUN_TAG}" != "account-deletion-${_GITHUB_RUN_ID}" ||

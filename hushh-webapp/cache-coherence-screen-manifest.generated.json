@@ -6021,7 +6021,7 @@
         "api_service": false,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": false
+        "native_beacon": true
       },
       "findings": [
         "no local cache primitive detected in page/contract source",
@@ -7196,5 +7196,5 @@
       ]
     }
   ],
-  "content_sha256": "fa989f61cab9b1b2627fc279cd59ec0357c1722702771aefdaca4b6f3c9afae1"
+  "content_sha256": "dcdf42103011f2ed58bc0a73255779e9a8da3aa36f3bddfbb2ac00faa4725bb5"
 }

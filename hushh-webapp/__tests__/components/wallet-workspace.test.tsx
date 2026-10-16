@@ -183,6 +183,8 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.focus(window);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    expect(view.container.querySelector('[data-card-artwork="pending"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-card-artwork="neutral"]')).toBeNull();
     await act(async () => { finish([{ ...row, artwork: { source: "neutral", version: 1 } }]); });
     expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Card 0", exact: true })).toBeVisible();

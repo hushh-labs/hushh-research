@@ -111,9 +111,14 @@ def test_automatic_network_designs_are_private_paginated_and_match_only_that_net
             offered.extend(body["variants"])
             offset = body["nextOffset"]
         expected = {
-            row.asset_id for row in catalog.assets if row.network == network and network != "other"
+            row.asset_id
+            for row in catalog.assets
+            if row.selectable and row.network == network and network != "other"
         }
         assert {row["assetId"] for row in offered} == expected
+        assert not {row["assetId"] for row in offered} & {
+            row.asset_id for row in catalog.assets if not row.selectable
+        }
         if offered:
             image = client().get(offered[0]["image"])
             assert image.status_code == 200 and image.headers["content-type"] == "image/webp"

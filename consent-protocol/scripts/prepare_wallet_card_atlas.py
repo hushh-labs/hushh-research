@@ -2,7 +2,8 @@
 
 This prepares review output, not a license grant or automatic blank-art approval.
 Recipes record every crop, opaque field removal, split and size adjustment.
-No issuer logo is generated. Source images and recipes remain independently pinned.
+Source images, reviewed repairs and recipes remain independently pinned.
+No image generation or model call occurs during preparation or at runtime.
 """
 
 from __future__ import annotations
@@ -108,7 +109,7 @@ def adapt(source: Image.Image, recipe: dict, patch: Image.Image | None = None) -
     return image
 
 
-def prepare(source: Path, output: Path, review: dict) -> list[dict]:
+def prepare(source: Path, output: Path, review: dict, edits: Path | None = None) -> list[dict]:
     if output.exists():
         raise ValueError("output_exists")
     output.mkdir(parents=True)
@@ -139,6 +140,7 @@ def prepare(source: Path, output: Path, review: dict) -> list[dict]:
             if not 1 <= len(recipes) <= 2:
                 raise ValueError("recipe_count")
             for recipe in recipes:
+                edited = recipe.get("reviewed_edit")
                 patch = None
                 if recipe.get("patch"):
                     donor = rows_by_id[recipe["patch"]["entry_id"]]
@@ -146,7 +148,48 @@ def prepare(source: Path, output: Path, review: dict) -> list[dict]:
                     if hashlib.sha256(patch_data).hexdigest() != donor["extracted_digest"]:
                         raise ValueError("patch_digest")
                     patch = Image.open(io.BytesIO(patch_data))
-                image = adapt(original, recipe, patch)
+                if edited:
+                    # An independently reviewed, hash-pinned blank background
+                    # repair. Never regenerate branding during ingestion.
+                    digest = edited["digest"]
+                    previous = recipe.get("previous_runtime", recipe.get("runtime", {}))
+                    if edited.get("input_digest") != previous.get("digest"):
+                        raise ValueError("edit_source_binding")
+                    if (
+                        edits is None
+                        or len(digest) != 64
+                        or any(c not in "0123456789abcdef" for c in digest)
+                    ):
+                        raise ValueError("missing_reviewed_edit")
+                    with (edits / (digest + ".png")).open("rb") as stream:
+                        data = stream.read(16 * 1024 * 1024 + 1)
+                    if len(data) > 16 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != digest:
+                        raise ValueError("edit_digest")
+                    with Image.open(io.BytesIO(data)) as approved:
+                        if (
+                            approved.size != (edited["width"], edited["height"])
+                            or approved.width * approved.height > 16_000_000
+                        ):
+                            raise ValueError("edit_dimensions")
+                        opaque = Image.new("RGBA", approved.size, "white")
+                        opaque.alpha_composite(approved.convert("RGBA"))
+                        repaired = opaque.convert("RGB")
+                        if edited["scope"] == "blank_front_repair":
+                            # A whole reviewed blank plate avoids the rectangular
+                            # seams caused by clipping a repaired texture into
+                            # the former field-removal rectangles.
+                            if not 1 <= len(recipe.get("masks", [])) <= 16:
+                                raise ValueError("recipe_masks")
+                            image = repaired
+                        elif edited["scope"] == "landscape_front":
+                            image = repaired
+                        else:
+                            raise ValueError("edit_scope")
+                        image = image.resize((856, 540), Image.Resampling.LANCZOS)
+                else:
+                    if recipe.get("masks"):
+                        raise ValueError("reviewed_edit_required")
+                    image = adapt(original, recipe, patch)
                 for _ in range(10):
                     encoded = io.BytesIO()
                     image.save(encoded, format="WEBP", lossless=True, method=6)
@@ -187,6 +230,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("extracted", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument(
+        "--reviewed-edits", type=Path, help="Local hash-named approved blank repair PNGs"
+    )
     args = parser.parse_args()
-    records = prepare(args.extracted, args.output, json.loads(REVIEW.read_text(encoding="utf-8")))
+    records = prepare(
+        args.extracted,
+        args.output,
+        json.loads(REVIEW.read_text(encoding="utf-8")),
+        args.reviewed_edits,
+    )
     print(json.dumps({"adapted_designs": len(records), "bytes": sum(r["bytes"] for r in records)}))

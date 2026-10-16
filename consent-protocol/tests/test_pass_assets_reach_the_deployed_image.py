@@ -208,8 +208,15 @@ def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter(config: str)
 
 def test_wallet_artwork_survives_upload_and_docker_filters():
     """The broad assets/ filter shipped a catalog with 101 missing WebP files."""
-    assets = list((BACKEND_ROOT / "hushh_mcp/resources/wallet-artwork/assets").glob("*.webp"))
-    assert len(assets) == 101
+    from hushh_mcp.services.wallet_artwork_catalog import load_catalog
+
+    artwork_root = BACKEND_ROOT / "hushh_mcp/resources/wallet-artwork"
+    catalog, _ = load_catalog(path=artwork_root / "catalog.json")
+    # Include retained immutable revisions as well as new selectable designs.
+    # Bind the deployment proof to every catalog file, rather than a stale count.
+    assets = {artwork_root / "assets" / f"{row.digest}.webp" for row in catalog.assets}
+    assert assets, "Exercise the actual packaged artwork catalog"
+    assert set((artwork_root / "assets").glob("*.webp")) == assets
     for ignore_file in IGNORE_FILES:
         spec = pathspec.GitIgnoreSpec.from_lines(
             ignore_file.read_text(encoding="utf-8").splitlines()
