@@ -355,6 +355,22 @@ export function WalletWorkspace() {
     }
   }, [ready, view.kind]);
 
+  useEffect(() => {
+    if (!ready || activeTab !== "cards") return;
+    const visit = profileVisit;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => {
+        if (profileVisitRef.current !== visit) return;
+        document.querySelector<HTMLElement>("[data-app-scroll-root='true']")?.scrollTo({ top: 0, behavior: "instant" });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second) window.cancelAnimationFrame(second);
+    };
+  }, [activeTab, ready, profileVisit]);
+
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
     if (value === "cards") tabHistory.current = [];

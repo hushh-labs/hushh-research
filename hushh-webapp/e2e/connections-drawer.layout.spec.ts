@@ -606,6 +606,13 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await mountAppChrome(page, 74);
   await page.locator("[data-agent-history-drawer]").waitFor({ state: "attached" });
+  // Changing this retained fixture's viewport can itself animate its closed
+  // percentage translate. Measure the tap from the authored closed position,
+  // not from a desktop-to-phone resize that is still settling.
+  await expect.poll(() => page.locator("[data-agent-history-drawer]").evaluate(panel =>
+    panel.getBoundingClientRect().x + (panel as HTMLElement).offsetWidth +
+      parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")),
+  )).toBeCloseTo(0, 0);
   const motion = await page.evaluate(async () => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     const main = document.querySelector("main")!;
@@ -628,13 +635,20 @@ test("History tap motion and interrupted pulls move the entire panel without shi
     const style = getComputedStyle(panel);
     return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
       presentation: { translate: style.translate, transform: style.transform, visibility: style.visibility,
+        coarse: matchMedia("(pointer: coarse)").matches,
+        scrimFilter: getComputedStyle(document.querySelector("[data-agent-history-scrim]")!).backdropFilter,
+        documentAnimations: document.getAnimations().filter(animation => animation.playState === "running").map(animation => ({
+          target: (animation.effect as KeyframeEffect | null)?.target instanceof Element
+            ? ((animation.effect as KeyframeEffect).target as Element).className : null,
+          timing: animation.effect?.getComputedTiming(),
+        })),
         transition: style.transition, animations: panel.getAnimations().map(animation => ({
           state: animation.playState, timing: animation.effect?.getComputedTiming(),
         })) } };
   });
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
   expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
-  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
+  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed, JSON.stringify(motion)).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
   const dialog = page.locator("[data-agent-history-drawer]");

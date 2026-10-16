@@ -16,6 +16,22 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Main integration and shared-pane repair — 2026-10-16
+
+Main through `4f60e5bc73` is merged locally, retaining current Calendar meeting
+recovery, semantic name saving, presence sequencing and Wallet behavior alongside
+ADK draft, Retry and owner/vault fences. Ordinary custom controls remain React;
+the native-shell qualification policy and independent UITabBar are unchanged.
+
+PR CI at `2462c0bc6f` passed iOS, Android, protocol and the full Vitest shards,
+but failed browser layouts. Shared material specificity and oversized animated
+pane decoration were reproduced and corrected; twelve focused Linux WebKit
+cases pass, including repeated Accent selection and provider handoffs. History
+wall-clock motion remains unresolved. The combined merge passes 150 focused
+tests, typecheck, design-system and UI-contract checks; its native source builds.
+These are bounded source checks, not an installed current web bundle, physical
+transition/performance acceptance, complete Profile adoption or release approval.
+
 ### Profile return, scroll ownership and privacy recovery — 2026-10-15
 
 Release admission: ordinary Release, TestFlight and App Store builds do not set

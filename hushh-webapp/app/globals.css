@@ -8097,6 +8097,9 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
     height: auto !important;
     border: 0 !important;
     border-radius: 0 !important;
+    /* A full-window pane has no outside card edge to shadow. Painting the
+       bounded desktop blur here stalls WebKit's first navigation frames. */
+    box-shadow: none !important;
   }
   html:not(.native-reserved-chrome) [data-agent-history-drawer],
   html:not(.native-reserved-chrome) [data-chat-detail-pane][data-app-side-pane],
@@ -8196,7 +8199,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   to { opacity: 0; }
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 639px) {
   :root {
     --app-scrim-color: rgb(0 0 0 / 0.4);
     --app-scrim-filter: blur(4px);
