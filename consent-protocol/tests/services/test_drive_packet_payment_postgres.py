@@ -364,6 +364,7 @@ async def test_access_preflight_stops_before_any_checkout_reservation(
     from hushh_mcp.services import drive_package_access_preflight as access_module
     from hushh_mcp.services import drive_package_existing_access_store as completion_module
     from hushh_mcp.services import drive_request_payment_service as payment_module
+    from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 
     request_id = str(uuid4())
     verdict = SimpleNamespace(status=access_status)
@@ -382,6 +383,8 @@ async def test_access_preflight_stops_before_any_checkout_reservation(
         "DrivePackageExistingAccessStore",
         lambda **kw: SimpleNamespace(complete=complete),
     )
+    frozen_sources = AsyncMock(return_value=[{"id": "source"}])
+    monkeypatch.setattr(DriveBulkShareStore, "package_sources", frozen_sources)
     payment = DriveRequestPaymentService(db=object(), stripe_api=Mock())
     payment.payment_state = AsyncMock(
         return_value={"status": "awaiting_payment", "_package_owner_user_id": "owner"}
@@ -393,6 +396,7 @@ async def test_access_preflight_stops_before_any_checkout_reservation(
         await payment.checkout(requester_user_id="recipient", request_id=request_id)
     payment._transaction.assert_not_awaited()
     payment.stripe_api.checkout.Session.create.assert_not_called()
+    frozen_sources.assert_awaited_once_with(user_id="owner", request_id=request_id)
     if access_status == "all_existing":
         complete.assert_awaited_once_with(user_id="owner", request_id=request_id, result=verdict)
     else:
@@ -403,6 +407,7 @@ async def test_access_appearing_during_payout_lookup_never_allocates_checkout(mo
     from hushh_mcp.services import drive_package_access_preflight as access_module
     from hushh_mcp.services import drive_package_existing_access_store as completion_module
     from hushh_mcp.services import drive_request_payment_service as payment_module
+    from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
     from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
     monkeypatch.setattr(
@@ -435,6 +440,8 @@ async def test_access_appearing_during_payout_lookup_never_allocates_checkout(mo
         "DrivePackageExistingAccessStore",
         lambda **kw: SimpleNamespace(complete=complete),
     )
+    frozen_sources = AsyncMock(return_value=[{"id": "source"}])
+    monkeypatch.setattr(DriveBulkShareStore, "package_sources", frozen_sources)
     payment = DriveRequestPaymentService(db=object(), stripe_api=Mock())
     payment.payment_state = AsyncMock(
         return_value={
@@ -451,6 +458,7 @@ async def test_access_appearing_during_payout_lookup_never_allocates_checkout(mo
     with pytest.raises(DriveSharingError, match="request_already_accessible"):
         await payment.checkout(requester_user_id="recipient", request_id=request_id)
     assert calls == ["payout", "access"]
+    frozen_sources.assert_awaited_once_with(user_id="owner", request_id=request_id)
     complete.assert_awaited_once_with(user_id="owner", request_id=request_id, result=verdict)
     payment._transaction.assert_not_awaited()
     payment.stripe_api.checkout.Session.create.assert_not_called()
