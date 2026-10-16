@@ -201,20 +201,35 @@ test("Circles actions share a row on iPhone 15 Pro and keep larger phone sizing"
     if (!join || !create) continue;
     if (width >= 393) expect(join.y).toBeCloseTo(create.y, 0);
     for (const button of await buttons.all()) {
-      const size = await button.evaluate(element => ({ height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth, padding: getComputedStyle(element).paddingLeft }));
+      const size = await button.evaluate(element => ({ height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth, padding: getComputedStyle(element).paddingLeft, font: getComputedStyle(element).fontFamily }));
       expect(size.height).toBe(44);
       expect(size.overflow).toBeLessThanOrEqual(1);
       expect(size.padding).toBe(width < 400 ? "16px" : "20px");
+      expect(size.font).toContain("Plus Jakarta Sans");
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     if (width === 393) await page.locator("[data-actions]").screenshot({ path: testInfo.outputPath("circle-actions-393.png") });
   }
-  // The same geometry check catches the reported 393px wrapping before the fix.
-  await page.setViewportSize({ width: 393, height: 852 });
+  // Measure the old layout before constraining it: text measurement can move
+  // its wrap boundary a few pixels between macOS and Linux. The fixed layout
+  // must still fit the same row when the old layout is short of 8px of room.
+  await page.setViewportSize({ width: 768, height: 852 });
   await page.goto(await buildFixture("connect-circle-actions-before", body(true), candidates));
   await awaitProductFont(page);
+  const oldRequiredWidth = await page.locator("[data-actions]").evaluate(group =>
+    [...group.querySelectorAll("button")].reduce((sum, button) => sum + button.getBoundingClientRect().width, 0)
+      + parseFloat(getComputedStyle(group).columnGap),
+  );
+  const stressWidth = Math.floor(oldRequiredWidth + PAGE_PADDING_PX * 2 - 8);
+  expect(stressWidth).toBeGreaterThanOrEqual(320);
+  expect(stressWidth).toBeLessThan(399);
+  await page.setViewportSize({ width: stressWidth, height: 852 });
   const oldButtons = page.locator("[data-actions] button");
-  expect((await oldButtons.nth(1).boundingBox())!.y).toBeGreaterThan((await oldButtons.nth(0).boundingBox())!.y);
+  expect((await oldButtons.nth(1).boundingBox())!.y, `old actions must wrap at ${stressWidth}px`).toBeGreaterThan((await oldButtons.nth(0).boundingBox())!.y);
+  await page.goto(await buildFixture("connect-circle-actions-stress", body(), candidates));
+  await awaitProductFont(page);
+  const fixedButtons = page.locator("[data-actions] button");
+  expect((await fixedButtons.nth(1).boundingBox())!.y, `fixed actions must share a row at ${stressWidth}px`).toBeCloseTo((await fixedButtons.nth(0).boundingBox())!.y, 0);
 });
 
 // ---------------------------------------------------------------------------
