@@ -37,7 +37,10 @@ test.beforeAll(async () => {
         },
       },
     ],
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      { find: "@/lib/services/api-service", replacement: path.join(root, "e2e/fixtures/press-ripple-boundaries.ts") },
+      { find: "@", replacement: root },
+    ] },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
@@ -94,6 +97,7 @@ async function openFixture(page: Page, reducedMotion: "reduce" | "no-preference"
   );
   await page.addScriptTag({ content: script });
   await expect(page.getByTestId("press-ripple")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeVisible();
 }
 
 test("provider icons and labels form one centered group at phone and desktop widths", async ({ page }, testInfo) => {
@@ -105,7 +109,7 @@ test("provider icons and labels form one centered group at phone and desktop wid
       const geometry = await button.evaluate(element => {
         const box = element.getBoundingClientRect();
         const group = element.querySelector("[data-auth-provider-content]")!.getBoundingClientRect();
-        const icon = element.querySelector("[data-auth-provider-icon] svg")!.getBoundingClientRect();
+        const icon = element.querySelector("[data-auth-provider-icon] > :first-child")!.getBoundingClientRect();
         const label = element.querySelector("[data-auth-provider-content] > span:last-child")!.getBoundingClientRect();
         return { box: box.toJSON(), group: group.toJSON(), icon: icon.toJSON(), label: label.toJSON() };
       });
@@ -188,6 +192,8 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
   ["Create your One", (page) => page.getByRole("button", { name: "Create your One" })],
   ["Apple sign-in", (page) => page.getByRole("button", { name: "Continue with Apple" })],
   ["Google sign-in", (page) => page.getByRole("button", { name: "Continue with Google" })],
+  ["Microsoft sign-in", (page) => page.getByRole("button", { name: "Continue with Microsoft" })],
+  ["Email sign-in", (page) => page.getByRole("button", { name: "Continue with email" })],
   [
     "follow-up chip",
     (page) =>
