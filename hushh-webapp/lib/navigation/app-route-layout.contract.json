@@ -136,10 +136,9 @@
     "shellVerification": {
       "file": "components/onboarding/initial-contacts-welcome.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
+        "FullscreenFlowShell",
+        "NativeTestBeacon",
+        "CircleOnboarding"
       ]
     },
     "voicePlaybook": {

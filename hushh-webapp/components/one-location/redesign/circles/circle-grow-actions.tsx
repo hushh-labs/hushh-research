@@ -44,6 +44,7 @@ import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
@@ -278,22 +279,21 @@ export function CircleInvitePeopleSheet({
     >
       <SheetContent
         side="bottom"
-        // Same pair as the Circle detail sheet: keep the drag gesture off a
-        // scrollable list, and keep the keyboard height inside the max-height
-        // so the search field does not leave the screen when the keyboard opens.
+        data-circle-invite-picker
+        // The primitive lifts above the native keyboard. Keep only the results
+        // scrolling so search and the invitation action stay in view.
         dragDismiss={false}
-        className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+        className={cn("mx-auto flex w-full max-w-2xl flex-col gap-0 overflow-y-hidden rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6", CONTACT_SHEET_MAX_HEIGHT_CLASSNAME)}
       >
-        <SheetHeader className="text-left">
+        <SheetHeader className="shrink-0 text-left">
           <SheetTitle>Add people to {circleName}</SheetTitle>
           <SheetDescription>
-            Choose existing connections. They join only after accepting the
-            Circle invitation; no second Connect request is needed.
+            Choose connections. They join after accepting.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
-          <label className="relative block">
+        <div data-circle-invite-content className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
+          <label className="relative block shrink-0">
             <span className="sr-only">Search connections</span>
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -307,7 +307,7 @@ export function CircleInvitePeopleSheet({
             />
           </label>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div data-circle-invite-results className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {loading ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -330,6 +330,7 @@ export function CircleInvitePeopleSheet({
                 {remainingCapacity > 0 && filtered.length ? (
                   <SettingsGroup
                     title="Your connections"
+                    className="circle-invite-group"
                     description={
                       remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                         ? `Invite up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${remainingCapacity} Circle slots remain.`
@@ -434,6 +435,7 @@ export function CircleInvitePeopleSheet({
       {pendingInvites.length ? (
         <SettingsGroup
           title="Pending invitations"
+          className="circle-invite-group"
           description="Cancel anytime before acceptance."
         >
                     {pendingInvites.map((invite) => (
