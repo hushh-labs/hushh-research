@@ -109,7 +109,8 @@ export function pwmClaimKey(statement: string): Promise<string> {
   return sha256Hex(`pwm-claim-v1\n${normalizePwmStatement(statement)}`);
 }
 
-const MAX_OWNER_DECISIONS = 50;
+// One full research draft can contain 269 independently reviewable statements.
+const MAX_OWNER_DECISIONS = 269;
 const MAX_STATEMENT_CHARS = 600;
 const PREFERENCE_TOPICS: ReadonlySet<PwmTopic> = new Set<PwmTopic>([
   "preferences",

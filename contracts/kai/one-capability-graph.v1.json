@@ -20551,7 +20551,7 @@
     },
     {
       "aliases": [
-        "Add a public source"
+        "Review a claimed source"
       ],
       "authorization": {
         "guard_ids": [
@@ -20590,7 +20590,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Read independently supplied permitted public URLs for owner review.",
+      "description": "Review a professional source attached to a legacy invitation claim.",
       "execution": {
         "binding_ref": "render:profile.world_model.sources",
         "executor": {
@@ -20623,164 +20623,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Add a public source",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Prepare invitation preview"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_owner_token"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "profile.world_model.preview",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Read a supplied professional source and review selected preview facts.",
-      "execution": {
-        "binding_ref": "render:profile.world_model.preview",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.profile.world_model.preview",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Prepare invitation preview",
+      "label": "Review a claimed source",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20904,7 +20747,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
+      "description": "Create an invitation from a name and email or phone. Either supplied verified contact can claim; the recipient's own model starts after claim. Explicit sharing uses the share sheet.",
       "execution": {
         "binding_ref": "render:profile.world_model.invite",
         "executor": {
@@ -21061,7 +20904,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "description": "Claim the invitation using a matching verified contact; owner preparation starts according to the recipient's research setting and grants no sharing.",
       "execution": {
         "binding_ref": "render:profile.world_model.claim",
         "executor": {
@@ -42265,7 +42108,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "92b68255c5a0f9217c8d8d1a64e12eee5503b16f995b451ebeed0666f4a93377",
+      "projection_digest": "14241c1ddb4f64ec630332bf2f7de0fd0b4f74e352292901c66944e39931ebb7",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42275,7 +42118,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+        "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
@@ -42284,7 +42127,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "edf0ef85a69b4938",
+      "source_revision": "087fe0af56da1339",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43802,7 +43645,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "edf0ef85a69b4938",
+    "source_revision": "087fe0af56da1339",
     "web": {
       "actions": [
         {
@@ -43845,7 +43688,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "c418915f5036ed12c38cf4e4b67edb81c47db5192fda9579e4291766581fe95e",
+      "projection_digest": "197b432adde447c608092b22046e4cfd138a41096f0f905e68ff162daddac0fa",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43855,7 +43698,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+        "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
@@ -43864,7 +43707,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "edf0ef85a69b4938",
+      "source_revision": "087fe0af56da1339",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45421,7 +45264,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "edf0ef85a69b4938",
+  "revision": "087fe0af56da1339",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -47292,12 +47135,23 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:profile.world_model.claim",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.sources"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "f5e5938138c09753",
+    "deprecated": [
+      "actions:profile.world_model.claim",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.preview",
+      "actions:profile.world_model.sources"
+    ],
+    "from_revision": "edf0ef85a69b4938",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:profile.world_model.preview"
+    ]
   },
   "services": [
     {
@@ -49527,21 +49381,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+    "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "3ebadf9d425e6d87184f91367be12fa064fb55e861dbf9a4b6de5b0930de5e47",
+    "kai_action_gateway": "03fd2ea83ef71de7625a9d5cfcb0d0438c6e3f005e947c4c79a5ca2c54567034",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "1ad6cdf5e07bc7bd9410c288d616ab3a773ab5d627b3e801fc6ee363dbe86b3e",
+    "product_agent_registry": "e2fb0d6aee4caf6f5de2a3b798149a76506e6949e9dfb3a96eeddbf9a2664762",
     "route_orchestration_index": "d0cb0a44babd6910bbf26edcc8ddc97074faa9f4c7288cd71593fc2da8b11245",
     "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
   },
-  "source_revision": "edf0ef85a69b4938",
+  "source_revision": "087fe0af56da1339",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "edf0ef85a69b4938",
+    "current_graph_revision": "087fe0af56da1339",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49725,6 +49579,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -49928,6 +49783,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50068,6 +49924,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0dd083b1d2493ac",
           "f3d135dcb0d58c6f",
@@ -50335,6 +50192,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50538,6 +50396,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50741,6 +50600,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50944,6 +50804,7 @@
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
