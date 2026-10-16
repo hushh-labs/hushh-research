@@ -41,31 +41,30 @@ installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 
 pending and history cleanup 249 remains deferred. No failed ledger row or checksum
 drift was found; no setup worker was running at this observation.
 
-**Candidate:** source `54bad3e924` passed complete hosted
-[CI 38890918283](https://github.com/hushh-labs/hushh-research/actions/runs/38890918283)
-(attempt 2; only the failed editor performance job was rerun). The original timing
-failure is retained; no budget changed. Its
-[dev deployment 38894554442](https://github.com/hushh-labs/hushh-research/actions/runs/38894554442)
-was cancelled before traffic changed: new receipt tool declarations were incompatible
-with older installed pods. Fresh serving and migration-ledger readbacks are unchanged.
-The bounded correction negotiates the authenticated receipt capability before sending;
-legacy pods retain ordinary chat, while unsupported receipt continuations refuse
-explicitly. Correction `25162f54be` passed the local core mirror, including
-20,812 parallel backend, 1,008 serial and 396 integration checks, plus its
-broken-code negative control. The combined source now includes reviewed main
-`3ba21ab8c8`; resumed core evidence preserves the original local fixture failures
-and passes the affected fallback cases without weakening gates. Hosted validation
-has not started for this correction because the open PR conflicts with newer main.
-A separate workflow-only change introduces a dev-only full branch verdict, bound
-to the exact Actions workflow, event, check suite and SHA. It does not authorize
-PR merge, UAT or production. Independent authority review and 110 focused checks
-pass; its main-owned workflow landing and exact candidate CI remain required.
-Concurrent root edits are preserved.
-New main `3ba21ab8c8` then blocked PR mergeability. Its Calendar/Circle changes
-are integrated with migration 357 and preserved branch schema head 406; 42 isolated
-PostgreSQL and 62 frontend checks pass. After Circle message actions occur,
-application rollback must retain their visibility rules; an older image is not
-an unconditional rollback target. The SQL rollback also refuses after effects.
+**Frozen application:** `c13b3899ba` includes the negotiated legacy-pod receipt
+compatibility repair and reviewed main integration. The canonical local core is
+complete; [exact-SHA branch validation](https://github.com/hushh-labs/hushh-research/actions/runs/38911092654)
+passed on attempt 2 after one failed-job-only retry. Attempt 1 passed every lane except one
+Wallet fixture that clicked before an async copy control re-enabled. The original
+failure is retained; its permanent test-only correction passes all 32 nearest
+cases. Production serialization and privacy checks are unchanged. No passing lane
+was restarted and no gate, deadline or assertion was relaxed.
+
+**Deployment authority:** workflow-only [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121),
+source `a68edc769f`, passed all 25 hosted checks. It separates the full manual
+branch verdict from PR merge approval, with exact Actions workflow/event/suite/SHA
+provenance and dev-only admission. GitHub still requires independent approval of
+the latest push: auto-merge is enabled, but there is no queue entry or main
+landing. The application remains unmerged, and dev traffic is unchanged.
+
+**Compatibility:** [deployment 38894554442](https://github.com/hushh-labs/hushh-research/actions/runs/38894554442)
+was cancelled before traffic changed when new receipt declarations proved
+incompatible with installed pods. The candidate now negotiates authenticated
+capabilities: ordinary legacy chat remains available; unsupported receipt
+continuations refuse. Reviewed main `3ba21ab8c8` contributes migration 357 while
+branch schema head 406 is preserved. After Circle message actions, application
+rollback must retain their visibility rules; the SQL rollback refuses after
+effects. No further broad main/ADK intake belongs to this frozen release.
 
 **Cloud chat:** two normal-owner synthetic turns on the installed Azure Dev 19
 image failed with provider HTTP 400, including a fresh conversation (45.242 s).
@@ -150,8 +149,8 @@ probes do not establish owner-cloud acceptance.
 | --- | --- | --- |
 | Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
 | Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
-| Combined source | Receipt correction `25162f54be`; reviewed main integration `d040dcd4e1`; event-separated dev branch validation `641995eccb`. Local ADK intake remains frozen at `2462c0bc6f` | New exact combined SHA still needs hosted CI and governed dev deployment; no further broad main/ADK intake in this cycle |
-| Verification | Hosted CI passed for `54bad3e924`; the corrected application has canonical local core evidence, focused transport/authority negatives, reviewed migration 357 and a passing architecture ratchet | Original CI and local fixture failures are retained; workflow-only correction is being verified separately. CI does not prove live owner journeys |
+| Combined source | Frozen executable candidate `c13b3899ba`: receipt correction, reviewed main integration and event-separated dev validation. Local ADK intake remains frozen at `2462c0bc6f` | Exact-SHA CI passes; workflow landing and governed dev deployment remain required. Subsequent test/memo corrections are not a new deployed executable |
+| Verification | Application `c13b3899ba` passed exact-SHA hosted CI on attempt 2 after the single classified fixture retry. Workflow-only `a68edc769f` passed all 25 checks | Original failures are retained. Independent workflow review and live owner journeys remain required |
 | Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
 | Recovery fixtures | GCP synthetic owner recovered under its runtime identity. Azure native identity recovered 57 encrypted records and its original 4,195,328-byte Files fixture exactly; temporary Jobs were removed and absence verified | Original failed probes remain recorded. This qualifies predecessor recovery only; the next exact target image still needs continuity verification |
 
