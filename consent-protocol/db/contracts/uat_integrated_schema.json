@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 351,
+  "expected_migration_version": 352,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2867,6 +2867,7 @@
       "inviter_user_id",
       "token_hash",
       "contact_commitment",
+      "secondary_contact_commitment",
       "state",
       "recipient_user_id",
       "created_at",
