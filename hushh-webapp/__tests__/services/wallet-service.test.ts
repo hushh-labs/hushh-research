@@ -685,6 +685,17 @@ describe("explicit bank and card product artwork", () => {
     expect(JSON.stringify(domain)).toBe(before); expect(mockStoreWalletDomain).not.toHaveBeenCalled();
   });
 
+  it("retains the owner's explicit neutral choice during product recovery", async () => {
+    await catalog(); let base: any = {};
+    mockStoreWalletDomain.mockImplementation(async p => { base = await p.applyMutation(base); return { success: true }; });
+    const saved = await WalletService.addCard(params());
+    await WalletService.updateCardArtwork({ ...CONTEXT, cardId: saved.cardId, artwork: { source: "neutral", version: 1 } });
+    mockLoadDomainData.mockResolvedValue(base); networkApi.fetch.mockClear();
+    const rows = await WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true });
+    expect(rows[0]!.artwork).toEqual({ source: "neutral", version: 1 });
+    expect(networkApi.fetch).not.toHaveBeenCalled();
+  });
+
   it("rejects late artwork after an owner/vault change", async () => {
     await catalog(); const transport = networkApi.fetch.getMockImplementation()!;
     networkApi.fetch.mockImplementation(async (url, options) => { if (url.includes("/assets/")) advanceVaultSessionEpoch(); return transport(url, options); });

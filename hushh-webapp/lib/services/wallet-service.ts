@@ -474,7 +474,7 @@ export class WalletService {
     // A withdrawn catalog design must never become a fresh automatic choice.
     const recoverable = options?.recoverArtwork ? presentations.filter(row => {
       const saved = storedArtwork[row.summary.cardId], secret = secrets[row.summary.cardId];
-      return (!saved || (isRecord(saved) && saved.source === "neutral")) && isRecord(secret) &&
+      return saved === undefined && isRecord(secret) &&
         typeof secret.bank_name === "string" && secret.bank_name.trim() && typeof secret.card_product === "string" && secret.card_product.trim();
     }) : [];
     const savedReferences = catalogCards.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>);
@@ -692,7 +692,8 @@ export class WalletService {
         if (artwork && !preserveArtwork) {
           assertWalletArtworkApproval(artwork, params.userId);
           const collection = isRecord(next.artwork) ? { ...next.artwork } : {};
-          collection[cardId] = artwork;
+          if (manualProduct && artwork.source === "neutral") delete collection[cardId];
+          else collection[cardId] = artwork;
           if (JSON.stringify(collection).length > MAX_WALLET_ARTWORK_CHARACTERS) {
             if (!manualProduct) throw new Error("Your artwork storage is full. Choose neutral artwork.");
             artwork = undefined;

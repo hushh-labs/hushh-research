@@ -515,9 +515,9 @@ Wallet entry joins that protected read. Quiet refresh retains approved pixels un
 their original one-minute deadline; explicit denials hide them immediately. Lock,
 owner change, verification, vault epoch and Wallet mutation invalidate the projection.
 It never contains full card numbers, CVV, keys or consent tokens. A cold load still
-needs the protected read. Missing/neutral artwork can be recovered only from the
+needs the protected read. Missing artwork can be recovered only from the
 explicit bank/product recorded by owner Add; legacy cards without that information
-remain neutral. Recovery is read-only and never changes the encrypted records.
+remain neutral. Explicit neutral choices are retained. Recovery is read-only and never changes the encrypted records.
 
 Payment-card images and catalog previews are displayed using local `Blob` objects
 and `blob:` object URLs. Default card image exports already use the same mechanism.

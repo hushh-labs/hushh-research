@@ -86,6 +86,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       isEnabled: () => true,
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
+      cardProductChoices: vi.fn().mockResolvedValue({ banks: [], variants: [], catalogVersion: "empty-1", nextOffset: null }),
       resolveCardArtwork: vi.fn().mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] }),
       listCardPresentations: async (...args: unknown[]) => {
         const rows = (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" }));
@@ -180,7 +181,7 @@ describe("WalletWorkspace at scale", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull();
       fireEvent.focus(window);
-      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); await fillCard();
       await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       fireEvent.click(screen.getByTestId("secure-card-save"));
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -206,7 +207,7 @@ describe("WalletWorkspace at scale", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
       await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
       expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
-      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); await fillCard();
       await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       fireEvent.click(screen.getByTestId("secure-card-save"));
       await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -314,11 +315,15 @@ describe("WalletWorkspace at scale", () => {
     expect(await screen.findByRole("button", { name: "Continue", exact: true })).toBeVisible();
     expect(OnboardingLocalService.hasSeenWalletIntroduction).toHaveBeenCalledWith("other_owner");
   });
-  const fillCard = () => {
+  const fillCard = async () => {
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
-    fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
+    await act(async () => {});
+    fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "Visa", exact: true }));
+    fireEvent.keyDown(screen.getByLabelText("Issuing region"), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "India", exact: true }));
   };
 
   it("saves an owner card with an optional masked code", async () => {
@@ -329,7 +334,7 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { fireEvent.click(button); });
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fillCard();
+    await fillCard();
     expect(screen.queryByLabelText("PIN (optional)")).toBeNull();
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "007" } });
@@ -352,7 +357,7 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fillCard();
+    await fillCard();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     await act(async () => { fireEvent.click(screen.getByTestId("secure-card-save")); });
     await screen.findByTestId("wallet-selected-card");
@@ -418,7 +423,7 @@ describe("WalletWorkspace at scale", () => {
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
-    fillCard();
+    await fillCard();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(serviceMock.addCard).toHaveBeenCalledTimes(1));
@@ -449,7 +454,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fillCard();
+    await fillCard();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(finishSave).toBeTypeOf("function"));
