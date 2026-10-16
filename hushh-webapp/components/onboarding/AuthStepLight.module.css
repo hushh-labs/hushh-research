@@ -158,11 +158,14 @@
 }
 .appleIcon { width: 41px; height: 23px; }
 .googleIcon { width: 46px; height: 23px; }
+/* Measured from the images: the Apple glyph is centred 20.4px and the Google glyph 22.7px from the
+   left of their boxes, both about 20-21px tall. A 43px box puts the shield's centre between them
+   (21.5px), and the 25px glyph stands about as tall (about 20px with its stroke). */
 .ssoIcon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 43px;
+  height: 28px;
   color: #1d1d1f;
 }
 .actions :global(#enterprise-sso-email) {
