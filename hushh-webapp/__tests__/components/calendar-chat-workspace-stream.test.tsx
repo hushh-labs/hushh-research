@@ -174,7 +174,11 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
   });
 
-  it.each(["tool", "state"] as const)("shows invitation controls from %s inside the existing conversation", async delivery => {
+  it.each(["tool", "state"] as const)("shows invitation controls from %s after the account check inside the existing conversation", async delivery => {
+    let settleStatus!: () => void;
+    vi.mocked(GoogleCalendarService.status).mockImplementation(() => new Promise(resolve => {
+      settleStatus = () => resolve({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
+    }));
     const invitation = { id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" }, response_status: "needsAction" as const, can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" } };
     vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true });
     const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
@@ -186,8 +190,13 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     const composer = await screen.findByRole("textbox", { name: "Message One" });
     fireEvent.change(composer, { target: { value: "Accept tomorrow's client meeting" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(GoogleCalendarService.status).toHaveBeenCalled());
+    // A late initial account observation must not replace an interactive review.
+    expect(screen.queryByRole("button", { name: "Accept", exact: true })).toBeNull();
+    expect(GoogleCalendarService.invitations).not.toHaveBeenCalled();
+    await act(async () => settleStatus());
     fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", responseStatus: "accepted" })));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", responseStatus: "accepted", expectedAccountEmail: "owner@example.com" })));
     expect(confirm).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "Confirm accept" }));
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());

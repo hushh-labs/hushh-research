@@ -73,6 +73,12 @@ candidate. Bounded cleanup and presentation extractions pass the architecture
 ratchet without a baseline waiver; 174 backend checks plus the corrected 42-case
 boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
 Live disposable cleanup remains a release acceptance requirement.
+Hosted candidate `f8c867fd83` exposed a Calendar approval race while other lanes
+finished: late initial account hydration could replace interactive controls before
+review. The bounded repair settles that observation before displaying controls.
+Both delayed-observation negative controls fail original source; 38 affected
+Calendar tests pass with exact confirmation and changed-account refusal intact.
+The original hosted failure is retained; a corrected exact-SHA release is required.
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported

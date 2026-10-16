@@ -13,14 +13,15 @@ import type { InvitationDecision, InvitationTerms } from "./calendar-invitation-
 export function CalendarInvitationChat({ owner, payload, expectedAccountEmail, onResult, onClose, onBusyChange, vaultOwnerCapability, confirmLegacyTransition }: { vaultOwnerCapability?: string | null; confirmLegacyTransition?: ConnectControls["confirmLegacyTransition"]; owner: InPlaceConnectOwner; payload: Record<string, unknown>; expectedAccountEmail?: string; onResult: (result: CalendarAttendanceResult) => void; onClose: () => void; onBusyChange?: (busy: boolean) => void }) {
   const [revision, setRevision] = useState(0), [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [account, setAccount] = useState<string | null>(null);
+  const [accountObservation, setAccountObservation] = useState<{ ownerId: string; email: string | null } | null>(null);
+  const account = accountObservation?.ownerId === owner.uid ? accountObservation.email : null;
   const lifetime = useRef<AbortController | null>(null);
   const binding = useRef({ ownerId: owner.uid, capability: vaultOwnerCapability });
   binding.current = { ownerId: owner.uid, capability: vaultOwnerCapability };
   useEffect(() => { const controller = new AbortController(); lifetime.current = controller; return () => { controller.abort(); }; }, []);
   useEffect(() => {
     let active = true;
-    void owner.getIdToken().then(idToken => GoogleCalendarService.status(idToken, owner.uid)).then(status => { if (active) setAccount(status.google_email || null); }).catch(() => {});
+    void owner.getIdToken().then(idToken => GoogleCalendarService.status(idToken, owner.uid)).then(status => { if (active) setAccountObservation({ ownerId: owner.uid, email: status.google_email || null }); }).catch(() => { if (active) setAccountObservation(current => current?.ownerId === owner.uid ? current : { ownerId: owner.uid, email: null }); });
     return () => { active = false; };
   }, [owner, revision]);
   const connect = (kind: "calendar" | "mail", access: "read" | "manage" = "manage", includeCalendarList = false) => {
@@ -34,6 +35,7 @@ export function CalendarInvitationChat({ owner, payload, expectedAccountEmail, o
     setBusy(true);
     void attempt.result.then(result => { if (controls.isCurrent()) { if (result === "connected") setRevision(value => value + 1); else if (result !== "stale") morphyToast.error("Access was not updated. You can try again."); } }).finally(() => { if (controls.isCurrent()) setBusy(false); });
   };
+  if (accountObservation?.ownerId !== owner.uid) return <div><p role="status">Checking Calendar connection…</p><Button variant="ghost" onClick={onClose}>Close invitations</Button></div>;
   const boundAccount = expectedAccountEmail || (typeof payload.accountEmail === "string" ? payload.accountEmail : account);
   if (boundAccount && account && boundAccount.toLowerCase() !== account.toLowerCase()) return <div role="alert"><p>The connected Calendar account changed. Close this review and ask One to check the invitation again.</p><Button variant="ghost" onClick={onClose}>Close invitations</Button></div>;
   const rawTerms = payload.terms && typeof payload.terms === "object" ? payload.terms as Record<string, unknown> : {};
