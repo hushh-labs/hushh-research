@@ -46,6 +46,12 @@ Founder-language translation for this doc:
 
 ## Invariants
 
+Independent email OTP and Microsoft sign-in reuse Firebase account/session
+authority. Automatic domain admission and email proof grant no vault or consent
+authority and do not depend on WorkOS organization onboarding. See
+[Independent Email Authentication](./independent-email-auth.md) for the domain,
+enrollment, sender, retention and rollout contracts.
+
 1. Cryptographic Primitives: no plaintext-at-rest for private user data.
 2. Capability Tokens + PCHP: private data access requires active consent-token scope and explicit approval.
 3. Separation of Duties: web, iOS, and Android must keep route/contract parity.

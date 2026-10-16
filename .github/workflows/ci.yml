@@ -231,6 +231,7 @@ jobs:
           filters: |
             frontend:
               - 'hushh-webapp/**'
+              - 'deploy/mail-api/**'
               - '.github/workflows/ci.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
