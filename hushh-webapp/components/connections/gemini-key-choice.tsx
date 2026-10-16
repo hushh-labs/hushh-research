@@ -36,7 +36,6 @@ export function GeminiKeyChoice({
   privateCloud,
   placement,
   requiresExplicitSelection,
-  vaultReady,
   selectedOption,
   mode,
   hasExplicitSelection,
@@ -64,7 +63,6 @@ export function GeminiKeyChoice({
   privateCloud: boolean;
   placement: string;
   requiresExplicitSelection: boolean;
-  vaultReady: boolean;
   selectedOption: string;
   mode: RuntimeCredentialMode;
   hasExplicitSelection: boolean;
