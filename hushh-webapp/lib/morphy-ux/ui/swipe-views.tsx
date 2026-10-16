@@ -871,7 +871,7 @@ export function SwipeViews({
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
-  }, [activeValue, emblaApi, onSelectionChange, options]);
+  }, [emblaApi, onSelectionChange, options]);
 
   // A settle can only reconcile a snap that changed after selection (for
   // example a cancelled drag); it never owns the first route update.
