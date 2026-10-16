@@ -28,7 +28,12 @@ from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    FILE_ID,
+    LIVE_SUPPORTED_TYPES,
+    RESOURCE_KEY,
+    DriveReadError,
+)
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 PAGE_SIZE = 25
@@ -337,7 +342,12 @@ def compile_plan(plan: dict, timezone: str) -> dict:
 
 
 def compile_request_queries(
-    plan: dict, purpose: dict, timezone: str, *, requested_at: datetime | None = None
+    plan: dict,
+    purpose: dict,
+    timezone: str,
+    *,
+    requested_at: datetime | None = None,
+    v1_live_request: bool = False,
 ) -> tuple[list[dict], dict | None]:
     """Broaden a requested file set before the owner reviews it.
 
@@ -402,11 +412,19 @@ def compile_request_queries(
     direct_originals = (
         parsed.result_limit is not None and not parsed.terms and not parsed.exact_title
     )
+    financial_v1 = v1_live_request and parsed.semantic_intent in {
+        "institutional_statement",
+        "broad_financial_records",
+    }
     kind_clause = (
         _request_kind_clause(parsed.file_kind)
         if direct_originals
         else _request_discovery_clause(parsed.file_kind)
     )
+    if financial_v1 and not direct_originals:
+        # A named clue can surface an unsupported document. Do not hide that
+        # potential match behind the planner's MIME family before checking it.
+        kind_clause = None
     if kind_clause:
         base.append(kind_clause)
     if direct_originals:
@@ -481,6 +499,32 @@ def compile_request_queries(
         else "modifiedTime"
     )
     queries = [{"arguments": {"query": query, "orderBy": f"{order} desc"}}]
+
+    def append_v1_structural_sweep() -> None:
+        # Drive fullText is a discovery hint, not a complete index of original
+        # bytes (notably scans). Search supported formats by MIME as well, then
+        # let the paged background reader decide issuer, type and content dates.
+        # No file timestamp or fixed top-N may discard a matching statement.
+        if not financial_v1 or parsed.exact_title:
+            return
+        mime_subject = (
+            "("
+            + " or ".join(
+                f"mimeType = '{mime}'" for mime in sorted(LIVE_SUPPORTED_TYPES | {SHORTCUT_MIME})
+            )
+            + ")"
+        )
+        structural_query = " and ".join(
+            [
+                "trashed = false",
+                mime_subject,
+                *(["sharedWithMe = true"] if parsed.shared_with_me else []),
+            ]
+        )
+        if len(structural_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        queries.append({"arguments": {"query": structural_query, "orderBy": f"{order} desc"}})
+
     if entity_subject:
         # The explicit-entity sweep already includes every anatomy clue. One
         # exhaustive sweep avoids N redundant broad searches for account/portfolio.
@@ -492,6 +536,7 @@ def compile_request_queries(
         }
         if entity_query not in queries:
             queries.append(entity_query)
+        append_v1_structural_sweep()
         return queries, period
     if broader_subject is not None:
         broader_query = " and ".join(
@@ -518,6 +563,7 @@ def compile_request_queries(
         candidate_query = {"arguments": {"query": clue_query, "orderBy": f"{order} desc"}}
         if candidate_query not in queries:
             queries.append(candidate_query)
+    append_v1_structural_sweep()
     return queries, period
 
 
@@ -600,6 +646,35 @@ def _matches_requested_kind(kind: str, mime: str) -> bool:
     if kind == "pdf":
         return mime == "application/pdf"
     return mime.startswith(kind + "/")
+
+
+def _request_candidate_kind_matches(checkpoint: dict, kind: str, mime: str) -> bool:
+    if _matches_requested_kind(kind, mime):
+        return True
+    # A bank statement may be a spreadsheet or an image of a paper statement.
+    # The model still has to verify the document's contents before review.
+    authored = checkpoint.get("authored_plan")
+    return (
+        checkpoint.get("v1_live_request") is True
+        and kind == "document"
+        and isinstance(authored, dict)
+        and authored.get("semantic_intent")
+        in {"institutional_statement", "broad_financial_records"}
+        and mime in LIVE_SUPPORTED_TYPES
+    )
+
+
+def _v1_unsupported_candidate(checkpoint: dict, kind: str, mime: str) -> bool:
+    authored = checkpoint.get("authored_plan")
+    return (
+        checkpoint.get("v1_live_request") is True
+        and kind in {"any", "document"}
+        and isinstance(authored, dict)
+        and authored.get("semantic_intent")
+        in {"institutional_statement", "broad_financial_records"}
+        and mime not in LIVE_SUPPORTED_TYPES
+        and mime not in {FOLDER_MIME, SHORTCUT_MIME}
+    )
 
 
 def _token(payload, current, checkpoint):
@@ -1057,7 +1132,11 @@ class DriveOwnerSearchService:
             queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
         else:
             queries, period = compile_request_queries(
-                plan, purpose, timezone, requested_at=requested_at
+                plan,
+                purpose,
+                timezone,
+                requested_at=requested_at,
+                v1_live_request=v1_live_request,
             )
         from hushh_mcp.services.drive_request_bulk_service import (
             _deterministic_statement_plan,
@@ -1140,6 +1219,11 @@ class DriveOwnerSearchService:
                         "provider": "google_drive",
                     }[route["kind"]],
                     "retrievalCompleteness": "verified_index" if indexed else "provider_candidates",
+                    **(
+                        {"formatScope": "supported_live_formats_with_named_unsupported_flags"}
+                        if v1_live_request
+                        else {}
+                    ),
                     "fallbackReason": route.get("fallback_reason"),
                     "lastIndexedAt": route.get("index_snapshot", {}).get("last_synced_at"),
                     "fileKind": plan.get("file_kind", "any"),
@@ -1422,7 +1506,13 @@ class DriveOwnerSearchService:
                         _counter(checkpoint, "unavailableFolderCount")
                         continue
                     target_kind = details.get("targetMimeType")
-                    if target_kind and not _matches_requested_kind(kind, target_kind):
+                    if target_kind and _v1_unsupported_candidate(checkpoint, kind, target_kind):
+                        incomplete = True
+                        _counter(checkpoint, "unsupportedCandidateCount")
+                        continue
+                    if target_kind and not _request_candidate_kind_matches(
+                        checkpoint, kind, target_kind
+                    ):
                         _counter(checkpoint, "excludedByKindCount")
                         continue
                     if not _filename_candidate(checkpoint, match):
@@ -1483,7 +1573,11 @@ class DriveOwnerSearchService:
                 else:
                     _counter(checkpoint, "excludedFolderTopicCount")
                 continue
-            if not _matches_requested_kind(kind, match["mime_type"]):
+            if _v1_unsupported_candidate(checkpoint, kind, match["mime_type"]):
+                incomplete = True
+                _counter(checkpoint, "unsupportedCandidateCount")
+                continue
+            if not _request_candidate_kind_matches(checkpoint, kind, match["mime_type"]):
                 _counter(checkpoint, "excludedByKindCount")
                 continue
             if not _filename_candidate(checkpoint, match):

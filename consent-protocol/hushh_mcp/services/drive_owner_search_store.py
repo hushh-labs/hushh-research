@@ -168,6 +168,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "folderDiscovery",
                         "retrievalSource",
                         "retrievalCompleteness",
+                        "formatScope",
                         "fallbackReason",
                         "lastIndexedAt",
                     )
@@ -190,6 +191,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "resolvedShortcutCount",
                         "unavailableFolderCount",
                         "invalidMetadataCount",
+                        "unsupportedCandidateCount",
                         "matchingFoldersDiscovered",
                         "matchingFoldersExhausted",
                     )

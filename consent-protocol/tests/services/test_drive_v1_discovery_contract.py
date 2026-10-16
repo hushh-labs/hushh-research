@@ -9,13 +9,14 @@ from uuid import uuid4
 
 import pytest
 
+import hushh_mcp.services.drive_owner_search_service as search_module
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     compile_request_queries,
 )
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
-from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.google_drive_adapter import LIVE_SUPPORTED_TYPES, DriveReadError
 from tests.services.test_drive_owner_search_postgres import (  # noqa: F401
     connector_postgres_url,
     lifecycle,
@@ -58,6 +59,231 @@ def test_semantic_clues_union_with_exact_search_without_file_timestamp_cut():
         for query in queries
     )
     assert all("result_limit" not in query for query in queries)
+
+
+def _v1_statement_plan():
+    return {
+        "mode": "find",
+        "terms": ["Schwab", "statement"],
+        "required_entities": ["Schwab"],
+        "semantic_intent": "institutional_statement",
+        "discovery_clues": ["Schwab", "eStmt", "brokerage"],
+        "expected_document_anatomy": "Issuer, account and internal statement period.",
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+
+
+def _v1_structural_checkpoint(plan, queries):
+    return {
+        "v1_live_request": True,
+        "authored_plan": plan,
+        "request_origin_id": "request-id",
+        "request_explicit_dates": True,
+        "request_file_kind": "document",
+        "request_owner_review_required": True,
+        "request_direct_originals": False,
+        "request_subject_terms": plan["terms"],
+        "request_exact_title": None,
+        "request_notes": False,
+        "requested_period": {"start": "2026-09-01", "end": "2026-10-09", "timezone": "UTC"},
+        "coverage_counts": {},
+        "arguments": queries[-1]["arguments"],
+        "queries": queries,
+        "query_index": len(queries) - 1,
+        "phase": "user",
+        "page_token": None,
+        "seen_tokens": [],
+        "drive_page_token": None,
+        "drive_tokens": [],
+        "drives": [],
+        "drive_index": 0,
+        "folder_queue": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_v1_structural_sweep_reads_generic_name_statement_candidates_without_fulltext():
+    plan = _v1_statement_plan()
+    queries, _ = compile_request_queries(
+        plan,
+        {
+            "purpose": "All Schwab statements",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "UTC",
+        v1_live_request=True,
+    )
+    assert len(queries) == 3  # precise, named issuer, then MIME-only sweep
+    structural = queries[-1]["arguments"]["query"]
+    assert "fullText" not in structural and "title" not in structural
+    assert "modifiedTime >=" not in structural and "createdTime >=" not in structural
+    assert all(f"mimeType = '{mime}'" in structural for mime in LIVE_SUPPORTED_TYPES)
+    assert "application/vnd.google-apps.shortcut" in structural
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id == "owner" and tool_name == "search_files"
+        assert arguments["query"] == structural
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    _provider_file("pdf-scan", "scan_001.pdf", "application/pdf"),
+                    _provider_file(
+                        "sheet", "Tabular data", "application/vnd.google-apps.spreadsheet"
+                    ),
+                    _provider_file("image", "IMG_0926.jpg", "image/jpeg"),
+                ],
+                "nextPageToken": None,
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    service = DriveOwnerSearchService(transport=SimpleNamespace(read_owner_search_page=read))
+    checkpoint = _v1_structural_checkpoint(plan, queries)
+    _, files, incomplete, _ = await service._page({"user_id": "owner", "checkpoint": checkpoint})
+
+    assert [file["id"] for file in files] == ["pdf-scan", "sheet", "image"]
+    assert all(file["requestEvidence"]["assessment"] == "unverified" for file in files)
+    assert incomplete is False
+
+
+@pytest.mark.asyncio
+async def test_v1_structural_sweep_follows_second_page_and_propagates_provider_incomplete():
+    plan = _v1_statement_plan()
+    queries, _ = compile_request_queries(
+        plan,
+        {
+            "purpose": "All Schwab statements",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "UTC",
+        v1_live_request=True,
+    )
+    seen_tokens = []
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id == "owner" and tool_name == "search_files"
+        token = arguments.get("pageToken")
+        seen_tokens.append(token)
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": (
+                    [_provider_file("generic-second-page", "IMG_0926.jpg", "image/jpeg")]
+                    if token
+                    else []
+                ),
+                "nextPageToken": None if token else "page-two",
+                "incompleteSearch": bool(token),
+            },
+            False,
+        )
+
+    service = DriveOwnerSearchService(transport=SimpleNamespace(read_owner_search_page=read))
+    checkpoint = _v1_structural_checkpoint(plan, queries)
+    first, files, incomplete, done = await service._page(
+        {"user_id": "owner", "checkpoint": checkpoint}
+    )
+    assert files == [] and incomplete is False and done is False
+    assert first["page_token"] == "page-two"
+
+    second, files, incomplete, done = await service._page({"user_id": "owner", "checkpoint": first})
+    assert seen_tokens == [None, "page-two"]
+    assert [file["id"] for file in files] == ["generic-second-page"]
+    assert incomplete is True and done is False
+    assert second["page_token"] is None
+
+
+@pytest.mark.asyncio
+async def test_v1_structural_sweep_cannot_finish_when_next_page_exceeds_work_budget(monkeypatch):
+    plan = _v1_statement_plan()
+    queries, _ = compile_request_queries(
+        plan,
+        {
+            "purpose": "All Schwab statements",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "UTC",
+        v1_live_request=True,
+    )
+
+    async def read(*, user_id, tool_name, arguments):
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [_provider_file("pdf-scan", "scan_001.pdf", "application/pdf")],
+                "nextPageToken": "unread-next-page",
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    monkeypatch.setattr(search_module, "MAX_REQUEST_FILE_PAGES", 1)
+    service = DriveOwnerSearchService(transport=SimpleNamespace(read_owner_search_page=read))
+    checkpoint = _v1_structural_checkpoint(plan, queries)
+    next_checkpoint, files, incomplete, done = await service._page(
+        {"user_id": "owner", "checkpoint": checkpoint}
+    )
+
+    assert [file["id"] for file in files] == ["pdf-scan"]
+    assert incomplete is True and done is True
+    assert next_checkpoint["coverage_counts"]["workLimitReached"] is True
+
+
+@pytest.mark.asyncio
+async def test_v1_named_unsupported_document_reports_incomplete_instead_of_disappearing():
+    plan = _v1_statement_plan()
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "issuer hit"}}])
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [_provider_file("archive", "Schwab statements.zip", "application/zip")],
+        folder_scoped=False,
+        drive_id=None,
+    )
+
+    assert files == [] and incomplete is True
+    assert checkpoint["coverage_counts"]["unsupportedCandidateCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_v1_unsupported_term_hit_cannot_complete_search(store):
+    plan = _v1_statement_plan()
+    checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "issuer hit"}}])
+    checkpoint["coverage_manifest"] = {"corpora": ["user"], "formatScope": "supported_live_formats"}
+    client_request_id = str(uuid4())
+    state, created = await store.create(
+        user_id="owner",
+        client_request_id=client_request_id,
+        request={"query": "All Schwab statements"},
+        checkpoint=checkpoint,
+        confirmed=True,
+        v1_statement_search=True,
+    )
+    assert created
+    job = await store.claim(user_id="owner", job_id=state["jobId"])
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [_provider_file("archive", "Schwab statements.zip", "application/zip")],
+        folder_scoped=False,
+        drive_id=None,
+    )
+
+    final = await store.commit_page(
+        job, checkpoint=checkpoint, files=files, incomplete=incomplete, done=True
+    )
+
+    assert final["status"] == "limited"
+    assert final["incompleteSearch"] is True
+    assert final["coverage"]["unsupportedCandidateCount"] == 1
 
 
 @pytest.mark.asyncio
