@@ -28,6 +28,10 @@ from hushh_mcp.services.external_connector_registry_service import (
 def test_collection_processing_needs_explicit_owner_permission(route_client, monkeypatch):
     from hushh_mcp.services import drive_collection_store
 
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     client, app, _ = route_client
     store = SimpleNamespace(
         status=AsyncMock(return_value={"state": "not_enabled"}),
@@ -40,6 +44,7 @@ def test_collection_processing_needs_explicit_owner_permission(route_client, mon
     assert client.post(base + "/processing", json=body).status_code == 401
     assert not store.set_processing.called
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    assert client.get(base + "/status").status_code == 200
     response = client.post(base + "/processing", json=body)
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
     store.set_processing.assert_awaited_once_with(
@@ -54,6 +59,17 @@ def test_collection_processing_needs_explicit_owner_permission(route_client, mon
     ):
         assert client.post(base + "/processing", json=body | patch).status_code == 422
     assert store.set_processing.await_count == 1
+
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    assert client.get(base + "/status").status_code == 403
+    response = client.post(base + "/processing", json=body)
+    assert response.status_code == 403
+    assert store.set_processing.await_count == 1
+    # An owner can still stop processing a historical collection.
+    assert client.post(base + "/processing", json={**body, "enabled": False}).status_code == 200
+    store.set_processing.assert_awaited_with(
+        user_id="owner", enabled=False, disclosure="live-drive-collection-v1"
+    )
 
 
 def test_review_configuration_is_transient_and_rejects_refresh_tokens():
