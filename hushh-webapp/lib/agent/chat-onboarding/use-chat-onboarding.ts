@@ -13,7 +13,6 @@
  * - confirmed answers go to encrypted memory, client-side.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { create } from "zustand";
 import { PREFERRED_NAME_MAX, sanitizeStyleText } from "@/lib/agent/owner-style-settings";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -23,9 +22,9 @@ import {
   isAwaitingTypedName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
-  type ChatOnboardingState,
   type ChatOnboardingTurn,
 } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
+import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
 import {
   localCalendarDate,
   pickDailyTip,
@@ -42,65 +41,7 @@ import {
   type OneChatOnboardingState,
 } from "@/lib/services/pre-vault-user-state-service";
 
-type ChatOnboardingSession = {
-  userId: string | null;
-  /** `undefined` until the durable record was read; `null` means never started. */
-  durable: OneChatOnboardingState | null | undefined;
-  machine: ChatOnboardingState | null;
-  /**
-   * Turns already shown, with the time label they were first shown at, so a
-   * remount (leaving chat for a connect flow and returning) never re-types a
-   * turn or re-stamps it with the wrong time.
-   */
-  shownTurns: ReadonlyMap<string, string>;
-  /**
-   * When each turn was first shown (epoch ms). Drives the transcript's
-   * centered time separators; kept beside the label so the label stays the
-   * exact string the person saw.
-   */
-  shownTurnTimes: ReadonlyMap<string, number>;
-  /**
-   * The conversation onboarding happened in, once it has an id. A finished
-   * onboarding stays in that conversation; a new chat starts clean.
-   */
-  homeConversationId: string | null;
-  nameRequestId: string | null;
-};
-
-const EMPTY_SESSION: ChatOnboardingSession = {
-  userId: null,
-  durable: undefined,
-  machine: null,
-  shownTurns: new Map(),
-  shownTurnTimes: new Map(),
-  homeConversationId: null,
-  nameRequestId: null,
-};
-
-export const useChatOnboardingSession = create<
-  ChatOnboardingSession & {
-    reset: (userId: string | null) => void;
-    patch: (next: Partial<ChatOnboardingSession>) => void;
-    markShown: (turnId: string, timeLabel: string, shownAtMs?: number) => void;
-  }
->((set) => ({
-  ...EMPTY_SESSION,
-  reset: (userId) =>
-    set({ ...EMPTY_SESSION, shownTurns: new Map(), shownTurnTimes: new Map(), userId }),
-  patch: (next) => set(next),
-  markShown: (turnId, timeLabel, shownAtMs) =>
-    set((state) =>
-      state.shownTurns.has(turnId)
-        ? state
-        : {
-            shownTurns: new Map([...state.shownTurns, [turnId, timeLabel]]),
-            shownTurnTimes:
-              typeof shownAtMs === "number"
-                ? new Map([...state.shownTurnTimes, [turnId, shownAtMs]])
-                : state.shownTurnTimes,
-          },
-    ),
-}));
+export { useChatOnboardingSession };
 
 /** What the event runner needs from the mounted workspace. */
 export type ChatOnboardingHost = {

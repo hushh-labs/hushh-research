@@ -1,7 +1,10 @@
-import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
+import { reduceChatOnboarding, type ChatOnboardingState } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
+import type { ChatOnboardingChipId } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
+import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorClaim, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import {
@@ -25,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   unlocked: true,
   identityOwner: "viewer",
   preferredName: "Love",
+  identityReady: true,
+  rereading: false,
   revision: 0,
   refresh: vi.fn(),
   list: vi.fn(),
@@ -48,7 +53,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? "fixture-key" : null, vaultOwnerToken: mocks.unlocked ? "fixture-token" : null }),
 }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  usePkmDomainResource: () => ({ refresh: mocks.refresh, data: { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } }),
+  usePkmDomainResource: () => ({
+    refresh: mocks.refresh,
+    invalidated: mocks.rereading,
+    data: mocks.identityReady ? { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } : null,
+  }),
 }));
 vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({ usePkmDomainChangeRevision: () => mocks.revision }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -127,6 +136,19 @@ function mirrorView(ownerId: string, options: {
 }
 const rowTitle = (row: HTMLElement) => row.querySelector('[data-slot="settings-row-title"]')?.textContent;
 const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact").find(row => rowTitle(row) === title)!;
+/** The real onboarding reducer, so these states follow the machine's own contract. */
+function onboardingAfter(...chips: ChatOnboardingChipId[]): ChatOnboardingState {
+  let state = reduceChatOnboarding(null, { type: "start", displayName: "Kay", firstName: "Kay", anchor: null }).state;
+  for (const chipId of chips) {
+    state = reduceChatOnboarding(state, { type: "chip", chipId, anchor: null, today: "2026-10-16", firstName: "Kay" }).state;
+  }
+  return state;
+}
+const PICKED = ["name_signin", "focus_email", "tone_casual"] as const;
+const saveResult = (ok: boolean) =>
+  reduceChatOnboarding(onboardingAfter(...PICKED, "save"), { type: "save_result", ok, anchor: null, today: "2026-10-16" }).state;
+const session = () => useChatOnboardingSession.getState();
+
 /** A row's supporting lines, one per claim. */
 const lines = (row: HTMLElement) =>
   [...row.querySelectorAll('[data-slot="settings-row-description"] > span')].map(line => line.textContent);
@@ -145,6 +167,9 @@ describe("One agent profile feed preview", () => {
     mocks.unlocked = true;
     mocks.identityOwner = "viewer";
     mocks.preferredName = "Love";
+    mocks.identityReady = true;
+    mocks.rereading = false;
+    useChatOnboardingSession.getState().reset(null);
     window.localStorage.clear();
     CacheService.getInstance().clear();
     mocks.list.mockResolvedValue({
@@ -178,6 +203,66 @@ describe("One agent profile feed preview", () => {
     mocks.unlocked = true;
     mocks.preferredName = "";
     rerender();
+    expect(result.current).toBe("One");
+  });
+
+  it("shows a name picked in onboarding at once and holds it while memory re-reads", () => {
+    mocks.preferredName = "";
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    expect(result.current).toBe("One");
+
+    // "Call me Kay" is only a session draft: memory holds nothing yet.
+    act(() => {
+      session().reset("viewer");
+      session().patch({ machine: onboardingAfter("name_signin") });
+    });
+    expect(result.current).toBe("Kay");
+
+    // Saved: the draft clears while memory is invalidated and read again.
+    act(() => {
+      mocks.identityReady = false;
+      mocks.rereading = true;
+      session().patch({ machine: saveResult(true) });
+    });
+    expect(result.current).toBe("Kay");
+
+    mocks.identityReady = true;
+    mocks.rereading = false;
+    mocks.preferredName = "Kay";
+    rerender();
+    expect(result.current).toBe("Kay");
+
+    // A later edit in Settings wins over anything onboarding left behind.
+    mocks.preferredName = "Roopmann";
+    rerender();
+    expect(result.current).toBe("Roopmann");
+  });
+
+  it("never keeps a declined or unsaved pick, and shows one only to its unlocked owner", () => {
+    mocks.preferredName = "";
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    const pick = (owner: string, machine: ChatOnboardingState) =>
+      act(() => {
+        session().reset(owner);
+        session().patch({ machine });
+      });
+
+    pick("another-owner", onboardingAfter(...PICKED));
+    expect(result.current).toBe("One");
+
+    pick("viewer", onboardingAfter(...PICKED));
+    expect(result.current).toBe("Kay");
+    mocks.unlocked = false;
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.unlocked = true;
+    rerender();
+    expect(result.current).toBe("Kay");
+
+    // Nothing was stored, so the label follows memory straight back.
+    act(() => session().patch({ machine: saveResult(false) }));
+    expect(result.current).toBe("One");
+    act(() => session().patch({ machine: onboardingAfter(...PICKED, "dont_save") }));
     expect(result.current).toBe("One");
   });
 
