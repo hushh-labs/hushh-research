@@ -16,6 +16,7 @@ import {
   markMemoryRefreshPending,
 } from "@/lib/pkm/memory-refresh";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { isConsentChangeWorthRefreshing } from "@/lib/feed/use-feed-live-refresh";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { NATIVE_CONNECTOR_RETURN_EVENT, type NativeConnectorReturn } from "@/lib/navigation/use-deep-link-return";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
@@ -42,6 +43,9 @@ export function LivingMemoryBridge() {
     let running = false;
     let pending = false;
     let sourceDirty = true;
+    let retryAt = 0;
+    let failures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     // Rebuild the mirror on the next build. A store that only renewed
     // verification stays quiet; one that changed records shows "Updating".
     let rebuildDocument = false;
@@ -60,10 +64,16 @@ export function LivingMemoryBridge() {
     const stopWatch = watchMemoryFreshness(userId);
     const build = async () => {
       if (stopped || !isVaultSessionEpochCurrent(epoch)) return;
+      if (Date.now() < retryAt) {
+        pending = true;
+        return;
+      }
       if (running) {
         pending = true;
         return;
       }
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
       running = true;
       do {
         pending = false;
@@ -144,9 +154,19 @@ export function LivingMemoryBridge() {
               .filter(Boolean),
             force,
           });
+          failures = 0;
+          retryAt = 0;
         } catch {
+          if (stopped || !isVaultSessionEpochCurrent(epoch)) break;
           sourceDirty = true;
           markMemoryRefreshPending(userId);
+          // Failed persistence must not turn incoming hints into an immediate
+          // retry loop. Keep all dirty state/version hints for one later retry.
+          const delay = Math.min(60_000 * 2 ** Math.min(failures++, 3), 300_000);
+          retryAt = Date.now() + delay;
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(() => { retryTimer = undefined; void build(); }, delay);
+          break;
         }
       } while (pending && !stopped);
       running = false;
@@ -195,6 +215,7 @@ export function LivingMemoryBridge() {
       }
     });
     const onConsentChanged = (event: Event) => {
+      if (!isConsentChangeWorthRefreshing(event)) return;
       const owner = (event as CustomEvent<{ userId?: string }>).detail?.userId;
       if (owner && owner !== userId) return;
       consentHintVersion++;
@@ -244,6 +265,7 @@ export function LivingMemoryBridge() {
     void build();
     return () => {
       stopped = true;
+      clearTimeout(retryTimer);
       stopChanges();
       stopWatch();
       stopCache();

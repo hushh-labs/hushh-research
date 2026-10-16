@@ -669,7 +669,7 @@ async def _propose(
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
-            "timeZone": plan.get("time_zone") or _timezone(tool_context),
+            "timeZone": _timezone(tool_context),
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "description": event_fields["description"],
