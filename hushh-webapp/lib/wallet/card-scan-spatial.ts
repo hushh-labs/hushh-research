@@ -4,7 +4,9 @@ export interface CardTextObservation { text: string; bbox: CardImageBox; confide
 /** Only neighboring numeric glyphs in one printed number region may be joined.
  * Transcript order is not spatial evidence; distant four-digit codes stay out. */
 export function spatialCardNumbers(observations: CardTextObservation[]): string[] {
-  const groups = observations.filter(item => /^[0-9]{3,6}$/.test(item.text.trim()) && item.confidence >= 55 && item.bbox.y1 > item.bbox.y0);
+  // Keep short/uncertain neighbors as boundaries too. Dropping the final digit
+  // of a 13-digit number can manufacture a different checksum-valid 12-digit PAN.
+  const groups = observations.filter(item => /^[0-9]{1,6}$/.test(item.text.trim()) && item.bbox.y1 > item.bbox.y0);
   const rows: CardTextObservation[][] = [];
   for (const group of groups.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0)) {
     const row = rows.find(items => {
@@ -16,18 +18,19 @@ export function spatialCardNumbers(observations: CardTextObservation[]): string[
   const candidates: string[] = [];
   for (const row of rows) {
     const ordered = row.sort((a, b) => a.bbox.x0 - b.bbox.x0);
-    let text = "";
+    let text = "", confident = true;
     for (let next = 0; next < ordered.length; next++) {
       const b = ordered[next]!, a = ordered[next - 1];
       if (a) {
         const ah = a.bbox.y1 - a.bbox.y0, bh = b.bbox.y1 - b.bbox.y0;
         if (Math.max(ah, bh) > Math.min(ah, bh) * 1.5 || b.bbox.x0 - a.bbox.x1 > Math.max(ah, bh) * 1.5 || b.bbox.x0 < a.bbox.x1 - ah * .2) {
-          if (text.length >= 13 && text.length <= 19) candidates.push(text); text = "";
+          if (confident && text.length >= 12 && text.length <= 19) candidates.push(text); text = ""; confident = true;
         }
       }
       text += b.text.trim();
+      confident &&= b.confidence >= 55;
     }
-    if (text.length >= 13 && text.length <= 19) candidates.push(text);
+    if (confident && text.length >= 12 && text.length <= 19) candidates.push(text);
   }
   // Genuine compact multi-row layouts; other layouts require manual correction.
   const singles = rows.filter(row => row.length === 1).flat().sort((a, b) => a.bbox.y0 - b.bbox.y0);
@@ -39,7 +42,7 @@ export function spatialCardNumbers(observations: CardTextObservation[]): string[
       block.push(b);
     }
     const pattern = block.map(item => item.text.trim().length).join(",");
-    if (["4,4,4,4", "4,6,5", "4,6,4"].includes(pattern)) candidates.push(block.map(item => item.text.trim()).join(""));
+    if (block.every(item => item.confidence >= 55) && ["4,4,4", "4,4,4,4", "4,6,5", "4,6,4"].includes(pattern)) candidates.push(block.map(item => item.text.trim()).join(""));
     start += block.length - 1;
   }
   return candidates;

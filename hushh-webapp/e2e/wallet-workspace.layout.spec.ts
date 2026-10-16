@@ -226,7 +226,7 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/card-scan-agent-one-emerging.webp") {
+    if (assetPath === "/wallet/card-scan-agent-one-slim-v1.webp") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
@@ -480,7 +480,7 @@ test("Wallet tabs preserve a draft and cancel to the Cards collection", async ({
   await expect(page.getByTestId("wallet-add-layer-4242")).toBeVisible();
   await expect(page.locator("#top-shell-wallet-panel-add")).toHaveAttribute("inert", "");
   await page.getByRole("tab", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Travel");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("TRAVEL");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("wallet-add-collection")).toBeVisible();
@@ -642,9 +642,9 @@ for (const width of [320, 393, 1440]) {
     const form = page.getByTestId("secure-card-add-form");
     const scan = page.getByRole("button", { name: "Scan card", exact: true });
     await expect(scan).toBeVisible();
-    await expect(scan.getByText("Scan here to add card", { exact: true })).toBeVisible();
+    await expect(scan.getByText("Scan to add card", { exact: true })).toBeVisible();
     const artwork = scan.locator("img");
-    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-emerging.webp");
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-slim-v1.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
     if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
       await scan.click();
@@ -776,7 +776,7 @@ test("Back unwinds Add and Sharing to the previous selected Wallet card", async 
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __walletBack: () => boolean }).__walletBack())).toBe(true);
   await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Draft Owner");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("DRAFT OWNER");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
