@@ -98,7 +98,7 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
-async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read(monkeypatch):
+async def test_owner_scanner_keeps_rest_rows_without_widening_agent_read(monkeypatch):
     listing = AsyncMock(
         return_value={
             "files": [
@@ -120,6 +120,16 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
     assert result.payload["nextPageToken"] == "next-100"
     assert result.payload["overLimit"] is False
     assert listing.await_args.kwargs["page_size"] == 100
+    large = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 1000},
+    )
+    # Google may return fewer rows than requested, leaving a continuation.
+    assert len(large.payload["files"]) == 100
+    assert large.payload["nextPageToken"] == "next-100"
+    assert listing.await_args.kwargs["page_size"] == 1000
+    assert listing.await_args.kwargs["owner_search_page"] is True
     with pytest.raises(DriveOAuthError, match="invalid_argument"):
         await drive.read_tool(
             user_id="owner",
@@ -130,7 +140,7 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
         await drive.read_owner_search_page(
             user_id="owner",
             tool_name="search_files",
-            arguments={"query": "title contains 'file'", "pageSize": 101},
+            arguments={"query": "title contains 'file'", "pageSize": 1001},
         )
 
 

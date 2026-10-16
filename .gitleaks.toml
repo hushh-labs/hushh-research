@@ -47,4 +47,8 @@ regexes = [
   # heuristic matched these exact `domain_key=` declarations in the merged
   # branch history; do not allowlist the file or arbitrary domain keys.
   '''^financial\.(holdings|securities|derived)_v1$''',
+  # Old unpushed V1 commit used this exact public checkpoint field name in a
+  # Python constant; the generic-key heuristic mistook that assignment for a
+  # credential. The constant is now renamed, but CI scans commit history.
+  '''^v1_evaluation_priority$''',
 ]

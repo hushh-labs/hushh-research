@@ -136,10 +136,10 @@ describe("RequesterPaymentSection", () => {
     fireEvent.click(pay);
     expect(state.checkout).not.toHaveBeenCalled();
     mounted.rerender(<RequesterPaymentSection {...props} packageDisclosure={disclosure} />);
-    expect(screen.getByText("Incomplete package")).toBeVisible();
+    expect(screen.getByText("Incomplete documents")).toBeVisible();
     expect(screen.getByText("2026-09-01 – 2026-09-30")).toBeVisible();
     expect(screen.getByText("Missing coverage: October 1–9, 2026.")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Approved packet" }).compareDocumentPosition(pay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Approved documents" }).compareDocumentPosition(pay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(pay).toBeEnabled();
     state.checkout.mockResolvedValueOnce("https://checkout.stripe.com/c/pay/current");
     fireEvent.click(pay);
@@ -151,7 +151,7 @@ describe("RequesterPaymentSection", () => {
       payment={payment({ packageDisclosureRequired: true })} price={null} onChanged={vi.fn()}
       packageDisclosure={{ schemaVersion: 1 } as DrivePackageDisclosure} />);
     expect(screen.getByRole("button", { name: "Pay $25" })).toBeDisabled();
-    expect(screen.getByText("Packet details are unavailable. Refresh before paying.")).toBeVisible();
+    expect(screen.getByText("Document details are unavailable. Refresh before paying.")).toBeVisible();
   });
 
   it("does not reuse cached disclosure when the current payment explicitly has none", () => {
@@ -160,7 +160,7 @@ describe("RequesterPaymentSection", () => {
       packageDisclosure={{ schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
         selectedCount: 1, coverageStatus: "complete", periods: [], limitations: [] }} />);
     expect(screen.getByRole("button", { name: "Pay $25" })).toBeDisabled();
-    expect(screen.queryByRole("region", { name: "Approved packet" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Approved documents" })).toBeNull();
   });
 
   it.each(["account", "session", "request", "unmount"])("ignores late checkout after %s changes", async (boundary) => {

@@ -15,15 +15,19 @@ class DriveRequestPaymentCheckoutWorker:
     def __init__(self, service: DriveRequestPaymentService | None = None) -> None:
         self.service = service or DriveRequestPaymentService()
 
-    async def run(self, *, max_jobs: int, deadline_seconds: int) -> dict:
+    async def run(self, *, max_jobs: int, deadline_seconds: int, v1_only: bool = False) -> dict:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 4 or not 20 <= deadline_seconds <= 35:
             raise ValueError("invalid Drive payment checkout bounds")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid Drive payment checkout mode")
         if not os.getenv("STRIPE_SECRET_KEY") or not os.getenv("STRIPE_WEBHOOK_SECRET"):
             return {"outcomes": {"disabled": 1}}
 
         outcomes: Counter[str] = Counter()
         deadline = asyncio.get_running_loop().time() + deadline_seconds
-        candidates = await self.service.due_checkout_orders(limit=max_jobs * 5)
+        candidates = await self.service.due_checkout_orders(
+            limit=max_jobs * 5, **({"v1_only": True} if v1_only else {})
+        )
         provider_attempts = 0
         for order in candidates:
             if provider_attempts >= max_jobs:
@@ -37,6 +41,7 @@ class DriveRequestPaymentCheckoutWorker:
                     await self.service.checkout(
                         requester_user_id=order["requester_user_id"],
                         request_id=order["request_id"],
+                        **({"v1_only": True} if v1_only else {}),
                     )
             except (DriveSharingError, DriveReadError) as error:
                 if str(error) == "payment_unavailable":
@@ -46,7 +51,9 @@ class DriveRequestPaymentCheckoutWorker:
                 # A stale pending order is not one of the bounded provider
                 # attempts. Requeue it behind later orders and keep scanning
                 # this bounded candidate page for an eligible payment.
-                await self.service.defer_unready_checkout_order(**order)
+                await self.service.defer_unready_checkout_order(
+                    **order, **({"v1_only": True} if v1_only else {})
+                )
                 outcomes["not_ready"] += 1
             except TimeoutError:
                 provider_attempts += 1

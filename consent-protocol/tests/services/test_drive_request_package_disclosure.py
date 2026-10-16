@@ -7,6 +7,7 @@ import pytest
 from hushh_mcp.services.drive_request_package_disclosure import (
     build_package_disclosure,
     buyer_package_disclosure,
+    manual_buyer_disclosure,
 )
 from hushh_mcp.services.drive_request_requester_store import requester_price_view
 
@@ -130,6 +131,58 @@ def test_current_sealed_disclosure_projects_exactly():
         )
         == disclosure()
     )
+
+
+def test_trusted_selection_has_buyer_coverage_without_claiming_owner_allow():
+    private = private_allowed()
+    private["v1_live_request"] = True
+    private["trusted_selection"] = private.pop("owner_allowed")
+    private["trusted_selection"]["selected_at"] = "2026-10-16T00:00:00Z"
+    assert (
+        buyer_package_disclosure(private, request_revision=4, owner_allowed_at=None) == disclosure()
+    )
+    private["v1_live_request"] = False
+    assert buyer_package_disclosure(private, request_revision=4, owner_allowed_at=None) is None
+
+
+def _manual_private(approved_positions):
+    marker = deepcopy(private_allowed()["owner_allowed"])
+    marker.update(
+        {
+            "selected_at": "2026-10-16T00:00:00Z",
+            "approved_share_id": "f226a8fb-2ee1-4efa-91ac-6ab565c0477e",
+            "approved_positions": approved_positions,
+        }
+    )
+    return {
+        "v1_live_request": True,
+        "agent_package_required": False,
+        "trusted_auto": False,
+        "reusable_packet": None,
+        "owner_allowed": None,
+        "v1_manual_review": marker,
+    }
+
+
+def test_manual_buyer_disclosure_reuses_full_selection_coverage():
+    assert manual_buyer_disclosure(_manual_private([1, 3]), request_revision=4) == disclosure()
+
+
+def test_manual_buyer_disclosure_binds_subset_without_overclaiming_coverage():
+    private = _manual_private([1])
+    value = manual_buyer_disclosure(private, request_revision=4)
+    assert value["selectedCount"] == 1
+    assert value["coverageStatus"] == "unknown"
+    assert value["periods"] == [] and value["limitations"]
+    assert value["packageDigest"] != disclosure()["packageDigest"]
+    private["v1_manual_review"]["approved_share_id"] = "fa4d3e62-9dc5-4070-bd40-32c85a51a2c4"
+    assert (
+        manual_buyer_disclosure(private, request_revision=4)["packageDigest"]
+        != value["packageDigest"]
+    )
+    assert manual_buyer_disclosure(private, request_revision=5) is None
+    private["v1_manual_review"]["buyer_disclosure"]["selectedCount"] = 3
+    assert manual_buyer_disclosure(private, request_revision=4) is None
 
 
 @pytest.mark.parametrize("amount", [50, 125, 50000])

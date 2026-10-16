@@ -23,6 +23,7 @@ _SCHEDULERS = {
             "documents": "drive-work-drain-uat",
             "suggestions": "drive-work-suggestions-uat",
             "sharing": "drive-work-sharing-uat",
+            "v1": "drive-work-v1-uat",
         },
     ),
     "production": (
@@ -67,8 +68,11 @@ def _forget_credentials() -> None:
 
 
 async def wake_drive_work(stage: str) -> bool:
-    if stage not in {"documents", "suggestions", "sharing"}:
+    if stage not in {"documents", "suggestions", "sharing", "v1"}:
         raise ValueError("invalid Drive stage")
+    v1_worker = os.getenv("DRIVE_WORKER_V1_ONLY", "").lower() == "true"
+    if v1_worker and stage != "v1":
+        return False
     scheduler = _SCHEDULERS.get(os.getenv("ENVIRONMENT", ""))
     if scheduler is None:
         return False

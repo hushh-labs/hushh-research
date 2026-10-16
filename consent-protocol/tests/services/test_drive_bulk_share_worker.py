@@ -42,9 +42,11 @@ def _job(state="queued"):
 
 def _worker(*, permission=None, send_push=None):
     store = SimpleNamespace(
+        due=AsyncMock(return_value=[]),
+        due_notifications=AsyncMock(return_value=[]),
         require_current=AsyncMock(),
         require_reconciliation_current=AsyncMock(),
-        mark_dispatching=AsyncMock(),
+        mark_dispatching=AsyncMock(return_value=None),
         settle=AsyncMock(return_value=True),
         release=AsyncMock(return_value="unknown"),
         claim_notification=AsyncMock(
@@ -100,6 +102,39 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disa
     assert not store._owner_grants_enabled("owner")
     with pytest.raises(DriveSharingError, match="sharing_unavailable"):
         store._effect_current(None, _job())
+
+
+@pytest.mark.asyncio
+async def test_v1_worker_filters_due_claims_notices_and_wake_to_v1_only():
+    worker, store, _ = _worker()
+    row = {
+        "share_id": _job()["share_id"],
+        "user_id": "owner",
+        "position": 1,
+        "recipient_user_id": "recipient",
+    }
+    store.due.side_effect = [[row], [row]]
+    store.claim = AsyncMock(return_value=_job())
+    worker._pace = AsyncMock()
+    worker._grant = AsyncMock(return_value="succeeded")
+
+    result = await worker.run(max_jobs=1, deadline_seconds=80, v1_only=True)
+
+    assert result["outcomes"] == {"succeeded": 1}
+    store.due.assert_any_await(limit=1, v1_only=True)
+    store.claim.assert_awaited_once_with(
+        user_id="owner",
+        share_id=row["share_id"],
+        position=1,
+        recipient_user_id="recipient",
+        v1_only=True,
+    )
+    assert store.due_notifications.await_count >= 1
+    assert all(
+        call.kwargs.get("limit") in {1, 8} and call.kwargs.get("v1_only") is True
+        for call in store.due_notifications.await_args_list
+    )
+    worker.wake.assert_awaited_once_with("v1")
 
 
 @pytest.mark.asyncio
@@ -376,3 +411,16 @@ async def test_package_grant_checks_evaluated_version_before_any_permission_writ
     adapter.create_reader.assert_not_awaited()
     store.mark_dispatching.assert_not_awaited()
     assert store.release.await_args.kwargs["error"] == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop():
+    worker, store, adapter = _worker()
+    expires = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    store.mark_dispatching.return_value = expires
+    adapter.create_reader.return_value = CreatedReader(
+        "permission-1", "recipient@example.com", expires
+    )
+    assert await worker._grant(_job()) == "succeeded"
+    assert adapter.create_reader.await_args.kwargs["expiration_time"] == expires
+    assert store.settle.await_args.kwargs["receipt"]["expiration_time"] == expires

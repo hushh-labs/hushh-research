@@ -18,12 +18,14 @@ export interface FeedDriveProgress {
 
 function progressTitle(stage: unknown): string {
   if (stage === "finding") return "One is finding documents";
+  if (stage === "checking") return "One is checking documents";
   if (stage === "sharing") return "One is sharing documents";
   return "One is preparing the document request";
 }
 
 /** An owner-allowed request runs the Trusted Circle pipeline; its copy must not claim Trusted Circle. */
-function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean): string {
+function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean, stage: unknown): string {
+  if (stage === "checking") return "One is checking the documents for this request.";
   if (ownerAllowed) {
     return direction === "incoming"
       ? "Request allowed. One is handling it for you. Sharing is automatic."
@@ -66,7 +68,8 @@ export function projectFeedDriveProgress(
     const priceView = direction === "outgoing" ? priceViewFromEntryMetadata(metadata) : null;
     const quote = priceView ? requesterPriceLine(priceView) : null;
     const automatic = metadata.automatic_progress_active === true;
-    if (!automatic && !quote) continue;
+    const unavailable = metadata.v1_evaluation_unavailable === true;
+    if (!automatic && !quote && !unavailable) continue;
     // Checkout must never be described as if sharing is already running.
     if (metadata.paymentStatus === "awaiting_payment" || metadata.paymentStatus === "checkout_open") continue;
     if (metadata.paymentStatus === "expired" || metadata.ownerPayoutAccountReady === false) continue;
@@ -79,11 +82,13 @@ export function projectFeedDriveProgress(
 
     byRequest.set(entry.id, {
       id: entry.id,
-      title: automatic ? progressTitle(metadata.automatic_progress_stage) : "Document request sent",
+      title: unavailable ? "Documents unavailable" : automatic ? progressTitle(metadata.automatic_progress_stage) : "Document request sent",
       description: [
         quote,
-        automatic
-          ? progressDescription(direction, metadata.owner_allowed === true)
+        unavailable
+          ? "One couldn't verify the documents for this request."
+          : automatic
+          ? progressDescription(direction, metadata.owner_allowed === true, metadata.automatic_progress_stage)
           : "Waiting for the owner to review your request.",
       ].filter(Boolean).join(" · "),
       href: buildConsentCenterHref(active ? "active" : "pending", {

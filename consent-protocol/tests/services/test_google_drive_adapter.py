@@ -36,6 +36,31 @@ def adapter():
 
 
 @pytest.mark.asyncio
+async def test_only_owner_search_opt_in_can_request_a_thousand_file_metadata_page(adapter):
+    adapter._get = AsyncMock(return_value=b'{"files":[],"nextPageToken":"next"}')
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token", query="trashed = false", page_size=1000
+        )
+    page = await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=1000,
+        owner_search_page=True,
+    )
+    assert page["nextPageToken"] == "next"
+    assert adapter._get.await_args.kwargs["params"]["pageSize"] == "1000"
+    assert adapter._get.await_args.kwargs["limit"] == drive.OWNER_SEARCH_METADATA_LIMIT
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="trashed = false",
+            page_size=1001,
+            owner_search_page=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_search_sessions_reuse_connections_without_cross_task_credentials(
     adapter, monkeypatch, caplog
 ):

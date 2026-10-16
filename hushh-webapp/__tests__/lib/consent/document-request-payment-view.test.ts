@@ -148,7 +148,7 @@ describe("parseRequesterPaymentView", () => {
   it("parses the price view and rejects other amounts", () => {
     const price = { estimateCents: 1000, currentCents: 2500, finalCents: null, state: "owner_set" };
     expect(parseRequesterPriceView(price)).toEqual(price);
-    expect(parseRequesterPriceView({ ...price, currentCents: 49 })).toBeNull();
+    expect(parseRequesterPriceView({ ...price, currentCents: 9 })).toBeNull();
     expect(parseRequesterPriceView({ ...price, state: "locked" })).toBeNull();
   });
 });

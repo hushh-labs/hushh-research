@@ -104,6 +104,21 @@ function formatRequestedOn(value: string | null | undefined): string | null {
     : null;
 }
 
+function accessTerm(status: SharingStatus): string | null {
+  const days = status.approvedAccessDays ?? status.requestedAccessDays;
+  if (!days) return null;
+  const term = `${days} ${days === 1 ? "day" : "days"}`;
+  const prefix = status.approvedAccessDays ? "Viewer for" : "Requested";
+  if (!status.accessExpiresAt) return `${prefix} ${term}`;
+  const expires = Date.parse(status.accessExpiresAt);
+  if (!Number.isFinite(expires)) return `${prefix} ${term}`;
+  const until = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(expires);
+  return `${prefix} ${term} · until ${until}`;
+}
+
 function OriginalLink({ url, googleEmail }: { url: string; googleEmail: string | null }) {
   const target = new URL(url);
   // Viewer access went to this Google account; open the original as it.
@@ -327,6 +342,7 @@ export function DocumentRequestRequesterPanel({
       ? `${context.purpose.periodStart} – ${context.purpose.periodEnd}`
       : null;
   const requestedOn = formatRequestedOn(context?.requestedAt);
+  const access = accessTerm(status);
   const prices = priceFacts(price).filter(Boolean);
   const recovery = delivery?.recovery ?? null;
   const presented = recovery ? presentRequesterRecovery(recovery) : null;
@@ -337,7 +353,7 @@ export function DocumentRequestRequesterPanel({
 
   return (
     <div className="min-w-0 space-y-4" data-testid="document-request-requester-panel">
-      {context || prices.length ? (
+      {context || prices.length || access ? (
         <div role="group" aria-label="Your request" className="space-y-2">
           {context ? (
             <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -346,6 +362,7 @@ export function DocumentRequestRequesterPanel({
           ) : null}
           <dl className={HAIRLINES}>
             {period ? <Fact label="Period" value={period} /> : null}
+            {access ? <Fact label="Access" value={access} /> : null}
             {requestedOn ? <Fact label="Requested" value={requestedOn} /> : null}
             {googleEmail ? <Fact label="Files shared with" value={googleEmail} /> : null}
             {prices}
