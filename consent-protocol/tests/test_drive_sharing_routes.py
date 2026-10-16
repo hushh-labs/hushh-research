@@ -795,6 +795,32 @@ def test_prepare_rejects_client_claimed_foreground_authority(setup):
     assert response.status_code == 422
 
 
+def test_owner_search_post_retries_with_vault_identity_and_no_client_authority_mode(
+    setup, monkeypatch
+):
+    client, app, _, current = setup
+    bulk = SimpleNamespace(
+        start_search=AsyncMock(return_value={"status": "queued", "jobId": "same-job"})
+    )
+    monkeypatch.setattr(routes, "_request_bulk_service", lambda: bulk)
+    path = BASE + f"/{REQUEST_ID}/search"
+
+    assert client.post(path, json={}).status_code == 401
+    bulk.start_search.assert_not_awaited()
+    unlock(app)
+    response = client.post(path, json={"timeZone": "Asia/Kolkata"})
+    assert response.status_code == 200
+    assert response.json() == {"status": "queued", "jobId": "same-job"}
+    assert response.headers["Cache-Control"] == "private, no-store"
+    bulk.start_search.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, timezone="Asia/Kolkata"
+    )
+    assert current.await_count >= 2
+    assert callable(bulk.require_owner)
+    assert client.post(path, json={"authorityMode": "agent_package"}).status_code == 422
+    assert bulk.start_search.await_count == 1
+
+
 def test_prepare_rechecks_owner_and_sanitizes_failure(setup, monkeypatch):
     from hushh_mcp.services import drive_suggestion_service
 

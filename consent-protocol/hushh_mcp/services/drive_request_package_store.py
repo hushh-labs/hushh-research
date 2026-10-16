@@ -125,6 +125,25 @@ def _public_package(package=None, *, status="preparing", counts=None):
     }
 
 
+def _review_status(row):
+    # A failed discovery cannot reach the content evaluator, whose status
+    # therefore remains pending. Search terminality takes precedence.
+    if row["status"] in {"failed", "limited", "stopped"} or (
+        row["status"] == "completed" and row["incomplete_search"]
+    ):
+        return "unavailable"
+    if row["status"] != "completed":
+        return "preparing"
+    return {
+        "pending": "preparing",
+        "running": "preparing",
+        "ready": "ready",
+        "no_match": "no_match",
+        "failed": "unavailable",
+        "obsolete": "stale",
+    }[row["evaluation_status"]]
+
+
 class DriveRequestPackageStore(DriveOwnerSearchStore):
     def __init__(self, db=None, *, cipher=None, sharing=None):
         super().__init__(db=db, cipher=cipher)
@@ -970,14 +989,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 return _public_package()
             checkpoint = self._checkpoint(row)
             package = checkpoint.get(PACKAGE_KEY)
-            status = {
-                "pending": "preparing",
-                "running": "preparing",
-                "ready": "ready",
-                "no_match": "no_match",
-                "failed": "unavailable",
-                "obsolete": "stale",
-            }[row["evaluation_status"]]
+            status = _review_status(row)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["connection_generation"] != current["connection_generation"]
@@ -1002,6 +1014,16 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 status=status,
                 counts=package.get("counts") if package else self._counts(connection, row),
             )
+            if status == "unavailable" and (
+                row["status"] in {"failed", "limited", "stopped"} or row["incomplete_search"]
+            ):
+                public["searchErrorCode"] = row["error_code"] or (
+                    "search_incomplete" if row["incomplete_search"] else "search_unavailable"
+                )
+            elif status == "unavailable" and row["evaluation_status"] == "failed":
+                public["evaluationErrorCode"] = (
+                    row["evaluation_error_code"] or "evaluation_unavailable"
+                )
             if row["v1_statement_search"] is True and status in {"preparing", "ready", "allowed"}:
                 preview = checkpoint.get("v1_verified_preview", {"files": [], "count": 0})
                 public["provisionalFiles"] = preview["files"]
