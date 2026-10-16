@@ -28,10 +28,13 @@ Normal-owner readback then passed a 32 KiB byte-exact upload/download. A fresh
 sealed Puppy connection returned the synthetic marker from Gemma 4 12B in
 73.363 s; local-model first content took 48.019 s. This is one warm observation,
 not cold-start acceptance. Its synthetic Files fixture is retained for update continuity.
+At 10:21 UTC, a turn sent immediately after a verified zero-replica observation
+completed through the existing Hermes identity in **69.723 s**. This is one cold
+Puppy sample, not a p95 or cloud-model result; latency remains unqualified.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**Serving, 16 October 02:07 UTC:** verified ADC readback shows backend
+**Serving, 16 October 10:30 UTC:** verified ADC readback shows backend
 `439f181304` / `00173-w2c` and frontend `5c2d1483aa` / `00146-l8q`, each at
 100% traffic. Backend [deployment 38826621789](https://github.com/hushh-labs/hushh-research/actions/runs/38826621789)
 installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 are
@@ -53,6 +56,11 @@ interrupted dependency-reinstall attempt remains recorded. Exact-SHA hosted PR C
 must finish before a governed dev deployment.
 Prior hosted run [38875805183](https://github.com/hushh-labs/hushh-research/actions/runs/38875805183)
 remains failed evidence. No newer owner image has been installed.
+Frozen source `f2d65294b5` reached hosted
+[validation 38886336776](https://github.com/hushh-labs/hushh-research/actions/runs/38886336776).
+Its Circle sheet assertions still expected a retired fixed blue. The correction
+checks the actual accent, including gold: 18 cases pass across Chromium, mobile
+Chrome and WebKit; restoring fixed-blue source fails. No layout or timing gate changes.
 
 **New Azure signup:** the pod, storage and signed direct access completed in
 20m51s; Azure environment creation accounted for 14m26s. Optional model quota was
@@ -97,6 +105,10 @@ upgrade predecessors**. Isolated exact-image recovery must pass before adding a
 predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
+An isolated native Azure Job recovered 57 encrypted records from the exact Dev 19
+fixture using its managed identity. Reads were bounded; no keys were exported or
+storage contents changed. The Job was deleted and ARM absence verified. This is
+predecessor recovery evidence, not target-image or owner-update acceptance.
 
 **Lifecycle correction — local, not deployed:** setup, updates and rebuilds
 retain exact admitted requests and join actual workers before release. Connector
