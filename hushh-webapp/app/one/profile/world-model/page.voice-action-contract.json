@@ -390,8 +390,8 @@
     },
     {
       "action_id": "profile.world_model.sources",
-      "label": "Add a public source",
-      "meaning": "Read independently supplied permitted public URLs for owner review.",
+      "label": "Review a claimed source",
+      "meaning": "Review a professional source attached to a legacy invitation claim.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -421,7 +421,6 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_sources_open",
         "pwm_sources_prepare",
         "pwm_manage_sourced"
       ],
@@ -433,51 +432,9 @@
       "speaker_persona": "one"
     },
     {
-      "action_id": "profile.world_model.preview",
-      "label": "Prepare invitation preview",
-      "meaning": "Read a supplied professional source and review selected preview facts.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_preview"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-options.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
       "action_id": "profile.world_model.invite",
       "label": "Invite someone",
-      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
+      "meaning": "Create an invitation from a name and email or phone. Either supplied verified contact can claim; the recipient's own model starts after claim. Explicit sharing uses the share sheet.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -520,7 +477,7 @@
     {
       "action_id": "profile.world_model.claim",
       "label": "Claim my model",
-      "meaning": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "meaning": "Claim the invitation using a matching verified contact; owner preparation starts according to the recipient's research setting and grants no sharing.",
       "aliases": [],
       "search_keywords": [
         "personal world model"

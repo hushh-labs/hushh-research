@@ -7,7 +7,6 @@ import {
   SettingsRow,
 } from "@/components/profile/settings-ui";
 import {
-  ProfilePaneGlobeIcon,
   ProfilePaneInviteIcon,
   ProfilePaneSearchIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -104,14 +103,6 @@ export function WorldModelOptions({
             onClick={() => setSheet("invite")}
           />
         ) : null}
-        <SettingsRow
-          icon={ProfilePaneGlobeIcon}
-          iconTone="capability"
-          title="Add a public source"
-          chevron
-          voiceControlId="pwm_sources_open"
-          onClick={() => setSheet("sources")}
-        />
         {preferences || failed ? (
           <SettingsRow
             icon={ProfilePaneSearchIcon}

@@ -14,6 +14,8 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { CalendarInsightsService, type CalendarInsights as Overview, type MeetingLibrary, type MeetingDetail, type Meeting, type MeetingArtifact } from "@/lib/services/calendar-insights-service";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CalendarLoading } from "./calendar-loading";
 import styles from "./calendar-insights.module.css";
 
 const hours = (minutes: number) => `${Math.round(minutes / 6) / 10} hr`;
@@ -90,6 +92,9 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
   const getToken = useRef(getIdToken); getToken.current = getIdToken;
   const epoch = snapshotVaultSessionEpoch();
   const identity = `${userId}:${accountKey}:${epoch}:${sessionId}`;
+  const overviewPreview = useRef<{ key: string; value: Overview } | null>(null);
+  const overviewKey = `${identity}:${date}:${zone}`;
+  if (error || !canRefresh || view !== "overview" || overviewPreview.current?.key !== overviewKey) overviewPreview.current = null;
   const current = useRef(identity); current.current = identity;
   const lifetime = useRef<AbortController | null>(null);
   const refresh = useCallback(() => {
@@ -156,7 +161,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
           });
         } else {
           const value = await CalendarInsightsService.read<Overview>("insights", { date, time_zone: zone }, token, controller.signal);
-          if (valid()) setOverview(value);
+          if (valid()) { overviewPreview.current = { key: `${identity}:${date}:${zone}`, value }; setOverview(value); }
         }
       } catch (failure) { if (valid()) setError(failure instanceof Error ? failure.message : "Calendar could not be checked."); }
       finally { if (valid()) setLoading(false); }
@@ -183,25 +188,28 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
     return meeting.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (filter === "all" || kinds.includes(filter));
   });
   const artifacts = detail?.artifacts || [];
-  return <div className={styles.insights}>
+  const visibleOverview = overview || (loading && !error ? overviewPreview.current?.value : null);
+  const overviewPending = canRefresh && !error && !visibleOverview;
+  const initialLoading = view !== "overview" && !error && canRefresh && (loading || !overview) && (view === "library" ? !library : !detail);
+  return <div className={styles.insights} aria-busy={loading}>
     <div className="flex justify-end"><Button variant="ghost" size="sm" disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; refresh(); }}>Refresh</Button></div>
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon" aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}><ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
     {error ? <SectionCard><p role="alert">{error}</p><Button variant="outline" onClick={() => { refreshBudget.current = 5; refresh(); }}>Try again</Button></SectionCard> : null}
-    {loading ? <p role="status">Checking Calendar{view === "meeting" ? " and meeting file permissions" : ""}…</p> : null}
+    {initialLoading ? <CalendarLoading label="Insights loading" /> : null}
     {view === "overview" ? <>
       <div><h2 className={styles.heading}>Insights</h2><p className={styles.muted}>Understand your time. Make room for what matters.</p></div>
-      <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
-        {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only the events loaded.</p> : null}</> : <p className={styles.muted}>Live calendar information is needed for this snapshot.</p>}
+      <SectionCard title="Executive snapshot" description={loading && visibleOverview ? "Last loaded snapshot · updates pending" : "This week · scheduled time, not attendance statistics"}>
+        {visibleOverview ? <><div className={styles.metrics}><div><strong>{visibleOverview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(visibleOverview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(visibleOverview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!visibleOverview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only the events loaded.</p> : null}</> : overviewPending ? <Skeleton aria-label="Snapshot loading" className="h-16 w-full" /> : <p className={styles.muted}>Live calendar information is needed for this snapshot.</p>}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : <p className={styles.muted}>Weekly chart unavailable until Calendar is checked.</p>}
+        {visibleOverview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={visibleOverview.days}><XAxis dataKey="date" tickFormatter={value => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : overviewPending ? <Skeleton aria-label="Weekly chart loading" className="h-40 w-full" /> : <p className={styles.muted}>Weekly chart unavailable until Calendar is checked.</p>}
       </SectionCard>
-      <SectionCard title="Schedule risks"><p>{overview ? `${overview.overlaps} overlapping pairs · ${overview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
-      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>{overview ? "No recurring commitments in the loaded events." : "Recurring commitments have not been checked."}</p>}</SectionCard>
+      <SectionCard title="Schedule risks">{overviewPending ? <Skeleton className="h-6 w-3/4" /> : <p>{visibleOverview ? `${visibleOverview.overlaps} overlapping pairs · ${visibleOverview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked."}</p>}<p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
+      <SectionCard title="Recurring commitments">{visibleOverview?.recurring.length ? visibleOverview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : overviewPending ? <Skeleton className="h-12 w-full" /> : <p className={styles.muted}>{visibleOverview ? "No recurring commitments in the loaded events." : "Recurring commitments have not been checked."}</p>}</SectionCard>
       <button ref={entryRef} type="button" className={styles.entry} onClick={() => { refreshBudget.current = 5; setPage(0); setLibrary(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes from past meetings</span></span><ChevronRight className="size-4" /></button>
       <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
-        {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
+        {visibleOverview?.focus.length ? visibleOverview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : overviewPending ? <Skeleton className="h-12 w-full" /> : <p className={styles.muted}>No verified focus windows to show.</p>}
       </SectionCard>
     </> : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Recent meetings from the past 30 days. File access is checked live.</p></div>

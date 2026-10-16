@@ -10,7 +10,8 @@ import time
 from pydantic import Field
 
 from hushh_mcp.managed_ai_config import load_pwm_policy
-from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSource
+from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSource, ProfileSourceRef
+from hushh_mcp.one_adk.world_model_confidence import evidence_rating
 from hushh_mcp.one_adk.world_model_contracts import (
     TOPICS,
     Contract,
@@ -29,8 +30,8 @@ TASK_SECONDS = POLICY["slice_seconds"]
 class OwnerDecisions(Contract):
     """Statements the owner already confirmed or rejected; model data only."""
 
-    confirmed: list[ShortText] = Field(default_factory=list, max_length=50)
-    rejected: list[ShortText] = Field(default_factory=list, max_length=50)
+    confirmed: list[ShortText] = Field(default_factory=list, max_length=269)
+    rejected: list[ShortText] = Field(default_factory=list, max_length=269)
 
 
 class ResearchSliceComplete(RuntimeError):
@@ -399,12 +400,19 @@ async def run_world_model(
     evidence = {key: result.pop(key) for key in ("identity", "coverage", "gaps")}
     for section in result["sections"]:
         for fact in section["facts"]:
+            fact.update(
+                evidence_rating(
+                    fact=ProfileFact[ProfileSourceRef].model_validate(fact),
+                    topic=section["kind"],
+                    identity_state=assessment.identity.state,
+                    receipts=receipts,
+                )
+            )
             fact["sources"] = [receipts[source["ref"]] for source in fact["sources"]]
-    report = ProfileReport.model_validate(result)
     return {
         "status": "offered",
         "pkm_written": False,
-        "report": report.model_dump(),
+        "report": result,
         "search_suggestions": suggestions,
         "grounded_answers": [
             {

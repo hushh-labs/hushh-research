@@ -22,6 +22,7 @@ vi.mock("@/lib/vault/one-chat-key", () => ({
 import { ApiError } from "@/lib/services/api-client";
 import {
   WorldModelResearchService,
+  pwmReportSchema,
   pwmResultSchema,
   type PwmProgress,
 } from "@/lib/services/world-model-research-service";
@@ -30,6 +31,34 @@ vi.mock("@/lib/share/app-origin", () => ({
   resolveShareableAppOrigin: () => "https://example.test",
 }));
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
+
+it("accepts a deep PWM draft with scored evidence but rejects padded duplicates", () => {
+  const sections = [
+    "business", "career", "education", "projects", "publications", "achievements", "community",
+  ].map((kind, group) => ({
+    kind,
+    facts: Array.from({ length: group === 6 ? 29 : 40 }, (_, index) => ({
+      statement: `Supported detail ${group}-${index}.`,
+      confidence: "supported",
+      sources: [{ title: "Source", url: "https://example.test/source" }],
+      evidence_score: 6,
+      evidence_reason: "One cited public page; awaiting your review.",
+    })),
+  }));
+  const report = {
+    match_status: "matched",
+    name: "Alex Example",
+    summary: "Cited public details.",
+    sections,
+  };
+  expect(pwmReportSchema.safeParse(report).success).toBe(true);
+  expect(pwmReportSchema.safeParse({
+    ...report,
+    sections: sections.map((section, index) => index === 6
+      ? { ...section, facts: [...section.facts, section.facts[0]] }
+      : section),
+  }).success).toBe(false);
+});
 const session = {
   vaultKey: "synthetic-key",
   vaultOwnerToken: "synthetic-token",

@@ -15,6 +15,8 @@ export type WorldModelDraftFact = {
   statement: string;
   topic: PwmTopic;
   confidence: "supported" | "uncertain" | "conflicting";
+  evidenceScore?: number;
+  evidenceReason?: string;
   /** Whether the report is about this owner, not someone with the same name. */
   matchStatus: ProfileReport["match_status"];
   sources: readonly { title: string; url: string }[];
@@ -33,16 +35,18 @@ export type WorldModelFactActions = {
 
 const MAX_STATEMENT_CHARS = 600;
 const CERTAINTY = {
-  supported: "Backed by the sources above",
+  supported: "Check the linked page before saving this statement.",
   uncertain: "Possible match. The sources only hint at this.",
   conflicting: "The sources disagree. Check before you say yes.",
 } as const;
 
 /** Matches the row's Possible match tag: an uncertain match outranks source confidence. */
 function certainty(fact: WorldModelDraftFact): string {
-  return fact.matchStatus === "matched"
-    ? CERTAINTY[fact.confidence]
-    : "Possible match. This may be about someone else with your name.";
+  if (fact.matchStatus !== "matched")
+    return "Possible match. This may be about someone else with your name.";
+  if (fact.evidenceScore !== undefined && fact.evidenceScore <= 5)
+    return "The public evidence is limited. Check this before you say yes.";
+  return CERTAINTY[fact.confidence];
 }
 
 /** Sources, certainty and owner choices for one statement; closes only after a committed write. */
@@ -132,6 +136,11 @@ export function WorldModelFactSheet({
               </section>
             ) : null}
             <RowDescription>{certainty(fact)}</RowDescription>
+            {fact.evidenceScore ? (
+              <RowDescription>
+                Source trail: {fact.evidenceReason}
+              </RowDescription>
+            ) : null}
           </>
         ) : (
           <RowDescription>

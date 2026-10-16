@@ -122,10 +122,10 @@ async def sharing(documents, monkeypatch):
             "320_drive_request_initial_quote.sql",
             "328_drive_request_packages.sql",
             "329_drive_request_cent_prices.sql",
-            "352_drive_v1_statement_search.sql",
-            "353_drive_v1_bulk_removals.sql",
-            "354_drive_v1_live_request.sql",
-            "355_drive_v1_access_period.sql",
+            "353_drive_v1_statement_search.sql",
+            "354_drive_v1_bulk_removals.sql",
+            "355_drive_v1_live_request.sql",
+            "356_drive_v1_access_period.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.

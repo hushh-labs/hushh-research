@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 
-const source = z
+export const profileSourceSchema = z
   .object({
     title: z.string().min(1).max(160),
     url: z
@@ -18,13 +18,19 @@ const source = z
       }),
   })
   .strict();
-const fact = z
+export const profileFactSchema = z
   .object({
     statement: z.string().min(1).max(600),
     confidence: z.enum(["supported", "uncertain", "conflicting"]),
-    sources: z.array(source).min(1).max(3),
+    sources: z.array(profileSourceSchema).min(1).max(3),
   })
   .strict();
+export const profileSectionKindSchema = z.enum([
+  "business", "career", "education", "personal", "projects", "publications",
+  "achievements", "community", "interests", "preferences", "dislikes",
+  "style", "food", "travel", "entertainment", "shopping", "communication",
+  "digital_presence", "public_records", "security",
+]);
 const report = z
   .object({
     match_status: z.enum(["matched", "uncertain", "no_match"]),
@@ -34,29 +40,8 @@ const report = z
       .array(
         z
           .object({
-            kind: z.enum([
-              "business",
-              "career",
-              "education",
-              "personal",
-              "projects",
-              "publications",
-              "achievements",
-              "community",
-              "interests",
-              "preferences",
-              "dislikes",
-              "style",
-              "food",
-              "travel",
-              "entertainment",
-              "shopping",
-              "communication",
-              "digital_presence",
-              "public_records",
-              "security",
-            ]),
-            facts: z.array(fact).min(1).max(8),
+            kind: profileSectionKindSchema,
+            facts: z.array(profileFactSchema).min(1).max(8),
           })
           .strict(),
       )

@@ -274,18 +274,19 @@ function statusCopy(input: {
   return {
     kind: "nothing",
     title: "Nothing to review yet",
-    body: "We couldn’t find public pages we can confidently connect to you. You can add one below.",
+    body: "We couldn’t find public pages we can confidently connect to you. You can check again later.",
   };
 }
 
 /** Where a statement was found, or why a doubtful one has no page; never blank. */
 function draftMeta(fact: WorldModelDraftFact): string {
   const [first, ...rest] = fact.sources;
+  const rating = fact.evidenceScore ? " · Check source" : "";
   if (!first?.title)
     return fact.matchStatus === "matched"
-      ? "Found on a public page"
-      : "May be about someone with your name";
-  return rest.length > 0 ? `${first.title} and ${rest.length} more` : first.title;
+      ? `Found on a public page${rating}`
+      : `May be about someone with your name${rating}`;
+  return `${rest.length > 0 ? `${first.title} and ${rest.length} more` : first.title}${rating}`;
 }
 
 /** Yes buttons of statements still waiting for the owner, in page order. */
@@ -511,6 +512,8 @@ export function PersonalWorldModelPage({
             statement: fact.statement,
             topic: fact.topic,
             confidence: fact.confidence,
+            evidenceScore: fact.evidence_score,
+            evidenceReason: fact.evidence_reason,
             matchStatus: offered.report.match_status,
             sources: fact.sources,
             reason: offered.research.identity.reason,
@@ -821,8 +824,7 @@ export function PersonalWorldModelPage({
           ) : null}
           {namesakesFound ? (
             <HelperText className="profile-account-note">
-              Add a public source below to help tell you apart from people with
-              your name.
+              Some people share your name. We couldn’t link a public page to your account.
             </HelperText>
           ) : null}
           {namesakeNotice ? (
@@ -946,7 +948,11 @@ export function PersonalWorldModelPage({
                     factKey={fact.key}
                     statement={fact.statement}
                     meta={draftMeta(fact)}
-                    unsure={fact.confidence !== "supported" || fact.matchStatus !== "matched"}
+                    unsure={
+                      fact.confidence !== "supported" ||
+                      fact.matchStatus !== "matched" ||
+                      (fact.evidenceScore !== undefined && fact.evidenceScore <= 5)
+                    }
                     undecided
                     saving={pending.has(fact.key)}
                     failed={errors.has(fact.key)}

@@ -182,6 +182,11 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         lifecycle = (ROOT / "db/migrations/341_pwm_research_lifecycle.sql").read_text()
         await pool.execute(lifecycle)
         await pool.execute(lifecycle)
+        secondary_contact = (
+            ROOT / "db/migrations/352_pwm_invitation_secondary_contact.sql"
+        ).read_text()
+        await pool.execute(secondary_contact)
+        await pool.execute(secondary_contact)
         import asyncio
 
         invitation = await asyncio.wait_for(
@@ -206,6 +211,20 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         assert await invites.claim("recipient", "fixture", invitation["token"]) == result
         with pytest.raises(ValueError, match="Preview unavailable"):
             await invites.preview(invitation["token"])
+        dual = await invites.create(
+            "inviter",
+            "fixture",
+            "recipient@example.test",
+            secondary_contact="+15550001111",
+            subject_name="Recipient Example",
+        )
+        assert await invites.preview(dual["token"]) == {
+            "has_preview": False,
+            "subject_name": "Recipient Example",
+        }
+        invites.owner_identity.return_value = {"phone_number": "+15550001111"}
+        assert (await invites.claim("recipient", "fixture", dual["token"]))["draft_id"] is None
+        invites.owner_identity.return_value = {"email": "recipient@example.test"}
         second = await invites.create("inviter", "fixture", "recipient@example.test")
         selected_preview = {
             "report": {"sections": [{"kind": "profile", "facts": []}]},
