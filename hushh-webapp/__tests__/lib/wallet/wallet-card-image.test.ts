@@ -5,7 +5,7 @@ import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-d
 import { buildWalletCardSvg, createWalletCardImageFile, walletCardImageKey } from "@/lib/wallet/wallet-card-image";
 
 vi.mock("@/lib/services/wallet-card-artwork-service", () => ({
-  loadWalletCardArtwork: vi.fn(async (kind: string) => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v2.svg`), "utf8")),
+  loadWalletCardArtwork: vi.fn(async (kind: string) => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v3.svg`), "utf8")),
 }));
 
 const profile = { ownerId: "owner-a", displayName: "Old display name", cardPayload: { full_name: "Ankit Kumar Singh", username: "ankit.kumar.singh" }, memberSince: "2021-04-14T00:00:00Z", walletId: "wallet-1234abcd", shareUrl: "https://one.hushh.ai/c/profile-test-token", referralUrl: "https://one.hushh.ai/r/referral-test-slug" };
@@ -57,4 +57,19 @@ describe("Wallet card image composition", () => {
     await expect(buildWalletCardSvg({ kind: "profile", profile, signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
     await expect(createWalletCardImageFile({ kind: "profile", profile: { ...profile, shareUrl: null } })).rejects.toThrow("not ready");
   });
+});
+
+
+it("renders only the permitted identity in a timed shared face, even if extra owner fields are supplied", async () => {
+  const shared = { ...profile, presentation: "shared" as const };
+  const svg = await buildWalletCardSvg({ kind: "profile", profile: shared });
+  const document = new DOMParser().parseFromString(svg, "image/svg+xml");
+  expect(document.querySelector("[data-wallet-shared]")?.textContent).toContain("Ankit Kumar Singh");
+  expect(document.querySelector("[data-wallet-qr]")).toBeNull();
+  expect(document.querySelector("[data-wallet-qr-frame]")).toBeNull();
+  expect(svg).not.toContain("MEMBER SINCE");
+  expect(svg).not.toContain("WALLET ID");
+  expect(svg).not.toContain("1234ABCD");
+  expect(svg).not.toContain(profile.shareUrl);
+  expect(walletCardImageKey("profile", shared)).not.toBe(walletCardImageKey("profile", profile));
 });

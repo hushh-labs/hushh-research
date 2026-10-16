@@ -185,7 +185,7 @@ NETWORK_PAN_LENGTHS = {
     "mir": (16, 17, 18, 19),
     "elo": (16,),
     "verve": (16, 18, 19),
-    "other": tuple(range(13, 20)),
+    "other": tuple(range(12, 20)),
 }
 
 
@@ -199,7 +199,7 @@ def classify_card_network(
 ) -> dict:
     if not isinstance(iin_prefix, str) or re.fullmatch(r"[0-9]{6}", iin_prefix) is None:
         raise ValueError("card_network_request_invalid")
-    if type(pan_length) is not int or not 13 <= pan_length <= 19:
+    if type(pan_length) is not int or not 12 <= pan_length <= 19:
         raise ValueError("card_network_request_invalid")
     if selected_network is not None:
         selected = normalize_card_network(selected_network)

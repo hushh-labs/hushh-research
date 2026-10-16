@@ -150,3 +150,13 @@ describe("backend-supplied networks", () => {
   expect(validateCardForRegion({ ...base, pan: luhnFix("2221111111111111"), brand: "mastercard" }).brand).toBe("mastercard");
  });
 });
+
+
+it("accepts checksum-valid generic 12-digit cards without broadening known network lengths", () => {
+  const input = { pan: "911111111116", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030, now: NOW };
+  expect(validateCardForRegion({ ...input, brand: "other" }).valid).toBe(true);
+  expect(validateCardForRegion({ ...input, pan: "911111111117", brand: "other" }).valid).toBe(false);
+  for (const brand of ["visa", "mastercard", "amex", "rupay"]) {
+    expect(validateCardForRegion({ ...input, brand }).errors).toContain("pan_length_invalid_for_brand");
+  }
+});

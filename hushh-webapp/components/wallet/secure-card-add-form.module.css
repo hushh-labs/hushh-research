@@ -76,9 +76,7 @@
   .scanActions .scanAction { font-size: 13px !important; }
 }
 
-.additional { border-top: 1px solid var(--app-card-border-standard); }
-.additional > summary { min-height: 44px; padding-block: 14px; cursor: pointer; font-size: 13px; font-weight: 400; line-height: 1.2; }
-.additional > summary:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: 4px; }
-.additional > .fields { padding-top: 8px; }
+.required { color: var(--destructive); font-size: 10px; line-height: 1; align-self: flex-start; margin-left: -4px; }
+.required::after { content: "*"; }
 .scanAffordance { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; font-family:var(--font-app-body); font-size:13px; font-weight:var(--type-button-label-weight); line-height:1.22; color:var(--foreground); }
 .scanAffordance svg { width: 18px; height: 18px; }
