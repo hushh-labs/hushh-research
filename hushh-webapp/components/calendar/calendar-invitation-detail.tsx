@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, ExternalLink, MapPin } from "@/components/icons";
+import { MapPin } from "@/components/icons";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { CalendarMeetingIcon, eventTime } from "./calendar-schedule-presentation";
@@ -31,7 +31,6 @@ export function CalendarInvitationDetail({ event, zone }: { event: CalendarInvit
   const organizer = event.organizer?.displayName || event.organizer?.email || "Organizer";
   const join = safeMeetingUrl(event.conference_url);
   const provider = event.conference_name || (join ? new URL(join).hostname : "");
-  const calendarLink = safeMeetingUrl(event.html_link);
   return <article className={styles.detailCard} aria-label={`Invitation details: ${event.title}`}>
     <div className={styles.detailHeading}>
       <InvitationDate event={event} zone={zone} />
@@ -47,6 +46,5 @@ export function CalendarInvitationDetail({ event, zone }: { event: CalendarInvit
     <div className={styles.detailSection}><p className={styles.sectionLabel}>Attendees ({event.attendees?.length || 0})</p><ul className={styles.attendees}>{event.attendees?.map((attendee, index) => <li key={`${attendee.email}:${index}`} title={attendee.email || undefined}>
       <InvitationAvatar name={attendee.display_name || attendee.email || "?"} index={index} /><span>{attendee.self ? "You" : attendee.display_name || attendee.email}</span><small>{attendee.response_status === "needsAction" ? "Awaiting reply" : attendee.response_status}</small>
     </li>)}</ul></div>
-    {calendarLink ? <a className={styles.calendarLink} href={calendarLink} target="_blank" rel="noopener noreferrer"><span><CalendarDays aria-hidden className="size-5" /></span>View in Google Calendar<ExternalLink aria-hidden className="ml-auto size-4" /></a> : null}
   </article>;
 }

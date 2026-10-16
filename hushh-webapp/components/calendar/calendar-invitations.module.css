@@ -66,18 +66,15 @@
 .review .message { font-size: 13px; max-height: 260px; overflow-y: auto; }
 .openings { margin: 0; padding-left: 18px; font-size: 12px; }
 .empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: 14px; }
-@media (max-width:767px) { .workspace[data-selected=true] > .listPane { display: none; } }
-@media (min-width:768px) { .workspace[data-selected=true] { grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); align-items: start; gap: 20px; } .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
+@media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
 
 .invitations[data-workspace=true] { display: grid; gap: 16px; }
 .invitations[data-workspace=true] .filters { margin: 4px 0 0; }
 .sectionTitle { margin-bottom: 16px; }
 @media (min-width:768px) {
   .invitations[data-workspace=true] .workspace { align-items: start; }
-  .invitations[data-workspace=true] .detailPane { margin-top: var(--invitation-detail-offset, 0px); }
   .invitations[data-workspace=true] .inviteCard[aria-pressed=true] { background: var(--app-accent-surface); }
 }
 
-@media (max-width:767px) { .invitations[data-workspace=true][data-detail=true] .dateNavigation { display: none; } }
 
 .detailPane { scroll-margin-top: max(64px, var(--app-top-content-offset, 64px)); }
