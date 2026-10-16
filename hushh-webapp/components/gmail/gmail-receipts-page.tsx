@@ -756,7 +756,7 @@ export default function GmailReceiptsPage({
   const loadReceiptDetail = useCallback(
     async (sourceId: string, signal: AbortSignal) => {
       if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) {
-        throw new Error("Open your vault to view this receipt.");
+        throw new Error("Open your private vault to view this receipt.");
       }
       const detailOwnerId = user.uid;
       const detailAccountKey = receiptAccountKey;
@@ -1640,7 +1640,7 @@ export default function GmailReceiptsPage({
       ? {
           message: hasSealedReceiptAccess
             ? "Receipt sync is not available for this account right now."
-            : "Open your vault before scanning Mail receipts.",
+            : "Open your private vault before scanning Mail receipts.",
           tone: "neutral" as const,
         }
       : receiptSyncInProgress
@@ -1702,7 +1702,7 @@ export default function GmailReceiptsPage({
             gmail.syncRun?.status === "canceled"
           ? "Sync interrupted. Open receipts to retry."
           : receiptStorageReadOnly
-            ? "Existing receipts are available while on-device sync is prepared."
+            ? "Existing receipts are available while private on-device sync is prepared."
             : gmail.status?.last_sync_at ||
                 gmail.syncRun?.status === "completed"
               ? "Your latest receipts are ready."
@@ -1916,7 +1916,7 @@ export default function GmailReceiptsPage({
           id: "gmail_receipts",
           label: "Mail receipts",
           explanation:
-            "Mail receipts brings receipt records into one place while keeping access behind the vault.",
+            "Mail receipts brings receipt records into one place while keeping access behind the private vault.",
           aliases: ["gmail receipts", "receipt sync"],
         },
       ],
@@ -1994,7 +1994,7 @@ export default function GmailReceiptsPage({
 
   const requestVaultUnlock = useCallback(() => {
     setShowVaultUnlock(true);
-    toast.info("Set up or open your vault to view synced receipts.");
+    toast.info("Set up or open your private vault to view synced receipts.");
   }, []);
 
   usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata, {
@@ -2064,7 +2064,7 @@ export default function GmailReceiptsPage({
             <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2 text-foreground">
                 <Lock className="h-4 w-4" />
-                Set up or open your vault to view synced receipts.
+                Set up or open your private vault to view synced receipts.
               </div>
               <Button onClick={requestVaultUnlock}>Set up vault</Button>
             </SurfaceInset>
@@ -2398,11 +2398,11 @@ export default function GmailReceiptsPage({
           user={user}
           open={showVaultUnlock}
           onOpenChange={setShowVaultUnlock}
-          title="Set up your vault"
-          description="Set up your vault to view synced receipt records."
+          title="Set up your private vault"
+          description="Set up your private vault to view synced receipt records."
           onSuccess={() => {
             setShowVaultUnlock(false);
-            toast.success("Vault is ready.");
+            toast.success("Private vault is ready.");
           }}
         />
       ) : null}
@@ -2415,7 +2415,7 @@ export default function GmailReceiptsPage({
             <AlertDialogTitle>Disconnect Mail?</AlertDialogTitle>
             <AlertDialogDescription>
               Stops Mail access and receipt sync, and deletes Mail receipts and
-              summaries from Hussh. Information saved to memory stays.
+              summaries from Hussh. Information saved to private memory stays.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
@@ -2439,7 +2439,7 @@ export default function GmailReceiptsPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* No control: a finished sync saves itself to memory, so Chat
+      {/* No control: a finished sync saves itself to private memory, so Chat
           with One can answer from it. */}
       {isConnected && hasSealedReceiptAccess ? (
         <GmailReceiptMemorySave

@@ -112,14 +112,21 @@ export function CalendarMeetingIcon({ provider }: { provider: string }) {
   return <CalendarDays aria-hidden className={styles.meetingIcon} />;
 }
 
-export function CalendarTimelineRow({ event, zone, active, ongoing, now, onOpen }: {
-  event: CalendarEventSummary; zone: string; active: boolean; ongoing: boolean; now: number;
+export function calendarResponse(event: CalendarEventSummary, accountEmail?: string | null) {
+  return event.attendees?.find(attendee => accountEmail
+    ? attendee.email?.toLowerCase() === accountEmail.toLowerCase()
+    : attendee.self)?.response_status;
+}
+
+export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing, now, onOpen }: {
+  event: CalendarEventSummary; accountEmail?: string | null; zone: string; active: boolean; ongoing: boolean; now: number;
   onOpen: (event: CalendarEventSummary, trigger: HTMLButtonElement) => void;
 }) {
   const detailsTrigger = useRef<HTMLButtonElement | null>(null);
   const join = safeMeetingUrl(event.conference_url), provider = meetingProvider(event);
   const open = (click: MouseEvent<HTMLButtonElement>) => onOpen(event, click.currentTarget);
   const starts = event.start?.dateTime, ends = event.end?.dateTime;
+  const ended = Boolean(ends && Date.parse(ends) <= now);
   const minutes = starts ? Math.ceil((Date.parse(starts) - now) / 60000) : 0;
   const providerColor = event.event_color || event.calendar_color;
   const color = /^#[0-9a-f]{6}$/i.test(providerColor || "") ? providerColor! : "var(--app-accent)";
@@ -136,7 +143,9 @@ export function CalendarTimelineRow({ event, zone, active, ongoing, now, onOpen 
       </button>
       {provider || event.location ? <span className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : <MapPin aria-hidden weight="fill" className={styles.meetingIcon} />}<span className={styles.sourceLabel} title={provider || event.location || undefined}>{provider || event.location}</span></span> : event.calendar_name ? <span className={styles.eventSource}><span className={styles.sourceLabel} title={event.calendar_name}>{event.calendar_name}</span></span> : null}
       {provider && event.location && event.location !== join ? <span className={styles.eventSource}><MapPin aria-hidden weight="fill" className={styles.meetingIcon} /><span className={styles.sourceLabel} title={event.location}>{event.location}</span></span> : null}
-      {event.attendees?.some(attendee => attendee.self && attendee.response_status === "declined") ? <span className={styles.declined}>Declined</span> : null}
+      {ended ? <span className={styles.eventSource}>Ended</span> : null}
+      {calendarResponse(event, accountEmail) === "needsAction" ? <span className={styles.eventSource}>Awaiting your response · See Invitations</span> : null}
+      {calendarResponse(event, accountEmail) === "declined" ? <span className={styles.declined}>Declined</span> : null}
     </div>
     <div className={styles.rowActions}>
       {join ? <a aria-label={`Join meeting: ${event.title}`} href={join} target="_blank" rel="noopener noreferrer" className={styles.joinButton}>Join</a> : null}

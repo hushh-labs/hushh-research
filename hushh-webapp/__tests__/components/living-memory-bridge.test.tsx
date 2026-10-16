@@ -320,15 +320,58 @@ describe("LivingMemoryBridge", () => {
     );
   });
 
-  it("retries an incomplete encrypted source scan on the next owner wake", async () => {
-    m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
+  it("defers failed storage retries despite a burst of owner changes and retains their hints", async () => {
+    vi.useFakeTimers();
+    m.syncLivingSources.mockRejectedValueOnce(new Error("store-domain HTTP 429"));
     render(<LivingMemoryBridge />);
-    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
-    // An untyped failure (storage, session change) refreshes nothing.
+    await flush();
     expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
-    act(() => window.dispatchEvent(new Event("focus")));
-    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    for (let i = 0; i < 20; i++) {
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } }));
+      });
+    }
+    await flush();
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+    expect(m.syncLivingSources).toHaveBeenLastCalledWith(expect.objectContaining({ forceConsent: true, forceDocumentRequestPayments: true }));
+  });
+
+  it("cancels a failed storage retry when the vault locks", async () => {
+    vi.useFakeTimers();
+    m.syncLivingSources.mockRejectedValueOnce(new Error("store-domain HTTP 429"));
+    const view = render(<LivingMemoryBridge />);
+    await flush();
+    m.unlocked = false;
+    view.rerender(<LivingMemoryBridge />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recreate a retry after an in-flight failure outlives vault cleanup", async () => {
+    vi.useFakeTimers();
+    let rejectSync!: (error: Error) => void;
+    m.syncLivingSources.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSync = reject; }));
+    const view = render(<LivingMemoryBridge />);
+    await flush();
+    m.unlocked = false;
+    view.rerender(<LivingMemoryBridge />);
+    m.markPending.mockClear();
+    await act(async () => { rejectSync(new Error("store-domain HTTP 429")); });
+    expect(m.markPending).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores cached consent re-announcements", async () => {
+    render(<LivingMemoryBridge />);
+    await flush();
+    for (const source of ["cached_pending", "queued_pending", "hydrated_pending", "fcm_opened"]) {
+      act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a", source } })));
+    }
+    await flush();
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
   });
 
   it("still refreshes the mirror after a sync that stored only the checked sources", async () => {
