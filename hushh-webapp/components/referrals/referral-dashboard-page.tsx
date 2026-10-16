@@ -698,12 +698,11 @@ function ChallengeClock({
     <div
       className="referral-clock"
     >
-      {challengeRes.status === "ready" && !challengeRes.data.weekly_prizes_enabled ? <p className="referral-type-caption">Weekly prizes are not active</p> : null}
       <p className="referral-challenge-heading">
         <span className="inline-flex items-center gap-[9px]">
           <span
             className="inline-flex size-[7px] rounded-full"
-            style={{ background: "#34c759" }}
+            style={{ background: challengeRes.status === "ready" && challengeRes.data.active ? COLORS.green : COLORS.text3 }}
             aria-hidden="true"
           />
           {headline.label}
@@ -719,6 +718,9 @@ function ChallengeClock({
         </button>
       ) : null}
       </div>
+      {challengeRes.status === "ready" && challengeRes.data.weekly_prizes_enabled === false ? (
+        <p className="referral-challenge-notice referral-type-caption">Weekly prizes are not active</p>
+      ) : null}
       <div
         className="referral-challenge-track grid gap-2"
         style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}
@@ -1013,7 +1015,7 @@ function StandingsTab({
                     <BoardRow
                       key={entry.rank}
                       rank={entry.rank}
-                      who={entry.handle}
+                      who={entry.display_name ?? entry.handle}
                       points={entry.points}
                       top={leaderboard.entries[0]?.points ?? entry.points}
                       me={entry.is_viewer}
@@ -1023,7 +1025,7 @@ function StandingsTab({
                   {leaderboard.viewer && !leaderboard.entries.some((e) => e.is_viewer) ? (
                     <BoardRow
                       rank={leaderboard.viewer.rank}
-                      who={leaderboard.viewer.handle}
+                      who={leaderboard.viewer.display_name ?? leaderboard.viewer.handle}
                       points={leaderboard.viewer.points}
                       top={leaderboard.entries[0]?.points ?? leaderboard.viewer.points}
                       me
@@ -1069,7 +1071,7 @@ function gapCopy(lb: LeaderboardPage): string | null {
   if (!ahead) return `You're #${v.rank}.`;
   const gap = ahead.points - v.points;
   if (gap <= 0) return `You're #${v.rank}.`;
-  return `You're #${v.rank}. ${fmt(gap)} coins to pass ${ahead.handle}.`;
+  return `You're #${v.rank}. ${fmt(gap)} coins to pass ${ahead.display_name ?? ahead.handle}.`;
 }
 
 function BoardRow({

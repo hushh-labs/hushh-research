@@ -3593,6 +3593,10 @@ Firebase authentication derives the owner; client payloads cannot select one.
 - `GET /leaderboard` refreshes shared cumulative Coins snapshots independently
   of weekly prizes, with deterministic ties and off-page viewer lookup.
   `snapshot_id` pins continuation pages.
+  Chosen public aliases retain priority. Otherwise, nullable `display_name`
+  comes from the existing viewer-permitted Connect directory. Hidden, inactive
+  and unresolved people remain anonymous. The viewer may see their own profile
+  name; no peer identifiers or contact details are returned.
 - `POST /app-open` retains its compatibility path but records visible dashboard
   visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
   a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning

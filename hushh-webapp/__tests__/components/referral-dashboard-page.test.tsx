@@ -99,6 +99,47 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
+  it("uses Apple Watch artwork and label for the approved 500-referral reward", async () => {
+    mocks.getMilestones.mockResolvedValue({ joined_referral_count: 120, earned: [],
+      next_milestone: { milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch", progress: 120 },
+      available_milestones: [{ milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch" }],
+    });
+    render(<ReferralDashboardPage />);
+    await screen.findByText("This week ends in");
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+    for (const image of screen.getAllByRole("img", { name: "Apple Watch" })) {
+      expect(image).toHaveAttribute("src", "/referrals/product-apple-watch-premium.svg");
+    }
+    expect(screen.queryByText("Apple AirPods")).toBeNull();
+  });
+  it("renders viewer-permitted profile names in rankings and the rank gap", async () => {
+    mocks.getLeaderboard.mockResolvedValue({ entries: [
+      { rank: 1, handle: "Anonymous referrer", display_name: "Priya Rao", points: 100, is_viewer: false },
+      { rank: 2, handle: "Anonymous referrer", display_name: "Meera Shah", points: 80, is_viewer: true },
+    ], viewer: null, stale: false, snapshot_generated_at: null });
+    render(<ReferralDashboardPage />);
+    await screen.findByText("#2");
+    fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
+    expect(screen.getByText("Priya Rao")).toBeInTheDocument();
+    expect(screen.getByText("Meera Shah")).toBeInTheDocument();
+    expect(screen.getByText("You're #2. 20 coins to pass Priya Rao.")).toBeInTheDocument();
+  });
+
+  it("does not call an omitted prize flag inactive on a running calendar", async () => {
+    mocks.getChallenge.mockResolvedValue({ active: true, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
+    render(<ReferralDashboardPage />);
+    await screen.findByText("This week ends in");
+    expect(screen.queryByText("Weekly prizes are not active")).toBeNull();
+  });
+
+  it("keeps an explicit inactive-prize notice below the calendar header", async () => {
+    mocks.getChallenge.mockResolvedValue({ active: true, weekly_prizes_enabled: false, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
+    render(<ReferralDashboardPage />);
+    const notice = await screen.findByText("Weekly prizes are not active");
+    expect(notice).toHaveClass("referral-challenge-notice");
+    expect(notice.previousElementSibling).toHaveClass("referral-challenge-status");
+  });
+
   it("revalidates a change received while the first request is still in flight", async () => {
     let finish: (value: typeof SUMMARY) => void = () => {};
     mocks.getSummary.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));

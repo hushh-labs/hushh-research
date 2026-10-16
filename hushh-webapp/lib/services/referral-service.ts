@@ -83,11 +83,13 @@ export type WeeklyChallenge = {
   timezone: string | null;
 };
 
-/** One row on the individual leaderboard. Never a real name -- `handle` is
- * either the person's own chosen alias or the anonymous placeholder. */
+/** A ranking row: `handle` remains a chosen alias or anonymous placeholder;
+ * `display_name` is a separate viewer-permitted account-profile projection. */
 export type LeaderboardEntry = {
   rank: number;
   handle: string;
+  /** Profile name visible to this viewer, when no public alias was chosen. */
+  display_name?: string | null;
   points: number;
   is_viewer: boolean;
 };

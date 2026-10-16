@@ -1,10 +1,9 @@
 """Opt-in referral leaderboard display handles (migration 273).
 
-Owns `one_referral_display_handles`. This is the ONLY source a leaderboard
-read may use for a referrer's public name. `actor_identity_cache.display_name`
-(the real/account name) must never be substituted here, including as a
-fallback -- a referrer who has not set a handle has no public leaderboard
-identity at all, and callers render that as an anonymous placeholder.
+Owns `one_referral_display_handles`, the sole source of chosen public aliases.
+Account names never substitute for an alias in this service. The separate
+viewer-permitted profile-name projection may supply `display_name` under the
+Connect visibility contract; unavailable profiles retain the anonymous label.
 """
 
 from __future__ import annotations

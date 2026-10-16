@@ -23,12 +23,12 @@ flowchart LR
 | --- | --- |
 | Coins | `SUM(points)` in the existing lifetime score ledger, including reversals. Response `points` and `coins` are aliases of one total; never add them. The historical database `coins` column remains unchanged. No cash-wallet balance or weekly subtotal is involved. |
 | Joined referrals | Distinct registered referred identities with a matching bound attribution, excluding self referrals and rejected, revoked or ineligible attribution. An expired qualification window does not undo a registration. Link opens and pending invitations do not count. Summary `joined_count`/`total_count` and reward `joined_referral_count` use the same predicate. |
-| Rank | Lifetime earned Coins, then first positive earned event, then stable user identity. Registered referrers remain eligible at zero Coins. All rank surfaces share on-demand snapshots independent of prize publication. Pinned pages and off-page viewer lookup remain supported. Only approved handles or anonymous labels are public. |
+| Rank | Lifetime earned Coins, then first positive earned event, then stable user identity. Registered referrers remain eligible at zero Coins. All rank surfaces share on-demand snapshots independent of prize publication. Pinned pages and off-page viewer lookup remain supported. Chosen public aliases retain priority. Otherwise, `display_name` uses the viewer-permitted Connect directory; hidden, inactive and unresolved people remain anonymous. The viewer may see their own account name. These are profile names, not legally verified names. No peer identifiers or contact details are returned. |
 | Streak | Consecutive authenticated dashboard-visit calendar dates in Asia/Kolkata. POST owns attendance; GET never awards a visit. Owner locking and user/date uniqueness make retries and devices idempotent. Date is sampled after locking. Old app attendance remains separate; unmarked legacy app-open requests return a read-only status. New requests carry an explicit dashboard surface. Past dashboard visits are not fabricated. |
 | Weekly period | Monday 00:00 Asia/Kolkata through following Monday, exclusive. Server boundaries/time anchor the monotonic countdown. Foreground, reconnect and expiry refresh it. `calendar_active`/legacy `active` describe the calendar; `campaign_active` and `weekly_prizes_enabled` describe prizes. |
 | Reward progress | `min(joined_referral_count / threshold, 1)`. Feature the next unreached, unearned threshold without subtracting tiers or waiting for earlier claims. Recorded historical entitlements stay accessible. Qualification, claim, approval and fulfillment remain separate. |
 
-The server ladder is 10 Amazon voucher, 100 wireless earbuds, 500 Apple AirPods and 10,000 iPhone. The approved voucher amount and artwork remain. At exactly 10/100/500 joins, feature threshold 100/500/10,000. At 10,000 joins all progress milestones are reached; this does not promise all rewards are claimable or fulfilled.
+The approved ladder is 10 Amazon voucher, 100 wireless earbuds, 500 Apple Watch and 10,000 iPhone. The v6 UAT activation restores Apple Watch under the existing `airpods_500` compatibility key; the current server-owned catalogue remains authoritative until activation. Historical earned entitlements retain their recorded labels and artwork. The approved voucher amount remains. At exactly 10/100/500 joins, feature threshold 100/500/10,000. At 10,000 joins all progress milestones are reached; this does not promise all rewards are claimable or fulfilled.
 
 ## Verified source defects and corrections
 
@@ -56,6 +56,22 @@ Attribution must freeze at the referred person's signup. Later qualification cre
 Launching requires separate approval and accepted-membership, signup-attribution, contribution and recovery contracts. Genealogy and trusted-circle selection cannot prove those contracts already exist.
 
 ## Migration and rollback
+
+Weekly prize activation is an environment operation separate from the weekly
+calendar. Preview with `python scripts/ops/configure_referral_uat.py prizes`.
+After the reviewed backend is merged, passes post-merge smoke and is deployed,
+run `python scripts/ops/configure_referral_uat.py prizes --apply --sha <deployed-main-sha>`
+from that exact checkout. The fixed-target operator uses
+`cloud-sql-python-connector[pg8000]`, existing operator authentication and
+process-only secret values; it accepts no production target.
+
+Activation preserves v5 and inserts an exact v6 successor with prize enablement
+and the requested 500-referral Apple Watch restored. All four historical replay adapters accept that successor
+and reject changed configuration or broken lineage. The operation refuses
+unresolved past rounds instead of creating retroactive awards. Repeat activation
+is safe. Existing prize approval and fulfillment remain separate. Pause the
+existing scheduler to stop processing; do not rewrite historical settings or
+delete earned awards.
 
 Additive migration **349** follows immutable 348. It adds dashboard attendance fields to existing tables and settings v5 from v4, preserving award amounts, campaign activation, old entitlements and every ledger row. In this branch 284/287 concern messaging/Drive; referral policy history is 289/338/347. Filenames do not establish applied environment history.
 
