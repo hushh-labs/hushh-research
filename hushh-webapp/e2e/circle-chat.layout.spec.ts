@@ -58,6 +58,89 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
+  await mount(page, false, true);
+  const own = page.locator('[data-chat-message="reply"]');
+  await own.getByRole("button", { name: "Message options" }).click();
+  for (const name of ["Reply", "Edit", "Delete for me", "Delete for everyone"]) {
+    await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  }
+  await page.screenshot({ path: test.info().outputPath("circle-message-options.png") });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.locator('[data-chat-message="hello"]').getByRole("button", { name: "Message options" }).click();
+  await expect(page.getByRole("menuitem", { name: "Reply", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete for me", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Delete for everyone", exact: true })).toHaveCount(0);
+});
+
+test("Circle reply, edit and both deletion scopes complete without disturbing adjacent messages", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await mount(page, false, true);
+  const peer = page.locator('[data-chat-message="hello"]');
+  const own = page.locator('[data-chat-message="reply"]');
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
+  await expect(page.getByLabel("Replying to message")).toContainText("Kushal Trivedi");
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Thanks! 👩🏽‍💻 مرحبا");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByLabel("Replying to message")).toHaveCount(0);
+  const quote = page.getByRole("button", { name: "View original message from Kushal Trivedi" });
+  await expect(quote).toContainText("Hey everyone!");
+  await quote.click();
+  await expect(peer).toBeFocused();
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Edit message text" }).fill("Updated meetup plan");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(own).toContainText("Updated meetup plan");
+  await expect(own).toContainText("Edited");
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(peer).toBeVisible();
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
+  await page.getByRole("button", { name: "Delete message", exact: true }).click();
+  await expect(peer).toHaveCount(0);
+  await expect(quote).toHaveCount(0);
+  await expect(page.getByText("Original message unavailable", { exact: true })).toBeVisible();
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
+  await page.getByRole("button", { name: "Delete message", exact: true }).click();
+  await expect(own).toContainText("This message was deleted.");
+  await expect(own.getByRole("button", { name: "React to message" })).toHaveCount(0);
+  await expect(page.getByText("Our next meetup spot 📍", { exact: true })).toBeVisible();
+  await expect(editor).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("Circle edit failure keeps the draft and retries the identical sealed change", async ({ page }) => {
+  await mount(page, false, true);
+  await page.evaluate(() => { (window as unknown as { chatFixture: { failNextMutation: boolean } }).chatFixture.failNextMutation = true; });
+  const own = page.locator('[data-chat-message="reply"]');
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  const input = page.getByRole("textbox", { name: "Edit message text" });
+  await input.fill("   ");
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  await input.fill("Keep this draft 👋");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("alert")).toContainText("Check your connection and try again.");
+  await expect(input).toHaveValue("Keep this draft 👋");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(input).toHaveCount(0);
+  await expect(own).toContainText("Keep this draft 👋");
+  const attempts = await page.evaluate(() => (window as unknown as { chatFixture: { mutations: unknown[] } }).chatFixture.mutations);
+  expect(attempts).toHaveLength(2);
+  expect(attempts[0]).toEqual(attempts[1]);
+});
+
 for (const width of [320, 1440]) {
   for (const dark of [false, true]) {
     test(`Circle Messages uses the shared dock without a second field surface at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
@@ -120,6 +203,13 @@ for (const width of [320, 393, 1440]) {
       expect(alignment.beside).toBe(true);
       expect(alignment.left).toBeGreaterThanOrEqual(0);
       expect(alignment.right).toBeLessThanOrEqual(width);
+      const menu = message.getByRole("button", { name: "Message options" });
+      const menuBox = await menu.boundingBox();
+      expect(menuBox!.width).toBeGreaterThanOrEqual(44);
+      expect(menuBox!.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(menuBox!.y - hitArea!.y)).toBeLessThanOrEqual(1);
+      expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+      expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
       await trigger.click();
       const picker = page.getByRole("dialog", { name: "Emoji picker" });
       await expect(picker).toBeVisible();

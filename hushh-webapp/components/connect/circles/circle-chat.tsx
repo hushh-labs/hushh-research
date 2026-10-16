@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Mic, Plus } from "@/components/icons";
-import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage } from "@/lib/services/circle-chat-service";
+import { MessageCircle, ImageIcon, ArrowDown, Mic, Plus, X } from "@/components/icons";
+import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
-import { CircleChatMessage, type OutgoingChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
+import { CircleChatMessage, type CircleMessageAction, type OutgoingChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
+import { CircleChatMessageActionDialog } from "./circle-chat-message-action-dialog";
 import { FileAttachmentPreview, ImageAttachmentPreview } from "./circle-chat-media";
 import { CIRCLE_CHAT_CHANGED, dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -210,6 +211,17 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [text, setText] = useState("");
+  const [reply, setReply] = useState<OpenMessage | null>(null);
+  const [actionRequest, setActionRequest] = useState<{ message: OpenMessage; action: CircleMessageAction } | null>(null);
+  const replyRef = useRef(reply); replyRef.current = reply;
+  const actionRef = useRef(actionRequest); actionRef.current = actionRequest;
+  const [replyTargets, setReplyTargets] = useState<Map<string, OpenMessage>>(() => new Map());
+  const targetsRef = useRef(replyTargets); targetsRef.current = replyTargets;
+  // Metadata contains no decrypted content and fences delayed POST/history/decrypt results.
+  const versions = useRef(new Map<string, CircleMessageState>());
+  const anchored = useRef(false);
+  const historyGeneration = useRef(0);
+  const [jumping, setJumping] = useState(false);
   const [pickerDismissSignal, setPickerDismissSignal] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [validFile, setValidFile] = useState<File | null>(null);
@@ -246,40 +258,85 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
-  useChatAlertVisibility(visible && !loading && !readingBlocked && !blockingLayer && viewers.size === 0
+  useChatAlertVisibility(visible && !loading && !readingBlocked && !blockingLayer && !actionRequest && viewers.size === 0
     ? `circle-chat:${session.circleId}` : null, transcript);
 
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
-    if (unavailable(err)) { active.current = false; setMessages([]); messagesRef.current = []; outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
+    if (unavailable(err)) { active.current = false; setMessages([]); messagesRef.current = []; targetsRef.current.clear(); setReplyTargets(new Map()); setReply(null); setActionRequest(null); outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
     else setError(errorText(err));
   }, []);
   const decrypt = useCallback(async (items: ChatMessage[]) => Promise.all(items.map(async (message) => {
+    if (message.deletedForEveryoneAt) { decryptFailures.current.delete(message.sequence); return { ...message, content: null, failed: false, hasImage: false, reactions: [] }; }
+    const current = () => {
+      const known = versions.current.get(message.id);
+      return active.current && !known?.hidden && !known?.deletedForEveryoneAt && (message.revision ?? 0) >= (known?.revision ?? 0);
+    };
     try {
       const content = await CircleChatService.open(session, message);
-      decryptFailures.current.delete(message.sequence);
+      if (current()) decryptFailures.current.delete(message.sequence);
       return { ...message, content, failed: false };
     } catch {
-      if (message.senderUserId !== session.userId) decryptFailures.current.add(message.sequence);
+      if (current() && message.senderUserId !== session.userId) decryptFailures.current.add(message.sequence);
       return { ...message, content: null, failed: true };
     }
   })), [session]);
-  const append = useCallback((items: OpenMessage[], receipts: CircleChatReceipt[] = [], reactionUpdates: CircleChatPage["reactionUpdates"] = []) => {
-    if (!active.current || (!items.length && !receipts.length && !reactionUpdates?.length)) return;
+  const accepts = useCallback((message: ChatMessage) => {
+    const known = versions.current.get(message.id);
+    return !known?.hidden && (message.revision ?? 0) >= (known?.revision ?? 0)
+      && (!known?.deletedForEveryoneAt || Boolean(message.deletedForEveryoneAt));
+  }, []);
+  const cacheTargets = useCallback(async (items: ChatMessage[] = []) => {
+    const opened = await decrypt(items);
+    if (!active.current) return;
+    const next = new Map(targetsRef.current);
+    for (const item of opened) if (accepts(item) && (item.revision ?? 0) >= (next.get(item.id)?.revision ?? 0)) next.set(item.id, item);
+    while (next.size > 300) next.delete(next.keys().next().value!);
+    targetsRef.current = next; setReplyTargets(next);
+    setReply((current) => current ? next.get(current.id) ?? current : null);
+  }, [decrypt, accepts]);
+  const applyStates = useCallback((states: CircleMessageState[]) => {
+    for (const state of states) {
+      const previous = versions.current.get(state.id);
+      if (previous?.hidden || (previous?.revision ?? 0) > state.revision) continue;
+      versions.current.set(state.id, state);
+    }
+    const clean = (item: OpenMessage): OpenMessage | null => {
+      const state = versions.current.get(item.id);
+      if (state?.hidden) { decryptFailures.current.delete(item.sequence); return null; }
+      if (state?.deletedForEveryoneAt) {
+        decryptFailures.current.delete(item.sequence);
+        return { ...item, revision: state.revision, deletedForEveryoneAt: state.deletedForEveryoneAt, content: null, failed: false, localImage: undefined, hasImage: false, reactions: [] };
+      }
+      return item;
+    };
+    messagesRef.current = messagesRef.current.map(clean).filter((item): item is OpenMessage => item !== null);
+    setMessages(messagesRef.current);
+    const targets = new Map<string, OpenMessage>();
+    for (const [id, item] of targetsRef.current) { const next = clean(item); if (next) targets.set(id, next); }
+    targetsRef.current = targets; setReplyTargets(targets);
+    setReply((current) => current && (versions.current.get(current.id)?.hidden || versions.current.get(current.id)?.deletedForEveryoneAt) ? null : current);
+    setActionRequest((current) => current && (versions.current.get(current.message.id)?.hidden || current.action !== "me" && versions.current.get(current.message.id)?.deletedForEveryoneAt) ? null : current);
+  }, []);
+  const append = useCallback((items: OpenMessage[], receipts: CircleChatReceipt[] = [], reactionUpdates: CircleChatPage["reactionUpdates"] = [], generation?: number) => {
+    if (!active.current || generation !== undefined && generation !== historyGeneration.current || (!items.length && !receipts.length && !reactionUpdates?.length)) return;
     const existing = new Map(messagesRef.current.map((item) => [item.id, item]));
     for (const item of items) {
+      if (!accepts(item)) continue;
       const previous = existing.get(item.id);
+      if ((previous?.revision ?? 0) > (item.revision ?? 0)) continue;
+      versions.current.set(item.id, { id: item.id, revision: item.revision ?? 0, hidden: false, deletedForEveryoneAt: item.deletedForEveryoneAt ?? null });
       // A delayed POST can arrive after a newer receipt refresh. Transcript
       // receipt pages remain authoritative, including recipient erasure.
       const local = outgoingRef.current;
       const attempt = sendAttempt.current;
       if (attempt?.id && item.senderUserId === session.userId && attempt.id === item.clientMessageId) attempt.confirmed = true;
       const matchesOutgoing = local && item.senderUserId === session.userId && item.clientMessageId === local.clientMessageId;
-      existing.set(item.id, { ...item, receipt: previous?.receipt ?? item.receipt,
-        reactions: previous?.reactions ?? item.reactions,
-        localImage: previous?.localImage ?? (matchesOutgoing ? local.localImage : undefined) });
+      existing.set(item.id, { ...previous, ...item, receipt: previous?.receipt ?? item.receipt,
+        reactions: item.deletedForEveryoneAt ? [] : previous?.reactions ?? item.reactions,
+        localImage: item.deletedForEveryoneAt ? undefined : previous?.localImage ?? (matchesOutgoing ? local.localImage : undefined) });
       if (matchesOutgoing) {
-        outgoingRef.current = null; setOutgoing(null); setPending(null); setText(""); setFile(null); setValidFile(null); thumbnailRef.current = null;
+        outgoingRef.current = null; setOutgoing(null); setPending(null); setText(""); setReply(null); setFile(null); setValidFile(null); thumbnailRef.current = null;
         setPickerDismissSignal((value) => value + 1);
         if (fileInput.current) fileInput.current.value = "";
       }
@@ -290,7 +347,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     for (let i = 0; i < merged.length; i++) {
       const item = merged[i]!;
       const receipt = byId.get(item.id);
-      const reactions = reactionsById.get(item.id);
+      const reactions = item.deletedForEveryoneAt ? undefined : reactionsById.get(item.id);
       if (receipt && item.senderUserId === session.userId || reactions !== undefined) merged[i] = {
         ...item,
         ...(receipt && item.senderUserId === session.userId ? { receipt } : {}),
@@ -309,7 +366,23 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     if (items.length && atBottomRef.current) requestAnimationFrame(() => {
       if (active.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
     });
-  }, [session.userId]);
+  }, [session.userId, accepts]);
+  const reconcile = useCallback(async (signal?: AbortSignal) => {
+    const selected = [replyRef.current, actionRef.current?.message].filter((item): item is OpenMessage => Boolean(item));
+    const loaded = new Map([...selected.map((item) => [item.id, item] as const), ...messagesRef.current.map((item) => [item.id, item] as const), ...targetsRef.current]);
+    if (!loaded.size) return;
+    const updates = await CircleChatService.updates(session, [...loaded.keys()].slice(0, 600), signal);
+    if (!active.current || signal?.aborted) return;
+    applyStates([...updates.states, ...updates.unavailableIds.map((id) => ({ id, revision: loaded.get(id)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }))]);
+    const changed = updates.states.filter((state) => !state.hidden && !state.deletedForEveryoneAt && state.revision > (loaded.get(state.id)?.revision ?? 0)).map((state) => state.id);
+    for (let index = 0; index < changed.length && active.current; index += 40) {
+      const resolved = await CircleChatService.resolve(session, changed.slice(index, index + 40), signal);
+      if (!active.current || signal?.aborted) return;
+      const opened = await decrypt(resolved.items);
+      append(opened.filter((item) => messagesRef.current.some((loaded) => loaded.id === item.id)));
+      await cacheTargets(resolved.items);
+    }
+  }, [session, applyStates, decrypt, append, cacheTargets]);
   const mergeMembershipEvents = useCallback((incoming: CircleMembershipEvent[] | undefined) => {
     if (!incoming?.length) return;
     setMembershipEvents((previous) => [...new Map([...previous, ...incoming].map((event) => [event.id, event])).values()]
@@ -333,23 +406,31 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         if (!active.current || abort.signal.aborted || !visibleRef.current || !foreground()) break;
         nextRefreshAt = performance.now() + REFRESH_CADENCE_MS;
         const incremental = last.current > 0;
+        const generation = historyGeneration.current;
         const receiptRange = () => messagesRef.current.length ? {
           receiptAfter: messagesRef.current[0]!.sequence - 1, receiptThrough: last.current,
         } : {};
         let page = await CircleChatService.messages(session, incremental ? { after: last.current, ...receiptRange() } : {}, abort.signal);
-        if (!active.current) return;
+        if (!active.current || generation !== historyGeneration.current) continue;
+        await reconcile(abort.signal);
+        if (!active.current || generation !== historyGeneration.current) continue;
+        await cacheTargets(page.replyTargets);
         if (!last.current) setHasOlder(page.hasMore);
         mergeMembershipEvents(page.events);
         // Keep the older scroll window stable while still reconciling live
         // reactions and receipts for the messages visible in that window.
-        const holdOlderWindow = !atBottomRef.current && messagesRef.current.length >= 300;
-        append(holdOlderWindow ? [] : await decrypt(page.items), page.receipts, page.reactionUpdates);
+        const holdOlderWindow = anchored.current || !atBottomRef.current && messagesRef.current.length >= 300;
+        append(holdOlderWindow ? [] : await decrypt(page.items), page.receipts, page.reactionUpdates, generation);
+        if (generation !== historyGeneration.current) continue;
         if (!holdOlderWindow && active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         // Repair a reconnect gap in bounded pages, without skipping any sequence.
         for (let i = 0; !holdOlderWindow && incremental && page.hasMore && last.current && i < 4 && active.current; i++) {
           page = await CircleChatService.messages(session, { after: last.current, ...receiptRange() }, abort.signal);
+          if (generation !== historyGeneration.current) break;
           mergeMembershipEvents(page.events);
-          append(await decrypt(page.items), page.receipts, page.reactionUpdates);
+          await cacheTargets(page.replyTargets);
+          append(await decrypt(page.items), page.receipts, page.reactionUpdates, generation);
+          if (generation !== historyGeneration.current) break;
           if (active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         }
         if (!holdOlderWindow && incremental && page.hasMore) refreshPending.current = true;
@@ -373,7 +454,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     return () => { active.current = false; abort.abort(); clearInterval(timer); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, event); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
-  }, [session, append, decrypt, fail, mergeMembershipEvents]);
+  }, [session, append, decrypt, fail, mergeMembershipEvents, reconcile, cacheTargets]);
 
   useEffect(() => {
     if (visible) window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED,
@@ -409,7 +490,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       const sequence = earliestFailure === null ? last.current :
         (messagesRef.current.filter((message) => message.sequence < earliestFailure).at(-1)?.sequence ?? 0);
       const element = transcript.current;
-      if (reading.current || !visibleRef.current || !active.current || !element || element.scrollHeight - element.scrollTop - element.clientHeight > 8
+      if (reading.current || anchored.current || actionRequest || !visibleRef.current || !active.current || !element || element.scrollHeight - element.scrollTop - element.clientHeight > 8
           || !atBottomRef.current || !bottomInViewport.current || !document.hasFocus() || !foreground() || sequence <= readThrough.current
           || readingBlocked || viewers.size > 0 || chatReadIsBlocked(element)) return;
       reading.current = true;
@@ -425,10 +506,54 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void read(); });
     const removeLayers = subscribeChatLayerChanges(() => { void read(); });
     return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read); };
-  }, [session, readRevision, messages, fail, visible, readingBlocked, viewers, blockingLayer]);
+  }, [session, readRevision, messages, fail, visible, readingBlocked, viewers, blockingLayer, actionRequest]);
+
+  const showWindow = async (target?: OpenMessage) => {
+    if (!active.current || jumping) return;
+    const generation = ++historyGeneration.current;
+    anchored.current = Boolean(target); atBottomRef.current = !target;
+    setJumping(true); setError(null);
+    try {
+      const page = await CircleChatService.messages(session, target ? { before: target.sequence + 1 } : {});
+      const opened = await decrypt(page.items);
+      if (!active.current || generation !== historyGeneration.current) return;
+      await reconcile();
+      await cacheTargets(page.replyTargets);
+      if (!active.current || generation !== historyGeneration.current) return;
+      const refreshed = new Map([...targetsRef.current, ...messagesRef.current.map((item) => [item.id, item] as const)]);
+      messagesRef.current = opened.map((item) => {
+        const current = refreshed.get(item.id);
+        return current && (current.revision ?? 0) > (item.revision ?? 0) ? current : item;
+      }).filter(accepts);
+      setMessages(messagesRef.current); setHasOlder(page.hasMore);
+      mergeMembershipEvents(page.events); last.current = messagesRef.current.at(-1)?.sequence ?? 0;
+      setAtBottom(!target);
+      requestAnimationFrame(() => {
+        if (!active.current || generation !== historyGeneration.current) return;
+        const row = target ? Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id) : null;
+        if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+        else if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
+      });
+    } catch (caught) { fail(caught); }
+    finally { if (active.current && generation === historyGeneration.current) setJumping(false); }
+  };
+  const jump = (target: OpenMessage) => {
+    const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === target.id);
+    if (row) { row.tabIndex = -1; row.focus({ preventScroll: true }); row.scrollIntoView({ block: "center", behavior: "instant" }); }
+    else void showWindow(target);
+  };
+  const mutationResult = async (result: ChatMutationResult) => {
+    if (!active.current) return;
+    if (result.hiddenId) applyStates([{ id: result.hiddenId, revision: versions.current.get(result.hiddenId)?.revision ?? 0, hidden: true, deletedForEveryoneAt: null }]);
+    const items = result.items ?? [];
+    applyStates(items.map((item) => ({ id: item.id, revision: item.revision ?? 0, hidden: false, deletedForEveryoneAt: item.deletedForEveryoneAt ?? null })));
+    append(await decrypt(items));
+    await cacheTargets(items);
+    dispatchCircleChatChanged(session.userId, session.circleId);
+  };
 
   const send = async () => {
-    if (sendLock.current || !active.current || loading || (!pending && file && validFile !== file) || (!pending && !text.trim() && !file)) return;
+    if (sendLock.current || !active.current || loading || jumping || (!pending && file && validFile !== file) || (!pending && !text.trim() && !file)) return;
     sendLock.current = true; setSending(true); setError(null);
     let sealed = pending;
     let local = outgoingRef.current;
@@ -446,8 +571,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     const attempt = { id: sealed?.clientMessageId ?? local?.clientMessageId ?? null, confirmed: false };
     sendAttempt.current = attempt;
     try {
-      sealed ??= await CircleChatService.prepare(session, text, file, local ? { clientMessageId: local.clientMessageId,
-        thumbnail: thumbnailRef.current?.file === file ? thumbnailRef.current.thumbnail : undefined } : undefined);
+      sealed ??= await CircleChatService.prepare(session, text, file, { ...(local ? { clientMessageId: local.clientMessageId,
+        thumbnail: thumbnailRef.current?.file === file ? thumbnailRef.current.thumbnail : undefined } : {}), ...(reply ? { replyToMessageId: reply.id } : {}) });
       if (!active.current) return;
       attempt.id = sealed.clientMessageId;
       if (local && local.clientMessageId !== sealed.clientMessageId) {
@@ -457,10 +582,11 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       setPending(sealed);
       const sent = await CircleChatService.send(session, sealed);
       if (!active.current) return;
+      if (anchored.current) await showWindow();
       atBottomRef.current = true;
       setAtBottom(true);
       append(await decrypt([sent]));
-      setPending(null); setText(""); setFile(null); setValidFile(null); thumbnailRef.current = null;
+      setPending(null); setText(""); setReply(null); setFile(null); setValidFile(null); thumbnailRef.current = null;
       outgoingRef.current = null; setOutgoing(null); setPickerDismissSignal((value) => value + 1);
       if (fileInput.current) fileInput.current.value = "";
     } catch (err) {
@@ -483,13 +609,15 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       className={chatLane
         ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
         : "h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5"}>
-      {hasOlder ? <Button variant="ghost" size="sm" className="min-h-11" disabled={loadingOlder || refreshing} onClick={async () => {
+      {hasOlder ? <Button variant="ghost" size="sm" className="min-h-11" disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
         running.current = true;
         setLoadingOlder(true);
         const height = transcript.current?.scrollHeight ?? 0;
+        const generation = historyGeneration.current;
         try {
           const page = await CircleChatService.messages(session, { before: messages[0]!.sequence });
+          await cacheTargets(page.replyTargets);
           mergeMembershipEvents(page.events);
           const older = await decrypt(page.items);
           const receipts = new Map(page.receipts?.map((receipt) => [receipt.id, receipt]));
@@ -497,8 +625,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
             const receipt = receipts.get(item.id);
             if (receipt) item.receipt = { recipientCount: receipt.recipientCount, readCount: receipt.readCount };
           }
-          if (!active.current) return;
-          const window = [...new Map([...older, ...messagesRef.current].map((item) => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence).slice(0, 300);
+          if (!active.current || generation !== historyGeneration.current) return;
+          const window = [...new Map([...older.filter(accepts), ...messagesRef.current].map((item) => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence).slice(0, 300);
           messagesRef.current = window;
           setHasOlder(page.hasMore); setMessages(window);
           last.current = window.at(-1)?.sequence ?? 0;
@@ -519,17 +647,28 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
         .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} event={item.event} /> : <CircleChatMessage key={`message:${item.id}`}
           message={item.message} previous={item.previous} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript}
+          onReply={(message) => { if (!pending && !sending) { setReply(message); composerEditor.current?.focus(); } }}
+          replyDisabled={Boolean(pending) || sending}
+          onAction={(message, action) => setActionRequest({ message, action })}
+          replyTarget={"replyToMessageId" in item.message && item.message.replyToMessageId ? messages.find((row) => row.id === item.message.replyToMessageId) ?? replyTargets.get(item.message.replyToMessageId) : undefined}
+          onJump={jump}
           onViewerChange={viewerChanged} onMediaError={(error) => { if (unavailable(error)) fail(error); }} />)}</ol></div>
       <div ref={bottom} className="h-1" />
     </div>
     <AgentDockPortal enabled={chatLane} visible={visible}>
     <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer>
-    {!atBottom && messages.length ? <Button variant="ghost" size="sm" className="absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
+    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className="absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
+      if (anchored.current) { void showWindow(); return; }
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
     }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+    {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
+    {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">
+      <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{reply.senderName}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
+      <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
+    </div> : null}
     {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; if (fileInput.current) fileInput.current.value = ""; }} />
       : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="hidden" tabIndex={-1} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onChange={async (event) => {
@@ -546,9 +685,9 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           setError(errorText(caught)); event.target.value = "";
         }
       }} />
-    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={chatLane ? composerEditor : undefined}
+    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={composerEditor}
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
-      sendDisabled={loading || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
+      sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
       trailingAction={chatLane ? <DirectMessageEmojiPicker disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
@@ -563,5 +702,12 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     <p className="text-center text-[11px] leading-4 text-muted-foreground">Only circle members can read these messages.</p>
     </div>
     </AgentDockPortal>
+    {actionRequest && visible && !readingBlocked ? <CircleChatMessageActionDialog key={`${actionRequest.message.id}:${actionRequest.action}`} session={session} {...actionRequest}
+      onClose={() => setActionRequest(null)} onResult={mutationResult} onAccessError={(error) => { if (unavailable(error)) fail(error); }}
+      onRestoreFocus={() => { const id = actionRequest.message.id; requestAnimationFrame(() => {
+        if (!active.current || !visibleRef.current) return;
+        const row = Array.from(messageList.current?.querySelectorAll<HTMLElement>("[data-chat-message]") ?? []).find((item) => item.dataset.chatMessage === id);
+        (row?.querySelector<HTMLButtonElement>('[aria-label="Message options"]') ?? transcript.current)?.focus({ preventScroll: true });
+      }); }} /> : null}
   </div>;
 }

@@ -182,13 +182,19 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  const request = useRef<AbortController | null>(null);
+  const allocated = useRef<string | null>(null);
+  useEffect(() => () => { request.current?.abort(); if (allocated.current) URL.revokeObjectURL(allocated.current); allocated.current = null; }, []);
   const open = async () => {
-    if (loading) return;
+    if (request.current && !request.current.signal.aborted) return;
+    const abort = new AbortController(); request.current = abort;
     setLoading(true); setError(false);
     try {
-      const blob = await CircleChatService.image(session, message, type);
+      const blob = await CircleChatService.image(session, message, type, abort.signal);
+      if (abort.signal.aborted) return;
       const nextUrl = URL.createObjectURL(blob);
+      if (allocated.current) URL.revokeObjectURL(allocated.current);
+      allocated.current = nextUrl;
       setUrl(nextUrl);
       if (!type.startsWith("video/")) {
         const link = document.createElement("a");
@@ -196,8 +202,8 @@ export function ChatSharedFile({ session, message, type, name, onError }: {
         link.download = name;
         link.click();
       }
-    } catch (caught) { setError(true); onError(caught); }
-    finally { setLoading(false); }
+    } catch (caught) { if (!abort.signal.aborted) { setError(true); onError(caught); } }
+    finally { if (!abort.signal.aborted) { request.current = null; setLoading(false); } }
   };
   return <div className="max-w-full rounded-xl bg-muted/70 p-3">
     <div className="flex min-w-0 items-center gap-2"><FileText aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm">{name}</span></div>

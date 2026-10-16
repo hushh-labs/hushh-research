@@ -6,15 +6,19 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { RecipientPayloadKeyUnavailableError } from "@/lib/one-location/encryption";
 import type { OneLocationMyRecipientKey } from "@/lib/one-location/types";
 import { sealNotificationPreview, type NotificationDevice } from "@/lib/notifications/chat-preview";
-import { openChatContent, openChatImage, sealChatMessage, type ChatImageThumbnail, type ChatMemberKey, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
+import { openChatContent, openChatImage, sealChatMessage, sealChatMutation, type ChatContent, type ChatImageThumbnail, type ChatMemberKey, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
 
 export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[] };
 export type CircleChatReceipt = { id: string; recipientCount: number | null; readCount: number };
 export type CircleMembershipEvent = { id: string; kind: "member_joined" | "member_left" | "member_removed"; subjectName: string; actorName: string | null; createdAt: string };
 export type CircleChatPage = { items: ChatMessage[]; hasMore: boolean; receipts?: CircleChatReceipt[];
+  replyTargets?: ChatMessage[];
   reactionUpdates?: { id: string; reactions: NonNullable<ChatMessage["reactions"]> }[]; events?: CircleMembershipEvent[] };
 type WireChatPage = CircleChatPage & { senders?: { userId: string; name: string; photoUrl: string | null }[] };
 export type CircleChatSession = { circleId: string; userId: string; vaultOwnerToken: string; vaultKey: string };
+export type CircleMessageState = { id: string; revision: number; hidden: boolean; deletedForEveryoneAt: string | null };
+export type ChatMutation = { ciphertext: string; iv: string; expectedRevision: number };
+export type ChatMutationResult = { items?: ChatMessage[]; hiddenId?: string };
 const root = (session: CircleChatSession) => `/api/one/circles/${encodeURIComponent(session.circleId)}/chat`;
 function options(session: CircleChatSession, signal?: AbortSignal): RequestInit {
   return { headers: { Authorization: `Bearer ${session.vaultOwnerToken}`, "Content-Type": "application/json" }, signal, cache: "no-store" };
@@ -62,7 +66,7 @@ export const CircleChatService = {
       ...(senders.has(message.senderUserId) ? { senderPhotoUrl: senders.get(message.senderUserId)!.photoUrl } : {}),
     })) };
   },
-  async prepare(session: CircleChatSession, text: string, file: File | null, imagePreview?: { clientMessageId: string; thumbnail?: ChatImageThumbnail }): Promise<SealedChatMessage> {
+  async prepare(session: CircleChatSession, text: string, file: File | null, imagePreview?: { clientMessageId?: string; thumbnail?: ChatImageThumbnail; replyToMessageId?: string }): Promise<SealedChatMessage> {
     const state = await CircleChatService.state(session);
     const sealed = await sealChatMessage({ ...session, ...imagePreview, text, file, members: state.members, rosterVersion: state.rosterVersion });
     const preview = { sender: "", text: Array.from(text.trim()).slice(0, 160).join("") || "Photo" };
@@ -74,6 +78,20 @@ export const CircleChatService = {
   },
   send: (session: CircleChatSession, payload: SealedChatMessage) => apiJson<ChatMessage>(`${root(session)}/messages`,
     { ...options(session), method: "POST", body: JSON.stringify(payload) }),
+  resolve: (session: CircleChatSession, messageIds: string[], signal?: AbortSignal) => apiJson<{ items: ChatMessage[] }>(`${root(session)}/messages/resolve`,
+    { ...options(session, signal), method: "POST", body: JSON.stringify({ messageIds }) }),
+  updates: (session: CircleChatSession, messageIds: string[], signal?: AbortSignal) => apiJson<{ states: CircleMessageState[]; unavailableIds: string[] }>(`${root(session)}/messages/updates`,
+    { ...options(session, signal), method: "POST", body: JSON.stringify({ messageIds }) }),
+  sealMutation: (session: CircleChatSession, message: ChatMessage, content: ChatContent) => recover(session, message,
+    (recovery) => sealChatMutation(session.circleId, session.userId, message, content, recovery)),
+  edit: (session: CircleChatSession, message: ChatMessage, mutation: ChatMutation) => apiJson<ChatMutationResult>(`${root(session)}/messages/${encodeURIComponent(message.id)}`,
+    { ...options(session), method: "PATCH", body: JSON.stringify(mutation) }),
+  async delete(session: CircleChatSession, message: ChatMessage, scope: "me" | "everyone", tombstone?: ChatMutation): Promise<ChatMutationResult> {
+    const result = await apiJson<ChatMutationResult>(`${root(session)}/messages/${encodeURIComponent(message.id)}`,
+      { ...options(session), method: "DELETE", body: JSON.stringify({ scope, ...(tombstone ? { tombstone } : {}) }) });
+    CircleChatService.refreshFeedRead(session.userId);
+    return result;
+  },
   react: (session: CircleChatSession, message: ChatMessage, emoji: string, active: boolean) =>
     apiJson<{ messageId: string; reactions: NonNullable<ChatMessage["reactions"]> }>(
       `${root(session)}/messages/${encodeURIComponent(message.id)}/reactions/${encodeURIComponent(emoji)}`,

@@ -4,11 +4,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { CircleChat } from "../circle-chat";
+import { CircleChatMessageActionDialog } from "../circle-chat-message-action-dialog";
+import type { OpenChatMessage } from "../circle-chat-message";
 import * as feedEvents from "@/lib/feed/feed-events";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-const api = vi.hoisted(() => ({ initialize: vi.fn(), state: vi.fn(), wait: vi.fn(), messages: vi.fn(), prepare: vi.fn(), send: vi.fn(), open: vi.fn(), read: vi.fn(), mute: vi.fn(), image: vi.fn(), refreshFeedRead: vi.fn() }));
+const api = vi.hoisted(() => ({ initialize: vi.fn(), state: vi.fn(), wait: vi.fn(), messages: vi.fn(), prepare: vi.fn(), send: vi.fn(), open: vi.fn(), read: vi.fn(), mute: vi.fn(), image: vi.fn(), refreshFeedRead: vi.fn(), updates: vi.fn(), resolve: vi.fn(), sealMutation: vi.fn(), edit: vi.fn(), delete: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
 type Observation = { callback: IntersectionObserverCallback; options?: IntersectionObserverInit; target?: Element };
 let observations: Observation[];
@@ -29,6 +31,8 @@ beforeEach(() => {
   api.state.mockResolvedValue({ unreadCount: 1, latestSequence: 1, members: [], rosterVersion: "v", muted: false });
   api.wait.mockImplementation(() => new Promise(() => {}));
   api.messages.mockResolvedValue({ items: [message], hasMore: false });
+  api.updates.mockResolvedValue({ states: [], unavailableIds: [] });
+  api.resolve.mockResolvedValue({ items: [] });
   api.open.mockResolvedValue({ text: "Incoming private message", image: null });
   api.read.mockResolvedValue(undefined);
   appInteractionCoordinator.handleLifecycle("active");
@@ -49,6 +53,119 @@ async function attachPhoto() {
   fireEvent.load(await screen.findByAltText("Image ready to send"));
   return file;
 }
+
+it("fences an old POST after another device deletes the confirmed message", async () => {
+  api.messages.mockResolvedValue({ items: [], hasMore: false });
+  const sent = { ...message, senderUserId: "alice", clientMessageId: "stable-client", revision: 0 };
+  api.open.mockImplementation(async (_session, row) => ({ text: row.senderUserId === "alice" ? "Do not restore" : "Hello" }));
+  api.prepare.mockResolvedValue({ clientMessageId: "stable-client" });
+  let finishPost!: (value: unknown) => void;
+  api.send.mockImplementation(() => new Promise(resolve => { finishPost = resolve; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Start the conversation. Say hello or share a file.");
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Do not restore" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(finishPost).toBeDefined());
+  api.messages.mockResolvedValue({ items: [sent], hasMore: false });
+  const changed = () => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } }));
+  act(changed);
+  await screen.findByText("Do not restore");
+  api.updates.mockResolvedValue({ states: [{ id: sent.id, revision: 1, hidden: false, deletedForEveryoneAt: "2026-10-16T10:00:00Z" }], unavailableIds: [] });
+  act(changed);
+  await screen.findByText("This message was deleted.");
+  await act(async () => finishPost(sent));
+  expect(screen.queryByText("Do not restore")).not.toBeInTheDocument();
+  expect(screen.getByText("This message was deleted.")).toBeInTheDocument();
+});
+
+it("repairs a missed edit doorbell for an old sequence, without accepting a stale page", async () => {
+  const old = { ...message, revision: 0 };
+  const edited = { ...old, revision: 1, editedAt: "2026-10-16T10:00:00Z" };
+  api.messages.mockResolvedValue({ items: [old], hasMore: false });
+  api.open.mockImplementation(async (_session, row) => ({ text: row.revision === 1 ? "Corrected message" : "Original message" }));
+  api.resolve.mockResolvedValue({ items: [edited] });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Original message");
+  api.updates.mockResolvedValue({ states: [{ id: old.id, revision: 1, hidden: false, deletedForEveryoneAt: null }], unavailableIds: [] });
+  // Online is the same repair path as the periodic refresh; no mutation event.
+  act(() => window.dispatchEvent(new Event("online")));
+  await screen.findByText("Corrected message");
+  expect(screen.queryByText("Original message")).not.toBeInTheDocument();
+  expect(api.resolve).toHaveBeenCalledWith(session, [old.id], expect.any(AbortSignal));
+});
+
+it("retains sealed edit retries, rejects empty drafts and prevents double submission", async () => {
+  const own = { ...message, senderUserId: "alice", content: { text: "Original" }, failed: false } as OpenChatMessage;
+  const mutation = { ciphertext: "sealed", iv: "fresh", expectedRevision: 0 };
+  api.sealMutation.mockResolvedValue(mutation);
+  let finish!: (value: unknown) => void;
+  api.edit.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockRejectedValueOnce(new ApiError("offline", 504)).mockResolvedValueOnce({ items: [] });
+  const onResult = vi.fn(async () => {}), onClose = vi.fn();
+  render(<CircleChatMessageActionDialog session={session} message={own} action="edit" onResult={onResult} onClose={onClose} onAccessError={() => {}} />);
+  const save = screen.getByRole("button", { name: "Save changes" });
+  const editor = screen.getByRole("textbox", { name: "Edit message text" });
+  expect(save).toBeDisabled();
+  fireEvent.change(editor, { target: { value: "  " } });
+  expect(save).toBeDisabled();
+  fireEvent.change(editor, { target: { value: "Corrected 👋 مرحبا" } });
+  fireEvent.click(save); fireEvent.click(save);
+  await waitFor(() => expect(api.edit).toHaveBeenCalledTimes(1));
+  expect(save).toBeDisabled();
+  await act(async () => finish(Promise.reject(new ApiError("offline", 504))));
+  await screen.findByRole("alert");
+  fireEvent.click(save);
+  await waitFor(() => expect(api.edit).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(onResult).toHaveBeenCalledTimes(1));
+  expect(api.sealMutation).toHaveBeenCalledTimes(1);
+  expect(api.edit.mock.calls.every(call => call[2] === mutation)).toBe(true);
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the freshest original when jumping and can leave an empty deleted history window", async () => {
+  const target = { ...message, id: "original", sequence: 1, revision: 0 };
+  const child = { ...message, id: "child", sequence: 100, replyToMessageId: target.id };
+  api.messages.mockImplementation(async (_session, cursor) => cursor.before
+    ? { items: [target], hasMore: false }
+    : { items: cursor.after ? [] : [child], replyTargets: [target], hasMore: false });
+  api.open.mockImplementation(async (_session, row) => ({ text: row.id === child.id ? "Reply body" : row.revision === 1 ? "Corrected original" : "Original body" }));
+  api.resolve.mockResolvedValue({ items: [{ ...target, revision: 1 }] });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  const quote = await screen.findByRole("button", { name: "View original message from Bob" });
+  api.updates.mockResolvedValue({ states: [{ id: target.id, revision: 1, hidden: false, deletedForEveryoneAt: null }], unavailableIds: [] });
+  fireEvent.click(quote);
+  await screen.findByText("Corrected original");
+  expect(screen.queryByText("Original body")).not.toBeInTheDocument();
+  api.updates.mockResolvedValue({ states: [{ id: target.id, revision: 1, hidden: true, deletedForEveryoneAt: null }], unavailableIds: [] });
+  act(() => window.dispatchEvent(new Event("online")));
+  await waitFor(() => expect(screen.queryByText("Corrected original")).not.toBeInTheDocument());
+  const latest = screen.getByRole("button", { name: "Go to latest messages" });
+  fireEvent.click(latest);
+  await screen.findByText("Reply body");
+  expect(screen.getByText("Original message unavailable")).toBeInTheDocument();
+});
+
+it("ignores an obsolete decryption failure after private deletion so later reads can advance", async () => {
+  api.open.mockRejectedValueOnce(new Error("Missing key"));
+  api.delete.mockResolvedValue({ hiddenId: message.id });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("This message could not be opened on this device.");
+  let rejectOld!: (error: Error) => void;
+  api.open.mockImplementation(async (_session, row) => row.id === message.id
+    ? new Promise((_resolve, reject) => { rejectOld = reject; }) : { text: "A later message" });
+  api.messages.mockResolvedValue({ items: [message, { ...message, id: "next", sequence: 2 }], hasMore: false });
+  act(() => window.dispatchEvent(new Event("online")));
+  await waitFor(() => expect(rejectOld).toBeDefined());
+  fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete for me" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete message" }));
+  await waitFor(() => expect(screen.queryByText("This message could not be opened on this device.")).not.toBeInTheDocument());
+  await act(async () => rejectOld(new Error("Late missing key")));
+  await screen.findByText("A later message");
+  observe(true);
+  await waitFor(() => expect(api.read).toHaveBeenCalledWith(session, 2));
+});
 
 it.each([false, true])("keeps the Alerts switch consistent while saving from muted=%s", async (muted) => {
   api.state.mockResolvedValue({ unreadCount: 1, latestSequence: 1, muted });
