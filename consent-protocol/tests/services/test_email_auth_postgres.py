@@ -546,38 +546,72 @@ async def test_production_router_keeps_domain_rejection_account_independent(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["verify", "delivery"])
-async def test_expiry_is_rechecked_after_waiting_for_challenge_lock(store, config, operation):
-    from unittest.mock import AsyncMock
-
+@pytest.mark.parametrize("operation", ["consume", "lease"])
+async def test_expiry_is_rechecked_after_waiting_for_challenge_lock(
+    store, config, monkeypatch, operation
+):
     service = EmailAuthService(config, store, Evaluator(), Identity())
     binding, row, code = await challenge(service)
-    transport = SimpleNamespace(send=AsyncMock())
-    worker = EmailAuthDeliveryWorker(service, transport)
-    await store.pool.execute(
-        "UPDATE email_auth_domain_decisions SET expires_at=clock_timestamp()+INTERVAL '0.2 seconds'"
-    )
-    async with store.pool.acquire() as blocker:
-        tx = blocker.transaction()
-        await tx.start()
+    admitted = asyncio.Event()
+    authority = {}
+    original_admit = store._admit
+
+    async def expiring_admission(conn, domain, risk_version):
+        await original_admit(conn, domain, risk_version)
+        # Start the short deadline only after actual admission, on the same
+        # transaction that owns the domain lock. Scheduling cannot refresh it.
+        decision = await conn.fetchrow(
+            "UPDATE email_auth_domain_decisions SET expires_at=clock_timestamp()+INTERVAL '0.2 seconds' WHERE domain=$1 RETURNING *",
+            domain,
+        )
+        authority["pid"] = await conn.fetchval("SELECT pg_backend_pid()")
+        authority["expiry"] = decision["expires_at"]
+        admitted.set()
+        return decision
+
+    monkeypatch.setattr(store, "_admit", expiring_admission)
+    async with store.pool.acquire() as blocker, blocker.transaction():
+        blocker_pid = await blocker.fetchval("SELECT pg_backend_pid()")
         await blocker.fetchrow(
             "SELECT * FROM email_auth_challenges WHERE challenge_id=$1 FOR UPDATE",
             row["challenge_id"],
         )
         task = asyncio.create_task(
-            service.verify(row["challenge_id"], code, binding)
-            if operation == "verify"
-            else worker.deliver_one()
+            store.consume(
+                row["challenge_id"],
+                service._digest("browser", binding),
+                service._digest(
+                    "code",
+                    row["challenge_id"],
+                    row["destination_hash"],
+                    row["expires_at"].isoformat(),
+                    code,
+                ),
+                "fixture",
+            )
+            if operation == "consume"
+            else store.lease_delivery(row, "lease-fixture", "fixture")
         )
-        await asyncio.sleep(0.35)
-        await tx.commit()
-    if operation == "verify":
-        with pytest.raises(EmailAuthError):
-            await task
-    else:
-        assert await task is False
-    transport.send.assert_not_awaited()
-    assert (await store.challenge(row["challenge_id"]))["consumed_at"] is None
+        try:
+            await asyncio.wait_for(admitted.wait(), 3)
+
+            async def wait_for_row_lock():
+                while not await store.pool.fetchval(
+                    "SELECT $1=ANY(pg_blocking_pids($2))", blocker_pid, authority["pid"]
+                ):
+                    await asyncio.sleep(0.005)
+
+            await asyncio.wait_for(wait_for_row_lock(), 3)
+            await store.pool.execute("SELECT pg_sleep_until($1)", authority["expiry"])
+            assert await store.pool.fetchval("SELECT clock_timestamp()>=$1", authority["expiry"])
+        except BaseException:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+    with pytest.raises(EmailAuthError):
+        await task
+    final = await store.challenge(row["challenge_id"])
+    assert final["consumed_at"] is None and final["delivery_lease_id"] is None
 
 
 @pytest.mark.asyncio
