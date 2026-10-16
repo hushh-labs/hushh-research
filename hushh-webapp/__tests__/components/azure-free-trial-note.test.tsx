@@ -124,7 +124,7 @@ describe("the free-trial line on the cloud step", () => {
     const progress = await screen.findByTestId("byoc-setup-progress");
     expect(progress).toHaveTextContent("Setting up your agent in Microsoft Azure");
     expect(screen.getByTestId("azure-free-trial-note")).toHaveTextContent(NOTICE);
-    expect(progress.querySelectorAll("li")).toHaveLength(12);
+    expect(progress.querySelectorAll("li")).toHaveLength(3);
     expect(progress).not.toHaveTextContent("subscription_offer");
   });
 

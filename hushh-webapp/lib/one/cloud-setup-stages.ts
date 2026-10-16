@@ -138,6 +138,34 @@ export function azureChecklistStages(
   return AZURE_SETUP_STAGES.slice(Math.max(start, 0));
 }
 
+export type SetupProgressRow = SetupStage & {
+  state: "pending" | "current" | "complete";
+};
+
+/** Resource progress never proves that an optional AI deployment is usable. */
+export function setupProgressRows(
+  stages: readonly SetupStage[],
+  job: SetupJobProgress,
+): readonly SetupProgressRow[] {
+  if (stages.some((stage) => stage.id === AZURE_SETUP_FIRST_STAGE)) {
+    const current = azureStageIndex(job.stage);
+    return [
+      { id: "preparing_cloud", label: "Preparing your cloud", first: AZURE_SETUP_FIRST_STAGE, last: "creating_environment" },
+      { id: "installing_agent", label: "Installing your agent", first: "assigning_roles", last: "deploying_agent" },
+      { id: "checking_access", label: "Checking private access", first: "proving", last: "proving" },
+    ].map<SetupProgressRow>(({ id, label, first, last }) => ({
+      id,
+      label,
+      state: current > azureStageIndex(last) ? "complete" : current >= azureStageIndex(first) ? "current" : "pending",
+    }));
+  }
+  const reached = new Set(job.stages.map((entry) => entry.stage));
+  return stages.map((stage) => ({
+    ...stage,
+    state: job.stage === stage.id ? "current" : reached.has(stage.id) ? "complete" : "pending",
+  }));
+}
+
 /** True when an Azure job began at the update tail rather than at setup. */
 export function isAzureUpgradeJob(job: SetupJobProgress): boolean {
   const start = firstReachedAzureIndex(job);
