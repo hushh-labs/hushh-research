@@ -323,12 +323,13 @@
     "355_drive_v1_live_request.sql",
     "356_drive_v1_access_period.sql",
     "357_circle_chat_message_actions.sql",
-    "358_circle_wars_weekly_opt_in.sql"
+    "358_circle_wars_weekly_opt_in.sql",
+    "359_independent_email_otp.sql"
   ],
   "environment_overlays": {
     "uat": [
       "174_hushh_tech_uat_client_foundation.sql",
-      "359_uat_drive_collection_retirement.sql"
+      "360_uat_drive_collection_retirement.sql"
     ]
   },
   "groups": {
@@ -493,7 +494,8 @@
       "336_pwm_claim_invitations.sql",
       "337_initial_contacts_onboarding.sql",
       "340_pwm_provider_budget.sql",
-      "341_pwm_research_lifecycle.sql"
+      "341_pwm_research_lifecycle.sql",
+      "359_independent_email_otp.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -686,6 +688,7 @@
     "356_drive_v1_access_period.sql": "rollback/356_drive_v1_access_period.rollback.sql",
     "357_circle_chat_message_actions.sql": "rollback/357_circle_chat_message_actions.rollback.sql",
     "358_circle_wars_weekly_opt_in.sql": "rollback/358_circle_wars_weekly_opt_in.rollback.sql",
-    "359_uat_drive_collection_retirement.sql": "rollback/359_uat_drive_collection_retirement.rollback.sql"
+    "359_independent_email_otp.sql": "rollback/359_independent_email_otp.rollback.sql",
+    "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql"
   }
 }

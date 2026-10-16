@@ -59,7 +59,7 @@ Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `
 `DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests.
 The October 13 Drive restoration sets it to `false` in UAT: new requests use
 owner-first live Drive search and exact-file review, and continuous collection
-and packet commerce stop. UAT migration 359 disables existing live collection
+and packet commerce stop. UAT migration 360 disables existing live collection
 processing and packet availability without deleting evidence or payment history.
 Other environments also default to `false` unless explicitly enabled. A sealed
 `agent_package_required` marker persists the contract of an older request so

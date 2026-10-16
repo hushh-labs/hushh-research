@@ -16,7 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_NAME = "174_hushh_tech_uat_client_foundation.sql"
-DRIVE_RETIREMENT_MIGRATION_NAME = "359_uat_drive_collection_retirement.sql"
+DRIVE_RETIREMENT_MIGRATION_NAME = "360_uat_drive_collection_retirement.sql"
 ROLLBACK_NAME = "174_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME
