@@ -323,11 +323,14 @@ it("does not resurrect a confirmed photo when history eviction precedes a delaye
     return { items: Array.from({ length: Math.min(40, 310 - after) }, (_, i) => ({ ...message, id: `m${after + i + 1}`, sequence: after + i + 1 })), hasMore: after + 40 < 310 };
   });
   act(refresh);
-  await screen.findByText("Message 310", {}, { timeout: 3000 });
+  // Photo confirmation plus eight catch-up pages can exceed the default CI test budget.
+  await screen.findByText("Message 310", {}, { timeout: 8_000 });
+  expect(screen.getByRole("list").children).toHaveLength(300);
+  expect(document.querySelector('[data-chat-message="confirmed-photo"]')).not.toBeInTheDocument();
   await act(async () => rejectPost(new ApiError("Timed out", 504)));
   expect(screen.queryByText("Delivery unconfirmed")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Retry message" })).not.toBeInTheDocument();
-});
+}, 15_000);
 
 it("revokes a downloaded image even when unmount wins the state commit", async () => {
   const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:uncommitted");
