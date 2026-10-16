@@ -10,6 +10,67 @@ from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_worker_limits import packet_slots, semantic_slots
 
 
+@pytest.fixture(autouse=True)
+def enable_package_lanes_for_existing_worker_tests(monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+
+
+async def test_indexing_kill_switch_skips_collection_and_packet_workers(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
+    service = SimpleNamespace(run_one=AsyncMock())
+    collection = SimpleNamespace(run=AsyncMock())
+    packets = SimpleNamespace(run=AsyncMock())
+    worker = DriveDocumentWorker(service, collection_sync=collection, packet_worker=packets)
+    worker.due_owners = AsyncMock()
+
+    assert await worker.run() == {
+        "schema_version": "drive.worker.v1",
+        "outcomes": {"disabled": 1},
+    }
+    worker.due_owners.assert_not_awaited()
+    service.run_one.assert_not_awaited()
+    collection.run.assert_not_awaited()
+    packets.run.assert_not_awaited()
+
+
+async def test_package_switch_keeps_selected_documents_running(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "ready"}))
+    collection = SimpleNamespace(run=AsyncMock())
+    packets = SimpleNamespace(run=AsyncMock())
+    worker = DriveDocumentWorker(service, collection_sync=collection, packet_worker=packets)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", AsyncMock())
+
+    result = await worker.run(max_jobs=1)
+
+    assert result == {"schema_version": "drive.worker.v1", "outcomes": {"ready": 1}}
+    service.run_one.assert_awaited_once_with(user_id="owner", prefer_profile_upgrade=True)
+    collection.run.assert_not_awaited()
+    packets.run.assert_not_awaited()
+
+
+def test_package_switch_avoids_constructing_collection_and_packet_lanes(monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    service = SimpleNamespace()
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_document_worker.DriveIngestionService",
+        lambda **kwargs: service,
+    )
+    monkeypatch.setattr("hushh_mcp.services.drive_document_worker.LocalDocumentProcessor", object)
+
+    worker = DriveDocumentWorker()
+
+    assert worker.service is service
+    assert worker.collection_sync is None
+    assert worker.packet_worker is None
+
+
 async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
@@ -242,6 +303,9 @@ def test_semantic_limits_have_safe_defaults_and_fail_closed(
 
 @pytest.mark.parametrize("outcome", [{"idle": 2}, {"facts_unavailable": 2}, {}])
 async def test_semantic_sweep_does_not_spin_when_no_progress(monkeypatch, outcome):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
     packet_worker = SimpleNamespace(run=AsyncMock(return_value=outcome))
     worker = DriveDocumentWorker(SimpleNamespace(), packet_worker=packet_worker)
     worker.due_owners = AsyncMock(return_value=[])

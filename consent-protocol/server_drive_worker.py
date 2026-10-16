@@ -28,6 +28,9 @@ hydrate_runtime_environment()
 from fastapi import FastAPI, HTTPException  # noqa: E402
 
 from api.routes.drive_work_drain import router  # noqa: E402
+from hushh_mcp.services.connector_feature_admission import (  # noqa: E402
+    connector_feature_owner_cohort,
+)
 from hushh_mcp.services.drive_document_processor import (  # noqa: E402
     ClamAvScanner,
     IsolatedDocumentEmbedding,
@@ -40,8 +43,15 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 STARTUP_TIMEOUT_SECONDS = 180
 
 
+def _indexing_active() -> bool:
+    return connector_feature_owner_cohort("drive_document_indexing") != ()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if not _indexing_active():
+        yield
+        return
     if not Path(BAKED_MODEL_DIR).is_dir():
         raise RuntimeError("Drive worker image is missing its pinned local model")
     # This is synthetic content only. Failure keeps the candidate revision
@@ -82,6 +92,8 @@ app.include_router(router)
 
 @app.get("/ready", include_in_schema=False)
 async def ready() -> dict[str, str]:
+    if not _indexing_active():
+        return {"status": "ready"}
     try:
         await ClamAvScanner().check_ready()
     except Exception:
