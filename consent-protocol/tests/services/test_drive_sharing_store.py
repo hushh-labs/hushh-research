@@ -204,7 +204,7 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
         lambda: None,
     )
     initial = await sharing.owner_pricing(user_id="owner")
-    assert initial == {"enabled": False, "amountCents": 1000, "version": 0}
+    assert initial == {"enabled": False, "amountCents": 50, "version": 0}
     quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
     assert quote == {
         "amountCents": None,
@@ -907,7 +907,24 @@ async def test_recipient_sees_status_not_private_suggestions(sharing):
     prepared, _ = await review(sharing)
     status = await sharing.request_status(user_id="recipient", request_id=prepared["requestId"])
     assert status["status"] == "pending"
-    assert set(status) == {"requestId", "status", "revision", "direction"}
+    assert set(status) == {
+        "requestId",
+        "status",
+        "revision",
+        "direction",
+        "requestedAccessDays",
+        "approvedAccessDays",
+        "accessExpiresAt",
+    }
+    assert (
+        status["requestedAccessDays"],
+        status["approvedAccessDays"],
+        status["accessExpiresAt"],
+    ) == (
+        None,
+        None,
+        None,
+    )
     assert status["direction"] == "outgoing"
     with pytest.raises(DriveSharingError, match="request_unavailable"):
         await sharing.owner_review(user_id="recipient", request_id=prepared["requestId"])
@@ -927,6 +944,10 @@ async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypa
     assert context == {
         "requestId": request_id,
         "requestRevision": 0,
+        "reason": "",
+        "requestedAccessDays": None,
+        "approvedAccessDays": None,
+        "accessExpiresAt": None,
         "purpose": {
             "purpose": "Private six-month statements",
             "periodStart": "2026-01-01",
@@ -1300,6 +1321,9 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
         "revision": 0,
         "ownerAllowed": True,
         "amountCents": None,
+        "requestedAccessDays": None,
+        "approvedAccessDays": None,
+        "accessExpiresAt": None,
     }
     row, private = stored_request(sharing, request_id)
     assert private["trusted_auto"] is True
