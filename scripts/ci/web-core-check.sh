@@ -10,6 +10,13 @@ source "$REPO_ROOT/scripts/ci/web-common.sh"
 web_ci_preflight
 web_ci_install
 
+# The standalone mail API's One sender is an authentication boundary.
+(
+  cd "$REPO_ROOT/deploy/mail-api"
+  npm ci --ignore-scripts --no-audit --no-fund
+  npm test
+)
+
 cd "$WEB_DIR"
 npm run verify:design-system
 npm run verify:docs
