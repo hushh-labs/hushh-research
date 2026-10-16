@@ -62,6 +62,41 @@ def test_all_current_location_capabilities_have_an_authored_destination():
     assert compile_location_capabilities(altered)[0] != revision
 
 
+def test_semantic_catalog_preserves_all_authored_choices_after_compaction():
+    from api.routes.one.command_proposals import _catalog
+
+    _, actions = _catalog("location.plan.v2")
+    projected = semantic_catalog(actions)
+    indexed = {item.get("action_id") or item.get("workflow_id"): item for item in projected}
+    assert set(indexed) == set(actions)
+    for action_id, owner in actions.items():
+        if "workflow_id" in owner:
+            assert (
+                indexed[action_id]["workflow"]["entry_action_id"]
+                == owner["workflow"]["entry_action_id"]
+            )
+            continue
+        item = indexed[action_id]
+        assert item["meaning"] == (owner.get("meaning") or owner.get("label"))
+        assert item["inputs"] == owner["goal"]["required_inputs"]
+        assert item["command"] == (owner.get("command") or {})
+        assert item["policy"] == owner["execution_policy"]
+        if owner.get("semantic_boundaries") is not None:
+            assert item["boundaries"] == owner["semantic_boundaries"]
+    calendar = indexed["calendar.invitation.review"]
+    assert calendar["workflow"] == actions["calendar.invitation.review"]["goal"]["workflow_steps"]
+    assert calendar["execution_target"] == actions["calendar.invitation.review"]["execution_target"]
+    assert len(json.dumps(projected, ensure_ascii=False)) < 40_000
+
+
+def test_semantic_catalog_does_not_crash_on_nonstandard_workflow_shape():
+    _, actions = catalog()
+    action = next(item for item in actions.values() if "action_id" in item)
+    malformed = {**action, "goal": {**action["goal"], "workflow_steps": [None]}}
+    projected = semantic_catalog({action["action_id"]: malformed})
+    assert projected[0]["workflow"] == [None]
+
+
 def test_workflow_prompt_preserves_owning_semantics_without_execution_internals():
     from api.routes.one.command_proposals import _catalog
 
@@ -262,6 +297,7 @@ async def test_semantic_agent_returns_typed_proposal_only(monkeypatch):
     assert result.steps[0].action_id == "location.open_now"
     assert len(model.requests) == 1
     assert model.requests[0].config.response_schema is not None
+    assert model.requests[0].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
     assert not model.requests[0].config.speech_config
     assert len(options) == 1
     assert options[0].timeout == 60_000
