@@ -1,9 +1,8 @@
 """Azure PWM research runner with the existing owner and evidence boundaries.
 
-This module is intentionally not selected by the service yet. The hosted
-credential and both deployment contracts must be verified before routing work
-here. It writes only the same encrypted, view-only research checkpoint shape
-as the Vertex runner; it has no approved-knowledge or messaging authority.
+The service selects this runner only in UAT after explicit Azure/Bing consent.
+It writes only the same encrypted, view-only research checkpoint shape as the
+Vertex runner; it has no approved-knowledge or messaging authority.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from openai import APIError
@@ -34,6 +33,7 @@ from hushh_mcp.one_adk.world_model_contracts import (
     FindingBatch,
     IdentityAssessment,
     QueryPlan,
+    Seed,
     WorldModelReport,
     validated_facts_from_work,
 )
@@ -216,7 +216,7 @@ class AzurePwmGateway:
                 include=["web_search_call.action.sources"],
                 max_output_tokens=4096,
             )
-        return response.model_dump(mode="json")
+        return cast(Mapping[str, Any], response.model_dump(mode="json"))
 
     async def structured(
         self,
@@ -251,9 +251,13 @@ class AzurePwmGateway:
 
 
 def _first_identity_plan(identity: dict[str, Any]) -> QueryPlan:
-    seeds = [field for field in ("full_name", "email", "phone_number") if identity.get(field)]
-    if "full_name" not in seeds or not any(field in seeds for field in ("email", "phone_number")):
+    if not identity.get("full_name") or not (identity.get("email") or identity.get("phone_number")):
         raise ValueError("PWM needs the verified owner name and a contact")
+    seeds: list[Seed] = ["full_name"]
+    if identity.get("email"):
+        seeds.append("email")
+    if identity.get("phone_number"):
+        seeds.append("phone_number")
     return QueryPlan(
         purpose="identity",
         seed_fields=seeds,
@@ -338,7 +342,7 @@ def _cap_unverified_contact(value: dict[str, Any]) -> dict[str, Any]:
     retrieved page body. Until an exact source-content verifier exists, the
     strongest possible identity state is candidate_for_review.
     """
-    capped = json.loads(json.dumps(value))
+    capped: dict[str, Any] = json.loads(json.dumps(value))
     for anchor in capped.get("anchors", []):
         if isinstance(anchor, dict) and anchor.get("kind") == "verified_contact":
             anchor.update(
