@@ -513,7 +513,7 @@ article[data-message-role="user"] .messageBubble {
   justify-content: flex-end;
   gap: 0.125rem;
   min-height: 0.875rem;
-  margin: 0.25rem 0 -0.125rem 0.75rem;
+  margin: 0.25rem 0 -0.125rem 0.5rem;
   color: color-mix(in oklab, currentColor 68%, transparent);
   font-size: 0.6875rem;
   line-height: 1;
@@ -1626,6 +1626,7 @@ article[data-message-role="peer"] .messageBubble {
   border-radius: 18px !important;
 }
 .messageBubbleMeta { font-size: 12px; }
+@media (max-width: 374px) { .messageBubbleMeta { margin-left: 4px; font-size: 11px; } }
 article[data-message-role="user"] .messageBubbleMeta,
 article[data-message-role="user"] .messageDeliveryState {
   color: var(--chat-outgoing-meta);

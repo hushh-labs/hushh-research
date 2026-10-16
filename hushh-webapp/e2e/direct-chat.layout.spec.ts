@@ -470,6 +470,11 @@ for (const width of [320, 393, 768, 1440]) test(`compact message controls preser
   await page.setViewportSize({ width, height: 1000 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mount(page, width === 393);
+  if (width === 320) await transcript(page).evaluate(element => {
+    // Reproduce CI's 15px classic scrollbar gutter on overlay-scrollbar hosts.
+    const gutter = element.getBoundingClientRect().width - element.clientWidth;
+    if (gutter < 15) element.style.paddingRight = `${parseFloat(getComputedStyle(element).paddingRight) + 15 - gutter}px`;
+  });
   await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
   for (const id of ["maya-79", "maya-78"]) {
     const row = page.locator(`[data-chat-message="${id}"]`);
@@ -481,9 +486,9 @@ for (const width of [320, 393, 768, 1440]) test(`compact message controls preser
     const geometry = await bubble.evaluate(element => {
       const text = element.querySelector(":scope > p")!.getBoundingClientRect();
       const time = element.querySelector("time")!.getBoundingClientRect();
-      return { textBottom: text.bottom, timeTop: time.top };
+      return { textBottom: text.bottom, timeTop: time.top, textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
     });
-    expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+    expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
     for (const label of ["React to message", "Message options"]) {
       const button = row.getByRole("button", { name: label });
       const rect = (await button.boundingBox())!;
