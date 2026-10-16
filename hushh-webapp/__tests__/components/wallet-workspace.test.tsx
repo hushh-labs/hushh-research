@@ -60,6 +60,7 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
 
 const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
+  recoverCardArtworks: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
   addCard: vi.fn(),
@@ -82,7 +83,10 @@ vi.mock("@/lib/services/wallet-service", async () => {
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
       resolveCardArtwork: vi.fn().mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] }),
-      listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
+      listCardPresentations: async (...args: unknown[]) => {
+        if ((args[1] as { recoverArtwork?: boolean } | undefined)?.recoverArtwork) return serviceMock.recoverCardArtworks(...args);
+        return (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" }));
+      },
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
@@ -282,6 +286,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    expect(serviceMock.recoverCardArtworks).toHaveBeenCalled();
     // Await the user interactions so the save-to-Cards lifecycle commits
     // before returning to the deck; its complete storage order stays asserted.
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Back", exact: true })); });
@@ -446,6 +451,7 @@ describe("WalletWorkspace at scale", () => {
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(4));
+    serviceMock.recoverCardArtworks.mockResolvedValue([]);
     serviceMock.deleteCard.mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
