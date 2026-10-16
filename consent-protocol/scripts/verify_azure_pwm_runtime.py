@@ -13,9 +13,10 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
-from openai import AsyncOpenAI
+from openai import APITimeoutError, AsyncOpenAI
 
 PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 if str(PROTOCOL_ROOT) not in sys.path:
@@ -35,6 +36,43 @@ def _token_provider(*, tenant_id: str, client_id: str):
     return module.azure_openai_token_provider(tenant_id=tenant_id, client_id=client_id)
 
 
+def _stage(name: str, result: str, *, started_at: float, attempt: int | None = None) -> None:
+    event: dict[str, str | int] = {
+        "azure_pwm_runtime_probe_stage": name,
+        "result": result,
+        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+    }
+    if attempt is not None:
+        event["attempt"] = attempt
+    print(json.dumps(event), flush=True)
+
+
+async def _probe_phi(config: dict[str, str], token: str) -> None:
+    # A cold Global Standard deployment can time out once. Require a real
+    # response on a bounded second attempt; a repeated timeout blocks rollout.
+    for attempt in (1, 2):
+        started_at = time.monotonic()
+        _stage("phi", "start", started_at=started_at, attempt=attempt)
+        try:
+            async with AsyncOpenAI(
+                api_key=token, base_url=config["phi_endpoint"], timeout=45.0, max_retries=0
+            ) as client:
+                result = await client.chat.completions.create(
+                    model=config["phi_deployment"],
+                    messages=[{"role": "user", "content": "Reply with the word OK."}],
+                    max_tokens=64,
+                )
+        except APITimeoutError:
+            _stage("phi", "timeout", started_at=started_at, attempt=attempt)
+            if attempt == 2:
+                raise
+            continue
+        if not result.choices or not (result.choices[0].message.content or "").strip():
+            raise RuntimeError("Azure Phi model returned no text")
+        _stage("phi", "ok", started_at=started_at, attempt=attempt)
+        return
+
+
 async def probe() -> None:
     if os.environ.get("ENVIRONMENT") != "uat":
         raise RuntimeError("Azure PWM runtime probe is UAT-only")
@@ -42,11 +80,16 @@ async def probe() -> None:
     if policy["provider"] != "azure_openai_web_search":
         raise RuntimeError("UAT Azure PWM provider is not selected")
     config = policy["azure"]
+    started_at = time.monotonic()
+    _stage("federation", "start", started_at=started_at)
     supplier = _token_provider(tenant_id=config["tenant_id"], client_id=config["client_id"])
     token = await asyncio.to_thread(supplier)
     if not token:
         raise RuntimeError("Azure federated bearer token is empty")
+    _stage("federation", "ok", started_at=started_at)
 
+    started_at = time.monotonic()
+    _stage("primary", "start", started_at=started_at)
     async with AsyncOpenAI(
         api_key=token, base_url=config["primary_endpoint"], timeout=60.0, max_retries=0
     ) as client:
@@ -57,22 +100,16 @@ async def probe() -> None:
         )
         if result.status != "completed" or not result.output_text.strip():
             raise RuntimeError("Azure primary model returned no completed text")
+    _stage("primary", "ok", started_at=started_at)
 
-    async with AsyncOpenAI(
-        api_key=token, base_url=config["phi_endpoint"], timeout=60.0, max_retries=0
-    ) as client:
-        result = await client.chat.completions.create(
-            model=config["phi_deployment"],
-            messages=[{"role": "user", "content": "Reply with the word OK."}],
-            max_tokens=64,
-        )
-        if not result.choices or not (result.choices[0].message.content or "").strip():
-            raise RuntimeError("Azure Phi model returned no text")
+    await _probe_phi(config, token)
 
 
 def main() -> int:
     try:
-        asyncio.run(asyncio.wait_for(probe(), timeout=150))
+        # Federation + a 60s primary call + two 45s Phi attempts fit within
+        # this bound, with 40s left before the Cloud Run task timeout.
+        asyncio.run(asyncio.wait_for(probe(), timeout=200))
     except Exception as error:  # noqa: BLE001 - print only the error class, never a token
         print(
             json.dumps({"azure_pwm_runtime_probe_result": "failed", "error": type(error).__name__})
