@@ -24,6 +24,10 @@ Existing owners retain their resources and selected configuration.
 readback and durable-key recovery pass. Min 0/max 1, one worker, HTTP threshold
 eight and the 600-second relay grace are preserved. The temporary OIDC-only admin
 grant was removed and absence verified. Protected Files readback remains separate.
+Normal-owner readback then passed a 32 KiB byte-exact upload/download. A fresh
+sealed Puppy connection returned the synthetic marker from Gemma 4 12B in
+73.363 s; local-model first content took 48.019 s. This is one warm observation,
+not cold-start acceptance. Its synthetic Files fixture is retained for update continuity.
 
 ## Current implementation slice — Azure AI and Shared Files
 
@@ -61,7 +65,10 @@ and button now retain the existing disabled predicate. The original code fails
 the readiness assertions; all 31 nearest cases pass after repair, including the
 unchanged owner-generation refusal. The affected web-core and generated UI
 contracts pass; unaffected backend receipts are retained. This repair is not yet
-deployed. The prior [exact `15d83d5bab` passed all 25 hosted
+deployed. The same run found one stale iOS Payments accent assertion; its fixture
+now matches the canonical emerald glyph and generator, with no native runtime change.
+Published concurrent head `9780c580ee` is included; its reviewer permission and
+UAT-only paused-Drive changes retain their authority fences. The prior [exact `15d83d5bab` passed all 25 hosted
 checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key

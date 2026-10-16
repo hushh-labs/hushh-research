@@ -304,9 +304,10 @@ final class NativeSupportTests: XCTestCase {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             XCTAssertEqual(artwork.base.size, CGSize(width: 28, height: 28))
             XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
-            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing", "world-model"].contains(id))
+            XCTAssertEqual(artwork.accent != nil, ["request-pricing", "world-model"].contains(id))
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
+        XCTAssertEqual(NativeProfileArtwork.resolve("payouts")?.colorHex, "#10B981")
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))

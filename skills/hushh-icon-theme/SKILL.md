@@ -118,6 +118,8 @@ Profile menu glyphs also generate native artwork. After changing
 `npm run build:brand-assets` then `npm run verify:brand-assets` from
 `hushh-webapp`. Commit the resulting `HushhProfile-*.imageset` assets and
 `NativeProfileArtwork.swift` with the authored change; never hand-edit them.
+Update the native artwork test's semantic accent and colour assertions when
+those authored properties change; generator freshness does not check XCTest expectations.
 
 ### Card headers, status lines, and the sparkle ban
 
