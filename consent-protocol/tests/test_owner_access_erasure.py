@@ -438,6 +438,7 @@ async def test_cleanup_checks_old_image_before_reserving_it_away_from_updates(
     store = SimpleNamespace(
         registry=SimpleNamespace(get=AsyncMock(return_value=row)),
         require_completion_contract=AsyncMock(),
+        never_deployed=AsyncMock(return_value=False),
         candidate_digest=AsyncMock(return_value="a" * 64),
         reserve=AsyncMock(),
         authorization=AsyncMock(
@@ -470,4 +471,5 @@ async def test_cleanup_checks_old_image_before_reserving_it_away_from_updates(
             "status"
         ] == "authorization_required"
         store.reserve.assert_awaited_once_with(OWNER, "a" * 64)
+    store.never_deployed.assert_awaited_once_with(OWNER, row)
     check.assert_awaited_once()
