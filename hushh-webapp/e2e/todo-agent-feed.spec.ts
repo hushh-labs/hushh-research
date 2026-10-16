@@ -124,6 +124,25 @@ for (const [width, dark] of [
     );
     await page.goto("http://localhost/todo-fixture");
     await page.addScriptTag({ content: script });
+    const heading = page.getByRole("heading", {
+      name: "Your tasks",
+      exact: true,
+    });
+    const headingStyle = await heading.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        size: style.fontSize,
+        line: style.lineHeight,
+        agentSize: style.getPropertyValue("--type-agent-title-size").trim(),
+        agentLine: style.getPropertyValue("--type-agent-title-line").trim(),
+      };
+    });
+    expect(
+      headingStyle.size,
+      "Tasks uses Location's compact agent heading size",
+    ).toBe(headingStyle.agentSize);
+    expect(headingStyle.line).toBe(headingStyle.agentLine);
+    await expect(heading).toHaveAttribute("data-ui-role", "agent-title");
     const title = "Review Alex's connection request";
     const checkbox = page.getByRole("checkbox", {
       name: `Mark ${title} as completed`,
