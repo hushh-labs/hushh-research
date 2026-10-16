@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getEngagement: vi.fn(),
   getChallenge: vi.fn(),
   getCircleSelection: vi.fn(),
+  getCircleWarsState: vi.fn(),
   onReferralChange: () => {},
   claimReward: vi.fn(),
   recordAppOpen: vi.fn(),
@@ -59,6 +60,9 @@ vi.mock("@/lib/services/referral-service", () => ({
     recordAppOpen: mocks.recordAppOpen,
   },
 }));
+
+vi.mock("@/lib/services/circle-wars-service", () => ({ CircleWarsService: { getState: mocks.getCircleWarsState } }));
+import { VaultContext } from "@/lib/vault/vault-context";
 
 import { CacheService } from "@/lib/services/cache-service";
 import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
@@ -154,10 +158,13 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.getSummary).toHaveBeenCalledTimes(2);
   });
   it("shows the owner's server circle rank outside the first leaderboard page", async () => {
-    mocks.getCircleSelection.mockResolvedValue({ circle_id: "network", circle_name: "Our circle", rank: 41, contribution_count: 3 });
-    mocks.getCircleLeaderboard.mockResolvedValue({ teams: [] });
-    render(<ReferralDashboardPage />);
-    expect(await screen.findByText("#41")).toBeInTheDocument();
+    mocks.getCircleWarsState.mockResolvedValue({
+      period: { round_id: "current-week", week_start: "2026-10-12", timezone: "Asia/Kolkata", seconds_remaining: 1000 },
+      participation: { status: "active", team: { circle_id: "existing-circle", name: "Our circle", rank: 41,
+        participating_members: 2, qualified_referrals: 3, next_rank: 40, referrals_to_next_rank: 1 } },
+    });
+    render(<VaultContext.Provider value={{ vaultOwnerToken: "test-owner-token" } as never}><ReferralDashboardPage /></VaultContext.Provider>);
+    expect(await screen.findByText("Rank #41")).toBeInTheDocument();
     expect(screen.getByText("Our circle")).toBeInTheDocument();
   });
 
@@ -176,7 +183,7 @@ describe("ReferralDashboardPage", () => {
   it("keeps progress and earning glyphs free of interior shading", async () => {
     mocks.getPolicy.mockResolvedValue({ version: 4, points: { qualified_referral_points: 100, flash_window_total_points: 200, referral_in_progress_points: 5, referral_qualified_activity_total_points: 15, streak_three_day_bonus_points: 15, pkm_daily_points: 15, connection_created_points: 5, agent_usage_points: 10 }, streak_rules: { run_length_days: 3, bonus_points: 15 }, challenge_duration_days: 7, weekly_prizes_enabled: false, flash_bonus_enabled: true });
     const { container } = render(<ReferralDashboardPage />);
-    await screen.findByRole("button", { name: "Invite & earn $" });
+    await screen.findByRole("button", { name: "Invite" });
     const progress = container.querySelectorAll('.referral-stat-icon svg, .referral-streak-card [role="img"] svg');
     expect(progress).toHaveLength(4);
     for (const icon of progress) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
@@ -230,7 +237,7 @@ describe("ReferralDashboardPage", () => {
   it("closes sharing before route Back and releases the layer when its pane is inactive or unmounted", async () => {
     let unmount!: () => void;
     await act(async () => { ({ unmount } = render(<ReferralDashboardPage />)); });
-    const share = await screen.findByRole("button", { name: "Invite & earn $", expanded: false });
+    const share = await screen.findByRole("button", { name: "Invite", expanded: false });
     expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
 
@@ -246,7 +253,7 @@ describe("ReferralDashboardPage", () => {
     );
     const navigate = ({ href }: { href: string }) => mocks.push(href);
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
-    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Invite", expanded: false })).toHaveFocus();
     expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(mocks.push).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
@@ -256,15 +263,15 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
     expect(unwindBackLayer("/one/referrals")).toBe(false);
     fireEvent.click(screen.getByRole("tab", { name: "You" }));
-    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite", expanded: false })).toBeInTheDocument();
     fireEvent.click(share);
     unmount();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
-  it("restores focus to Invite & earn $ when Escape hides a focused sharing action", async () => {
+  it("restores focus to Invite when Escape hides a focused sharing action", async () => {
     await act(async () => { render(<ReferralDashboardPage />); });
-    const share = await screen.findByRole("button", { name: "Invite & earn $" });
+    const share = await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(share);
     const sms = screen.getByRole("link", { name: "Share by SMS" });
     sms.focus();
@@ -277,7 +284,7 @@ describe("ReferralDashboardPage", () => {
 
   it("preserves outside focus when the sharing bubbles are dismissed", async () => {
     await act(async () => { render(<ReferralDashboardPage />); });
-    const share = await screen.findByRole("button", { name: "Invite & earn $" });
+    const share = await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(share);
     const ranking = screen.getByRole("tab", { name: "Ranking" });
     act(() => { ranking.focus(); });
@@ -482,7 +489,7 @@ describe("ReferralDashboardPage", () => {
 
     await screen.findByText("Weekly prizes end in");
 
-    const inviteButton = screen.getByRole("button", { name: "Invite & earn $" });
+    const inviteButton = screen.getByRole("button", { name: "Invite" });
     // The shared token is deliberately overridden at this route, so a saved
     // account accent cannot recolour the approved referral design.
     const css = readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");

@@ -1,5 +1,46 @@
 # API Contracts
 
+## Circle Wars weekly participation
+
+Migration 357 extends `one_referral_circle_selections` and
+`one_referral_circle_contributions`; it does not introduce another referral or
+coin ledger. `one_referral_circle_teams` holds random public aliases per existing
+reward-round ID. The active program schedule owns the deadline and timezone;
+physical prize activation remains independent of team participation.
+
+All `/api/one/referrals/circle-wars` routes require a `VAULT_OWNER` bearer token
+and return `Cache-Control: private, no-store` through the existing web/native
+`apiJson` transport:
+
+| Method and suffix | Contract |
+| --- | --- |
+| GET (base) | Current persisted round and caller's optional selection. Optional `week` is a historical reward-round UUID. |
+| POST `/participation` | `{circle_id: UUID, consent: true}`; strict consent, no extra fields, active existing Circle membership. Same-team retry is idempotent; switching that week returns 409. |
+| GET `/leaderboard` | `limit` 1–100, nonnegative `offset`, optional historical `week`; global ranks, total and pagination. |
+| GET `/circles/{circle_id}` | Caller-authorized Circle statistics; unauthorized names and IDs remain private. |
+
+Qualification snapshots eligible weekly selection into the existing durable
+scoring job. The existing worker settles one raw team contribution per
+relationship alongside individual awards. Referrals opened before opt-in,
+nonmembers and inherited genealogy never imply consent. Late jobs retain their
+round; revoked relationships stop counting. Existing deletion cascades apply.
+Legacy Firebase-only Circle previews remain closed for older clients; the active
+dashboard uses these owner-authorized endpoints.
+
+The You card and Ranking/Circles pane reuse existing Circle creation and invite
+links. Other teams expose random aliases; authorized members see Circle names.
+Rewards and individual rankings retain their existing behavior. SSE and visible
+polling refresh team standings and rollover. Rollback disables new snapshot and
+notification triggers while preserving bounded history, awards and claims.
+
+The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
+concurrent selection, no retroactive credit, delayed settlement, privacy,
+revocation, history, owner API authority and migration replay. Run with
+`ONE_COMMAND_TEST_DATABASE_URL` pointing to disposable PostgreSQL; CI includes
+this suite. Circle interaction tests and `verify:referral-dashboard` cover the
+frontend. Live browser qualification also needs matching nonproduction Firebase
+and backend configuration, a migrated database and a fresh invitee account.
+
 > Complete endpoint reference, authentication model, and developer integration guide.
 
 ---

@@ -636,6 +636,7 @@
         "one_referral_attributions",
         "one_referral_circle_contributions",
         "one_referral_circle_selections",
+        "one_referral_circle_teams",
         "one_referral_codes",
         "one_referral_display_handles",
         "one_referral_events",

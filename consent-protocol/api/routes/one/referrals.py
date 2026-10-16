@@ -15,13 +15,14 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_firebase_auth
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.referral_listener import get_referral_queue, release_referral_queue
 from hushh_mcp.operons.referral_scoring.weekly_cutoff import next_weekly_cutoff
+from hushh_mcp.services import one_referral_circle_service as circle_wars
 from hushh_mcp.services.one_referral_activity_service import (
     get_balances,
     get_transaction_history,
@@ -57,6 +58,77 @@ from hushh_mcp.services.one_referral_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/referrals", tags=["One Referrals"])
+
+
+class CircleWarsOptInRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    circle_id: UUID
+    consent: StrictBool
+
+
+def _circle_wars_result(response: Response, operation, *args, **kwargs):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return operation(*args, **kwargs)
+    except circle_wars.CircleWarsError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
+    except ReferralProgramDisabled as exc:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_OFF"}) from exc
+    except Exception as exc:
+        logger.exception("[circle_wars] operation_failed")
+        raise HTTPException(status_code=503, detail={"code": "CIRCLE_WARS_UNAVAILABLE"}) from exc
+
+
+@router.get("/circle-wars")
+def circle_wars_state(
+    response: Response,
+    week: UUID | None = None,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return _circle_wars_result(response, circle_wars.get_state, token_data["user_id"], week)
+
+
+@router.post("/circle-wars/participation")
+def circle_wars_opt_in(
+    payload: CircleWarsOptInRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if not payload.consent:
+        raise HTTPException(status_code=422, detail={"code": "EXPLICIT_OPT_IN_REQUIRED"})
+    return _circle_wars_result(
+        response, circle_wars.opt_in, token_data["user_id"], str(payload.circle_id)
+    )
+
+
+@router.get("/circle-wars/leaderboard")
+def circle_wars_leaderboard(
+    response: Response,
+    week: UUID | None = None,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=2147483647),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return _circle_wars_result(
+        response,
+        circle_wars.get_leaderboard,
+        token_data["user_id"],
+        week=week,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/circle-wars/circles/{circle_id}")
+def circle_wars_circle_stats(
+    circle_id: UUID,
+    response: Response,
+    week: UUID | None = None,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return _circle_wars_result(
+        response, circle_wars.get_circle_stats, token_data["user_id"], str(circle_id), week
+    )
 
 
 @router.get("/summary")
@@ -380,9 +452,8 @@ async def _referral_event_stream(user_id: str, request: Request):
     queue = get_referral_queue(user_id)
     # Tells the client the stream is live, so it can stop polling immediately
     # rather than after one more interval.
-    yield {"event": "ready", "data": json.dumps({"channel": "referrals"})}
-
     try:
+        yield {"event": "ready", "data": json.dumps({"channel": "referrals"})}
         while True:
             if await request.is_disconnected():
                 break

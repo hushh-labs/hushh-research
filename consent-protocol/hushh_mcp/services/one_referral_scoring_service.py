@@ -236,7 +236,10 @@ def process_one_job(job: dict) -> dict:
             )
 
             contributing_circle_id = resolve_contributing_circle(
-                connection, user_id=relationship.referrer_user_id, as_of=relationship.qualified_at
+                connection,
+                user_id=relationship.referrer_user_id,
+                as_of=relationship.qualified_at,
+                relationship_id=relationship_id,
             )
             if contributing_circle_id is not None:
                 record_circle_contribution(

@@ -5,6 +5,7 @@ import { preload } from "react-dom";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { CircleWarsPanel } from "@/components/profile/circle-wars-panel";
 import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { ReferralHeroArtwork, REFERRAL_HERO_ARTWORK_SRC } from "./referral-hero-artwork";
@@ -26,8 +27,6 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   ReferralService,
-  type CircleLeaderboardEntry,
-  type CircleSelection,
   type EngagementStatus,
   type LeaderboardPage,
   type MilestoneProgress,
@@ -246,9 +245,6 @@ function ReferralDashboardContent() {
   const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, "leaderboard", (idToken) =>
     ReferralService.getLeaderboard({ idToken, limit: 10 }),
   );
-  const [circleLeaderboardRes, reloadCircleLeaderboard] = useReferralResource(user, "circleleaderboard", (idToken) =>
-    ReferralService.getCircleLeaderboard({ idToken }).then((r) => r.teams),
-  );
   const [policyRes, reloadPolicy] = useReferralResource(user, "policy", (idToken) =>
     ReferralService.getPolicy({ idToken }),
   );
@@ -261,30 +257,25 @@ function ReferralDashboardContent() {
   const [challengeRes, reloadChallenge] = useReferralResource(user, "challenge", (idToken) =>
     ReferralService.getChallenge({ idToken }),
   );
-  const [circleRes, reloadCircle] = useReferralResource(user, "circle", (idToken) =>
-    ReferralService.getCircleSelection({ idToken }),
-  );
+  const [circleRefresh, setCircleRefresh] = useState(0);
 
   const reloadAll = useCallback(() => {
     reloadSummary();
     reloadPoints();
     reloadLeaderboard();
-    reloadCircleLeaderboard();
     reloadMilestones();
     reloadPolicy();
     reloadEngagement();
     reloadChallenge();
-    reloadCircle();
+    setCircleRefresh((value) => value + 1);
   }, [
     reloadSummary,
     reloadPoints,
     reloadLeaderboard,
-    reloadCircleLeaderboard,
     reloadMilestones,
     reloadPolicy,
     reloadEngagement,
     reloadChallenge,
-    reloadCircle,
   ]);
 
   // A pushed "something changed" doorbell re-reads everything: the server
@@ -353,7 +344,7 @@ function ReferralDashboardContent() {
 
   return (
     <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} showHowItWorks={showHowItWorks} onHowItWorks={() => setShowHowItWorks(true)}>
-      {[summaryRes,pointsRes,leaderboardRes,milestonesRes,engagementRes,challengeRes,circleRes,circleLeaderboardRes].some((res) => res.status === "ready" && res.refreshFailed) ? <p role="status" className="referral-type-caption">Unable to refresh. Showing the last update. <button onClick={reloadAll}>Try again</button></p> : null}
+      {[summaryRes,pointsRes,leaderboardRes,milestonesRes,engagementRes,challengeRes].some((res) => res.status === "ready" && res.refreshFailed) ? <p role="status" className="referral-type-caption">Unable to refresh. Showing the last update. <button onClick={reloadAll}>Try again</button></p> : null}
       {showHowItWorks ? <section aria-label="How referrals work"><RulesTab policyRes={policyRes} onRetry={reloadPolicy} /></section> : <SwipeViews className="relative" tabSetId="referrals" activeValue={tab} options={TABS.map(({ key, label }) => ({ value: key, label }))} onSelectionChange={(value) => setTab(value as TabKey)} viewportMinHeight="fill" heightMode="active">
       <div>
       {summaryRes.status !== "ready" ? <>
@@ -386,8 +377,7 @@ function ReferralDashboardContent() {
               countdown={countdown}
               link={link}
               onShare={onShare}
-              circleRes={circleRes}
-              onRetryCircle={reloadCircle}
+              circlePanel={tab === "you" && user ? <CircleWarsPanel userId={user.uid} view="card" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => { setTab("standings"); setBoard("circles"); }} /> : null}
             />
           ) : null}
         </>
@@ -397,8 +387,7 @@ function ReferralDashboardContent() {
         <StandingsTab
           leaderboardRes={leaderboardRes}
           onRetryLeaderboard={reloadLeaderboard}
-          circleLeaderboardRes={circleLeaderboardRes}
-          onRetryCircleLeaderboard={reloadCircleLeaderboard}
+          circlePanel={tab === "standings" && board === "circles" && user ? <CircleWarsPanel userId={user.uid} view="leaderboard" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => setBoard("circles")} /> : null}
           board={board}
           onBoardChange={setBoard}
         />
@@ -516,8 +505,7 @@ function YouTab({
   countdown,
   link,
   onShare,
-  circleRes,
-  onRetryCircle,
+  circlePanel,
 }: {
   active: boolean;
   summary: ReferralSummary;
@@ -532,8 +520,7 @@ function YouTab({
   countdown: string | null;
   link: string;
   onShare: () => void;
-  circleRes: Res<CircleSelection>;
-  onRetryCircle: () => void;
+  circlePanel: React.ReactNode;
 }) {
   return (
     <>
@@ -608,12 +595,7 @@ function YouTab({
         </Card>
 
       </div>
-      <Card className="p-[22px]">
-        <h3 className="referral-section-heading">Your circle</h3>
-        <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
-          {(circle) => <CircleCardBody circle={circle} />}
-        </Section>
-      </Card>
+      {circlePanel}
     </>
   );
 }
@@ -810,53 +792,16 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
   );
 }
 
-function CircleCardBody({
-  circle,
-}: {
-  circle: CircleSelection;
-}) {
-  if (!circle.circle_id) {
-    return (
-      <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-        Circle League — Win Together is in preview. Opt-in referral teams are not available yet.
-      </p>
-    );
-  }
-  return (
-          <>
-            <p className="mt-1 text-lg font-semibold">
-              {circle.circle_name ?? "Referral circle"}
-            </p>
-            <dl className="mt-4 flex justify-between gap-4 border-t pt-4" style={{ borderColor: COLORS.sep }}>
-              <div>
-                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team rank</dt>
-                <dd className="mt-0.5 text-base font-semibold tabular-nums">
-                  {circle.rank ? `#${circle.rank}` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team referrals</dt>
-                <dd className="mt-0.5 text-base font-semibold tabular-nums">
-                  {circle.contribution_count === undefined ? "—" : fmt(circle.contribution_count)}
-                </dd>
-              </div>
-            </dl>
-          </>
-  );
-}
-
 function StandingsTab({
   leaderboardRes,
   onRetryLeaderboard,
-  circleLeaderboardRes,
-  onRetryCircleLeaderboard,
+  circlePanel,
   board,
   onBoardChange,
 }: {
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
-  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
-  onRetryCircleLeaderboard: () => void;
+  circlePanel: React.ReactNode;
   board: "individual" | "circles";
   onBoardChange: (board: "individual" | "circles") => void;
 }) {
@@ -933,27 +878,7 @@ function StandingsTab({
             }
           </Section>
         ) : (
-          <Section res={circleLeaderboardRes} onRetry={onRetryCircleLeaderboard} retryLabel="the circle standings">
-            {(teams) =>
-              teams.length === 0 ? (
-                <EmptyBoard note="No circle standings yet." />
-              ) : (
-                <ol className="divide-y" style={{ borderColor: COLORS.sep }}>
-                  {teams.map((team, index) => (
-                    <BoardRow
-                      key={team.circle_id}
-                      rank={team.rank}
-                      who={team.circle_name}
-                      points={team.contribution_count}
-                      top={teams[0]?.contribution_count ?? team.contribution_count}
-                      me={false}
-                      first={index === 0}
-                    />
-                  ))}
-                </ol>
-              )
-            }
-          </Section>
+          circlePanel
         )}
       </Card>
     </div>
