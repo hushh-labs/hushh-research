@@ -37,10 +37,8 @@ import {
   activityLine,
   identityGroupTitle,
   identityNotice,
-  preparingPercent,
   preparingStepLine,
   updatedLabel,
-  useMonotonicPercent,
   useReadingSources,
 } from "@/components/profile/world-model-progress";
 import { SearchSuggestions } from "@/components/profile/world-model-search-suggestions";
@@ -72,6 +70,7 @@ import {
   type PwmPreferences,
   type PwmProgress,
   type PwmResult,
+  type PwmValidatedFact,
 } from "@/lib/services/world-model-research-service";
 import {
   PersonalWorldModelService,
@@ -148,12 +147,15 @@ function statusCopy(input: {
   mounted: boolean;
   result: PwmResult | null;
   failed: boolean;
+  retrying: boolean;
   preferences: PwmPreferences | null;
   memoryReady: boolean;
   /** Statements in the offered report, decided or not. */
   found: number;
   undecided: number;
   saved: number;
+  /** A last progress update is available after research stopped. */
+  checkpoint: boolean;
   /** The step line while research runs; never empty. */
   stepLine: string;
   /** The count beside the step line, when there is one. */
@@ -176,6 +178,14 @@ function statusCopy(input: {
       body: "Your model opens once your vault is unlocked.",
     };
   }
+  if (input.retrying)
+    return {
+      kind: "checking",
+      title: "Retrying research…",
+      body: input.checkpoint
+        ? "Checking the last research checkpoint."
+        : "Connecting to the research service.",
+    };
   if (result?.status === "unavailable" && input.waiting) {
     const line = retryLine(input.retryAt, input.now);
     // Only an unreachable research service is named; any other wait is a
@@ -198,7 +208,11 @@ function statusCopy(input: {
     return {
       kind: "failed",
       title: "Couldn’t finish preparing your model",
-      body: "Nothing was saved. Try again in a few minutes.",
+      body: input.saved > 0
+        ? "Your saved details remain below. Try again to finish this research."
+        : input.checkpoint
+          ? "The last research checkpoint is below. Try again to finish."
+          : "Try again in a few minutes.",
     };
   if (
     result?.status === "consent_required" ||
@@ -289,6 +303,43 @@ function draftMeta(fact: WorldModelDraftFact): string {
   return `${rest.length > 0 ? `${first.title} and ${rest.length} more` : first.title}${rating}`;
 }
 
+/** Checkpoint findings are cited research, not owner-approved memory. */
+function ProvisionalFindings({ facts }: { facts: readonly PwmValidatedFact[] }) {
+  if (facts.length === 0) return null;
+  return (
+    <SettingsGroup
+      title={`Research findings so far · ${facts.length}`}
+      description="These cited findings are awaiting the full review. They are not saved details yet."
+      density="compact"
+    >
+      {facts.map((fact) => (
+        <SettingsRow
+          key={fact.id}
+          testId="pwm-provisional-fact"
+          title={<span className="[overflow-wrap:anywhere]">{fact.statement}</span>}
+          description={
+            <span className="block space-y-1">
+              {fact.identity_state === "candidate_for_review" || fact.confidence !== "supported" ? (
+                <span className="block">Possible match · check the cited pages</span>
+              ) : null}
+              <span className="block [overflow-wrap:anywhere]">
+                {fact.sources.map((source, index) => (
+                  <span key={`${fact.id}:${source.url}:${index}`}>
+                    {index > 0 ? " · " : null}
+                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                      {source.title}
+                    </a>
+                  </span>
+                ))}
+              </span>
+            </span>
+          }
+        />
+      ))}
+    </SettingsGroup>
+  );
+}
+
 /** Yes buttons of statements still waiting for the owner, in page order. */
 function yesButtons(inPage: HTMLElement | null) {
   return [
@@ -325,7 +376,9 @@ export function PersonalWorldModelPage({
     result,
     preferences,
     failed,
+    retrying,
     progress,
+    validatedFacts,
     live,
     lastActivityAt,
     retryAt,
@@ -683,10 +736,6 @@ export function PersonalWorldModelPage({
   const reading = useReadingSources(shownProgress);
   // Research reports every few seconds; afterwards the age only needs minutes.
   const now = useCoarseClock(preparing ? 5_000 : 30_000);
-  const percent = useMonotonicPercent(
-    shownProgress ? preparingPercent(shownProgress) : null,
-    preparing,
-  );
   // A long quiet spell is a stall whatever the feed or the run claims: a
   // promised resume that never comes must still offer a way out.
   const stalled =
@@ -705,11 +754,13 @@ export function PersonalWorldModelPage({
     mounted,
     result,
     failed,
+    retrying: Boolean(retrying),
     preferences,
     memoryReady: memory !== null && draftsReady,
     found: offered && draftsReady && keyed ? keyed.facts.length : 0,
     undecided: drafts.length,
     saved: saved.length + sourcedFacts.length,
+    checkpoint: progress !== null,
     stepLine: step.step,
     stepDetail: step.detail,
     waiting,
@@ -746,6 +797,7 @@ export function PersonalWorldModelPage({
     drafts: drafts.filter((fact) => pwmSectionForTopic(fact.topic) === section.id),
     saved: saved.filter((claim) => pwmSectionForTopic(claim.topic) === section.id),
   })).filter((section) => section.drafts.length + section.saved.length > 0);
+  const provisionalFacts = offered ? [] : (validatedFacts ?? []);
   const detailTopic = detail?.kind === "draft" ? detail.topic : detail?.claim.topic;
   const detailTitle = detailTopic
     ? (PWM_SECTIONS.find((section) => section.id === pwmSectionForTopic(detailTopic))
@@ -758,6 +810,7 @@ export function PersonalWorldModelPage({
   const retry = status.kind === "failed";
   // Nothing is running, and asking again would only return the same answer.
   const spent = status.kind === "outage" || status.kind === "exhausted";
+  const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
   const content = (
@@ -808,7 +861,9 @@ export function PersonalWorldModelPage({
               }
             />
             {preparing ? (
-              <WorldModelProgressRows progress={shownProgress} percent={percent} />
+              <WorldModelProgressRows progress={shownProgress} />
+            ) : checkpoint ? (
+              <WorldModelProgressRows progress={checkpoint} active={false} />
             ) : null}
           </SettingsGroup>
           {preferenceFailed ? (
@@ -854,9 +909,6 @@ export function PersonalWorldModelPage({
             </div>
           ) : status.kind === "outage" ? (
             <div>
-              <HelperText role="status" className="profile-account-note">
-                Nothing was saved.
-              </HelperText>
               <Button
                 type="button"
                 size="compact"
@@ -911,7 +963,7 @@ export function PersonalWorldModelPage({
             </div>
           ) : preparing ? (
             <HelperText className="profile-account-note">
-              You can leave this page. We’ll let you know in Feed when it’s ready.
+              You can leave this page. Research status will update here.
             </HelperText>
           ) : null}
         </section>
@@ -940,6 +992,7 @@ export function PersonalWorldModelPage({
         ) : null}
         {ready && mounted ? (
           <>
+            <ProvisionalFindings facts={provisionalFacts} />
             {sections.map((section) => (
               <SettingsGroup key={section.id} title={section.label} density="compact">
                 {section.drafts.map((fact) => (

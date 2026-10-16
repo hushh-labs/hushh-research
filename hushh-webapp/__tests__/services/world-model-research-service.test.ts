@@ -78,6 +78,14 @@ const progress = (searches: number): PwmProgress => ({
   last_activity_at: "2026-10-15T00:01:00Z",
   slice: 1,
 });
+const validatedFact = {
+  id: "candidate-a:career:fact-1",
+  topic: "career",
+  statement: "Works at Acme Corp",
+  confidence: "supported",
+  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
+  identity_state: "owner_linked",
+};
 const frame = (event: string, data: unknown) =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 /** A live response whose frames arrive in the given pieces. */
@@ -258,6 +266,35 @@ describe("PWM service authority and request recovery", () => {
       }).success,
     ).toBe(false);
   });
+  it("accepts cited provisional facts and a terminal checkpoint, but rejects uncited facts", () => {
+    expect(pwmResultSchema.safeParse({
+      status: "pending", pkm_written: false, restart_required: false,
+      validated_facts: [validatedFact],
+    }).success).toBe(true);
+    expect(pwmResultSchema.safeParse({
+      status: "unavailable", pkm_written: false,
+      progress: progress(9), validated_facts: [validatedFact],
+    }).success).toBe(true);
+    expect(pwmResultSchema.safeParse({
+      status: "pending", pkm_written: false, restart_required: false,
+      validated_facts: [{ ...validatedFact, sources: [] }],
+    }).success).toBe(false);
+  });
+  it("forwards provisional facts from a polled unavailable result", async () => {
+    api.mockResolvedValueOnce({
+      status: "unavailable", pkm_written: false,
+      progress: progress(9), validated_facts: [validatedFact],
+    });
+    const onPartial = vi.fn();
+    const onProgress = vi.fn();
+    await WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult: vi.fn(), onPartial, onProgress,
+    });
+    expect(onPartial).toHaveBeenCalledWith([validatedFact]);
+    expect(onProgress).toHaveBeenCalledWith(progress(9));
+  });
   it("delivers an unavailable result with a reason and retry window, then stops", async () => {
     api.mockResolvedValueOnce({
       status: "unavailable",
@@ -405,6 +442,46 @@ describe("PWM research driver never storms the server", () => {
     await expect(run).rejects.toThrow();
   });
 
+  it("does not end a rate-limited retry on the previous run's unavailable status", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      const call = record(path, init);
+      if (call.method === "POST" && posts().length === 1)
+        throw new ApiError("Too many requests", 429);
+      return call.method === "POST"
+        ? { status: "saved", pkm_written: false }
+        : { status: "unavailable", pkm_written: false, reason: "provider_unavailable" };
+    });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
+    expect(posts()).toHaveLength(1);
+    expect(calls.some((call) => call.method === "GET")).toBe(true);
+    expect(onResult).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await run;
+    expect(posts()).toHaveLength(2);
+    expect(onResult).toHaveBeenCalledWith({ status: "saved", pkm_written: false });
+  });
+
+  it("accepts a completed run from another tab while the rate-limited POST waits", async () => {
+    api.mockRejectedValueOnce(new ApiError("Too many requests", 429))
+      .mockResolvedValueOnce({ status: "saved", pkm_written: false });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await run;
+    expect(api.mock.calls.map(([, init]) => init.method)).toEqual(["POST", "GET"]);
+    expect(onResult).toHaveBeenCalledWith({ status: "saved", pkm_written: false });
+  });
+
   it("posts at most once a minute while the server keeps asking to restart", async () => {
     api.mockImplementation(async (path: string, init: RequestInit) => {
       record(path, init);
@@ -504,6 +581,8 @@ describe("PWM live progress", () => {
     const frames =
       frame("progress", progress(3)) +
       frame("ping", {}) +
+      frame("partial", { validated_facts: [validatedFact] }) +
+      frame("partial", { validated_facts: [] }) +
       frame("progress", progress(4)) +
       frame("result", saved);
     // Frames split mid-line, as a network delivers them.
@@ -511,11 +590,13 @@ describe("PWM live progress", () => {
       eventStream(frames.slice(0, 40), frames.slice(40, 300), frames.slice(300)),
     );
     const onProgress = vi.fn();
+    const onPartial = vi.fn();
     const onResult = vi.fn();
     await WorldModelResearchService.stream({
       ...session,
       signal: new AbortController().signal,
       onProgress,
+      onPartial,
       onResult,
     });
     const [path, init] = streamFetch.mock.calls[0];
@@ -528,6 +609,7 @@ describe("PWM live progress", () => {
     expect(onProgress.mock.calls.map(([value]) => value.searches_used)).toEqual(
       [3, 4],
     );
+    expect(onPartial.mock.calls.map(([facts]) => facts)).toEqual([[validatedFact], []]);
     expect(onResult).toHaveBeenCalledWith(saved);
     streamFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: "down" }), { status: 503 }),
