@@ -11,6 +11,8 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 import {
   TODO_LIST_PKM_DOMAIN,
   TodoListPkmService,
+  TODO_SOURCE_LABELS,
+  agentTodoInput,
   buildTodo,
   calendarTodoInput,
   createTodo,
@@ -65,6 +67,25 @@ function mockSuccessfulWrite() {
 describe("TodoListPkmService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each(Object.keys(TODO_SOURCE_LABELS))("retains %s attribution through encrypted-record normalization", (source) => {
+    const input = agentTodoInput("review:fixture", { source: source as keyof typeof TODO_SOURCE_LABELS, title: "Review — مرحباً 📁", href: "/one/feed" });
+    expect(input).not.toBeNull();
+    const value = buildTodo(input!);
+    expect(readTodoListState({ _private: { tasks: [value] } }).tasks[0]).toMatchObject({ sourceAgent: source, link: "/one/feed", date: null });
+  });
+
+  it("rejects malformed task metadata and unsafe navigation instead of inventing a task", () => {
+    for (const href of ["//evil.example/one", "/\\evil.example", "javascript:alert(1)", "https://outside.example", "/one/../login"]) {
+      expect(agentTodoInput("fixture", { source: "drive", title: "Review", href })).toBeNull();
+    }
+    expect(agentTodoInput("", { source: "drive", title: "Review", href: "/one/feed" })).toBeNull();
+    expect(agentTodoInput("fixture", { source: "drive", title: " ", href: "/one/feed" })).toBeNull();
+    expect(agentTodoInput("fixture", { source: "__proto__" as "drive", title: "Review", href: "/one/feed" })).toBeNull();
+    expect(buildTodo({ title: "Calendar item", type: "automatic", source: "calendar", sourceId: "event-1", link: "/logout" }).link).toBeNull();
+    const unknown = { ...task, type: "automatic", sourceAgent: "future-agent" };
+    expect(readTodoListState({ _private: { tasks: [unknown] } }).tasks[0]?.sourceAgent).toBe("agent");
   });
 
   it("reads task details only from the private encrypted branch", () => {

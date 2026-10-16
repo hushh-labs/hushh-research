@@ -138,6 +138,7 @@ vi.mock("@/lib/cache/use-stale-resource", async (importOriginal) => {
       ) {
         return actual.useStaleResource(options);
       }
+      if (options.enabled === false) return { data: undefined, loading: false, refresh: mocks.refresh };
       const data =
         cacheKey.startsWith("summary:")
           ? { counts: { pending: mocks.pendingCount } }
@@ -649,7 +650,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
       },
     ];
 
-    const { result } = renderHook(() => useFeedActionables());
+    const { result, unmount } = renderHook(() => useFeedActionables());
     const failedTask = result.current.actionables.find(
       (item) => item.id === "task:import-1",
     );
@@ -657,6 +658,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(failedTask).toMatchObject({
       description: "Import needs your attention.",
       spinning: false,
+      todo: { source: "agent", title: "Review Portfolio import", href: "/one/kai/portfolio" },
     });
     expect(failedTask?.actions.map((action) => action.key)).toEqual([
       "open",
@@ -667,6 +669,19 @@ describe("useFeedActionables — connection request de-duplication", () => {
       failedTask?.actions.find((action) => action.key === "dismiss")?.run();
     });
     expect(mocks.dismissTask).toHaveBeenCalledWith("import-1");
+    const firstRun = failedTask?.todo?.key;
+    mocks.appTasks = [{ ...mocks.appTasks[0], startedAt: "2026-08-27T08:00:00.000Z" }];
+    unmount();
+    const nextRun = renderHook(() => useFeedActionables());
+    expect(nextRun.result.current.actionables.find((item) => item.id === "task:import-1")?.todo?.key).not.toBe(firstRun);
+  });
+
+  it("publishes explicit connection follow-ups but no tasks while the consumer is locked", () => {
+    mocks.connectionRequests = [{ id: CONNECTION_ID, status: "pending", counterpartDisplayName: "Alex" }];
+    const { result, rerender } = renderHook(({ enabled }) => useFeedActionables({ enabled }), { initialProps: { enabled: true } });
+    expect(result.current.actionables.find((item) => item.id === `connection:${CONNECTION_ID}`)?.todo).toMatchObject({ source: "connections", title: "Review Alex's connection request" });
+    rerender({ enabled: false });
+    expect(result.current.actionables).toEqual([]);
   });
 });
 
@@ -958,6 +973,11 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     expect(mocks.refresh).toHaveBeenCalledWith({ force: true });
   });
 
+  it("does not publish a task when payments are unavailable", () => {
+    const { result } = renderWith(documentEntry(DOC_ID, { paymentsReady: false }));
+    expect(documentRow(result)?.todo).toBeUndefined();
+  });
+
   it("shows the owner the estimate the requester saw, without fixing the price", async () => {
     mocks.allow.mockResolvedValue({
       requestId: DOC_ID,
@@ -1168,6 +1188,7 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     );
     for (const id of [DOC_ID, otherId]) {
       const row = documentRow(result, id)!;
+      expect(row.todo).toMatchObject({ key: `consent:${row.id.slice(8)}:setup:payouts`, source: "drive", title: "Link payouts", href: "/one/profile/payouts?from=%2Fone%2Ftodos" });
       expect(row.description).toBe("Requested a document");
       expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
       expect(
@@ -1248,7 +1269,10 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
         owner_decision_available: false,
       }),
     ];
+    const payoutsKey = documentRow(result)?.todo?.key;
     rerender();
+    expect(documentRow(result)?.todo?.key).toBe(`consent:document_share_request:${DOC_ID}:setup:price`);
+    expect(documentRow(result)?.todo?.key).not.toBe(payoutsKey);
     expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual([
       "Set price",
     ]);
@@ -1504,6 +1528,7 @@ describe("Request scope Needs you", () => {
     const row = result.current.actionables.find(
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
+    expect(row.todo).toBeUndefined();
     expect(row.description).toBe("Answer not found");
     expect(row.actions).toEqual([]);
   });
@@ -1530,6 +1555,7 @@ describe("Request scope Needs you", () => {
     const row = result.current.actionables.find(
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
+    expect(row.todo).toBeUndefined();
     expect(row.description).toBe(overdue
       ? "Ask them to unlock memory and retry preparation"
       : "Their answer is being prepared");
