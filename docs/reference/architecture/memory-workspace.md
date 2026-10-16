@@ -107,6 +107,13 @@ typed structured write through `PkmWriteCoordinator.saveMergedDomain` to
 and `length` enums for the chosen reply style). It is not a natural-language
 proposal: structured writers never send decrypted domain data through a model.
 
+The private agent's name label (chat header and profile sheet) does not wait
+for that confirmation: a name the person picked in the conversation shows at
+once as a session-only display draft (`pickedPreferredName`), so the label does
+not read "One" until the last question. The draft is never stored by the label;
+it is dropped when the person declines or the save fails, and once memory holds
+a preferred name the label follows memory (`useOneDisplayName`).
+
 That branch is the owner's standing style channel, edited in Profile >
 Preferences > "How One writes to you" (`preferred_name` up to 64 characters,
 `tone`, `length` and `language` enums, `avoid_em_dashes`, and an
