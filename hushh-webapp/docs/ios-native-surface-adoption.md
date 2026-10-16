@@ -18,9 +18,11 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared-renderer recovery and release gate — 2026-10-16
 
-The current recovery integrates main through `1586e5a595`, including Calendar's
+The current recovery integrates main through `24ff3e8860`, including Calendar's
 local-time/invitation corrections and the intentional Mail connection-screen
-rollback, then Wallet CVV entry and presentation warming. Receipt request fences
+rollback, Wallet CVV entry/presentation warming and independent email/Microsoft
+authentication. Authentication still grants identity, not vault or consent
+authority. Receipt request fences
 and Wallet owner/visit/session fences remain intact; warmed Wallet content is
 admitted only for the current owner and vault epoch.
 Custom native
