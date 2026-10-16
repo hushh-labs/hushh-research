@@ -22813,7 +22813,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 734
+      "value": 736
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24676,7 +24676,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2440
+      "value": 2516
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28507,7 +28507,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
-      "value": 783
+      "value": 822
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -29093,7 +29093,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/wallet-service.test.ts",
       "symbol": null,
-      "value": 614
+      "value": 654
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29679,6 +29679,24 @@
       "path": "hushh-webapp/components/calendar/calendar-connected-workspace.tsx",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/scripts/prepare_wallet_card_atlas.py|prepare|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/scripts/prepare_wallet_card_atlas.py",
+      "symbol": "prepare",
+      "value": 115
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_wallet_artwork_catalog.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_wallet_artwork_catalog.py",
+      "symbol": null,
+      "value": 630
     }
   ],
   "inspected_files": 6625,
@@ -61010,5 +61028,58 @@
     "finding_count_preserved": 2798,
     "unchanged_budgets": true,
     "reason": "The existing Circle phone-sheet case verifies the canonical accent and a gold preference change. The temporary color probe is removed before unchanged geometry assertions. No production behavior changes."
+  },
+  "main_87db_wallet_presence_integration_review_20261016": {
+    "source_main_sha": "87db30c3dd4b2d4c508e85c8a9ec5474e8dd3b14",
+    "reviewer": "adk_authority_review",
+    "classification": "four byte-identical main spans and two exact upstream composed module deltas",
+    "review": "All six increases derive from reviewed upstream changes. Connections drawer preserves all11 exact upstream change operations and prior branch guards; Wallet workspace test preserves exact two added assertions and existing owner/ABA guards. No production authority, scanner or budget changes.",
+    "replaced_occurrences": 4,
+    "appended_occurrences": 2,
+    "unchanged_budgets": true,
+    "slots": [
+      {
+        "kind": "function_size",
+        "path": "consent-protocol/scripts/prepare_wallet_card_atlas.py",
+        "symbol": "prepare",
+        "value": 115,
+        "source_sha256": "0a93dae6b516222eb178d2cd65ef9c2a31a3ceea747c5a7d887c5ea8cb94c23f"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+        "symbol": null,
+        "value": 2516,
+        "source_sha256": "8ffe084732955ed00b037cbb69bc51af79a1aae386d0f4d05db9f6a973f4ba5a"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/lib/services/wallet-service.ts",
+        "symbol": null,
+        "value": 822,
+        "source_sha256": "811c4a714799bf417ba38755e7f1e4b049028de2ae4461f287fa1f5c563b93a3"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
+        "symbol": null,
+        "value": 736,
+        "source_sha256": "1ccab1a878b8a66ac457aaa9092a7451c0e4bd7b4fa7bbc01b367f2202c2650e"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/__tests__/services/wallet-service.test.ts",
+        "symbol": null,
+        "value": 654,
+        "source_sha256": "a143fa49401957780d0723bc37c005ddad9b0f76e4634b91b326cd05bca64603"
+      },
+      {
+        "kind": "module_size",
+        "path": "consent-protocol/tests/services/test_wallet_artwork_catalog.py",
+        "symbol": null,
+        "value": 630,
+        "source_sha256": "ec54f18a2c5641cf3fb7db38a16a0ff322d49378a85f099622ecc455c384451a"
+      }
+    ]
   }
 }

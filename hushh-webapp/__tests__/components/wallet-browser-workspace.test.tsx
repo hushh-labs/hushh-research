@@ -184,7 +184,22 @@ describe("Wallet video browser workspace", () => {
     expect(finish).toBeTypeOf("function");
     expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
     expect(screen.queryByText("Opening your wallet…")).toBeNull();
+    expect(document.querySelectorAll('[data-card-artwork="pending"]')).toHaveLength(2);
+    expect(document.querySelector('[data-card-artwork="neutral"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    expect(screen.getByTestId("wallet-selected-card").querySelector('[data-card-artwork="pending"]')).not.toBeNull();
     await act(async () => finish(makeCards(2)));
+    expect(document.querySelector('[data-card-artwork="pending"]')).toBeNull();
+  });
+  it("settles the card fallback if background artwork recovery fails", async () => {
+    let fail!: (reason: Error) => void;
+    serviceMock.listCardSummaries.mockResolvedValueOnce(makeCards(2)).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    await open();
+    expect(document.querySelectorAll('[data-card-artwork="pending"]')).toHaveLength(2);
+    await act(async () => fail(new Error("Artwork unavailable")));
+    expect(document.querySelector('[data-card-artwork="pending"]')).toBeNull();
+    expect(document.querySelectorAll('[data-card-artwork="neutral"]')).toHaveLength(2);
+    expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
   });
   it("keeps a post-delete reload authoritative when focus starts artwork recovery", async () => {
     await open();

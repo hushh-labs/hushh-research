@@ -8,10 +8,22 @@
     "confirmed_at": "2026-10-15",
     "scope": [
       "publication_of_supplied_images",
-      "durable_private_wallet_retention"
+      "durable_private_wallet_retention",
+      "private_owner_details_overlay"
     ],
-    "evidence": "User confirmed: Yes — we have permission for these images.",
-    "adaptation_authorized": "Requester explicitly asked to adapt nonconforming images for inclusion, 2026-10-15."
+    "evidence": "User confirmed: Yes â€” we have permission for these images.",
+    "adaptation_authorized": "Requester explicitly asked to adapt nonconforming images for inclusion, 2026-10-15.",
+    "owner_details_overlay": {
+      "authorized_at": "2026-10-16",
+      "evidence": "Requester explicitly asked for the cardholder name and card number to be present inside the card image, like an embedded real card number.",
+      "scope": "Owner-only display of masked number, cardholder name and expiry over the supplied reviewed Atlas artwork; explicit reveal remains separately gated."
+    },
+    "artwork_repair": {
+      "authorized_at": "2026-10-16",
+      "scope": "Remove blurred sample-field patches; adapt portrait bank designs to the default landscape card shape; retain private owner-details overlay.",
+      "source": "Explicit requester instructions in the implementation session",
+      "kind": "reviewed derivative; not an untouched issuer original"
+    }
   },
   "blank_review": {
     "reviewer": "Codex visual inspection of all 100 embedded images",
@@ -51,6 +63,18 @@
             "entry_id": 1,
             "variant": "card",
             "network": "VISA",
+            "digest": "89afe9ea4dfbf56afa2edfd2badd8f95af3d4fe950fe3dd07b347a9ac4207a51",
+            "bytes": 127488,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "8e7df3153bfe831333c6ad1485c8be29b1ff7edbc9424c164b80d5ed374b510d",
+            "asset_id": "atlas-001-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 1,
+            "variant": "card",
+            "network": "VISA",
             "digest": "767cf6301f4a9094696029a8de79d22d7d4ac2386127a5cdc1d41a33e9c6026d",
             "bytes": 26862,
             "width": 485,
@@ -58,6 +82,16 @@
             "pixel_sha256": "321e8b3826fe24eccd601025febcd29dcfd3059ba61e84f5d0cac9373d91b00d",
             "asset_id": "atlas-001",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "c5408a1e8c1897db00185c48a1f5cc6d4ad7dc9bc9b13e2bb27b473f873ebb5e",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "767cf6301f4a9094696029a8de79d22d7d4ac2386127a5cdc1d41a33e9c6026d",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16",
+            "purpose": "Remove the source photograph backdrop/reflection and rectify the bank card front"
           }
         }
       ],
@@ -174,6 +208,18 @@
             "entry_id": 3,
             "variant": "card",
             "network": "VISA",
+            "digest": "74d630d9514f9f2d129741bcebdb747af4e0269d60328f72003d4e5a52150757",
+            "bytes": 60380,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "9a87d17f162ca4ca7a767155b81054bb8ea779b37a5988508c79cb474b8ddd24",
+            "asset_id": "atlas-003-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 3,
+            "variant": "card",
+            "network": "VISA",
             "digest": "587683e5296da77e0584d85e0e2f2377ac2f82e71dbdc7bda768eed8f21ca6af",
             "bytes": 49506,
             "width": 427,
@@ -181,6 +227,15 @@
             "pixel_sha256": "5e89a8294aeccbd942eecb0e604083a4173454862c58e3d7d04d304c3ebe5238",
             "asset_id": "atlas-003",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "474b6e69a41b6bf310f98b6216ef9ded9ba1ee398db349fe70dc05258c72ffae",
+            "width": 1577,
+            "height": 997,
+            "scope": "blank_front_repair",
+            "input_digest": "587683e5296da77e0584d85e0e2f2377ac2f82e71dbdc7bda768eed8f21ca6af",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -311,6 +366,18 @@
             "entry_id": 5,
             "variant": "card",
             "network": "VISA",
+            "digest": "211b97014b0cf4da747968a648def0e570fca68f63f2faa9751e5ea65a00c857",
+            "bytes": 41668,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "a5e77c0a236e58ee987cc73a1b2e9360a137a1fa1788faf7a5325f781511c0cf",
+            "asset_id": "atlas-005-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 5,
+            "variant": "card",
+            "network": "VISA",
             "digest": "ef34599aebf758824e21b0858b65ca0a1c7d85b3b01fe217798a221e1d04bb5f",
             "bytes": 40512,
             "width": 556,
@@ -318,6 +385,15 @@
             "pixel_sha256": "9c1ae6f5409ae2f0119a1f3c91f260ea1784d4d59f46ae674c7ff3ecfb9b9d9e",
             "asset_id": "atlas-005",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "2439c695bfbe625028218ee7c4a1d060edad33d7f4f1cd2ed515728f39dbe081",
+            "width": 1582,
+            "height": 994,
+            "scope": "blank_front_repair",
+            "input_digest": "ef34599aebf758824e21b0858b65ca0a1c7d85b3b01fe217798a221e1d04bb5f",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -389,6 +465,18 @@
             "entry_id": 6,
             "variant": "card",
             "network": "VISA",
+            "digest": "f1263878c24e31dfae7b0d0bab39ef879254725c77bd4455f52ef9aa71fbf446",
+            "bytes": 40450,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "6c57c807cf42f270435d500eb109029f7106269785987410b6195f2252f9ed20",
+            "asset_id": "atlas-006-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 6,
+            "variant": "card",
+            "network": "VISA",
             "digest": "7e952e94a0f3c3e221db6a9773be44ee4f1a0de26b8759690a42eb6bb0c6f97e",
             "bytes": 36836,
             "width": 556,
@@ -396,6 +484,15 @@
             "pixel_sha256": "00e19c5848b66187bd29397286a2545ea3076bcfa0fb826d0e155e807d6252cb",
             "asset_id": "atlas-006",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "6c48eaac91ba0e9995d29902d8720d3d98d6ccc4605d0d9b6e2bf2fb4e28ea33",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "7e952e94a0f3c3e221db6a9773be44ee4f1a0de26b8759690a42eb6bb0c6f97e",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -467,6 +564,18 @@
             "entry_id": 7,
             "variant": "card",
             "network": "VISA",
+            "digest": "ba1abb9238d0b1b2f742b438fff6a54c915e9be9c4113729f12ef1d293fee6a2",
+            "bytes": 38990,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "3cb08fc279e62f3224a530a721d419456319bf4ad6576ec7b00841fe7f6ec619",
+            "asset_id": "atlas-007-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 7,
+            "variant": "card",
+            "network": "VISA",
             "digest": "4cb95e78d3c791a194829ba0c6185a4ef54e861244a6b8dbd9bab84401fccd78",
             "bytes": 63710,
             "width": 556,
@@ -474,6 +583,15 @@
             "pixel_sha256": "ae221a54a7e660601051e2b8efa89d83121530faab130f5798903a93db9e5a41",
             "asset_id": "atlas-007",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "43093f5a3ca9845b28d6a4cb3bc31801ebd087a1a58a057ddf542ceb78ed7e99",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "4cb95e78d3c791a194829ba0c6185a4ef54e861244a6b8dbd9bab84401fccd78",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -539,6 +657,18 @@
             "entry_id": 8,
             "variant": "card",
             "network": "VISA",
+            "digest": "483d2d5038a0bb2e57c553b191136395e3eea053592d11e340f8f4439d5c0f77",
+            "bytes": 35074,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "d932fba28a09aa95e513d8b7a402a184f2199877d49a4aef74053920435d07d7",
+            "asset_id": "atlas-008-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 8,
+            "variant": "card",
+            "network": "VISA",
             "digest": "17f5419542eb5350ae0b03f4d76ae05d8b6ed5e9ad2ce386cf01b5d9c24e1eba",
             "bytes": 53012,
             "width": 900,
@@ -546,6 +676,15 @@
             "pixel_sha256": "aaf0b8e5e823fdb4751ebd70ba37f558196ec3a2e664c6648d403962050b19c9",
             "asset_id": "atlas-008",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "651d057d8fd1f45fc4629ed46c2fdb87c2a99d1958758cd8956b8e48700396ec",
+            "width": 1575,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "17f5419542eb5350ae0b03f4d76ae05d8b6ed5e9ad2ce386cf01b5d9c24e1eba",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -611,6 +750,18 @@
             "entry_id": 9,
             "variant": "card",
             "network": "VISA",
+            "digest": "0280b563414054c42dd7500169cb3639a04136bb312e181407fb32a8be431dee",
+            "bytes": 123120,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "ef76c7c235409274398061678bfc57fea5c29190a61c6338daf8efde72430a57",
+            "asset_id": "atlas-009-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 9,
+            "variant": "card",
+            "network": "VISA",
             "digest": "05cb00b74bb59811517268df4e87178e9fea35d3a974db8dc493e4cf9a26e43c",
             "bytes": 123846,
             "width": 900,
@@ -618,6 +769,15 @@
             "pixel_sha256": "e2f2cb3b57a98518a42260f8edd4d5ffd21d981af35fd874958544a71f147cf1",
             "asset_id": "atlas-009",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "b30b8f08f21ddb9f36adaea5ca91fb401332daac7059ec823ae6fe15101f09b1",
+            "width": 1575,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "05cb00b74bb59811517268df4e87178e9fea35d3a974db8dc493e4cf9a26e43c",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -683,6 +843,18 @@
             "entry_id": 10,
             "variant": "card",
             "network": "VISA",
+            "digest": "5c2a8ef7a9d04e1a320753fb617695ec6d1ccbda22360289aedc87942e7f3c15",
+            "bytes": 88240,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "e69d350de2bbf36f824099e7e24a0cc9ae6ac5cab7f6110231029b76893f09fe",
+            "asset_id": "atlas-010-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 10,
+            "variant": "card",
+            "network": "VISA",
             "digest": "fb229612c0a84091c9cda2cfb19e2f16103a7c535dc89b051be194db20f34ee9",
             "bytes": 99038,
             "width": 900,
@@ -690,6 +862,15 @@
             "pixel_sha256": "37293620cd50c44ca0662ffc8082e2bedf1fa913fc1d6429125981d6023c48b2",
             "asset_id": "atlas-010",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "065905f52121a0a10ba4b4ae168a2da043f6e7b4ebb45f7c659535ac937203c4",
+            "width": 1575,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "fb229612c0a84091c9cda2cfb19e2f16103a7c535dc89b051be194db20f34ee9",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -748,6 +929,18 @@
             "entry_id": 11,
             "variant": "card",
             "network": "VISA",
+            "digest": "a2882d0f10be55d49d741f91b32e948f8c1c79dbe00ca1b0a4a5142b8a5f018d",
+            "bytes": 39582,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "dada4979bbd283453624d35b16e92f87e689d0e1c6fb6160cc06e3ba3e30d38a",
+            "asset_id": "atlas-011-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 11,
+            "variant": "card",
+            "network": "VISA",
             "digest": "72f13d0dacb9c7da904cb837663bb10e26319cfe6c80d10f34c26c112dc72e44",
             "bytes": 79564,
             "width": 402,
@@ -755,6 +948,15 @@
             "pixel_sha256": "c1fb6d3457f106036c5b180363b06a1dd06067c2f9722ce2275b2e9137aa4167",
             "asset_id": "atlas-011",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "c853e691246f6e4f811482a1989c83754c9bbb74003a5636b0fe7d622f0f89a6",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "72f13d0dacb9c7da904cb837663bb10e26319cfe6c80d10f34c26c112dc72e44",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -826,6 +1028,18 @@
             "entry_id": 12,
             "variant": "card",
             "network": "VISA",
+            "digest": "27a0f583a10a90f513da2e2c52e43daae2b72a10088c0075a37cbbcdf4dead07",
+            "bytes": 71300,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "292273af037190a4c984ebdbbc60b5f1f617c9fface916af019b4b6427af82b3",
+            "asset_id": "atlas-012-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 12,
+            "variant": "card",
+            "network": "VISA",
             "digest": "099a4c06083ca0ee0131916d8fa22ea4d38f3868a2af48effd29fafe06c30e84",
             "bytes": 42834,
             "width": 720,
@@ -833,6 +1047,15 @@
             "pixel_sha256": "71d0fb2d7e19b3dd99894d844bb8faff9194d8de20a2879247efd8e7e19c21f2",
             "asset_id": "atlas-012",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "4eced691a340dd86fd67d600c249531907d3dfd4fc566664f6e555086034eddd",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "099a4c06083ca0ee0131916d8fa22ea4d38f3868a2af48effd29fafe06c30e84",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -956,6 +1179,18 @@
             "entry_id": 14,
             "variant": "card",
             "network": "VISA",
+            "digest": "22791e1fe426da7e035da9854b31ecd192a9db4a869aaa1364695a230595f1b6",
+            "bytes": 39746,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "6ac43e1479465a34103400473447861b69f659f222781b7904c0a6c942bac5ee",
+            "asset_id": "atlas-014-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 14,
+            "variant": "card",
+            "network": "VISA",
             "digest": "c0f528216e9a9dc07b64fd10a5771e5fceeb608b6582649b5b156d70be6b5e51",
             "bytes": 33616,
             "width": 464,
@@ -963,6 +1198,15 @@
             "pixel_sha256": "ca5407844eb3e2634f84a8e598a7e689a2622588f346839b5ac7b5ae49dac814",
             "asset_id": "atlas-014",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "2daf8218cf75f8c10682a9525801090e8f9fb8274053dce4e13d5958192e43b9",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "c0f528216e9a9dc07b64fd10a5771e5fceeb608b6582649b5b156d70be6b5e51",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1034,6 +1278,18 @@
             "entry_id": 15,
             "variant": "card",
             "network": "VISA",
+            "digest": "83ccee01194e2a860b98ba1603e40bcd2be6c0320d39e12f358eb8c9481cea98",
+            "bytes": 96252,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "06b19f57ff87fc7b07787fe1f3085269ac899c10a8938187fd2e420c95c63dd9",
+            "asset_id": "atlas-015-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 15,
+            "variant": "card",
+            "network": "VISA",
             "digest": "55c939fcf033368c41f8bbe213b5a83ad78583c3756d33440c0b8cf3f904fb5f",
             "bytes": 58122,
             "width": 720,
@@ -1041,6 +1297,15 @@
             "pixel_sha256": "43aba2159409d26193bf73274fcb06f174d1b4484fc093b16390c5c4ca6ec6d9",
             "asset_id": "atlas-015",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "b41e566ef902f7581501958903223ba2f4850e21b8d3c906fdcee929a3866faf",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "55c939fcf033368c41f8bbe213b5a83ad78583c3756d33440c0b8cf3f904fb5f",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1112,6 +1377,18 @@
             "entry_id": 16,
             "variant": "card",
             "network": "VISA",
+            "digest": "12eb92bd64987615a9a65b4cf2ae9224243a0e0270c36af07b23584b16235ff5",
+            "bytes": 99024,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "00734fe950079e7a343494495d5a8a6f53a69ddc0e9aae95a0be2cb359147d0f",
+            "asset_id": "atlas-016-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 16,
+            "variant": "card",
+            "network": "VISA",
             "digest": "68a122d762309384f9154002e677c2e4c23745935369146f1a4e8c16a3dec6ae",
             "bytes": 59492,
             "width": 720,
@@ -1119,6 +1396,15 @@
             "pixel_sha256": "00f7ab91f6fb533350c71ee49c5b1da0098fab0fe5062a5405cf2a5ca7067bb2",
             "asset_id": "atlas-016",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "3e7d47b74360a571fef9901caaa62eb5a1a2736e2c16e5c5337c22fff6bcc2c1",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "68a122d762309384f9154002e677c2e4c23745935369146f1a4e8c16a3dec6ae",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1730,6 +2016,18 @@
             "entry_id": 26,
             "variant": "card",
             "network": "VISA",
+            "digest": "62e1fa6b2d308c577d0fe7bb23a32527f3f52f9fd0a7096b41a28ead54f31383",
+            "bytes": 108068,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "46cf29d1589903a75bf2d452a10df279db3d5f70bd6aac231c4d415a081aabdf",
+            "asset_id": "atlas-026-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 26,
+            "variant": "card",
+            "network": "VISA",
             "digest": "302bc0cd4a2a928763835a5836626747a52e946911053009f8ab971f8774ca6d",
             "bytes": 126496,
             "width": 484,
@@ -1737,6 +2035,15 @@
             "pixel_sha256": "e76fe819a7fdc534c964f5183901bb8b6498eef0f62d20c6557ae53d8466e0d7",
             "asset_id": "atlas-026",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "6856df700d91e9efc0771433df8b5b80439df0ad9b264fb913cc10c9bc4bf29a",
+            "width": 1580,
+            "height": 995,
+            "scope": "landscape_front",
+            "input_digest": "302bc0cd4a2a928763835a5836626747a52e946911053009f8ab971f8774ca6d",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1796,6 +2103,18 @@
             "entry_id": 27,
             "variant": "card",
             "network": "VISA",
+            "digest": "62cfd50996f36c6aa35290bd8f1580785918492d4a4ff737b098fd6c68f0173f",
+            "bytes": 116080,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "d2077d80339ffb6dd5bf1d8b82d1d0f23ff90ade61027f7612670f80f7887376",
+            "asset_id": "atlas-027-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 27,
+            "variant": "card",
+            "network": "VISA",
             "digest": "7aaf65acf2414b7d6e844aaf75ad0f6200dfabe3c20e9de3ca9d0ad08c22f943",
             "bytes": 60364,
             "width": 500,
@@ -1803,6 +2122,15 @@
             "pixel_sha256": "89e468e273f3ed02d790c4734491d8582a348f68cbe8a682b999b909d4f9a047",
             "asset_id": "atlas-027",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "3f943cf7d9b9d3bfcf5e707e254ed92dcdbad97351eaed828ce201e93b6238e5",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "7aaf65acf2414b7d6e844aaf75ad0f6200dfabe3c20e9de3ca9d0ad08c22f943",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1862,6 +2190,18 @@
             "entry_id": 28,
             "variant": "card",
             "network": "VISA",
+            "digest": "9b223a7249daaf69edca8f96191d99a34abb1091d9393ed8eb62b7dd94a24583",
+            "bytes": 113806,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "ab41124843f6abc35fe00ba6bdd24098b5b9d256622896aca55a03e357d129fb",
+            "asset_id": "atlas-028-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 28,
+            "variant": "card",
+            "network": "VISA",
             "digest": "55142e6dd4dc49fb50ff29f118d3e0e95e65cd463700bff7aa875241ad0ef051",
             "bytes": 53626,
             "width": 500,
@@ -1869,6 +2209,15 @@
             "pixel_sha256": "6597b346d7e12317f4e00dac5ff162f4dc4baa58c66b10121b0de64c842e4d36",
             "asset_id": "atlas-028",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "1747b861319fed4acf03ca266a708558253b07df803d10cd1fe5a9b75186de5f",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "55142e6dd4dc49fb50ff29f118d3e0e95e65cd463700bff7aa875241ad0ef051",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1928,6 +2277,18 @@
             "entry_id": 29,
             "variant": "card",
             "network": "VISA",
+            "digest": "6386ca7ee7a981295a571716553c273a81f261173eddaef542571f44099dbb9b",
+            "bytes": 130556,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "397120388ab928c84e0b12a98d9bedb739c02c658146f4af35d0b73b7b6e2cde",
+            "asset_id": "atlas-029-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 29,
+            "variant": "card",
+            "network": "VISA",
             "digest": "1d057abcf81aef5abe08a6bc430da1fc1f72c1d3474e696e5fcbc15773f8bb8a",
             "bytes": 57760,
             "width": 500,
@@ -1935,6 +2296,15 @@
             "pixel_sha256": "32e31f4c966c6b94e86edb34318a7aabae4396791fa67281f52fe8b725a868f5",
             "asset_id": "atlas-029",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "369b325fa83377b0ddae07feb27bb704c9857af426cc551aa6571bbde520613e",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "1d057abcf81aef5abe08a6bc430da1fc1f72c1d3474e696e5fcbc15773f8bb8a",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -1987,6 +2357,18 @@
             "entry_id": 30,
             "variant": "card",
             "network": "VISA",
+            "digest": "7e4fbb9341e1da97a371b73356ca711e12414fe5b911719a33760f76a521b55e",
+            "bytes": 59210,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "dc25e7534cf80d07374f0c0d9538072749920cd99686a35ba15343c4225ee869",
+            "asset_id": "atlas-030-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 30,
+            "variant": "card",
+            "network": "VISA",
             "digest": "bb6329b0d1b30278072472f04e54369b84721a81c59db341bd9b5f684f4a0a56",
             "bytes": 60726,
             "width": 500,
@@ -1994,6 +2376,15 @@
             "pixel_sha256": "b33dd814b19ca84c51cd585469fcaf3f53f10bc2fec9ba028184fd66ee523b13",
             "asset_id": "atlas-030",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "d58ef9dea46b450b478166eed392dff5d34928cc842ce0b3024eaf9cbacfd09c",
+            "width": 1580,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "bb6329b0d1b30278072472f04e54369b84721a81c59db341bd9b5f684f4a0a56",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2051,6 +2442,18 @@
             "entry_id": 31,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "0634459c3c03f8a65e058750a9cd21be74531f7be1f3753c7fce730fc9da9d35",
+            "bytes": 122790,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "3413678e8cf2eb8c7360288f47315222f3e8c1254e87e683d753b6b180803d21",
+            "asset_id": "atlas-031-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 31,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "50a55eb9863be23ea53ad02e4adfe9d26aded0cc7a11a4b3bc08676fa0e16637",
             "bytes": 125998,
             "width": 900,
@@ -2058,6 +2461,15 @@
             "pixel_sha256": "9ae5bcb75270f7055d135500a3ae15e480d4239898b638dc69b074a9140eca3f",
             "asset_id": "atlas-031",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "a10447d7bbc96143cc129acdacb61e2d158fea8330087c50c53aedaff0f01293",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "50a55eb9863be23ea53ad02e4adfe9d26aded0cc7a11a4b3bc08676fa0e16637",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2117,6 +2529,18 @@
             "entry_id": 32,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "7c2e82507cf157cf1a4fa7109545a0f3569d4f1b2b4010cf2037ad1ff68e5d1a",
+            "bytes": 33654,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "1586bfa2589ad2bdd8f0bd3a3d89fde7904875e7fde6abba9a315e5623de6cec",
+            "asset_id": "atlas-032-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 32,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "ad9b92574a86d057118ba7ec8f737f129f000936a9934b4f8af62635f49435d4",
             "bytes": 42136,
             "width": 500,
@@ -2124,6 +2548,15 @@
             "pixel_sha256": "3e48f34cfd52444ec7a2d08a17256307db2846a08cdbc33051cdfc58cda65acb",
             "asset_id": "atlas-032",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "200978a1038d14aa6938678ac156c70a534ec339a0944361fc45779b015af667",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "ad9b92574a86d057118ba7ec8f737f129f000936a9934b4f8af62635f49435d4",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2183,6 +2616,18 @@
             "entry_id": 33,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "61f49140ce3e580a75fc985670e9565de9cef19335879dcb1c987df992f10661",
+            "bytes": 47236,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "3afed3078fe6148d9c1e25bdee544ceddc7bb56df174ab1a72dde2560181459e",
+            "asset_id": "atlas-033-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 33,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "d1a01899dd5f3e35091b1e57a1f41f9b917999d2312cf6d4a8119ee6df0fa63d",
             "bytes": 96300,
             "width": 500,
@@ -2190,6 +2635,15 @@
             "pixel_sha256": "0cd5b28d9e88f26c94dce9a0c80ff1dfe7eb5e22e6e3ce3ba208d2d50892302c",
             "asset_id": "atlas-033",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "5a26b85201b0ad9350abfe1a8ff9161f87f399c46b9cdb73691552acd86c6752",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "d1a01899dd5f3e35091b1e57a1f41f9b917999d2312cf6d4a8119ee6df0fa63d",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2249,6 +2703,18 @@
             "entry_id": 34,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "4110083856250c74ad5c1749f328b8c847408287aabb9be94229499acd47aa09",
+            "bytes": 54906,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "a9ae5ad9fdf2a751b5548c81560cb5d54f05061131e46a74d453d8bf2dbd3886",
+            "asset_id": "atlas-034-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 34,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "cf1a3dcc79736c6a17eb7b285da907a75b34e2ac3d7c5b1eae5a3b539592d5c3",
             "bytes": 24408,
             "width": 500,
@@ -2256,6 +2722,15 @@
             "pixel_sha256": "e2df0896ce17d158c0f16d455b0c4062958bd06f2849636f08aa35fc0182d763",
             "asset_id": "atlas-034",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "3e61a540bc87f701d8c195dbb49769f6632f66e33efc818ee498eee4407ec14d",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "cf1a3dcc79736c6a17eb7b285da907a75b34e2ac3d7c5b1eae5a3b539592d5c3",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2315,6 +2790,18 @@
             "entry_id": 35,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "de79cc81a1e3962fa27f53be39dcbdf053046d73b74672ff5488e7c407016929",
+            "bytes": 68822,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "3090543da14d7dfb6c9212fe339be05d3dbb39342ae4e8e94fda3c796ecd7c44",
+            "asset_id": "atlas-035-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 35,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "d29db73b66efcd7992a027693555026adfaa80b598ac94897c0a4cbf953c1ca3",
             "bytes": 90416,
             "width": 500,
@@ -2322,6 +2809,15 @@
             "pixel_sha256": "96c683f4bc60b537aeab7041a935dc40e753e770e1ba1abf58b44ae9fd495a27",
             "asset_id": "atlas-035",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "f04717284242b0f68e4c86b512503b6948c655748cf592b0319f64dedf78d2d8",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "d29db73b66efcd7992a027693555026adfaa80b598ac94897c0a4cbf953c1ca3",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2381,6 +2877,18 @@
             "entry_id": 36,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "ab99ea71903594284f0af51d8af65648785a5e033e5e6c521541c4f7a6766135",
+            "bytes": 37608,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "0b62be91a541186ae41c3340174f4d44b23dbdd16f4d780eaffb61a28c3806ad",
+            "asset_id": "atlas-036-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 36,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "402be731ccd1f098f9cf86e9604bf509a48f56901b9a1ad2302518a16a1f3168",
             "bytes": 87996,
             "width": 900,
@@ -2388,6 +2896,15 @@
             "pixel_sha256": "19fba422f5b4f3adee1dfe41e80fdf1d2ea585c0c6e0c3b301342a64e4ed4dbc",
             "asset_id": "atlas-036",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "83321aa274fa9463329831c6243fbf3b320fe4e1fafe7bdd85f2ad5272930ea7",
+            "width": 1580,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "402be731ccd1f098f9cf86e9604bf509a48f56901b9a1ad2302518a16a1f3168",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2447,6 +2964,18 @@
             "entry_id": 37,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "6d698bd88514c60c652cf0173a7beaefccd8c7e54e7abdd9eb9ef92152afaca8",
+            "bytes": 17450,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "30bb5a3a93e07a6b71c9fcf954b92452a6f5cbf90e85616bd0661bfe991b5078",
+            "asset_id": "atlas-037-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 37,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "20b219b8fd63099458bb7be04fc396fbaa4d6d4ec6ece527b89cf6e97d614765",
             "bytes": 17428,
             "width": 496,
@@ -2454,6 +2983,15 @@
             "pixel_sha256": "985c5bfc10ab865352ce80beff1f4543e8bf6ef0d4f5489333ff9e0ae016bb65",
             "asset_id": "atlas-037",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "66c8b11c782c714e78800d091fdee630a50d817f17f5f22b4d69c718d8eae581",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "20b219b8fd63099458bb7be04fc396fbaa4d6d4ec6ece527b89cf6e97d614765",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2844,6 +3382,18 @@
             "entry_id": 43,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "a4fe96b282b1454729cd12166569ce1093e8adcb551242df5f7a2005953cdfd4",
+            "bytes": 89826,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "93ff9dfc66309e89615aea916d023b34addef3c1e7674c4f7d7150221cc990aa",
+            "asset_id": "atlas-043-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 43,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "43a37a77138ecc0c389e53a8cd153bc20acbc9add906970607d60fc210b8f181",
             "bytes": 47642,
             "width": 800,
@@ -2851,6 +3401,15 @@
             "pixel_sha256": "ffee5273b9e5232dcfae0932de04a31e9f8c83385973fb7ab9249eb6fd6c5944",
             "asset_id": "atlas-043",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "2b037f3d27b3d205bf27ddab3191fdd39c72514532e0621486e8294cad6313b7",
+            "width": 1572,
+            "height": 1001,
+            "scope": "blank_front_repair",
+            "input_digest": "43a37a77138ecc0c389e53a8cd153bc20acbc9add906970607d60fc210b8f181",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2916,6 +3475,18 @@
             "entry_id": 44,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "b31ce6871319c324dc038dcaa550d32089c5e11c2e9b56f77115660b7a6f6099",
+            "bytes": 63314,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "4dc11cbe8d532da03d71627a2592fa36f255d0bfd3b7ed5273c33a0df08948b3",
+            "asset_id": "atlas-044-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 44,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "343eafea20ce3beab05874dfededa12f34f832e3d92124eccb961afe9641f291",
             "bytes": 39248,
             "width": 800,
@@ -2923,6 +3494,15 @@
             "pixel_sha256": "99860dd9355137425beccf2883f35f7cddea38106028afc200326d417a731799",
             "asset_id": "atlas-044",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "2e2ec1dc9ef563aad1b894c5be4f001692b9dfc50d94463c150b01be0e37ba46",
+            "width": 1572,
+            "height": 1001,
+            "scope": "blank_front_repair",
+            "input_digest": "343eafea20ce3beab05874dfededa12f34f832e3d92124eccb961afe9641f291",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -2981,6 +3561,18 @@
             "entry_id": 45,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "ff538d1cf191a7f4bb75e5fb7ff0224240013382b7db891e60f8bc0f9440c427",
+            "bytes": 87408,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "7a99915a580feca095a4bb49b9f85e29a1d4f6249d25a88af712e6af62b21fc0",
+            "asset_id": "atlas-045-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 45,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "5b24cd8518928091fe25a7d8b1e7593a247af68971155d26cdc355df224da8ea",
             "bytes": 55736,
             "width": 464,
@@ -2988,6 +3580,15 @@
             "pixel_sha256": "3473e729fd9b7adc34aea2b9dcede63bd43180b0bdf2f9ce85bfd9c05a6a1fc2",
             "asset_id": "atlas-045",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "c438ca8d049f29b892da8dea4f463b7e7ebf7512ca0866a795d6ee578c0114fe",
+            "width": 1580,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "5b24cd8518928091fe25a7d8b1e7593a247af68971155d26cdc355df224da8ea",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3059,6 +3660,18 @@
             "entry_id": 46,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "0c5fdd84d26aa3b18b3b91a59bbd0cc3e66ad3dbd1df31d8765583f7e61a4d75",
+            "bytes": 81220,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "6a0b88e1f7a6a60df6bdffc86a49ec2b1a2d1e57d4297a38cc396c0f5f38e225",
+            "asset_id": "atlas-046-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 46,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "b590dce5d9015e7275baed5a584425de1797f90f645820b339ebada49dec109e",
             "bytes": 54328,
             "width": 720,
@@ -3066,6 +3679,15 @@
             "pixel_sha256": "bee8fd847805fc61de9254f6a7207e31a46274e758e5b837fe3504c152759cef",
             "asset_id": "atlas-046",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "432b46ca9c5b037773667a5ffb131bc5fe2fcf58f9ec22011ad2304cc8f08e12",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "b590dce5d9015e7275baed5a584425de1797f90f645820b339ebada49dec109e",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3124,6 +3746,18 @@
             "entry_id": 47,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "761a98ab0e402459a90b2a8363152917839cc8b2faf02e7eddba65004719fe86",
+            "bytes": 51412,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "e76cb230ff583f9f8f70f57bbd63b34d4ae6d8f143c25579d26bafaba946afe2",
+            "asset_id": "atlas-047-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 47,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "e2f736b323400f05752cc329013f9a5754b9b1eda845df70d57e65d7fe3ea9b8",
             "bytes": 28778,
             "width": 402,
@@ -3131,6 +3765,15 @@
             "pixel_sha256": "79642f3ae05820d50668b9e8d840aad126875814cc73ec3effb83839d620d28e",
             "asset_id": "atlas-047",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "361c4f652282c0e1834a6e44849097a59501207fb1600438b6e0d39f2ce1cb43",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "e2f736b323400f05752cc329013f9a5754b9b1eda845df70d57e65d7fe3ea9b8",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3189,6 +3832,18 @@
             "entry_id": 48,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "9593ec60157727ede58d514fbee13a5ec6100d53a2fe53233e2e36386f9d1e40",
+            "bytes": 90282,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "663e3e1d18d8992828de2f908e4baa68176636b99e63d838eeaf1e436888ae86",
+            "asset_id": "atlas-048-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 48,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "b257b80164cdc85ce6f4d29d5df76ffcafd3c396994cfee53619b3fd51b86a59",
             "bytes": 63034,
             "width": 464,
@@ -3196,6 +3851,15 @@
             "pixel_sha256": "395207f11bf8702329ab1a4045957e5ac2be7225cf094f2ea70f736af2fdd894",
             "asset_id": "atlas-048",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "254edcdbb981f2e1582d114cb2c5e0c8810c703db572fe8253fe8093b7817bc9",
+            "width": 1580,
+            "height": 995,
+            "scope": "landscape_front",
+            "input_digest": "b257b80164cdc85ce6f4d29d5df76ffcafd3c396994cfee53619b3fd51b86a59",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3254,6 +3918,18 @@
             "entry_id": 49,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "cc46dcb3ccc24493f5112d859cdee860db87fadac289d3bf20ccde5fa8fb68b7",
+            "bytes": 29104,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "6753aee77f4735daeebb69352ad2a486540e3126263efd01f03b7ef75a25bd2b",
+            "asset_id": "atlas-049-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 49,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "1b3a200ddaa64afc8a69f2201341e394acdc066de40efdb7d8df5166a2bc2d4b",
             "bytes": 25660,
             "width": 464,
@@ -3261,6 +3937,15 @@
             "pixel_sha256": "83914b52e967a70c09914db8060cfc86f3d9abe083b2aef18681fb0512daa0f5",
             "asset_id": "atlas-049",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "81cf27099e4d216719f68de0f9adef33db64a0349164a1b5f8fcf53aeae3070e",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "1b3a200ddaa64afc8a69f2201341e394acdc066de40efdb7d8df5166a2bc2d4b",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3320,6 +4005,18 @@
             "entry_id": 50,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "ba7151c424e2bba52d9748e61ded7517604bf27f9b0fd3c3a244b99a36b81ba6",
+            "bytes": 58420,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "0d5dff5f8e0affb7cfaf344600adde305502769e712eb97c057e1b5ec4e4e8ab",
+            "asset_id": "atlas-050-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 50,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "ff29d7c4e8b74c5e6f2a52f648d97836b91dedb7aae5de49d9726842b0fce86b",
             "bytes": 53146,
             "width": 900,
@@ -3327,6 +4024,15 @@
             "pixel_sha256": "80bf2042ae387e064881dd45a631f1ea8944cbcefdef97b9bcc721ccd0916252",
             "asset_id": "atlas-050",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "5b9eae9f79d3c77451e4ba611728c2b11e368858f59d82effe59fbbb92dc0ae6",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "ff29d7c4e8b74c5e6f2a52f648d97836b91dedb7aae5de49d9726842b0fce86b",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3550,6 +4256,18 @@
             "entry_id": 54,
             "variant": "card",
             "network": "MASTERCARD",
+            "digest": "37558fdaf1f2a6b939ffefc9b49cd469395ee2b861ac06fc4b4ab313a7f2adaa",
+            "bytes": 58180,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "325af4fa8b08bf358a5e5642123507a5557e7a2d396936e3e57e303a6b80b91f",
+            "asset_id": "atlas-054-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 54,
+            "variant": "card",
+            "network": "MASTERCARD",
             "digest": "a84ef34553447e1bce0d2fc5c6d75574a17ea939d5b63a6183ac5daa997bbcb2",
             "bytes": 32370,
             "width": 229,
@@ -3557,6 +4275,15 @@
             "pixel_sha256": "09ea5612218d05537e2e9b30e3e2b678013a119d27f3285b2a2bd014549bc698",
             "asset_id": "atlas-054",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "320616138b6cbcc7f2c70f9cc37c4f6d30aa8912b880a6b3809416e8839ec9ad",
+            "width": 1580,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "a84ef34553447e1bce0d2fc5c6d75574a17ea939d5b63a6183ac5daa997bbcb2",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3607,6 +4334,18 @@
             "entry_id": 55,
             "variant": "card",
             "network": "RUPAY",
+            "digest": "0d3dc7e477ed9c9d5814cdd80a43a9740d8706f90b8a9b6c9200b83dd9fa591d",
+            "bytes": 73366,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "2c4517906ceeba788922153f30aa5533d85862c13f3a21448dcc12564c80a26b",
+            "asset_id": "atlas-055-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 55,
+            "variant": "card",
+            "network": "RUPAY",
             "digest": "670a029a5d7846e9eee69a2d9ac3c48d10d270902e13cfb5fadde2964fad5cfa",
             "bytes": 43758,
             "width": 326,
@@ -3614,6 +4353,15 @@
             "pixel_sha256": "c03bd317b3414dd7f0490923f92c409c5b5233b9670948bc76f16d4b073a40e7",
             "asset_id": "atlas-055",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "039246c6447bc59db8d6c3c336eb1a6fcfd5ecb934e25f5b75f70035bceb8779",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "670a029a5d7846e9eee69a2d9ac3c48d10d270902e13cfb5fadde2964fad5cfa",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3778,6 +4526,18 @@
             "entry_id": 58,
             "variant": "card",
             "network": "RUPAY",
+            "digest": "e187e5612034fe3320624b11d0d2374f1e28f69095f45b40bcaeaaabbe79c90e",
+            "bytes": 110760,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "2513ab5b337006e8d18d33be18783508dec671069809d7baee5d7ec2829ce8be",
+            "asset_id": "atlas-058-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 58,
+            "variant": "card",
+            "network": "RUPAY",
             "digest": "9f0719268a78a2b1cff537a0dd53be7555985be8b01113613b2e23a3193f963b",
             "bytes": 59540,
             "width": 227,
@@ -3785,6 +4545,15 @@
             "pixel_sha256": "9a4401d042c42a8a7476094a43e7a0a81f76b4572b64e0b225c7ff611f0ee5d0",
             "asset_id": "atlas-058",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "a6f41b4566b3b032623927343273edef0e38259c784fe40c32d7cc44803cb383",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "9f0719268a78a2b1cff537a0dd53be7555985be8b01113613b2e23a3193f963b",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3835,6 +4604,18 @@
             "entry_id": 59,
             "variant": "card",
             "network": "RUPAY",
+            "digest": "6327254c66a443b8f3e4f179fb7b3fb23ee2413fbfcee4916b19f0e59c351a4b",
+            "bytes": 79970,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "236255500cc075f144da851df004e6cfc76173c03fe66a7e39abf77039b59146",
+            "asset_id": "atlas-059-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 59,
+            "variant": "card",
+            "network": "RUPAY",
             "digest": "feb4f46030f937cff41e0f4febbffdc161d6d3b764649ff849d41f610cc9fc3b",
             "bytes": 63768,
             "width": 229,
@@ -3842,6 +4623,15 @@
             "pixel_sha256": "bccece6257f79429513f1f16845525b2007997388cd77a997e29d35c1ad7f4c8",
             "asset_id": "atlas-059",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "b592bd0c9cae51058dc0ed830c3131a5ee80423dafaad5b6a3b52914d3a1ae2c",
+            "width": 1580,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "feb4f46030f937cff41e0f4febbffdc161d6d3b764649ff849d41f610cc9fc3b",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -3956,6 +4746,18 @@
             "entry_id": 61,
             "variant": "card",
             "network": "RUPAY",
+            "digest": "ea63f090b4a2fd8b610ee2d90fa063d530c15a88643699a820335555979ccf38",
+            "bytes": 22728,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "b6d4329af7ac3fdabac50e2350de6b741a0d723c684ac5ecdfe79f0bc3fa17dc",
+            "asset_id": "atlas-061-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 61,
+            "variant": "card",
+            "network": "RUPAY",
             "digest": "5ea599839f6f3f95e0437cadf8a9c9a2a7b8bda3a90171ef7738ffd4642b1c6a",
             "bytes": 22792,
             "width": 227,
@@ -3963,6 +4765,15 @@
             "pixel_sha256": "4c16197168926f711471ced934529bffe79aaf66787c01f4bf6b6d82f8ca8ec4",
             "asset_id": "atlas-061",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "a4e5e36a156f070455677def452a3638b0b7e960fd33abf77efe2bf2d76f02bb",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "5ea599839f6f3f95e0437cadf8a9c9a2a7b8bda3a90171ef7738ffd4642b1c6a",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4021,6 +4832,18 @@
             "entry_id": 62,
             "variant": "mastercard",
             "network": "MASTERCARD",
+            "digest": "843effe71025adde99533412633af90f93895a81f34841fdd931de7f085cf6c7",
+            "bytes": 32178,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "375f8fa0cc866135de55dc999b02070bfafe90be19613200a4996290d223302e",
+            "asset_id": "atlas-062-mastercard-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 62,
+            "variant": "mastercard",
+            "network": "MASTERCARD",
             "digest": "11ef77880bb6664cccf209f964c47e8761a209a6bb18207be0e0e2110ec8742a",
             "bytes": 25174,
             "width": 224,
@@ -4028,6 +4851,15 @@
             "pixel_sha256": "4aa32788ac00157fb5c8825c6865e5b1fe80dba86da549bc61faecd66302c292",
             "asset_id": "atlas-062-mastercard",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "e17f3910246d499f01cba828088e376222024cb89206473102751b75829ed41e",
+            "width": 1580,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "11ef77880bb6664cccf209f964c47e8761a209a6bb18207be0e0e2110ec8742a",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         },
         {
@@ -4044,6 +4876,18 @@
             "entry_id": 62,
             "variant": "rupay",
             "network": "RUPAY",
+            "digest": "8b5cc86e950a624424df38550b83ede6f1f22801263456843b4a4cb02befa3c8",
+            "bytes": 31520,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "975b55eefe6626690dc86ab0d645132906736318353c28b467e1f469b5198d23",
+            "asset_id": "atlas-062-rupay-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 62,
+            "variant": "rupay",
+            "network": "RUPAY",
             "digest": "e0b1b44ccd4e40b574fdd57812e19c6bf2c21fbd781cf0e5d333065a4f7d3cab",
             "bytes": 23722,
             "width": 224,
@@ -4051,6 +4895,15 @@
             "pixel_sha256": "1a68b969c6da4e4351d88f5c988283e95b339908a3263ad2e5137418ce523906",
             "asset_id": "atlas-062-rupay",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "ed5e444e19f13e98e8b83b289d693b91ec753bd25fc486c00bcdd7bce2023a32",
+            "width": 1580,
+            "height": 995,
+            "scope": "landscape_front",
+            "input_digest": "e0b1b44ccd4e40b574fdd57812e19c6bf2c21fbd781cf0e5d333065a4f7d3cab",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4122,6 +4975,18 @@
             "entry_id": 63,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "9018ed85a9d1ae937f9e46f15fe55fa82f911279ccfb6c9197fcaf14d8a978f2",
+            "bytes": 104504,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "c9605e1921bfb03228acaa19c45a66582f12cf3578aa5c7362865def84fabe1a",
+            "asset_id": "atlas-063-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 63,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "9b106d5828b2957c5c3abda77a809f61ca085367914a930294126f9772a1b810",
             "bytes": 56198,
             "width": 480,
@@ -4129,6 +4994,15 @@
             "pixel_sha256": "0b956a75ed993b0d6d3c879f3a3047e8fb9655b3258d8e87449f5b8cf0bdd527",
             "asset_id": "atlas-063",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "73f828ae4c343917bf88d5bf0c4543cc11410f37e7f4274fae3abd1a0417db75",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "9b106d5828b2957c5c3abda77a809f61ca085367914a930294126f9772a1b810",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4200,6 +5074,18 @@
             "entry_id": 64,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "d93b187bc8b0b51ae617c1714bc3883b6d120b71d2a8d0ba44171aecb60f1546",
+            "bytes": 115098,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "844cbf74bd7329ed656349bb18465abdb18167e0c1a238d11b824c58499dfaad",
+            "asset_id": "atlas-064-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 64,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "e3714f447b313489782f078115873b9e7ebc4924a181f4789e8c2f2f3c4c60b0",
             "bytes": 58708,
             "width": 480,
@@ -4207,6 +5093,15 @@
             "pixel_sha256": "9cdc0e8ff33127cc473f1579c760a59d2e7e23a5cee548eb4f663092d3d3f3c7",
             "asset_id": "atlas-064",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "4bfdff1a4c039fec50d496d4d98850015b70e197fb749e3eecfb6b197fa50da6",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "e3714f447b313489782f078115873b9e7ebc4924a181f4789e8c2f2f3c4c60b0",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4278,6 +5173,18 @@
             "entry_id": 65,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "033c9e361ceb91bfdfbf2bcc19f51492d706ea78c9f083fec819456efa97e743",
+            "bytes": 129572,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "4040a121e6a688c237e52c3afe365ca7ed85cdf3cb1c8e17e4bae4f13b6df394",
+            "asset_id": "atlas-065-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 65,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "3602c533fb26da25ebe993cf236dbf1b2258d2c71fdaf28abdafc0b6977aa758",
             "bytes": 62216,
             "width": 480,
@@ -4285,6 +5192,15 @@
             "pixel_sha256": "cb5292608af63bd6af4746f1fdb31be4c236d4f34a9358ee75e391c65ef6148b",
             "asset_id": "atlas-065",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "eb232ce14ad421365410a83ec2ba082afee363bc7bb01dcc7026e6f0ef5c605d",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "3602c533fb26da25ebe993cf236dbf1b2258d2c71fdaf28abdafc0b6977aa758",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4356,6 +5272,18 @@
             "entry_id": 66,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "c0a7b175a083517e15bbfd3c29f0397193055aaf8dee35ad24620cf4b92d9be3",
+            "bytes": 114536,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "558016ab9f86b6eeb07b9643eef70dd1a508a51edc6441497598605f54920a1d",
+            "asset_id": "atlas-066-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 66,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "a70d7bb001eab110c408820cfa4de469aef29fd8a9445bc41cdb96c709ed4df5",
             "bytes": 77026,
             "width": 480,
@@ -4363,6 +5291,15 @@
             "pixel_sha256": "c49ae69f775efdd4095d927896831d57489b5c0236d1cd613daf303d43775f62",
             "asset_id": "atlas-066",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "5288bb219352d291c7fd24d7aa9fa4286ced0d499e454917bef2c4784b363a38",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "a70d7bb001eab110c408820cfa4de469aef29fd8a9445bc41cdb96c709ed4df5",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4434,6 +5371,18 @@
             "entry_id": 67,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "167ed14b9275c8b57891328e283bb91c1f5109aff82aeb570533a90b95bbc411",
+            "bytes": 117352,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "b4657d1c86f07d06991498f9380e965c4fa228bd1e9b552c27ee537eb0f6edad",
+            "asset_id": "atlas-067-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 67,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "c49682df34887f39f0402c9915ffbf27e1a56a12e217989aaaf911d8c6e3fe3b",
             "bytes": 50300,
             "width": 480,
@@ -4441,6 +5390,15 @@
             "pixel_sha256": "e020c24116f504f67b63ad4ec3da777f12855ec19ea8e803fd05a702e8283f9f",
             "asset_id": "atlas-067",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "432a7baf8e02d5a68cb9c9567fbc03ad53aa21a1a7b31293e89712d065b39a64",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "c49682df34887f39f0402c9915ffbf27e1a56a12e217989aaaf911d8c6e3fe3b",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4512,6 +5470,18 @@
             "entry_id": 68,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "2aa909ea3d8775e83f14621598d7bc865106f93dd440b8e0c64fd72b22b8b888",
+            "bytes": 90582,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "82f92d3845c891d08f2daa6500b67a69406d9b4b585026b6809c8fb156ebeef3",
+            "asset_id": "atlas-068-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 68,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "c6ec54908f930cf2d54673e71a621914580f3180f7cd722062fae5cfc500f533",
             "bytes": 30712,
             "width": 480,
@@ -4519,6 +5489,15 @@
             "pixel_sha256": "fd244aca08e87d0d6be8b3da294135260f20d6cae646c8b34f6b15879f64c328",
             "asset_id": "atlas-068",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "3699f3070e0464ccdc2a0ec8a5a031734e2d657aeac677877b838a7a58cadba0",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "c6ec54908f930cf2d54673e71a621914580f3180f7cd722062fae5cfc500f533",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4590,6 +5569,18 @@
             "entry_id": 69,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "7aac265cd44c8fe23c6dee93bec6c46e07d65ab0857b35b0db41bf0dcf560e7d",
+            "bytes": 56248,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "8f5f84071c304d9da042fafa9ce048ae0043ceefc490ec52efeb9e274a2687a2",
+            "asset_id": "atlas-069-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 69,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "94d86b4b4f50bdfb76ee6a4fe15692a5b5d6f26296688cb3127a7fce9086b5e8",
             "bytes": 29962,
             "width": 745,
@@ -4597,6 +5588,15 @@
             "pixel_sha256": "349630ef98a4e29c2436b00bdcd02fef42d14c2809f6faa4ee955f1aecd0338e",
             "asset_id": "atlas-069",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "1e274e2e7a43e3953124607381a8b27814b6e4e3fa690b763fced321f7cdbf37",
+            "width": 1578,
+            "height": 997,
+            "scope": "blank_front_repair",
+            "input_digest": "94d86b4b4f50bdfb76ee6a4fe15692a5b5d6f26296688cb3127a7fce9086b5e8",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4668,6 +5668,18 @@
             "entry_id": 70,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "b530ac55959a80519acdba2f4a237a8f389890211435c9dcd2f95e8fe80eeb54",
+            "bytes": 63098,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "14c712a66e927d866cb6b3e8904a5234c7e5f65a4e8f0ea546849f8117602f7b",
+            "asset_id": "atlas-070-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 70,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "c55f458f0d8d0108471664ab052ed129931d6331eb739610a7d2ff4a1991a625",
             "bytes": 45312,
             "width": 480,
@@ -4675,6 +5687,15 @@
             "pixel_sha256": "af0160a61887421de5ee6c01c954e1c1ecc463fad9978eda9b8fef5198acf34b",
             "asset_id": "atlas-070",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "963af3251196649451780069d5ab6f827e4239ce43841fe6ff777d12481a07a1",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "c55f458f0d8d0108471664ab052ed129931d6331eb739610a7d2ff4a1991a625",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4746,6 +5767,18 @@
             "entry_id": 71,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "476a6cf557ce18ace067f0b6cec87249ff876aa783a5caadfb72f9bfa8704278",
+            "bytes": 127824,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "83547d4df9b295ae327065d087adb6657a5da7cc77561a47998af55707ebd81d",
+            "asset_id": "atlas-071-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 71,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "e3c4fe0a0075ba7370682dc2e81054e1b8cc3294a860711804a0f22804c2dc04",
             "bytes": 121858,
             "width": 765,
@@ -4753,6 +5786,15 @@
             "pixel_sha256": "379cbee7f9c93688b26927ec74bc399cec58fa83996fddb5c2ee5b5a9c567c2a",
             "asset_id": "atlas-071",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "ec60060d852fb8b97137f122a49b90ac7ed2c55e4f047ad45cc9638b101aabd3",
+            "width": 1577,
+            "height": 997,
+            "scope": "blank_front_repair",
+            "input_digest": "e3c4fe0a0075ba7370682dc2e81054e1b8cc3294a860711804a0f22804c2dc04",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4824,6 +5866,18 @@
             "entry_id": 72,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "a8d4a1410cb2672a093aabb8b3b154ee223bb3a957271551b02959b12e80eba5",
+            "bytes": 105752,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "3092f90c0adbb81ff5515ac5af8e0bbfd359fcefb3e707fa1b3fa9e066326418",
+            "asset_id": "atlas-072-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 72,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "9e598a400c9ab173daf8ae7d7475ba007b36a5ba6f5c6f9c25529f869463a242",
             "bytes": 105216,
             "width": 650,
@@ -4831,6 +5885,15 @@
             "pixel_sha256": "c065b7662fae4cc5d5aacddbd758ee30fe2598c5fa450e33b946be53267a622d",
             "asset_id": "atlas-072",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "ed506165f0172876942fb269129f939f53cea1091a3cc16d6868a62a9b1bc41a",
+            "width": 1578,
+            "height": 997,
+            "scope": "blank_front_repair",
+            "input_digest": "9e598a400c9ab173daf8ae7d7475ba007b36a5ba6f5c6f9c25529f869463a242",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4902,6 +5965,18 @@
             "entry_id": 73,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "4b361d2f17ebd203e8093a9f427b28190fb0fce0d65963776505f96c30f0593a",
+            "bytes": 114214,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "4b9ee645c2410f7a82ed3a87e03464303519a0f82cbcda8248c7e80bb8a4b50b",
+            "asset_id": "atlas-073-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 73,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "ee4226280560c98edf27e34133efcaccfd92a4306ae1f3bde6c15d233572feba",
             "bytes": 115398,
             "width": 765,
@@ -4909,6 +5984,15 @@
             "pixel_sha256": "a7d8b59f67361bc0a039ae91dfd8d2137241eca0ffe0f0263fbd5e02303ff138",
             "asset_id": "atlas-073",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "44831f23ec5ec9e0b55ec075c88510758dd52fb5d74234cbe1b6fbf43a663f2e",
+            "width": 1577,
+            "height": 997,
+            "scope": "blank_front_repair",
+            "input_digest": "ee4226280560c98edf27e34133efcaccfd92a4306ae1f3bde6c15d233572feba",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -4980,6 +6064,18 @@
             "entry_id": 74,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "ab6b7b92a5e63198078563d5a047a77ab2e1a19d02d14fc7856e1b31960c0b6b",
+            "bytes": 89962,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "210424ddfab1cfa2b07fd13a304c7172630a7a8c58a0ec5c821084f7a33cb942",
+            "asset_id": "atlas-074-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 74,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "ae4ae4beebe8ec87e987dffba32d377ef9c9164040e7670554fe08d1d6b27100",
             "bytes": 92094,
             "width": 900,
@@ -4987,6 +6083,15 @@
             "pixel_sha256": "e86f60743c09679b7039317170812dbace32b6447cfa9c3d1c2f24153ba0b940",
             "asset_id": "atlas-074",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "67abbd32c7bed05d2be09f4822771307defd7abc44d2a614b70fad5130843286",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "ae4ae4beebe8ec87e987dffba32d377ef9c9164040e7670554fe08d1d6b27100",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -5058,6 +6163,18 @@
             "entry_id": 75,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "82fa65dc0dc471e29ede8e9d6804966549f15089f338129a725c95465ac24f3e",
+            "bytes": 45584,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "bdbca6278a3f3972e69b703c65ee3ee407475d683560519240f5f7053b5a7f61",
+            "asset_id": "atlas-075-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 75,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "308089b90e997701353922efcc8a522cf265ad0ad96a99ce176ccca9aa838558",
             "bytes": 53732,
             "width": 480,
@@ -5065,6 +6182,15 @@
             "pixel_sha256": "0ef44d3b02c5a5527c2f832e48128dddc5a126ab5031091f4d4fcf6b9eb84a1a",
             "asset_id": "atlas-075",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "4b312289e78842bb81ca9ab64d9b592848cd8b6327eb53a09d7f2a9c7a011a90",
+            "width": 1576,
+            "height": 998,
+            "scope": "blank_front_repair",
+            "input_digest": "308089b90e997701353922efcc8a522cf265ad0ad96a99ce176ccca9aa838558",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -5195,6 +6321,18 @@
             "entry_id": 77,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "d7040dc19b4cff9fe6b044a2e972b3aa4cce3762b79717524fcd3bde37ca5d53",
+            "bytes": 27572,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "11809452b56544b69d1cc7d5ba30899e28d339fa98432e818c16565e300cf3be",
+            "asset_id": "atlas-077-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 77,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "9292880bc8b26614c91c9719361b0c9ccdcad0067944f58e014c93e034820cb5",
             "bytes": 43886,
             "width": 626,
@@ -5202,6 +6340,15 @@
             "pixel_sha256": "04742c0366357872c605f5d933471d5e29188a425ffac99cb71221ef5883113d",
             "asset_id": "atlas-077",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "dfe84b255b963962fe87524392c941979c6fef95d77f6b6e72e9c8292dbb59b5",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "9292880bc8b26614c91c9719361b0c9ccdcad0067944f58e014c93e034820cb5",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -5267,6 +6414,18 @@
             "entry_id": 78,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "94708d2bfc9c61b6f98d8ed2326f4891f88d3ced0f2e12c169990e5afd40bd38",
+            "bytes": 58216,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "f7090758da82c9dcab4577c01de3b5cd41b3787404e8312c29a5470702b9ea82",
+            "asset_id": "atlas-078-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 78,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "25eac982dab0dbccf2ce9b190c5b275fb150f27e44c65f7b14965f0a58065989",
             "bytes": 33516,
             "width": 626,
@@ -5274,6 +6433,15 @@
             "pixel_sha256": "d28617f31597139c3cfcfe57067fc90a348695fc8398d70bc53c70acd2d7f9c8",
             "asset_id": "atlas-078",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "d306d4536b3914cce58d3d891f495dafe50292bb8ce1c7cebd2859da7165264d",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "25eac982dab0dbccf2ce9b190c5b275fb150f27e44c65f7b14965f0a58065989",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -5367,6 +6535,18 @@
             "entry_id": 79,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "6c8df25a83ad0957e23d3656f925aa36b19e35961abdfc1213e29f9c7bd6a46a",
+            "bytes": 110366,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "3ae0555c79660d9a52c29f0f733fe6d90859f0ede74b2b4991cd82c5fd7e060c",
+            "asset_id": "atlas-079-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 79,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "86a1b77836e83e5c6f2f3cb08d5b343663546595cfb856d0760596c402be80bd",
             "bytes": 73462,
             "width": 480,
@@ -5374,6 +6554,15 @@
             "pixel_sha256": "4e9e923d5d1b7a82de5783f982834f3137004dde6a9b392064e4d51685a9d934",
             "asset_id": "atlas-079",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "08df8222d1dedf9d6423a35f81fa80d874c53298c510367d1a647ec5ec545f09",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "86a1b77836e83e5c6f2f3cb08d5b343663546595cfb856d0760596c402be80bd",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -5467,6 +6656,18 @@
             "entry_id": 80,
             "variant": "card",
             "network": "AMERICAN EXPRESS",
+            "digest": "e8de733139ced9de0b9d5f76b32cc71e2a3b99daa7ae8bb9127450bb77779efd",
+            "bytes": 126856,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "206ab8e7bae645aff5823b67ad4cf83751f0277586d451a51d2eac3dbf08cbd5",
+            "asset_id": "atlas-080-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 80,
+            "variant": "card",
+            "network": "AMERICAN EXPRESS",
             "digest": "e1d6a5434020cd929b21469de0dd8fe42267b21564e0ad58fdb72ac6f9642896",
             "bytes": 78492,
             "width": 480,
@@ -5474,6 +6675,15 @@
             "pixel_sha256": "eb9a690558987c94307a5cd1b3e00c9dc562a0d2bbc0e634aa9bdf055c995428",
             "asset_id": "atlas-080",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "1906aae69960b8e9b97f008ad080ca7028db994329986f576beb65b2305480b2",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "e1d6a5434020cd929b21469de0dd8fe42267b21564e0ad58fdb72ac6f9642896",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6001,6 +7211,18 @@
             "entry_id": 89,
             "variant": "card",
             "network": "JCB",
+            "digest": "f68d13a8ab07ba6b530962a30b7e2946352677c5fb98bff5b2c200bf5305450f",
+            "bytes": 113474,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "8abf39db8aa45b26f7650bfdcb26a604ac52ba87c8a2106bca249961c57c1d58",
+            "asset_id": "atlas-089-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 89,
+            "variant": "card",
+            "network": "JCB",
             "digest": "07e3c30bddf5b0cf0195761f882a774fcac0333d76faa36bb124a7017f881472",
             "bytes": 83964,
             "width": 900,
@@ -6008,6 +7230,15 @@
             "pixel_sha256": "bc39a2a0b08311c029a1bac63097c728e8029ae082eee388a32a1928386a9bcf",
             "asset_id": "atlas-089",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "18ba3112e61ce2cc9c2a50b46134086d12e51d2f42ade5a8cbd165d4c39c88e2",
+            "width": 1575,
+            "height": 999,
+            "scope": "blank_front_repair",
+            "input_digest": "07e3c30bddf5b0cf0195761f882a774fcac0333d76faa36bb124a7017f881472",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6067,6 +7298,18 @@
             "entry_id": 90,
             "variant": "card",
             "network": "JCB",
+            "digest": "956b90fda62e6e06c58a36a6d4588e423abcdfb10861f755877f3cf9e64aee0f",
+            "bytes": 120058,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "8fee35168a0d9ff797b9d053708a366d010ec495dda68bb7b0b9baf751fa7a0f",
+            "asset_id": "atlas-090-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 90,
+            "variant": "card",
+            "network": "JCB",
             "digest": "f58334ef8e07e9ae2b274d3957663da60f83901506e54cf1f3092633788730f3",
             "bytes": 76168,
             "width": 500,
@@ -6074,6 +7317,15 @@
             "pixel_sha256": "a1bb8a6be614966d15ac73c81de15d517561be87a09191dad93a249823c4b0e5",
             "asset_id": "atlas-090",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "b449c569c193f15c18435296946bad5f82ce28aa0d97057ff7410a2cde40e545",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "f58334ef8e07e9ae2b274d3957663da60f83901506e54cf1f3092633788730f3",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6133,6 +7385,18 @@
             "entry_id": 91,
             "variant": "card",
             "network": "JCB",
+            "digest": "4389239595f3aba8c6f5d0e6ef96d8400b57be98cc6602bd53a104ab9490eeff",
+            "bytes": 87702,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "6a551f438829e02c39a06020d8ccef29969face0009904995595eaf943dd0172",
+            "asset_id": "atlas-091-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 91,
+            "variant": "card",
+            "network": "JCB",
             "digest": "6d6e059e47f2f99fb4893edbe886670473002b8dad88da4418e2252832dbecfc",
             "bytes": 52630,
             "width": 500,
@@ -6140,6 +7404,15 @@
             "pixel_sha256": "14314f9c1854247fec7a8312dbccaf96f6fefcfc588840f1970495725b128af9",
             "asset_id": "atlas-091",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "fd98265d791ce8af5d6961026027e49b09e05a8314168590ac993bb2ba7f5afb",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "6d6e059e47f2f99fb4893edbe886670473002b8dad88da4418e2252832dbecfc",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6199,6 +7472,18 @@
             "entry_id": 92,
             "variant": "card",
             "network": "JCB",
+            "digest": "ace314bbe23915b8a864e5e14083e5f29a25834bccb6154c9301feaff90d9cec",
+            "bytes": 122062,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "5adc9d469cec7988106bc054c786a7ff4cf9c59afa11bef45a38d0258628dfbf",
+            "asset_id": "atlas-092-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 92,
+            "variant": "card",
+            "network": "JCB",
             "digest": "80f91227f9e94c2426be1d0ac0aa08e2347e9896ee25791e412df224565a0262",
             "bytes": 83356,
             "width": 500,
@@ -6206,6 +7491,15 @@
             "pixel_sha256": "03ac188a87f03420f77845a465cd1762c27e46b2b062b53d15313da3daa47a4e",
             "asset_id": "atlas-092",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "26ee37a359e3a6417efa0d32eb25a1d74ecc3cb16937ae95b57a8bd3efc58ff8",
+            "width": 1580,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "80f91227f9e94c2426be1d0ac0aa08e2347e9896ee25791e412df224565a0262",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6315,6 +7609,18 @@
             "entry_id": 94,
             "variant": "card",
             "network": "JCB",
+            "digest": "e350bab497ad2947c7357fe8807e9c9ca30a04d06148b1c07c764ce1829e8176",
+            "bytes": 117074,
+            "width": 619,
+            "height": 390,
+            "pixel_sha256": "b512a5554712a4999aff67bcfc4d39fbbcb6a388ca08f5c887d45848151cbcd3",
+            "asset_id": "atlas-094-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 94,
+            "variant": "card",
+            "network": "JCB",
             "digest": "3e2653faba4c1e1c947e31540fa2ae956c93043e97cb8f7e3d045e0f0a169f4e",
             "bytes": 62128,
             "width": 320,
@@ -6322,6 +7628,15 @@
             "pixel_sha256": "82032995c5a601907e2a88c2ed917becaf5eb95785c75f7fc066a03b94e3826e",
             "asset_id": "atlas-094",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "9ef021ce30bede11e7188a9d3fc8030cf567fcfd7f965ec8cc832f913bdc8e8f",
+            "width": 1579,
+            "height": 996,
+            "scope": "landscape_front",
+            "input_digest": "3e2653faba4c1e1c947e31540fa2ae956c93043e97cb8f7e3d045e0f0a169f4e",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6391,6 +7706,18 @@
             "entry_id": 95,
             "variant": "card",
             "network": "UNIONPAY",
+            "digest": "ee0e3f66a030834afe0cb8c26f7c9fcd9300d9deeb6caa78dbcfe609936e6e84",
+            "bytes": 108438,
+            "width": 728,
+            "height": 459,
+            "pixel_sha256": "e8713744646add3c85d9b3ae69d3917661de7292b8caf3b101e4ebf2906bd484",
+            "asset_id": "atlas-095-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 95,
+            "variant": "card",
+            "network": "UNIONPAY",
             "digest": "53cb42ee56d51b7eef7043633ddd122263a5d2eb4de1588dcc07b36062ce369f",
             "bytes": 75366,
             "width": 720,
@@ -6398,6 +7725,15 @@
             "pixel_sha256": "e6ac65578e9567d225cd22221dcf53a65ed353dbea2b3d75de6f52d3fd35e2d3",
             "asset_id": "atlas-095",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "dabc512d9beccd202c56f8bcbd7793e1b6db61383fee329115b47c99dbb18520",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "53cb42ee56d51b7eef7043633ddd122263a5d2eb4de1588dcc07b36062ce369f",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6469,6 +7805,18 @@
             "entry_id": 96,
             "variant": "card",
             "network": "UNIONPAY",
+            "digest": "fea9d9ae2c006f62574143511693e76580cfbeaf01aa240a6368730b20b29555",
+            "bytes": 67720,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "0e3b15d6b5ed6908222009e896245154e1a8ae41aabc5b30e77c686b43557ebf",
+            "asset_id": "atlas-096-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 96,
+            "variant": "card",
+            "network": "UNIONPAY",
             "digest": "84f682e8df58004380623c60195612f56bdbcf11e2e53bc8bb5fc5293502a138",
             "bytes": 39874,
             "width": 720,
@@ -6476,6 +7824,15 @@
             "pixel_sha256": "425fe74b823c1eae2c6c85e4cb4d6c5778ca4f5c47ccf5ccdd0f55b26ed27795",
             "asset_id": "atlas-096",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "cbf76032b3230a6cc4fcf2aa277ced349383d2c49aef5d2f5258160b5555f9a0",
+            "width": 1586,
+            "height": 992,
+            "scope": "blank_front_repair",
+            "input_digest": "84f682e8df58004380623c60195612f56bdbcf11e2e53bc8bb5fc5293502a138",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6547,6 +7904,18 @@
             "entry_id": 97,
             "variant": "card",
             "network": "ELO",
+            "digest": "4bce6e3ce05b9d1fe55ebcf05b4049bd5ad19dc16ea15b5c1bedcf602c53bfed",
+            "bytes": 99096,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "80b9f9d2f8ee85b7617254064bd196a71588bfef9e68991bcda7838f8e49e02c",
+            "asset_id": "atlas-097-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 97,
+            "variant": "card",
+            "network": "ELO",
             "digest": "a6d8d60d0d12c9303dc1499803c04dcefa883ab461598e93420bc6bfd47ea53e",
             "bytes": 45368,
             "width": 480,
@@ -6554,6 +7923,15 @@
             "pixel_sha256": "ec84a9023ec94b9ff5854134495b7e5a037f11bd737753a53c66aa921893d956",
             "asset_id": "atlas-097",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "9c11dce318142ac493410702424606491b74f8246b8a0531a9d217e1e67fe98b",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "a6d8d60d0d12c9303dc1499803c04dcefa883ab461598e93420bc6bfd47ea53e",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6682,6 +8060,18 @@
             "entry_id": 99,
             "variant": "card",
             "network": "ELO",
+            "digest": "3ec678fa4e51e14e64037bc907434ae219bf73d1577d2043785fa6f6b92969da",
+            "bytes": 114216,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "30b392f4c5c474598734f8e0ddf3e5578370511679e5e7a5a0fb3622e9bc575d",
+            "asset_id": "atlas-099-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 99,
+            "variant": "card",
+            "network": "ELO",
             "digest": "026a142e3357f94775daa2e502c893e32630a4e73f05e78050c20220fef01537",
             "bytes": 59962,
             "width": 480,
@@ -6689,6 +8079,15 @@
             "pixel_sha256": "9ade347ecc35f074bc1513e7f12066d6a048bbed592d159262804c757e86a698",
             "asset_id": "atlas-099",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "d777f4ef18b00a4198e587e6f4b7940879079512f58c52978fec171d84f70f0e",
+            "width": 1581,
+            "height": 995,
+            "scope": "blank_front_repair",
+            "input_digest": "026a142e3357f94775daa2e502c893e32630a4e73f05e78050c20220fef01537",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6770,6 +8169,18 @@
             "entry_id": 100,
             "variant": "illustration",
             "network": "OTHER",
+            "digest": "9d83023d5d31418a70157819199b3490c584aff4513785f577433826be8486a0",
+            "bytes": 41772,
+            "width": 856,
+            "height": 540,
+            "pixel_sha256": "696e4e9dfec5649779dee2ebf74dccca23d3d8cda3cb7de79d69139929271054",
+            "asset_id": "atlas-100-illustration-clean-v2",
+            "reviewed_at": "2026-10-16T00:00:00Z"
+          },
+          "previous_runtime": {
+            "entry_id": 100,
+            "variant": "illustration",
+            "network": "OTHER",
             "digest": "7f8a293a4449bd9d32151aae3a50c34453e2bda4e69801d55a6e1eb0cb345124",
             "bytes": 21472,
             "width": 640,
@@ -6777,6 +8188,15 @@
             "pixel_sha256": "daba70a61a1f90eea82db6d05b312914b7143e95939885ed44cdfc64f2890958",
             "asset_id": "atlas-100-illustration",
             "reviewed_at": "2026-10-15T12:46:32.516674+00:00"
+          },
+          "reviewed_edit": {
+            "digest": "ac6a2e013fe0a2391c1dd3677eccebcb3f13ed33aa337a3b4e9ea0d282022d67",
+            "width": 1579,
+            "height": 996,
+            "scope": "blank_front_repair",
+            "input_digest": "7f8a293a4449bd9d32151aae3a50c34453e2bda4e69801d55a6e1eb0cb345124",
+            "tool": "imagegen",
+            "reviewed_at": "2026-10-16"
           }
         }
       ],
@@ -6799,18 +8219,28 @@
     }
   ],
   "runtime_review": {
-    "reviewed_at": "2026-10-15T12:46:32.516674+00:00",
+    "reviewed_at": "2026-10-16T00:00:00Z",
     "source_entries": 100,
     "designs": 101,
     "opaque": true,
-    "max_bytes": 130372,
-    "bytes": 6198692,
+    "max_bytes": 130556,
+    "bytes": 7581152,
     "local_ocr": {
       "engine": "bundled Tesseract 7 English",
       "reviewed": 101,
       "flagged": 0,
-      "scope": "sample-name list, 12-19 digit runs, sample fragment and expiry patterns; visual review remains required"
+      "scope": "sample-name list, 12-19 digit runs and expiry patterns; visual review remains required"
     },
-    "issuer_country_groups": 25
+    "issuer_country_groups": 25,
+    "repaired_designs": 67,
+    "landscape_adaptations": 16,
+    "retained_immutable_revisions": 67,
+    "front_photo_rectifications": 1,
+    "visual_review": {
+      "reviewed": 101,
+      "method": "Full current-design contact sheets plus individual Chase front rectification; no blurred field-removal rectangles or portrait display designs retained",
+      "source": "local implementation review",
+      "reviewed_at": "2026-10-16"
+    }
   }
 }

@@ -732,14 +732,14 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
     )
     assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
     for required in (
-        "3ac26e6e1ceb835e257087f11bd274467708c217",
+        "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         '"$REQUESTED_SCOPE" != "all"',
         '"$LIVE_CHECKS" != "false"',
         '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
     ):
         assert required in validation["run"]
     allowed_dispatch = {
-        "REQUESTED_SHA": "3ac26e6e1ceb835e257087f11bd274467708c217",
+        "REQUESTED_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         "REQUESTED_SCOPE": "all",
         "LIVE_CHECKS": "false",
         "GITHUB_ACTOR": "ankitkumarsingh1702",
@@ -833,7 +833,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         "_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE": "true",
         "_DEPLOY_ENV": "uat",
         "_DEPLOY_SOURCE": "deploy-uat",
-        "_DEPLOY_SHA": "3ac26e6e1ceb835e257087f11bd274467708c217",
+        "_DEPLOY_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_VERIFY_MANAGED_VERTEX_RUNTIME": "true",
         "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,

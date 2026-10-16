@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timezone
 from io import BytesIO
 
 import pytest
@@ -42,6 +43,91 @@ def asset(**changes):
 
 def catalog(*assets):
     return ArtworkCatalog(version="test-1", assets=list(assets))
+
+
+def test_cleaned_revision_requires_exact_saved_source_and_both_live_approvals(monkeypatch):
+    import hushh_mcp.services.wallet_artwork_catalog as owner
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    original = asset(bank_design=True, selectable=False, replacement_asset_id="cleaned")
+    cleaned = asset(asset_id="cleaned", digest="b" * 64, bank_design=True, allow_overlay=True)
+    current = catalog(original, cleaned)
+    monkeypatch.setattr(owner, "load_catalog", lambda: (current, None))
+    selection = dict(
+        assetId=original.asset_id,
+        digest=original.digest,
+        issuerId=original.issuer_id,
+        productId=original.product_id,
+        variantId=original.variant_id,
+        catalogVersion="old",
+    )
+    result = owner.validate_artwork_selections([selection], purpose="saved")[0]
+    assert result["approved"] and result["replacement"]["variant"]["assetId"] == "cleaned"
+    assert result["replacement"]["catalogVersion"] == current.version
+    offered = bank_designs("visa", automatic=True, catalog=current)["variants"]
+    assert len(offered) == 1 and offered[0]["replaces"] == [
+        dict(assetId=original.asset_id, digest=original.digest)
+    ]
+    assert not owner.validate_artwork_selections([selection])[0]["approved"]
+    for wrong in [dict(digest="c" * 64), dict(issuerId="different"), dict(variantId="different")]:
+        assert not owner.validate_artwork_selections([selection | wrong], purpose="saved")[0][
+            "approved"
+        ]
+    for old, new in [
+        (original.model_copy(update={"status": "revoked"}), cleaned),
+        (original, cleaned.model_copy(update={"status": "revoked"})),
+        (original, cleaned.model_copy(update={"selectable": False})),
+        (original, cleaned.model_copy(update={"sanitized": False})),
+    ]:
+        current = catalog(old, new)
+        assert not owner.validate_artwork_selections([selection], purpose="saved")[0]["approved"]
+        unrelated = asset(asset_id="unrelated", product_id="unrelated", bank_design=True)
+        current = catalog(old, new, unrelated)
+        other = selection | dict(
+            assetId=unrelated.asset_id,
+            productId=unrelated.product_id,
+            catalogVersion=current.version,
+        )
+        assert owner.validate_artwork_selections([other])[0]["approved"]
+        assert "unrelated" in {
+            row["assetId"]
+            for row in bank_designs("visa", automatic=True, catalog=current)["variants"]
+        }
+    current = catalog(original.model_copy(update={"status": "revoked"}), cleaned)
+    assert "replaces" not in bank_designs("visa", automatic=True, catalog=current)["variants"][0]
+
+
+def test_replacement_mapping_cannot_cross_design_identity_or_form_a_chain():
+    original = asset(bank_design=True, selectable=False, replacement_asset_id="cleaned")
+    cleaned = asset(asset_id="cleaned", digest="b" * 64, bank_design=True)
+    for old, new in [
+        (original.model_copy(update={"selectable": True}), cleaned),
+        (original.model_copy(update={"bank_design": False}), cleaned),
+        (original.model_copy(update={"replacement_asset_id": "missing"}), cleaned),
+        (original, cleaned.model_copy(update={"replacement_asset_id": original.asset_id})),
+        (original, cleaned.model_copy(update={"digest": original.digest})),
+        *[
+            (original, cleaned.model_copy(update={field: "different"}))
+            for field in ["issuer_id", "product_id", "variant_id", "network", "country"]
+        ],
+        (
+            original,
+            cleaned.model_copy(
+                update={
+                    "provider_id": "licensed",
+                    "source_asset_id": "source",
+                    "grant_digest": "a" * 64,
+                    "source_digest": "b" * 64,
+                    "issuer_approval_reference": "reviewed",
+                    "width": 160,
+                    "height": 101,
+                    "approved_until": datetime(2099, 1, 1, tzinfo=timezone.utc),
+                }
+            ),
+        ),
+    ]:
+        with pytest.raises(ValueError, match="invalid_artwork_replacement"):
+            catalog(old, new)
 
 
 def test_default_has_no_fabricated_issuer_or_exact_artwork(monkeypatch):
@@ -363,6 +449,8 @@ def test_every_atlas_entry_has_reviewed_bounded_pixels_and_no_iin_evidence(monke
     monkeypatch.delenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", raising=False)
     source = Path(__file__).parents[3] / "docs/reference/one/wallet-card-atlas.manifest.json"
     review = json.loads(source.read_text(encoding="utf-8"))
+    assert "private_owner_details_overlay" in review["rights"]["scope"]
+    assert review["rights"]["owner_details_overlay"]["authorized_at"] == "2026-10-16"
     assert len(review["entries"]) == 100
     assert all(row["review"]["status"] == "approved" for row in review["entries"])
     entries = {
@@ -371,16 +459,27 @@ def test_every_atlas_entry_has_reviewed_bounded_pixels_and_no_iin_evidence(monke
         for recipe in row["adaptations"]
     }
     assert len(entries) == 101
+    retained = {
+        recipe["previous_runtime"]["asset_id"]: recipe["previous_runtime"]
+        for row in review["entries"]
+        for recipe in row["adaptations"]
+        if "previous_runtime" in recipe
+    }
+    assert len(retained) == 67
     loaded, directory = load_catalog()
-    assert {row.asset_id for row in loaded.assets} == set(entries)
+    assert {row.asset_id for row in loaded.assets} == set(entries) | set(retained)
+    assert {row.asset_id for row in loaded.assets if row.selectable} == set(entries)
     for row in loaded.assets:
-        entry = entries[row.asset_id]
+        entry = (entries | retained)[row.asset_id]
         assert not row.iin_prefixes and row.bank_design
+        assert row.allow_overlay is True
         data, mime = read_asset(row.digest)
         assert mime == "image/webp" and len(data) <= 128 * 1024
         assert hashlib.sha256(data).hexdigest() == entry["digest"]
         with Image.open(directory / (row.digest + ".webp")) as image:
             assert image.mode == "RGB" and max(image.size) <= 900
+            if row.selectable:
+                assert image.width > image.height
             assert not any(key in image.info for key in ["exif", "xmp", "icc_profile"])
             assert hashlib.sha256(image.tobytes()).hexdigest() == entry["pixel_sha256"]
     assert resolve_artwork("424242", 16, "visa", catalog=loaded)["match"] == "unknown"
@@ -427,6 +526,74 @@ def test_adaptation_discards_transparent_rgb_and_replaces_all_reviewed_field_pix
     # This opaque field must disappear, not merely get a translucent overlay.
     result = adapt(visible, {"masks": [[0.2, 0.2, 0.8, 0.8]]})
     assert result.mode == "RGB" and set(result.getdata()) == {(255, 255, 255)}
+
+
+def test_reviewed_blank_repair_is_hash_bound_opaque_and_reproducible(tmp_path):
+    import runpy
+    from pathlib import Path
+
+    prepare = runpy.run_path(
+        str(Path(__file__).parents[2] / "scripts/prepare_wallet_card_atlas.py")
+    )["prepare"]
+    sources, edits = tmp_path / "sources", tmp_path / "edits"
+    sources.mkdir()
+    edits.mkdir()
+    original = Image.new("RGBA", (40, 24), "navy")
+    source = BytesIO()
+    original.save(source, format="PNG")
+    source_digest = hashlib.sha256(source.getvalue()).hexdigest()
+    (sources / (source_digest + ".png")).write_bytes(source.getvalue())
+    edited = BytesIO()
+    Image.new("RGBA", (40, 24), (3, 80, 120, 0)).save(edited, format="PNG")
+    digest = hashlib.sha256(edited.getvalue()).hexdigest()
+    plate = edits / (digest + ".png")
+    plate.write_bytes(edited.getvalue())
+    recipe = {
+        "variant": "card",
+        "masks": [[0.2, 0.2, 0.8, 0.8]],
+        "previous_runtime": {"digest": "a" * 64},
+        "reviewed_edit": {
+            "digest": digest,
+            "width": 40,
+            "height": 24,
+            "scope": "blank_front_repair",
+            "input_digest": "a" * 64,
+        },
+    }
+    review = {
+        "entries": [
+            {
+                "entry_id": 1,
+                "network": "visa",
+                "extracted_digest": source_digest,
+                "pixel_sha256": hashlib.sha256(original.tobytes()).hexdigest(),
+                "width": 40,
+                "height": 24,
+                "adaptations": [recipe],
+            }
+        ]
+    }
+    first = prepare(sources, tmp_path / "first", review, edits)[0]
+    assert prepare(sources, tmp_path / "second", review, edits) == [first]
+    with Image.open(tmp_path / "first" / (first["digest"] + ".webp")) as image:
+        assert image.mode == "RGB" and image.size == (856, 540)
+        assert image.getpixel((428, 270)) == (255, 255, 255)
+    for key, value, error in [
+        ("width", 41, "edit_dimensions"),
+        ("scope", "unknown", "edit_scope"),
+        ("input_digest", "b" * 64, "edit_source_binding"),
+    ]:
+        previous = recipe["reviewed_edit"][key]
+        recipe["reviewed_edit"][key] = value
+        with pytest.raises(ValueError, match=error):
+            prepare(sources, tmp_path / key, review, edits)
+        recipe["reviewed_edit"][key] = previous
+    plate.write_bytes(b"substituted")
+    with pytest.raises(ValueError, match="edit_digest"):
+        prepare(sources, tmp_path / "changed-plate", review, edits)
+    (sources / (source_digest + ".png")).write_bytes(b"substituted")
+    with pytest.raises(ValueError, match="source_digest"):
+        prepare(sources, tmp_path / "changed-source", review, edits)
 
 
 def test_extraction_parses_the_same_verified_snapshot_if_the_source_path_changes(
