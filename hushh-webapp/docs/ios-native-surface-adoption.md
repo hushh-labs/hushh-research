@@ -18,9 +18,11 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared-renderer recovery and release gate — 2026-10-16
 
-The current recovery integrates main through `9ad50abbf0`, including Calendar's
+The current recovery integrates main through `1586e5a595`, including Calendar's
 local-time/invitation corrections and the intentional Mail connection-screen
-rollback. Receipt owner/session and request-generation guards remain intact.
+rollback, then Wallet CVV entry and presentation warming. Receipt request fences
+and Wallet owner/visit/session fences remain intact; warmed Wallet content is
+admitted only for the current owner and vault epoch.
 Custom native
 qualification remains opt-in; ordinary Capacitor/React and the independent
 native tab bar retain their existing admission policy. No additional Profile
