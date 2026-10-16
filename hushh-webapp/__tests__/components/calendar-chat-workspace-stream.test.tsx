@@ -176,8 +176,8 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
 
   it.each(["tool", "state"] as const)("shows invitation controls from %s inside the existing conversation", async delivery => {
     const invitation = { id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" }, response_status: "needsAction" as const, can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" } };
-    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true });
-    const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
+    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true, account_email: "owner@example.com" });
+    const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", accountEmail: "owner@example.com", eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
     vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse(delivery, directive));
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
     const review = vi.spyOn(GoogleCalendarService, "reviewAttendance").mockResolvedValue({ review_id: "review", review_token: "browser-memory-only", title: "Client Sync", response_status: "accepted", conflicts: [], recipient: null, subject: null, message: null, rescheduling_link: null, sender_label: null, expires_at: "2030-10-14T09:00:00Z" });
@@ -187,7 +187,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     fireEvent.change(composer, { target: { value: "Accept tomorrow's client meeting" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", responseStatus: "accepted" })));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", expectedAccountEmail: "owner@example.com", responseStatus: "accepted" })));
     expect(confirm).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "Confirm accept" }));
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());

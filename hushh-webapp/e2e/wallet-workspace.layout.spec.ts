@@ -262,13 +262,17 @@ async function mount(page: Page, enter = true) {
 for (const width of [390, 1024]) {
   test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    if (width === 1024) await page.clock.install();
     const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
     await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
     await mount(page, false);
     await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
+    if (width === 1024) await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     const add = page.getByRole("tab", { name: "Add", exact: true });
-    // Reproduce delayed WebKit startup without replacing the spring or clock.
-    const { frames, rendering } = await measureTabSelection(add, width === 1024 ? 150 : 0);
+    // Bound delayed startup on the animation clock; keep ordinary mobile motion
+    // on real time. Both cases observe the shipping spring and DOM geometry.
+    const { frames, rendering } = await measureTabSelection(add, width === 1024 ? 150 : 0,
+      width === 1024 ? () => page.clock.runFor(816) : undefined);
     const diagnostics = JSON.stringify({ ...rendering, frameCount: frames.length,
       maxFrameGap: Math.max(...frames.map((frame, index) => frame.time - (frames[index - 1]?.time ?? 0))),
       first: frames.slice(0, 3), last: frames.slice(-3) });

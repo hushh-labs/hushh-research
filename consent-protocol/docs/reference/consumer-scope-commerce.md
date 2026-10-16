@@ -4356,5 +4356,26 @@ nearest browser case now includes delayed initial frames and requires visible
 intermediate motion; the old coefficients fail at 412ms. Ten focused
 Chromium/WebKit cases, 40 pager/route cases, 466 Back cases, UI-contract
 verification, design/render checks and 93 cache cases pass locally. These are
-source verification, not a deployment or paid transaction receipt. The finished
-candidate still requires full core, hosted CI and exact-source Dev promotion.
+source verification, not a deployment or paid transaction receipt. Candidate
+`4a03cf8aa551` subsequently passed the full local core bundle. The current
+integration retains incoming main `a8e36651c17f` and concurrent BYOC changes
+`f8c867fd83e9` on the existing development branch, without changing published
+migration bodies or unrelated workspace edits. Its UI-contract verification and
+ten focused Chromium/WebKit Wallet cases pass. The Calendar stream fixture now
+binds its directive and invitation response to the same account, matching the
+production contract; its 31 focused cases pass, including account-retirement
+negative controls. The integrated candidate still requires full core, hosted CI
+and exact-source Dev promotion before the first paid exchange. The read-only
+ledger check at `2026-10-16T08:34:34Z` found zero scope-purchase records for both
+reviewers. Do not repeat their settled funding or the existing capital Topups.
+
+The merged Wallet regression retains real elapsed-time measurement at 390px and
+uses main's animation-clock seam at 1024px with the explicit 150ms startup hold.
+The 400ms, overshoot and intermediate-position assertions remain unchanged;
+ten focused Chromium/WebKit cases pass. This proves authored motion and DOM
+geometry under that schedule, not wall-clock responsiveness on a starved host.
+Main and concurrent BYOC size debt was independently reviewed against exact
+source hashes: 152 existing observations and 50 new observations were accepted,
+with prior history, detector and budgets unchanged. Each of the 202 observations
+still rejects one further line of growth. This is retained maintenance debt,
+not a claim that large existing modules meet the advisory budgets.

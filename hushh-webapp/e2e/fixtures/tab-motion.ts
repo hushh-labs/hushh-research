@@ -3,7 +3,7 @@ import type { Locator } from "@playwright/test";
 type Frame = { time: number; offset: number };
 
 /** Observe the shipping pager, including a bounded delay before its first frame. */
-export async function measureTabSelection(tab: Locator, initialFrameDelayMs = 0) {
+export async function measureTabSelection(tab: Locator, initialFrameDelayMs = 0, advanceFrames?: () => Promise<void>) {
   await tab.evaluate((element, delayMs) => {
     if (delayMs > 0) {
       const request = window.requestAnimationFrame.bind(window);
@@ -48,6 +48,7 @@ export async function measureTabSelection(tab: Locator, initialFrameDelayMs = 0)
     });
   }, initialFrameDelayMs);
   await tab.click();
+  await advanceFrames?.();
   const frames = await tab.page().evaluate(() => (window as unknown as { __walletTabMotion: Promise<Frame[]> }).__walletTabMotion);
   const rendering = await tab.evaluate(element => {
     const panel = document.getElementById(element.getAttribute("aria-controls")!)!;
