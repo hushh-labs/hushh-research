@@ -39,6 +39,10 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 
+### Personal World Model research
+
+`GET /api/one/world-model/jobs/stream` is an owner-authorized research stream, separate from the Kai envelope above. It sends `progress` with observed counts and source titles, a cumulative `partial` list of checkpointed cited findings, `ping` heartbeats, and a terminal `result`. The client parses complete SSE blocks with the shared parser and validates each payload against the PWM schema. A later `partial` replaces the earlier list, including an empty list after authority or evidence invalidation. Reconnect or a status read restores the current checkpoint; a provider interruption must not erase already validated provisional findings. Provisional findings are read-only until the final offered report passes evidence validation and the owner chooses what to save.
+
 ### Live Email and Calendar reads
 
 One Live Voice keeps ordered tool dispatch while its provider/client intake can

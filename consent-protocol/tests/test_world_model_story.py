@@ -146,6 +146,8 @@ class ScriptedResearch:
 
     def __init__(self, clock):
         self.clock = clock
+        self.batch = None
+        self.result = OFFERED
         self.entered = asyncio.Event()
         self.proceed = [asyncio.Event() for _ in range(3)]
         self.reached = [asyncio.Event() for _ in range(3)]
@@ -158,11 +160,14 @@ class ScriptedResearch:
         self.reached[0].set()
         await self.proceed[1].wait()
         await kwargs["on_attempts_start"]((pwm.MAX_SEARCHES + 2, 2, pwm.MAX_SEARCHES + 3))
-        await kwargs["on_progress"](coverage_checkpoint(self.clock()))
+        work = coverage_checkpoint(self.clock())
+        if self.batch:
+            work["finding_batches"] = [self.batch]
+        await kwargs["on_progress"](work)
         self.reached[1].set()
         await self.proceed[2].wait()
         self.reached[2].set()
-        return OFFERED
+        return self.result
 
 
 class CommittingStore(MemoryStore):
@@ -242,6 +247,21 @@ def assert_contract(progress):
     serialized = json.dumps(progress)
     for private in PRIVATE:
         assert private not in serialized
+
+
+@pytest.mark.asyncio
+async def test_pending_before_worker_admission_does_not_request_a_restart(story):
+    instance = story.jobs
+    instance.store.rows["owner"] = {
+        "status": "pending",
+        "identity_binding": "",
+        "started_at": story.now[0],
+        "revision": 1,
+        "fence": "seed",
+        "work": {"sources": {"s1": BIO}},
+    }
+    assert await instance.status("owner", "fixture-token") == jobs.pending()
+    instance.check.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -332,3 +352,49 @@ async def test_owner_story_stream_frames_follow_the_checkpoints_then_close(story
     result = json.loads(frames[3]["data"])
     assert result == await instance.status("owner", "fixture-token")
     assert result["status"] == "offered"
+
+
+@pytest.mark.asyncio
+async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_binding_cannot(story):
+    instance, research = story.jobs, story.research
+    research.batch = {
+        "candidate_id": "c1",
+        "attempt_id": 2,
+        "topic": "education",
+        "facts": [
+            {
+                "statement": "Studied at Example Uni.",
+                "confidence": "supported",
+                "sources": [{"title": "Alumni", "ref": "s2"}],
+            }
+        ],
+    }
+    research.result = {"status": "unavailable", "pkm_written": False}
+    assert (await instance.ensure("owner", "fixture-token"))["status"] == "pending"
+    await research.entered.wait()
+    research.proceed[0].set()
+    await research.reached[0].wait()
+    research.proceed[1].set()
+    await research.reached[1].wait()
+    live = await instance.status("owner", "fixture-token")
+    assert live["status"] == "pending"
+    assert live["validated_facts"][0]["sources"] == [ALUMNI]
+    assert live["validated_facts"][0]["statement"] == "Studied at Example Uni."
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    frames = [
+        frame
+        async for frame in progress_events(
+            instance, "owner", "fixture-token", request, initial=live, lifetime_seconds=0
+        )
+    ]
+    assert [frame["event"] for frame in frames] == ["progress", "partial", "result"]
+    assert json.loads(frames[1]["data"])["validated_facts"] == live["validated_facts"]
+    research.proceed[2].set()
+    await settle(instance)
+    failed = await instance.status("owner", "fixture-token")
+    assert failed["status"] == "unavailable"
+    assert failed["validated_facts"] == live["validated_facts"]
+    assert failed["progress"]["topics_checked"] == ["career", "education"]
+    instance.check.return_value = (None, "changed-owner-binding")
+    denied = await instance.status("owner", "fixture-token")
+    assert denied == jobs.pending(restart=True)

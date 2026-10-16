@@ -16,6 +16,7 @@ import {
   type PwmPreferences,
   type PwmProgress,
   type PwmResult,
+  type PwmValidatedFact,
 } from "@/lib/services/world-model-research-service";
 import {
   WorldModelDecisionService,
@@ -43,6 +44,11 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
   const inSetup = usePathname().startsWith("/one/setup");
   const [revision, setRevision] = useState(0);
   const refreshIntent = useRef<{
+    owner: string;
+    key: string;
+    token: string;
+  } | null>(null);
+  const retryIntent = useRef<{
     owner: string;
     key: string;
     token: string;
@@ -76,13 +82,28 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       reload: (confirmed?: PwmPreferences) => {
         refreshIntent.current = null;
         const state = current.current;
-        if (confirmed && state.ready)
+        const activeOwner =
+          state.ready && state.owner && state.key && state.token
+            ? { owner: state.owner, key: state.key, token: state.token }
+            : null;
+        retryIntent.current = confirmed?.enabled === false ? null : activeOwner;
+        if (activeOwner)
           handle.setSnapshot((previous) =>
             previous &&
             previous.owner === state.owner &&
             previous.key === state.key &&
             previous.token === state.token
-              ? { ...previous, preferences: confirmed }
+              ? {
+                  ...previous,
+                  preferences: confirmed ?? previous.preferences,
+                  result: null,
+                  failed: false,
+                  retrying: confirmed?.enabled !== false,
+                  live: false,
+                  retryAt: null,
+                  progress: confirmed?.enabled === false ? null : previous.progress,
+                  validatedFacts: confirmed?.enabled === false ? [] : previous.validatedFacts,
+                }
               : previous,
           );
         setRevision((value) => value + 1);
@@ -118,6 +139,13 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       intent?.owner === user.uid &&
       intent.key === vaultKey &&
       intent.token === vaultOwnerToken;
+    const retry = retryIntent.current;
+    retryIntent.current = null;
+    const explicitRetry =
+      retry?.owner === user.uid &&
+      retry.key === vaultKey &&
+      retry.token === vaultOwnerToken;
+    const retrySnapshot = explicitRetry ? worldModelResearchStore.getSnapshot() : null;
     const controller = new AbortController(),
       owner = user.uid;
     const guard = createAgentPkmCaptureGuard({
@@ -138,9 +166,11 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     let prefs: PwmPreferences | null = null,
       latest: PwmResult | null = null,
       failed = false,
-      progress: PwmProgress | null = null,
+      retrying = explicitRetry,
+      progress: PwmProgress | null = retrySnapshot?.progress ?? null,
+      validatedFacts: readonly PwmValidatedFact[] = retrySnapshot?.validatedFacts ?? [],
       live = false,
-      lastActivityAt: number | null = null,
+      lastActivityAt: number | null = retrySnapshot?.lastActivityAt ?? null,
       retryAt: number | null = null,
       retryTimer: ReturnType<typeof setTimeout> | null = null,
       preferencesRequested = false;
@@ -162,7 +192,9 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
               : null),
           result: latest,
           failed,
+          retrying,
           progress,
+          validatedFacts,
           live,
           lastActivityAt,
           retryAt,
@@ -229,16 +261,41 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
           lastActivityAt = Date.now();
           publish();
         },
+        onPartial: (next) => {
+          validatedFacts = next;
+          live = true;
+          lastActivityAt = Date.now();
+          publish();
+        },
         onInterrupted: () => {
           live = false;
           publish();
         },
         onResult: (result) => {
           latest = result;
+          retrying = false;
           live = true;
           lastActivityAt = Date.now();
-          if (result.status !== "pending" && result.status !== "paused")
+          if (result.status === "pending" || result.status === "paused") {
+            // A bare restart_required response can mean the sealed work no
+            // longer matches this identity binding. Only an explicitly
+            // returned checkpoint can survive that boundary.
+            if (result.restart_required && (!result.progress || !result.validated_facts)) {
+              progress = null;
+              validatedFacts = [];
+            } else {
+              if (result.progress) progress = result.progress;
+              if (result.validated_facts) validatedFacts = result.validated_facts;
+            }
+          } else if (result.status === "unavailable") {
+            // Terminal checkpoints are authoritative only when the server
+            // returns both fields after its current owner/binding check.
+            progress = result.progress ?? null;
+            validatedFacts = result.validated_facts ?? [];
+          } else {
             progress = null;
+            validatedFacts = [];
+          }
           clearRetry();
           retryAt =
             result.status === "unavailable" &&
@@ -257,12 +314,13 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       const ended = latest as PwmResult | null;
       if (ended?.status === "pending" || ended?.status === "paused")
         failed = true;
+      if (failed) retrying = false;
       publish();
     })().catch(() => {
       if (controller.signal.aborted) return;
       latest = null;
       failed = true;
-      progress = null;
+      retrying = false;
       live = false;
       publish();
       readPreferences();

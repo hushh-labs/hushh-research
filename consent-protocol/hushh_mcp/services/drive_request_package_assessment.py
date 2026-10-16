@@ -239,6 +239,36 @@ def _record_type_cited(claim: str, quotation: str, *, institutional_statement: b
     return False
 
 
+def _meeting_note_type_cited(claim: str, quotation: str) -> bool:
+    """A meeting title alone is not evidence that notes were recorded."""
+    if not re.search(r"\b(?:notes?|minutes)\b", claim, re.I):
+        return False
+    if not re.search(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", quotation, re.I):
+        return False
+    return bool(
+        re.search(r"\b(?:meeting\s+notes?|minutes|notes\s+by\s+gemini)\b", quotation, re.I)
+        or re.search(
+            r"\b(?:decisions?|action\s+items?|discussion|takeaways|blockers)\b"
+            r"(?:\s*:|\s*\n\s*(?:[-•*]|\d+[.)]))",
+            quotation,
+            re.I,
+        )
+    )
+
+
+def _meeting_event_date_cited(day: date, quotation: str) -> bool:
+    if not _cited_day(day, quotation):
+        return False
+    # A note's next scheduled meeting is not the event date of these notes.
+    # Keep ambiguous mixed quotations uncertain so the model can cite the
+    # actual meeting header instead of laundering a planned date.
+    return not re.search(
+        r"\b(?:next\s+meeting|upcoming|scheduled|planned|due\s+date|published|last\s+updated)\b",
+        quotation,
+        re.I,
+    )
+
+
 def verify_v1_document_batch(
     assessment: BoundDocumentBatchAssessment, *, request: dict, retrieved: dict
 ) -> BoundDocumentBatchAssessment:
@@ -260,6 +290,11 @@ def verify_v1_document_batch(
     ):
         required_entities = []
     institutional = request.get("semanticIntent") == "institutional_statement"
+    purpose = request.get("purpose", "")
+    meeting_notes = bool(
+        re.search(r"\b(?:notes?|minutes)\b", purpose, re.I)
+        and re.search(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", purpose, re.I)
+    )
     checked = []
     for item in assessment.documents:
         if item.decision != "include":
@@ -277,7 +312,8 @@ def verify_v1_document_batch(
             period_quote = "\n".join(
                 cite.quote for cite in citations if cite.source_ref in period.source_refs
             )
-            if _cited_day(date.fromisoformat(period.period_start), period_quote) and _cited_day(
+            cited_day = _meeting_event_date_cited if meeting_notes else _cited_day
+            if cited_day(date.fromisoformat(period.period_start), period_quote) and cited_day(
                 date.fromisoformat(period.period_end), period_quote
             ):
                 periods.append(period)
@@ -285,8 +321,12 @@ def verify_v1_document_batch(
             bool(citations)
             and bool(joined.strip())
             and bool(item.record_type_claim and item.record_type_claim.strip())
-            and _record_type_cited(
-                item.record_type_claim, joined, institutional_statement=institutional
+            and (
+                _meeting_note_type_cited(item.record_type_claim, joined)
+                if meeting_notes
+                else _record_type_cited(
+                    item.record_type_claim, joined, institutional_statement=institutional
+                )
             )
             and (
                 not item.entity_claim
@@ -299,6 +339,8 @@ def verify_v1_document_batch(
             and (
                 item.period_role == "statement_coverage"
                 if institutional
+                else item.period_role == "event_date"
+                if meeting_notes
                 else item.period_role != "unknown"
             )
             and item.confidence >= 80

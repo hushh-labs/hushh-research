@@ -20,6 +20,7 @@ from hushh_mcp.services.drive_request_bulk_service import (
     DriveRequestBulkService,
     _deterministic_statement_plan,
 )
+from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -29,6 +30,111 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+
+
+@pytest.mark.asyncio
+async def test_failed_v1_request_resumes_same_search_without_replanning_or_new_job():
+    context = {
+        "purpose": {
+            "purpose": "3 months of meeting notes",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        "revision": 7,
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value={"status": "failed", "jobId": "same-job"}),
+        retry_failed_request=AsyncMock(
+            return_value=({"status": "queued", "jobId": "same-job"}, True)
+        ),
+    )
+    search = SimpleNamespace(
+        store=store,
+        create_for_request=AsyncMock(side_effect=AssertionError("new search created")),
+    )
+    sharing = SimpleNamespace(
+        request_bulk_context=AsyncMock(return_value=context),
+        package_preparation_authority=AsyncMock(),
+    )
+    planner = AsyncMock(side_effect=AssertionError("request replanned"))
+    wake = AsyncMock()
+    service = DriveRequestBulkService(
+        sharing=sharing,
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=wake,
+    )
+
+    state = await service.start_search(user_id="owner", request_id="same-request")
+
+    assert state == {"status": "queued", "jobId": "same-job"}
+    store.retry_failed_request.assert_awaited_once_with(
+        user_id="owner",
+        request_id="same-request",
+        request_revision=7,
+        authority_mode="agent_package",
+    )
+    wake.assert_awaited_once_with("v1")
+    planner.assert_not_awaited()
+    search.create_for_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint(
+    monkeypatch,
+):
+    store = DriveOwnerSearchStore(db=SimpleNamespace())
+    updated = []
+    connection = SimpleNamespace(execute=lambda _statement, params: updated.append(params))
+    monkeypatch.setattr(store, "_lock", lambda *_args: None)
+    monkeypatch.setattr(
+        store,
+        "_owned",
+        lambda *_args, **_kwargs: {
+            "status": "running",
+            "lease_id": "lease",
+            "retry_count": 0,
+            "job_id": "job",
+        },
+    )
+    monkeypatch.setattr(
+        store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
+    )
+    detail = {"page_token": "saved-page"}
+    monkeypatch.setattr(store, "_checkpoint", lambda _row: detail)
+    monkeypatch.setattr(store, "_seal", lambda *_args: "sealed-checkpoint")
+    state = await store.release(
+        {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
+        error="operation_not_allowed",
+    )
+    assert state == "failed"
+    assert updated[0]["code"] == "provider_unavailable"
+    assert updated[0]["checkpoint"] == "sealed-checkpoint"
+    assert detail == {
+        "page_token": "saved-page",
+        "last_search_failure_cause": "operation_not_allowed",
+    }
+
+
+@pytest.mark.parametrize(
+    ("search_status", "incomplete"),
+    [("failed", False), ("limited", True), ("stopped", False), ("completed", True)],
+)
+def test_terminal_search_overrides_pending_evaluation_without_allowing_payment(
+    search_status, incomplete
+):
+    status = _review_status(
+        {
+            "status": search_status,
+            "incomplete_search": incomplete,
+            "evaluation_status": "pending",
+        }
+    )
+    assert status == "unavailable"
+    assert _public_package({"selected_positions": [1]}, status=status)["canAllow"] is False
 
 
 @pytest.mark.asyncio

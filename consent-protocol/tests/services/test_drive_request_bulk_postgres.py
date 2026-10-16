@@ -2733,7 +2733,7 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
         )
         connection.execute(
             text("""UPDATE drive_bulk_share_effects
-            SET state='succeeded' WHERE share_id=:share AND position=1"""),
+            SET state='succeeded' WHERE share_id=:share"""),
             {"share": first["shareId"]},
         )
         request_bulk._finalize(connection, first["shareId"])
@@ -2746,6 +2746,20 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
             ).scalar_one()
             == 1
         )
+    delivery = DriveSharingService(
+        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
+        store=DriveSuggestionStore(db=sharing.db),
+        verify_recipient=AsyncMock(),
+    )
+    pending_delivery = await delivery.delivery(user_id="recipient", request_id=request_id)
+    assert pending_delivery["status"] == "pending"
+    assert pending_delivery["batchCount"] == 1
+    assert pending_delivery["fileCount"] == pending_delivery["sharedCount"] == 25
+    pending_page = await delivery.delivery_files(user_id="recipient", request_id=request_id)
+    assert pending_page["nextCursor"] is None
+    assert {file["openUrl"] for file in pending_page["files"]} == {
+        f"https://drive.google.com/file/d/standup-file-{position}/view" for position in range(1, 26)
+    }
     with request_bulk.db.engine.begin() as connection:
         first_row = request_bulk._row(
             connection,
@@ -2815,11 +2829,6 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
     assert (await sharing.request_status(user_id="owner", request_id=request_id))[
         "status"
     ] == "completed"
-    delivery = DriveSharingService(
-        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
-        store=DriveSuggestionStore(db=sharing.db),
-        verify_recipient=AsyncMock(),
-    )
     summary = await delivery.delivery(user_id="recipient", request_id=request_id)
     assert summary["fileCount"] == summary["sharedCount"] == 50
     first_page = await delivery.delivery_files(user_id="recipient", request_id=request_id)

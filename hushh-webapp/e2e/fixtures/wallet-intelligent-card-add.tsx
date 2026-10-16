@@ -26,8 +26,7 @@ Pkm.loadDomainSnapshot = async () => {
 Pkm.loadDomainData = async () => (await Pkm.loadDomainSnapshot({ ...context, domain: "wallet" })).data;
 function Fixture() {
   const [cards, setCards] = useState<WalletCardPresentation[]>([]), [tab, setTab] = useState("add"), [locked, setLocked] = useState(false), [error, setError] = useState("");
-  // Await the cosmetic phase for deterministic image assertions. The production
-  // Workspace publishes base cards first and runs this phase in the background.
+  // Match the production Workspace: recover and decode artwork in one hydration.
   useEffect(() => { void WalletService.listCardPresentations(context, { recoverArtwork: true }).then(rows => { if (rows.length) { setCards(rows); setTab("cards"); } }).catch(() => setError("Read failed")); }, []);
   return <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
     <header className="flex items-center justify-between"><button className="min-h-11 px-3" onClick={() => { if (!unwindBackLayer("/one/wallet")) setTab("cards"); }}>Back</button><h1 className="text-lg font-semibold">Wallet</h1><button className="min-h-11 px-3" onClick={() => { advanceVaultSessionEpoch(); setCards([]); setLocked(true); }}>Lock Wallet</button></header>

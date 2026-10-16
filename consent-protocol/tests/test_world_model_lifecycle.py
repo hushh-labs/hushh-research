@@ -218,5 +218,9 @@ async def test_completion_only_announces_actual_findings(match, sections, outcom
             "result": {"report": {"match_status": match, "sections": sections}},
         },
     )
-    delivery = conn.execute.call_args.args
+    delivery = next(
+        call.args
+        for call in conn.execute.call_args_list
+        if "INSERT INTO pwm_completion_events" in call.args[0]
+    )
     assert delivery[4:] == (outcome, "suppressed" if outcome == "attention" else "pending")
