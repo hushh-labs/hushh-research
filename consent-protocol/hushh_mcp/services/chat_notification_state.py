@@ -22,6 +22,7 @@ WITH unread AS (
     AND member.user_id = r.recipient_user_id AND member.status = 'active'
     AND member.joined_at = r.membership_joined_at
   WHERE r.recipient_user_id = :user AND r.read_at IS NULL AND m.sender_user_id <> :user
+    AND r.deleted_at IS NULL AND m.deleted_for_everyone_at IS NULL
   UNION ALL
   SELECT 'direct:' || m.conversation_id::text
   FROM messages m JOIN conversations c ON c.id = m.conversation_id
@@ -81,7 +82,15 @@ def sync_chat_read(
         data={
             **counts,
             **({"chat_read_before": str(int(read_at.timestamp() * 1000) - 1)} if read_at else {}),
-            **({"chat_read_message_id": f"direct-message:{message_id}"} if message_id else {}),
+            **(
+                {
+                    "chat_read_message_id": f"location_circle_message:{message_id}"
+                    if circle
+                    else f"direct-message:{message_id}"
+                }
+                if message_id
+                else {}
+            ),
             "sync_only": "true",
             **(
                 {"circle_id": circle, "chat_sequence": str(sequence)}

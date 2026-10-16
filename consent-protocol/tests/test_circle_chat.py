@@ -82,6 +82,9 @@ def chat_db():
                 cursor.execute(
                     (ROOT / "db/migrations/350_circle_chat_full_emoji_reactions.sql").read_text()
                 )
+                cursor.execute(
+                    (ROOT / "db/migrations/357_circle_chat_message_actions.sql").read_text()
+                )
         raw.close()
 
         def execute_raw(sql, params):
@@ -162,6 +165,315 @@ def _payload(service, circle, user="alice"):
             ],
         }
     ).model_dump(mode="json")
+
+
+def test_encrypted_edits_keep_original_authority_and_retry_projection(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    original = _payload(service, circle)
+    sent = service.send("alice", circle, original)
+    mutation = {"ciphertext": _b64(36), "iv": _b64(12), "expectedRevision": 0}
+    with pytest.raises(CircleChatError) as error:
+        service.mutate("bob", circle, sent["id"], mutation)
+    assert error.value.status == 403
+    with pytest.raises(CircleChatError) as error:
+        service.mutate("alice", circle, sent["id"], {**mutation, "iv": original["iv"]})
+    assert error.value.status == 422
+    edited = service.mutate("alice", circle, sent["id"], mutation)["items"][0]
+    assert edited["revision"] == 1 and edited["editedAt"]
+    assert edited["ciphertext"] == mutation["ciphertext"]
+    assert service.mutate("alice", circle, sent["id"], mutation)["items"][0] == edited
+    assert service.send("alice", circle, original)["ciphertext"] == mutation["ciphertext"]
+    assert (
+        service.resolve("bob", circle, [sent["id"]])["items"][0]["ciphertext"]
+        == mutation["ciphertext"]
+    )
+    assert service.image("bob", circle, sent["id"])["ciphertext"] == original["imageCiphertext"]
+    with chat_db.engine.begin() as conn:
+        envelopes = (
+            conn.execute(
+                text(
+                    "SELECT recipient_user_id, envelope FROM circle_chat_recipients WHERE message_id = CAST(:id AS uuid)"
+                ),
+                {"id": sent["id"]},
+            )
+            .mappings()
+            .all()
+        )
+        assert {row["recipient_user_id"]: row["envelope"] for row in envelopes} == {
+            row["userId"]: row["envelope"] for row in original["recipients"]
+        }
+    with pytest.raises(CircleChatError) as error:
+        service.mutate(
+            "alice", circle, sent["id"], {**mutation, "ciphertext": _b64(36), "iv": _b64(12)}
+        )
+    assert error.value.status == 409
+    # Old sequences still synchronize without a new message or a doorbell.
+    assert service.messages("bob", circle, after=sent["sequence"])["items"] == []
+    assert service.updates("bob", circle, [sent["id"]])["states"][0]["revision"] == 1
+
+
+def test_reply_targets_require_original_epoch_and_survive_source_erasure(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("bob", circle, _payload(service, circle, "bob"))
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships(circle_id,user_id) VALUES(CAST(:circle AS uuid),'carol')"
+            ),
+            {"circle": circle},
+        )
+    reply = {**_payload(service, circle), "replyToMessageId": sent["id"]}
+    child = service.send("alice", circle, reply)
+    assert service.messages("alice", circle)["replyTargets"][0]["id"] == sent["id"]
+    assert service.messages("carol", circle)["items"][0]["id"] == child["id"]
+    assert service.messages("carol", circle)["replyTargets"] == []
+    assert service.resolve("carol", circle, [sent["id"]])["items"] == []
+    assert service.updates("carol", circle, [sent["id"]])["unavailableIds"] == [sent["id"]]
+    with pytest.raises(CircleChatError):
+        service.mutate("carol", circle, sent["id"], {}, scope="me")
+    with pytest.raises(CircleChatError):
+        service.send(
+            "carol", circle, {**_payload(service, circle, "carol"), "replyToMessageId": sent["id"]}
+        )
+    other_circle = str(uuid.uuid4())
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circles(id,owner_user_id,name) VALUES(CAST(:id AS uuid),'alice','Other')"
+            ),
+            {"id": other_circle},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships(circle_id,user_id) VALUES(CAST(:id AS uuid),'alice'),(CAST(:id AS uuid),'bob')"
+            ),
+            {"id": other_circle},
+        )
+    with pytest.raises(CircleChatError):
+        service.send(
+            "alice",
+            other_circle,
+            {**_payload(service, other_circle), "replyToMessageId": sent["id"]},
+        )
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_location_circle_memberships SET joined_at = clock_timestamp() + interval '1 second' WHERE circle_id = CAST(:circle AS uuid) AND user_id = 'bob'"
+            ),
+            {"circle": circle},
+        )
+    assert service.resolve("bob", circle, [sent["id"]])["items"] == []
+    with pytest.raises(CircleChatError):
+        service.mutate(
+            "bob",
+            circle,
+            sent["id"],
+            {"ciphertext": _b64(36), "iv": _b64(12), "expectedRevision": 0},
+        )
+    # Erasing an author must not rewrite authenticated references in other people's replies.
+    with chat_db.engine.begin() as conn:
+        conn.execute(text("DELETE FROM actor_profiles WHERE user_id = 'bob'"))
+    remaining = service.messages("alice", circle)
+    assert remaining["items"][0]["replyToMessageId"] == sent["id"]
+    assert remaining["items"][0]["id"] == child["id"]
+    assert remaining["replyTargets"] == []
+
+
+def test_private_and_global_delete_preserve_receipts_and_cannot_resurrect(chat_db, monkeypatch):
+    from hushh_mcp.services import chat_notification_state as notifications
+
+    sync = []
+    monkeypatch.setattr(
+        notifications, "sync_chat_read", lambda user, **kwargs: sync.append((user, kwargs)) or {}
+    )
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    original = _payload(service, circle)
+    sent = service.send("alice", circle, original)
+    assert service.state("bob", circle)["unreadCount"] == 1
+    service.mutate("bob", circle, sent["id"], {}, scope="me")
+    service.mutate("bob", circle, sent["id"], {}, scope="me")
+    assert service.messages("bob", circle)["items"] == []
+    assert service.resolve("bob", circle, [sent["id"]])["items"] == []
+    assert service.updates("bob", circle, [sent["id"]])["states"][0]["hidden"]
+    assert service.state("bob", circle)["unreadCount"] == 0
+    with chat_db.engine.begin() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT read_at FROM circle_chat_recipients WHERE message_id = CAST(:id AS uuid) AND recipient_user_id = 'bob'"
+                ),
+                {"id": sent["id"]},
+            ).scalar()
+            is None
+        )
+    assert service.messages("alice", circle)["items"][0]["id"] == sent["id"]
+    service.send("alice", circle, _payload(service, circle))
+    tombstone = {"ciphertext": _b64(40), "iv": _b64(12), "expectedRevision": 0}
+    with pytest.raises(CircleChatError):
+        service.mutate("bob", circle, sent["id"], tombstone, scope="everyone")
+    deleted = service.mutate("alice", circle, sent["id"], tombstone, scope="everyone")["items"][0]
+    assert deleted["deletedForEveryoneAt"] and not deleted["hasImage"]
+    assert deleted["ciphertext"] == tombstone["ciphertext"]
+    assert (
+        service.mutate("alice", circle, sent["id"], tombstone, scope="everyone")["items"][0]
+        == deleted
+    )
+    assert service.send("alice", circle, original)["deletedForEveryoneAt"]
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_location_recipient_keys SET status = 'rotated', encrypted_private_key_jwk = '{\"ciphertext\":\"opaque-backup\"}'::jsonb WHERE user_id = 'alice'"
+            )
+        )
+    assert service.key("alice", circle, "key-alice-123")["encryptedPrivateKeyJwk"] == {
+        "ciphertext": "opaque-backup"
+    }
+    with pytest.raises(CircleChatError):
+        service.image("alice", circle, sent["id"])
+    with pytest.raises(CircleChatError):
+        service.react("alice", circle, sent["id"], "❤️", True)
+    with pytest.raises(CircleChatError):
+        service.mutate("alice", circle, sent["id"], {**tombstone, "expectedRevision": 1})
+    assert all(call[1]["message_id"] == sent["id"] and "sequence" not in call[1] for call in sync)
+    with chat_db.engine.begin() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM feed_events WHERE event_type = 'location_circle_message'"
+                )
+            ).scalar()
+            == 1
+        )
+        assert conn.execute(
+            text(
+                "SELECT notification_previews = '{}'::jsonb AND image_ciphertext IS NULL FROM circle_chat_messages WHERE id = CAST(:id AS uuid)"
+            ),
+            {"id": sent["id"]},
+        ).scalar()
+    assert (
+        notifications.chat_notification_counts("bob", f"circle:{circle}", db=chat_db)[
+            "chat_unread_count"
+        ]
+        == "1"
+    )
+
+
+@pytest.mark.parametrize("action", ["reply", "edit", "me", "everyone"])
+def test_message_actions_refuse_lossy_schema_rollback(chat_db, monkeypatch, action):
+    from hushh_mcp.services import chat_notification_state as notifications
+
+    monkeypatch.setattr(notifications, "sync_chat_read", lambda *_args, **_kwargs: {})
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    original = _payload(service, circle)
+    sent = service.send("alice", circle, original)
+    raw = chat_db.engine.raw_connection()
+    raw.autocommit = True
+    try:
+        with raw.cursor() as cursor:
+            rollback = (
+                ROOT / "db/migrations/rollback/357_circle_chat_message_actions.rollback.sql"
+            ).read_text()
+            cursor.execute(rollback)
+            cursor.execute(rollback)
+            cursor.execute((ROOT / "db/migrations/357_circle_chat_message_actions.sql").read_text())
+            assert (
+                service.messages("alice", circle)["items"][0]["ciphertext"]
+                == original["ciphertext"]
+            )
+            if action == "reply":
+                service.send(
+                    "bob",
+                    circle,
+                    {**_payload(service, circle, "bob"), "replyToMessageId": sent["id"]},
+                )
+            else:
+                service.mutate(
+                    "alice",
+                    circle,
+                    sent["id"],
+                    {"ciphertext": _b64(32), "iv": _b64(12), "expectedRevision": 0},
+                    scope=action,
+                )
+            with pytest.raises(Exception, match="message actions exist; retain expanded storage"):
+                cursor.execute(rollback)
+            cursor.execute("ROLLBACK")
+            state = service.updates("alice", circle, [sent["id"]])["states"][0]
+            assert state["hidden"] == (action == "me")
+            assert state["revision"] == (1 if action in {"edit", "everyone"} else 0)
+    finally:
+        raw.close()
+
+
+@pytest.mark.parametrize("scope", ["edit", "everyone"])
+def test_mutation_waits_for_a_provider_send_that_already_passed_eligibility(
+    chat_db, monkeypatch, scope
+):
+    import time
+    from threading import Event
+
+    from firebase_admin import messaging
+
+    from api.utils import firebase_admin as firebase_bootstrap
+    from hushh_mcp.services import chat_notification_state
+    from hushh_mcp.services import push_tokens_service as tokens_module
+
+    monkeypatch.setattr(tokens_module, "get_db", lambda: chat_db)
+    monkeypatch.setattr(pushes, "get_db", lambda: chat_db)
+    monkeypatch.setattr(firebase_bootstrap, "ensure_firebase_admin", lambda: (True, "test"))
+    monkeypatch.setattr(chat_notification_state, "sync_chat_read", lambda *_args, **_kwargs: {})
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("alice", circle, _payload(service, circle))
+    tokens_module.PushTokensService().upsert_user_push_token("bob", "synthetic-device", "ios")
+    entered, release, mutating = Event(), Event(), Event()
+    attempts = []
+
+    def provider(push):
+        attempts.append(push.token)
+        entered.set()
+        assert release.wait(10)
+        return "accepted"
+
+    monkeypatch.setattr(messaging, "send", provider)
+    mutation = {"ciphertext": _b64(32), "iv": _b64(12), "expectedRevision": 0}
+
+    def change():
+        mutating.set()
+        return service.mutate("alice", circle, sent["id"], mutation, scope=scope)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        sending = pool.submit(pushes._dispatch_one)
+        try:
+            assert entered.wait(5)
+            changing = pool.submit(change)
+            assert mutating.wait(5)
+            waiting = False
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not changing.done():
+                with chat_db.engine.connect() as conn:
+                    waiting = bool(
+                        conn.execute(
+                            text(
+                                "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%UPDATE circle_chat_recipients%'"
+                            )
+                        ).scalar()
+                    )
+                if waiting:
+                    break
+                time.sleep(0.01)
+            assert waiting, (
+                "A mutation must not commit after eligibility but before the provider send"
+            )
+        finally:
+            release.set()
+        assert sending.result(timeout=5)
+        assert changing.result(timeout=5)["items"][0]["revision"] == 1
+    assert not pushes._dispatch_one()
+    assert attempts == ["synthetic-device"]
 
 
 def test_reactions_and_membership_events_follow_current_message_access(chat_db):
@@ -463,6 +775,46 @@ def test_key_rotation_pagination_push_lease_and_soft_delete(chat_db, monkeypatch
     raw.close()
 
 
+def test_message_action_routes_preserve_the_encrypted_contract(chat_db, monkeypatch):
+    from hushh_mcp.services import chat_notification_state
+
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("alice", circle, _payload(service, circle))
+    monkeypatch.setattr(chat_routes, "CircleChatService", lambda: service)
+    monkeypatch.setattr(chat_notification_state, "sync_chat_read", lambda *_args, **_kwargs: {})
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "alice"}
+    client = TestClient(app)
+    root = f"/api/one/circles/{circle}/chat/messages"
+    endpoint = root + "/" + sent["id"]
+    mutation = {"ciphertext": _b64(32), "iv": _b64(12), "expectedRevision": 0}
+    changed = client.patch(endpoint, json=mutation)
+    assert changed.status_code == 200
+    assert changed.json()["items"][0]["ciphertext"] == mutation["ciphertext"]
+    assert "no-store" in changed.headers["cache-control"]
+    states = client.post(root + "/updates", json={"messageIds": [sent["id"]]})
+    assert states.status_code == 200 and states.json()["states"][0]["revision"] == 1
+    resolved = client.post(root + "/resolve", json={"messageIds": [sent["id"]]})
+    assert (
+        resolved.status_code == 200
+        and resolved.json()["items"][0]["ciphertext"] == mutation["ciphertext"]
+    )
+    removed = client.request(
+        "DELETE",
+        endpoint,
+        json={
+            "scope": "everyone",
+            "tombstone": {"ciphertext": _b64(40), "iv": _b64(12), "expectedRevision": 1},
+        },
+    )
+    assert removed.status_code == 200 and removed.json()["items"][0]["deletedForEveryoneAt"]
+    hidden = client.request("DELETE", endpoint, json={"scope": "me"})
+    assert hidden.status_code == 200 and hidden.json() == {"hiddenId": sent["id"]}
+    assert client.post(root + "/resolve", json={"messageIds": [sent["id"]]}).json()["items"] == []
+
+
 def test_route_validation_does_not_echo_private_input():
     app = FastAPI()
     app.include_router(router)
@@ -487,6 +839,37 @@ def test_route_validation_does_not_echo_private_input():
         client.put(photo_endpoint, content=b"{}", headers={"Content-Length": "430001"}).status_code
         == 413
     )
+    mutation_endpoint = endpoint + f"/{uuid.uuid4()}"
+    for method, url, payload in [
+        (
+            "patch",
+            mutation_endpoint,
+            {
+                "ciphertext": "PRIVATE_INPUT_MUST_NOT_ECHO",
+                "iv": _b64(12),
+                "expectedRevision": 0,
+                "recipients": [],
+            },
+        ),
+        (
+            "patch",
+            mutation_endpoint,
+            {"ciphertext": _b64(32), "iv": _b64(12), "expectedRevision": True},
+        ),
+        ("delete", mutation_endpoint, {"scope": "everyone"}),
+        (
+            "delete",
+            mutation_endpoint,
+            {"scope": "me", "tombstone": {"ciphertext": "PRIVATE_INPUT_MUST_NOT_ECHO"}},
+        ),
+        ("post", endpoint + "/resolve", {"messageIds": []}),
+        ("post", endpoint + "/resolve", {"messageIds": [str(uuid.uuid4())] * 41}),
+        ("post", endpoint + "/updates", {"messageIds": [str(uuid.uuid4())] * 601}),
+    ]:
+        response = client.request(method, url, json=payload)
+        assert response.status_code == 422
+        assert "PRIVATE_INPUT" not in response.text
+        assert "no-store" in response.headers["cache-control"]
 
 
 def test_reaction_route_rejects_unsupported_emoji_before_database_access():

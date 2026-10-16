@@ -239,7 +239,11 @@
       "image_iv",
       "request_digest",
       "created_at",
-      "notification_previews"
+      "notification_previews",
+      "reply_to_message_id",
+      "revision",
+      "edited_at",
+      "deleted_for_everyone_at"
     ],
     "circle_chat_preferences": [
       "circle_id",
@@ -262,7 +266,8 @@
       "feed_event_id",
       "push_status",
       "push_attempts",
-      "push_due_at"
+      "push_due_at",
+      "deleted_at"
     ],
     "connected_documents": [
       "document_id",

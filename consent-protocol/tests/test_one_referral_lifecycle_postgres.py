@@ -55,7 +55,7 @@ def db(monkeypatch):
                 operation_type TEXT NOT NULL,metadata JSONB NOT NULL DEFAULT '{}');
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
             """)
-            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348, 349, 357):
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348, 349, 358):
                 path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
                 conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
 

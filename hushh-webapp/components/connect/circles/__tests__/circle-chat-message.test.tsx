@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import { CircleChatMessage, type OpenChatMessage } from "../circle-chat-message";
+import { ChatSharedFile } from "../circle-chat-media";
 
-const api = vi.hoisted(() => ({ react: vi.fn() }));
+const api = vi.hoisted(() => ({ react: vi.fn(), image: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
 
 const session = { circleId: "circle-1", userId: "alice", vaultOwnerToken: "token", vaultKey: "key" };
@@ -11,14 +12,36 @@ const message: OpenChatMessage = {
   createdAt: "2026-10-10T08:00:00Z", ciphertext: "cipher", iv: "iv", hasImage: false,
   envelope: {} as OpenChatMessage["envelope"], content: { text: "Hello" }, failed: false, reactions: [],
 };
-beforeEach(() => { api.react.mockReset(); window.localStorage.clear(); });
+beforeEach(() => { api.react.mockReset(); api.image.mockReset(); window.localStorage.clear(); });
 
-test("Circle reaction picker saves immediately, toggles a pill, and closes outside", async () => {
+test("deleting or revoking a file while it downloads cancels it and discards late bytes", async () => {
+  let finish!: (blob: Blob) => void;
+  api.image.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const allocate = vi.spyOn(URL, "createObjectURL");
+  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  const error = vi.fn();
+  const view = render(<ChatSharedFile session={session} message={message} type="application/pdf" name="private.pdf" onError={error} />);
+  const button = screen.getByRole("button", { name: "Download document" });
+  fireEvent.click(button); fireEvent.click(button);
+  expect(api.image).toHaveBeenCalledTimes(1);
+  const signal = api.image.mock.calls[0]![3] as AbortSignal;
+  view.unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish(new Blob(["private bytes"])));
+  expect(allocate).not.toHaveBeenCalled();
+  expect(download).not.toHaveBeenCalled();
+  expect(error).not.toHaveBeenCalled();
+  allocate.mockRestore(); download.mockRestore();
+});
+
+test("Circle smiley opens the reaction picker, saves immediately, toggles a pill, and closes outside", async () => {
   let resolve!: (value: { messageId: string; reactions: NonNullable<OpenChatMessage["reactions"]> }) => void;
   api.react.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   render(<CircleChatMessage message={message} session={session} visible layoutBlocked={false}
     scrollRoot={{ current: null }} onMediaError={() => {}} onViewerChange={() => {}} />);
-  fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+  const trigger = screen.getByRole("button", { name: "React to message" });
+  expect(trigger.textContent).toBe("☺");
+  fireEvent.click(trigger);
   expect(screen.getByRole("dialog", { name: "Emoji picker" })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog", { name: "Emoji picker" })).toBeNull();
@@ -27,6 +50,9 @@ test("Circle reaction picker saves immediately, toggles a pill, and closes outsi
   fireEvent.click(screen.getByRole("button", { name: "Use ❤️", exact: true }));
   expect(screen.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeTruthy();
   expect(api.react).toHaveBeenCalledWith(session, message, "❤️", true);
+  expect(trigger.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(trigger);
+  expect(api.react).toHaveBeenCalledTimes(1);
   await act(async () => resolve({ messageId: message.id, reactions: [{ emoji: "❤️", count: 2, reactedByViewer: true }] }));
   expect(screen.getByRole("button", { name: "❤️, 2 reactions, you reacted" })).toBeTruthy();
   api.react.mockResolvedValueOnce({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: false }] });
