@@ -1047,8 +1047,9 @@ for (const width of [390, 768, 1024]) {
     await settled();
     await page.keyboard.press("Escape");
     await expect(connectors).not.toBeVisible();
-    // Escape dismisses the modal owner; it does not invoke Back-to-chats.
-    // The next explicit open must use the reset History mode.
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+    await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
+    await page.keyboard.press("Escape");
     await expect(chats).not.toBeVisible();
     await hamburger.click();
     await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
