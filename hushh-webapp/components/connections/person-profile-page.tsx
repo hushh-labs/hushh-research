@@ -31,6 +31,7 @@ import {
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
 import { RequestCardsButton } from "@/components/wallet/request-cards-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
@@ -128,6 +129,23 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const [packetCatalogAvailable, setPacketCatalogAvailable] = useState(false);
+  useEffect(() => {
+    if (!isVaultUnlocked || !vaultOwnerToken) {
+      setPacketCatalogAvailable(false);
+      return;
+    }
+    let current = true;
+    setPacketCatalogAvailable(false);
+    void ExternalConnectorService.overview(vaultOwnerToken)
+      .then((overview) => {
+        if (current) setPacketCatalogAvailable(overview.driveAgentPackagesEnabled === true);
+      })
+      .catch(() => {
+        if (current) setPacketCatalogAvailable(false);
+      });
+    return () => { current = false; };
+  }, [isVaultUnlocked, vaultOwnerToken]);
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
@@ -651,12 +669,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return { status: "started", summary: "Opening the Consent Center." };
   }, { enabled: Boolean(viewerProfile) });
   useLocalOnboardingActionHandler("people.profile.browse_packets", async () => {
-    if (!packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
+    if (!packetCatalogAvailable || !packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
       return { status: "blocked", summary: "Connect with this person and unlock to view available packets." };
     }
     packetsSectionRef.current.scrollIntoView({ block: "start", behavior: "auto" });
     return { status: "succeeded", summary: "Showing available document packets." };
-  }, { enabled: viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
+  }, { enabled: packetCatalogAvailable && viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
 
   const surfaceActions = useMemo(() => {
     if (!viewerProfile) return [];
@@ -681,10 +699,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
-      if (isVaultUnlocked) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
+      if (isVaultUnlocked && packetCatalogAvailable) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
     return actions;
-  }, [isVaultUnlocked, viewerProfile]);
+  }, [isVaultUnlocked, packetCatalogAvailable, viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -866,7 +884,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 ) : null}
                 {viewerProfile.relationship.status === "connected" ? <><DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} />
                   <RequestCardsButton key={`${user?.uid}:${resolvedPersonRef}`} personRef={resolvedPersonRef} personName={profile.displayName || "this person"} className={styles.requestCards} />
-                  {isVaultUnlocked && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
+                  {isVaultUnlocked && packetCatalogAvailable && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
                 </> : null}
               </>
             ) : null}
@@ -886,7 +904,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         </SectionCard>
 
         {/* Their listed packets read like Payouts history: the list is its own group, not a card in a card. */}
-        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
+        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
 
         {!user && !authLoading ? (
           <SectionCard>

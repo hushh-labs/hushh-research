@@ -104,6 +104,36 @@ async def test_selection_is_not_background_consent(ingestion):
 
 
 @pytest.mark.asyncio
+async def test_indexing_kill_switch_prevents_new_selected_claim(ingestion, monkeypatch):
+    await pick(ingestion)
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+
+@pytest.mark.asyncio
+async def test_package_switch_preserves_selected_claim(ingestion, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    await pick(ingestion)
+    assert await ingestion.claim(user_id="owner", generation=1) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disabled_by", ["cohort", "indexing"])
+async def test_disabled_claim_still_rejects_wrong_owner_and_generation(
+    ingestion, monkeypatch, disabled_by
+):
+    await pick(ingestion)
+    if disabled_by == "cohort":
+        monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "someone-else")
+    else:
+        monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+    for owner, generation in (("another-owner", 1), ("owner", 2)):
+        with pytest.raises(DriveReadError, match="connection_changed"):
+            await ingestion.claim(user_id=owner, generation=generation)
+
+
+@pytest.mark.asyncio
 async def test_disable_reenable_cannot_publish_pre_disable_work(ingestion):
     old = await job(ingestion)
     for enabled in (False, True):
@@ -546,6 +576,7 @@ async def collection(ingestion, monkeypatch):
     from hushh_mcp.services.google_drive_adapter import DRIVE_POLICY, LIVE_POLICY_HASH
 
     monkeypatch.setenv("GOOGLE_DRIVE_LIVE", "true")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     sql = (
         Path(__file__).resolve().parents[2] / "db/migrations/241_drive_live_sharing.sql"
     ).read_text()
@@ -601,6 +632,23 @@ async def seed_collection(collection, *, files=None):
         phase="changes",
         caught_up=True,
     )
+
+
+async def test_package_switch_keeps_quiesced_live_collection_unclaimed(
+    collection, ingestion, monkeypatch
+):
+    await seed_collection(collection)
+    with ingestion.db.engine.begin() as conn:
+        conn.execute(text("UPDATE drive_collection_sync SET processing_enabled=FALSE"))
+        conn.execute(text("UPDATE connected_documents SET processing_enabled=FALSE"))
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await ingestion.claim(user_id="owner", generation=2)
+    with ingestion.db.engine.connect() as conn:
+        row = conn.execute(text("SELECT status,lease_id FROM connected_documents")).mappings().one()
+    assert row["status"] == "queued" and row["lease_id"] is None
 
 
 async def test_live_discovery_retires_unsupported_mime_and_source_change_requeues(

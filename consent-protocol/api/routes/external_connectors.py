@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -31,7 +32,10 @@ from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
-from hushh_mcp.services.connector_feature_admission import connector_features
+from hushh_mcp.services.connector_feature_admission import (
+    connector_feature_enabled,
+    connector_features,
+)
 from hushh_mcp.services.curated_connector_manifest import all_catalog_entries, get_manifest
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
@@ -161,6 +165,7 @@ class ConnectorSummary(BaseModel):
 class ConnectorsResponse(BaseModel):
     connectors: list[ConnectorSummary]
     features: dict[str, bool] = Field(default_factory=dict)
+    driveAgentPackagesEnabled: bool = False
 
 
 class RegisterConnectorRequest(BaseModel):
@@ -987,7 +992,12 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
             )
         )
 
-    result = ConnectorsResponse(features=connector_features(user_id), connectors=result_connectors)
+    result = ConnectorsResponse(
+        features=connector_features(user_id),
+        connectors=result_connectors,
+        driveAgentPackagesEnabled=os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower()
+        == "true",
+    )
     # Deactivation stops new execution, not owner recovery. The registry may
     # disappear from the active catalog while this owner still has a grant.
     if "google_drive" in statuses and not any(
@@ -1276,6 +1286,12 @@ async def drive_collection_status(
     from hushh_mcp.services.drive_collection_store import DriveCollectionStore
 
     response.headers["Cache-Control"] = "no-store"
+    if os.getenv(
+        "DRIVE_AGENT_PACKAGES_ENABLED", ""
+    ).strip().lower() != "true" or not connector_feature_enabled(
+        "drive_document_indexing", _user_id(token_data)
+    ):
+        raise HTTPException(status_code=403, detail="Drive collection unavailable")
     try:
         return await DriveCollectionStore().status(user_id=_user_id(token_data))
     except DriveReadError as error:
@@ -1291,6 +1307,11 @@ async def drive_collection_processing(
     from hushh_mcp.services.drive_collection_store import DriveCollectionStore
 
     response.headers["Cache-Control"] = "no-store"
+    if body.enabled and (
+        os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+        or not connector_feature_enabled("drive_document_indexing", _user_id(token_data))
+    ):
+        raise HTTPException(status_code=403, detail="Drive collection unavailable")
     try:
         return await DriveCollectionStore().set_processing(
             user_id=_user_id(token_data), enabled=body.enabled, disclosure=body.disclosure

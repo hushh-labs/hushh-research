@@ -9,6 +9,30 @@ from fastapi import HTTPException
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
+@pytest.fixture(autouse=True)
+def enable_selected_indexing_for_worker_readiness(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+
+
+@pytest.mark.asyncio
+async def test_worker_without_indexing_needs_no_model_or_scanner(monkeypatch, tmp_path):
+    import server_drive_worker as worker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
+    query = AsyncMock()
+    check_ready = AsyncMock()
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
+
+    async with worker.lifespan(worker.app):
+        assert await worker.ready() == {"status": "ready"}
+    query.assert_not_awaited()
+    check_ready.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_worker_startup_fails_closed_without_baked_model(monkeypatch, tmp_path):
     import server_drive_worker as worker

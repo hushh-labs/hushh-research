@@ -2260,10 +2260,8 @@ async def test_request_start_replans_only_unfrozen_pending_legacy_search(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("history", ["legacy", "current", "frozen"])
-async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
-    request_bulk, sharing, history
-):
+@pytest.mark.parametrize("history", ["legacy", "marked_v1", "current", "frozen"])
+async def test_statement_replan_preserves_existing_worker_lane(request_bulk, sharing, history):
     request = await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
             "trusted-member",
@@ -2282,6 +2280,28 @@ async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
         ),
     )
     request_id = request["requestId"]
+    # This job models a request created before the restored demo policy.
+    # New requests retain their Gemini-authored plan and must not replan.
+    with sharing.db.engine.begin() as connection:
+        row = request_bulk._row(
+            connection,
+            "SELECT * FROM drive_share_requests WHERE request_id=:request",
+            {"request": request_id},
+        )
+        private = sharing._open_request(row)
+        private.pop("legacy_request_policy", None)
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET request_envelope=CAST(:envelope AS jsonb) "
+                "WHERE request_id=:request"
+            ),
+            {
+                "request": request_id,
+                "envelope": request_bulk._seal(
+                    private, user_id="owner", resource_id=request_id, purpose="request"
+                ),
+            },
+        )
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
     # A real legacy checkpoint contains its original provider query. Omitting
     # arguments altogether describes a malformed job, which must not replan.
@@ -2303,6 +2323,14 @@ async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
             "request_owner_review_required": True,
         }
     old_job = _search(request_bulk, request_id=request_id, count=1, selection=selection)
+    if history == "marked_v1":
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"
+                ),
+                {"job": old_job},
+            )
     if history == "frozen":
         await request_bulk.create_review(
             user_id="owner",
@@ -2315,18 +2343,19 @@ async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
         )
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
     store = DriveOwnerSearchStore(db=sharing.db)
-    _, changed = await DriveOwnerSearchService(store=store).replan_legacy_statement_request(
-        user_id="owner", request_id=request_id, context=context
-    )
-    assert changed is (history != "frozen")
+    _, changed, worker_stage = await DriveOwnerSearchService(
+        store=store
+    ).replan_legacy_statement_request(user_id="owner", request_id=request_id, context=context)
+    assert changed is (history in {"legacy", "marked_v1"})
+    assert worker_stage == ("v1" if history == "marked_v1" else "suggestions")
     with sharing.db.engine.begin() as connection:
         marked = connection.execute(
             text("SELECT v1_statement_search FROM drive_owner_search_jobs WHERE job_id=:job"),
             {"job": old_job},
         ).scalar_one()
-    assert marked is (history != "frozen")
+    assert marked is (history == "marked_v1")
     due = await store.due(v1_only=True)
-    assert [str(row["job_id"]) for row in due] == ([old_job] if history == "legacy" else [])
+    assert [str(row["job_id"]) for row in due] == ([old_job] if history == "marked_v1" else [])
 
 
 @pytest.mark.asyncio

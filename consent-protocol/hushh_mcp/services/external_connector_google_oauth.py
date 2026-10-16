@@ -596,6 +596,10 @@ class ExternalConnectorGoogleOAuth:
 
     async def _prepare_drive_collection(self, user_id: str) -> None:
         """Start private preparation after verified OAuth; scheduled work recovers."""
+        if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
+            return
+        if not connector_feature_enabled("drive_document_indexing", user_id):
+            return
         try:
             async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
                 from hushh_mcp.services.drive_collection_store import DriveCollectionStore
