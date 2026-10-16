@@ -35,10 +35,10 @@ _CLOSED_WHEN_EXPIRED = frozenset({"pending", "preparing", "review_ready", "appro
 _UNPAID_ORDER_STATUSES = frozenset({"awaiting_payment", "checkout_open", "expired"})
 
 
-def _v1_filter(v1_only: bool, alias: str = "") -> str:
+def _require_v1_mode(v1_only: bool) -> bool:
     if type(v1_only) is not bool:
         raise ValueError("invalid owner payout worker mode")
-    return f"AND {alias}v1_statement_search=TRUE" if v1_only else ""
+    return v1_only
 
 
 def _v1_allowed(payout: dict | None, v1_only: bool) -> bool:
@@ -701,16 +701,20 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     async def reconcile_due(self, *, max_orders: int = 20, v1_only: bool = False) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout reconciliation bound")
-        v1_filter = _v1_filter(v1_only)
+        v1_only = _require_v1_mode(v1_only)
         candidates = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text(f"""SELECT request_id FROM drive_request_owner_payouts
+                    text("""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('awaiting_delivery','awaiting_refund')
-                {v1_filter}
+                AND (NOT :v1_only OR v1_statement_search=TRUE)
               ORDER BY updated_at,request_id LIMIT :scan"""),
-                    {"scan": max_orders * 4, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "scan": max_orders * 4,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 ).all()
             ]
         )
@@ -749,12 +753,12 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     async def resolve_processing_fees(self, *, max_orders: int = 20, v1_only: bool = False) -> int:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout fee bound")
-        v1_filter = _v1_filter(v1_only, "p.")
+        v1_only = _require_v1_mode(v1_only)
         claims = await self._transaction(
             lambda c: [
                 dict(row)
                 for row in c.execute(
-                    text(f"""SELECT p.request_id,p.gross_amount_cents,p.retained_amount_cents,
+                    text("""SELECT p.request_id,p.gross_amount_cents,p.retained_amount_cents,
                 p.refund_amount_cents,p.platform_fee_cents,
                 COALESCE(o.stripe_payment_intent_id,p.stripe_payment_intent_id)
                   AS stripe_payment_intent_id
@@ -762,7 +766,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
               JOIN drive_request_payment_obligations b ON b.request_id=p.request_id
               LEFT JOIN drive_request_payment_orders o ON o.request_id=p.request_id
               WHERE p.status='awaiting_fee' AND p.stripe_mode=:stripe_mode AND b.stripe_mode=p.stripe_mode
-                {v1_filter}
+                AND (NOT :v1_only OR p.v1_statement_search=TRUE)
                 AND p.next_check_at<=clock_timestamp()
                 AND b.status='paid' AND b.reconciliation_required=FALSE
                 AND ((p.erased_at IS NULL AND o.status='paid'
@@ -773,7 +777,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                   AND b.delivery_unsettled_at_erasure=FALSE
                   AND b.stripe_payment_intent_id=p.stripe_payment_intent_id))
               ORDER BY p.updated_at,p.request_id LIMIT :limit"""),
-                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": max_orders,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 )
                 .mappings()
                 .all()
@@ -960,18 +968,18 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     async def reconcile_coin_sources(self, *, max_orders: int = 20, v1_only: bool = False) -> int:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid coin reconciliation bound")
-        v1_filter = _v1_filter(v1_only)
+        v1_only = _require_v1_mode(v1_only)
         claims = await self._transaction(
             lambda c: [
                 dict(row)
                 for row in c.execute(
-                    text(f"""
+                    text("""
           SELECT * FROM drive_request_owner_payouts WHERE settlement_method='hashcoins'
           AND stripe_mode=:mode AND status IN ('hashcoins_credited','hashcoins_held')
-          {v1_filter}
+          AND (NOT :v1_only OR v1_statement_search=TRUE)
           AND next_check_at<=clock_timestamp() ORDER BY next_check_at,request_id LIMIT :limit
           """),
-                    {"mode": configured_stripe_mode(), "limit": max_orders},
+                    {"mode": configured_stripe_mode(), "limit": max_orders, "v1_only": v1_only},
                 )
                 .mappings()
                 .all()
@@ -1172,7 +1180,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     async def transfer_due(self, *, max_orders: int = 20, v1_only: bool = False) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout transfer bound")
-        v1_filter = _v1_filter(v1_only)
+        v1_only = _require_v1_mode(v1_only)
         outcomes = {"claimed": 0, "transferred": 0, "unknown": 0, "manual_review": 0}
         # The switch controls enrollment and new Checkout. Once an earning is
         # enrolled and paid, disabling enrollment cannot strand that obligation.
@@ -1181,9 +1189,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text(f"""SELECT request_id FROM drive_request_owner_payouts
+                    text("""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND settlement_method='stripe_transfer'
-                {v1_filter}
+                AND (NOT :v1_only OR v1_statement_search=TRUE)
                 AND (status IN ('dispatching','unknown') OR
                 (:allow_new AND status IN ('due','awaiting_account')))
                 AND next_check_at<=clock_timestamp()
@@ -1193,6 +1201,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                         "limit": max_orders * 4,
                         "allow_new": allow_new,
                         "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
                     },
                 ).all()
             ]
@@ -1635,20 +1644,24 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         """Rotate transferred charges daily for later refunds and disputes."""
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid external debit bound")
-        v1_filter = _v1_filter(v1_only)
+        v1_only = _require_v1_mode(v1_only)
         ids = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text(f"""SELECT request_id FROM drive_request_owner_payouts
+                    text("""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('transferred','manual_review')
-                {v1_filter}
+                AND (NOT :v1_only OR v1_statement_search=TRUE)
                 AND stripe_transfer_id IS NOT NULL
                 AND stripe_charge_id IS NOT NULL
                 AND stripe_payment_intent_id IS NOT NULL
                 AND next_check_at<=clock_timestamp()
               ORDER BY next_check_at,request_id LIMIT :limit"""),
-                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": max_orders,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 ).all()
             ]
         )
@@ -1660,12 +1673,12 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             claim = await self._transaction(
                 lambda c, request_id=request_id: self._row(
                     c,
-                    f"""SELECT request_id,status,gross_amount_cents,refund_amount_cents,
+                    """SELECT request_id,status,gross_amount_cents,refund_amount_cents,
                     owner_earning_cents,destination_account_id,stripe_transfer_id,
                     stripe_charge_id,stripe_payment_intent_id
                   FROM drive_request_owner_payouts WHERE request_id=:request
-                    {v1_filter}""",
-                    {"request": request_id},
+                    AND (NOT :v1_only OR v1_statement_search=TRUE)""",
+                    {"request": request_id, "v1_only": v1_only},
                 )
             )
             if claim is None or claim["status"] not in {"transferred", "manual_review"}:
@@ -1744,9 +1757,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     ) -> str:
         row = self._row(
             connection,
-            "SELECT status"
-            + (",v1_statement_search" if v1_only else "")
-            + " FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
+            "SELECT status,v1_statement_search FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
         if (
@@ -1788,19 +1799,23 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     ) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid reversal bound")
-        v1_filter = _v1_filter(v1_only)
+        v1_only = _require_v1_mode(v1_only)
         ids = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text(f"""SELECT request_id FROM drive_request_owner_payouts
+                    text("""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('reversal_due','reversal_unknown')
-                {v1_filter}
+                AND (NOT :v1_only OR v1_statement_search=TRUE)
                 AND next_check_at<=clock_timestamp()
                 AND (reversal_lease_expires_at IS NULL OR
                      reversal_lease_expires_at<=clock_timestamp())
               ORDER BY next_check_at,request_id LIMIT :limit"""),
-                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": max_orders,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 ).all()
             ]
         )

@@ -108,26 +108,31 @@ def _record_new_owner_payout(
         )
 
 
-# Keep the V1 checkout predicate tied to the current request revision and the
-# exact recipient. Refunds use the durable obligation marker after these live
-# search and batch rows have been purged.
-_V1_APPROVED_BATCH_EXISTS_SQL = """EXISTS (
-  SELECT 1 FROM drive_bulk_shares b
-  JOIN drive_owner_search_jobs j
-    ON j.job_id=b.search_job_id AND j.user_id=b.user_id
-  JOIN drive_bulk_share_recipients recipient ON recipient.share_id=b.share_id
-  WHERE b.origin_request_id=r.request_id
-    AND b.origin_request_revision=r.revision
-    AND b.user_id=r.user_id
-    AND j.v1_statement_search=TRUE
-    AND j.expires_at>clock_timestamp()
-    AND b.progressive_batch=TRUE
-    AND b.approval_source='owner' AND b.approved_at IS NOT NULL
-    AND b.expires_at>clock_timestamp()
-    AND b.file_count>0 AND b.recipient_count=1
-    AND recipient.recipient_user_id=r.recipient_user_id
-    AND b.status IN ('queued','running','completed','partial')
-)"""
+# Checkout verifies the live, exact owner-approved batch. Refunds use the
+# durable obligation marker after request, search and share retention.
+_V1_APPROVED_BATCH_REQUEST_SQL = text("""SELECT EXISTS (
+  SELECT 1 FROM drive_share_requests r
+  WHERE r.request_id=:request AND r.recipient_user_id=:requester
+    AND r.user_id=COALESCE(:owner,r.user_id)
+    AND r.revision=COALESCE(:revision,r.revision)
+    AND EXISTS (
+      SELECT 1 FROM drive_bulk_shares b
+      JOIN drive_owner_search_jobs j
+        ON j.job_id=b.search_job_id AND j.user_id=b.user_id
+      JOIN drive_bulk_share_recipients recipient ON recipient.share_id=b.share_id
+      WHERE b.origin_request_id=r.request_id
+        AND b.origin_request_revision=r.revision
+        AND b.user_id=r.user_id
+        AND j.v1_statement_search=TRUE
+        AND j.expires_at>clock_timestamp()
+        AND b.progressive_batch=TRUE
+        AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+        AND b.expires_at>clock_timestamp()
+        AND b.file_count>0 AND b.recipient_count=1
+        AND recipient.recipient_user_id=r.recipient_user_id
+        AND b.status IN ('queued','running','completed','partial')
+    )
+)""")
 
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
@@ -205,13 +210,11 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         if type(v1_only) is not bool:
             raise ValueError("invalid checkout preparation mode")
 
-        v1_filter = f"AND {_V1_APPROVED_BATCH_EXISTS_SQL}" if v1_only else ""
-
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text(f"""SELECT o.request_id::text AS request_id,o.requester_user_id
+                    text("""SELECT o.request_id::text AS request_id,o.requester_user_id
                       FROM drive_request_payment_orders o
                       JOIN drive_share_requests r ON r.request_id=o.request_id
                       WHERE o.status='awaiting_payment' AND o.stripe_mode=:stripe_mode
@@ -235,9 +238,32 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                                 AND b.approved_at IS NOT NULL
                                 AND b.status IN ('queued','running','completed','partial')))
                         ))
-                        {v1_filter}
+                        AND (NOT :v1_only OR EXISTS (
+                          SELECT 1 FROM drive_bulk_shares v1_batch
+                          JOIN drive_owner_search_jobs v1_search
+                            ON v1_search.job_id=v1_batch.search_job_id
+                            AND v1_search.user_id=v1_batch.user_id
+                          JOIN drive_bulk_share_recipients v1_recipient
+                            ON v1_recipient.share_id=v1_batch.share_id
+                          WHERE v1_batch.origin_request_id=r.request_id
+                            AND v1_batch.origin_request_revision=r.revision
+                            AND v1_batch.user_id=r.user_id
+                            AND v1_search.v1_statement_search=TRUE
+                            AND v1_search.expires_at>clock_timestamp()
+                            AND v1_batch.progressive_batch=TRUE
+                            AND v1_batch.approval_source='owner'
+                            AND v1_batch.approved_at IS NOT NULL
+                            AND v1_batch.expires_at>clock_timestamp()
+                            AND v1_batch.file_count>0 AND v1_batch.recipient_count=1
+                            AND v1_recipient.recipient_user_id=r.recipient_user_id
+                            AND v1_batch.status IN ('queued','running','completed','partial')
+                        ))
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": limit,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 )
                 .mappings()
                 .all()
@@ -294,10 +320,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         """Require the live server-marked job and exact owner-approved batch."""
         return bool(
             connection.execute(
-                text(f"""SELECT {_V1_APPROVED_BATCH_EXISTS_SQL}
-                  FROM drive_share_requests r WHERE r.request_id=:request
-                    AND r.user_id=:owner AND r.recipient_user_id=:requester
-                    AND r.revision=:revision"""),
+                _V1_APPROVED_BATCH_REQUEST_SQL,
                 {
                     "request": request["request_id"],
                     "owner": request["user_id"],
@@ -314,10 +337,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         def operation(connection):
             return bool(
                 connection.execute(
-                    text(f"""SELECT {_V1_APPROVED_BATCH_EXISTS_SQL}
-                      FROM drive_share_requests r
-                      WHERE r.request_id=:request AND r.recipient_user_id=:requester"""),
-                    {"request": request_id, "requester": requester_user_id},
+                    _V1_APPROVED_BATCH_REQUEST_SQL,
+                    {
+                        "request": request_id,
+                        "requester": requester_user_id,
+                        "owner": None,
+                        "revision": None,
+                    },
                 ).scalar_one_or_none()
             )
 
@@ -835,30 +861,29 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         if type(v1_only) is not bool:
             raise ValueError("invalid repair mode")
 
-        v1_join = (
-            "JOIN drive_request_payment_obligations obligation "
-            "ON obligation.request_id=o.request_id"
-            if v1_only
-            else ""
-        )
-        v1_filter = "AND obligation.v1_statement_search=TRUE" if v1_only else ""
-
         def operation(connection):
             from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
             from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
             candidates = (
                 connection.execute(
-                    text(f"""SELECT r.request_id,r.user_id,r.recipient_user_id
+                    text("""SELECT r.request_id,r.user_id,r.recipient_user_id
                   FROM drive_request_payment_orders o
                   JOIN drive_share_requests r ON r.request_id=o.request_id
-                  {v1_join}
                   WHERE o.status='paid' AND o.reconciliation_required=FALSE AND o.stripe_mode=:stripe_mode
                     AND r.payment_required=TRUE
                     AND r.status IN ('pending','approved','partial')
-                    {v1_filter}
+                    AND (NOT :v1_only OR EXISTS (
+                      SELECT 1 FROM drive_request_payment_obligations obligation
+                      WHERE obligation.request_id=o.request_id
+                        AND obligation.v1_statement_search=TRUE
+                    ))
                   ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": limit,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 )
                 .mappings()
                 .all()

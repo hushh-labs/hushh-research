@@ -902,23 +902,22 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if type(v1_only) is not bool:
             raise ValueError("invalid search worker mode")
         await self.purge()
-        v1_clause = "AND v1_statement_search" if v1_only else ""
 
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text(f"""
+                    text("""
                 WITH due AS (SELECT job_id FROM drive_owner_search_jobs
                   WHERE status IN ('queued','running') AND expires_at>clock_timestamp()
                     AND next_at<=clock_timestamp()
                     AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
-                    {v1_clause}
+                    AND (:v1_only = FALSE OR v1_statement_search=TRUE)
                   ORDER BY inspected_at,created_at,job_id LIMIT :limit FOR UPDATE SKIP LOCKED)
                 UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
                   FROM due WHERE j.job_id=due.job_id RETURNING j.job_id,j.user_id
             """),
-                    {"limit": min(max(limit, 1), 20)},
+                    {"limit": min(max(limit, 1), 20), "v1_only": v1_only},
                 ).mappings()
             ]
 

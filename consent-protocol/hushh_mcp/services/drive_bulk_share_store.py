@@ -2675,20 +2675,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         if type(v1_only) is not bool:
             raise ValueError("invalid bulk worker mode")
 
-        v1_filter = (
-            """AND b.v1_statement_search=TRUE
-               AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
-               AND b.approval_source='owner' AND b.approved_at IS NOT NULL
-               AND b.file_count>0 AND b.recipient_count=1"""
-            if v1_only
-            else ""
-        )
-
         def operation(connection):
             return [
                 dict(item)
                 for item in connection.execute(
-                    text(f"""
+                    text("""
                     WITH due AS (
                       SELECT e.share_id,e.position,e.recipient_user_id
                       FROM drive_bulk_share_effects e
@@ -2698,7 +2689,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                         AND e.next_at<=clock_timestamp()
                         AND (e.lease_id IS NULL OR e.lease_expires_at<=clock_timestamp())
                         AND b.expires_at>clock_timestamp()
-                        {v1_filter}
+                        AND (:v1_only = FALSE OR (
+                          b.v1_statement_search=TRUE
+                          AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
+                          AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+                          AND b.file_count>0 AND b.recipient_count=1))
                       ORDER BY e.inspected_at,e.share_id,e.position,e.recipient_user_id
                       LIMIT :limit FOR UPDATE OF e SKIP LOCKED
                     )
@@ -2707,7 +2702,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND e.recipient_user_id=due.recipient_user_id
                     RETURNING e.share_id,e.user_id,e.position,e.recipient_user_id,e.state
                     """),
-                    {"limit": limit},
+                    {"limit": limit, "v1_only": v1_only},
                 ).mappings()
             ]
 
@@ -3445,20 +3440,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         if type(v1_only) is not bool:
             raise ValueError("invalid notification mode")
 
-        v1_filter = (
-            """AND b.v1_statement_search=TRUE
-               AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
-               AND b.approval_source='owner' AND b.approved_at IS NOT NULL
-               AND b.file_count>0 AND b.recipient_count=1"""
-            if v1_only
-            else ""
-        )
-
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text(f"""
+                    text("""
                     SELECT n.share_id,n.user_id,n.recipient_user_id,n.state
                       FROM drive_bulk_share_notifications n
                     JOIN drive_bulk_shares b ON b.share_id=n.share_id
@@ -3466,11 +3452,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND n.next_at<=clock_timestamp()
                       AND (n.lease_id IS NULL OR n.lease_expires_at<=clock_timestamp())
                       AND b.expires_at>clock_timestamp()
-                      {v1_filter}
+                      AND (:v1_only = FALSE OR (
+                        b.v1_statement_search=TRUE
+                        AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
+                        AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+                        AND b.file_count>0 AND b.recipient_count=1))
                     ORDER BY n.next_at,n.share_id,n.recipient_user_id
                     LIMIT :limit FOR UPDATE OF n SKIP LOCKED
                     """),
-                    {"limit": limit},
+                    {"limit": limit, "v1_only": v1_only},
                 ).mappings()
             ]
 
