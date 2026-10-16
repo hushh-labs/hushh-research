@@ -21,6 +21,7 @@ import {
   ProfilePaneWorldModelIcon,
 } from "@/components/profile/profile-pane-icons";
 import { useWorldModelResearch } from "@/components/profile/world-model-provider";
+import { PWM_AZURE_RESEARCH_DISCLOSURE } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { WorldModelClaimInvitation } from "@/components/profile/world-model-claim-invitation";
 import { WorldModelFactRow } from "@/components/profile/world-model-fact-row";
 import {
@@ -934,6 +935,11 @@ export function PersonalWorldModelPage({
               <HelperText role="status" className="profile-account-note">
                 Nothing is looked up while it’s off.
               </HelperText>
+              {preferences?.research_provider === "azure_openai_web_search" ? (
+                <HelperText className="profile-account-note">
+                  {PWM_AZURE_RESEARCH_DISCLOSURE}
+                </HelperText>
+              ) : null}
               <Button
                 type="button"
                 size="compact"
