@@ -24,6 +24,7 @@ def client(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", "true")
     monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PROJECT)
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", SERVICE_ACCOUNT)
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", AUDIENCE)
@@ -354,6 +355,40 @@ def test_route_rejects_unknown_or_amplifying_stage_body_before_work(client, monk
     assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_INVALID_STAGE"
     purge.assert_not_awaited()
     run.assert_not_awaited()
+
+
+def test_v1_worker_admits_only_v1_stage_before_any_background_work(client, monkeypatch):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock(
+        return_value={
+            "oauth_scrubbed": 0,
+            "native_picker_scrubbed": 0,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 0,
+            "picker_sessions_deleted": 0,
+            "mcp_pending_calls_deleted": 0,
+        }
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type("Retention", (), {"purge_batch": lambda self: purge()})(),
+    )
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    assert client.post(PATH, headers=_authorized_headers(), json={"stage": "v1"}).status_code == 400
+    monkeypatch.setenv("DRIVE_WORKER_V1_ONLY", "true")
+    for payload in ({}, {"stage": "documents"}, {"stage": "suggestions"}, {"stage": "sharing"}):
+        response = client.post(PATH, headers=_authorized_headers(), json=payload)
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_INVALID_STAGE"
+    purge.assert_not_awaited()
+    run.assert_not_awaited()
+
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "v1"})
+    assert response.status_code == 200
+    run.assert_awaited_once_with(stage="v1", max_jobs_per_worker=20, deadline_seconds=205)
 
 
 def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch):

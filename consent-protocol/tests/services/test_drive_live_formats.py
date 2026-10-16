@@ -1,4 +1,4 @@
-"""Live-lane file formats: Google Sheets as CSV, uploaded CSV, and honest refusals.
+"""Live-lane file formats: complete Sheets XLSX, CSV, and honest refusals.
 
 Synthetic bytes only. No Google account, grant or credential is used.
 """
@@ -8,16 +8,21 @@ Synthetic bytes only. No Google account, grant or credential is used.
 from __future__ import annotations
 
 import csv
+import io
 import json
+import zipfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from openpyxl import Workbook
 
 from hushh_mcp.services import google_drive_adapter as drive
 from hushh_mcp.services import google_drive_permission_adapter as acl
 from hushh_mcp.services import google_drive_rest_transport as rest
+from hushh_mcp.services.drive_document_pages import extract_pages
 from hushh_mcp.services.drive_document_parser import (
+    DOCX,
     MAX_CSV_CELL_CHARS,
     MAX_CSV_COLUMNS,
     MAX_CSV_ROWS,
@@ -38,6 +43,19 @@ PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentatio
 ODS = "application/vnd.oasis.opendocument.spreadsheet"
 FILE_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 GRANT = "synthetic-live-grant"
+
+
+def workbook_bytes(*, missing_formula=False):
+    workbook = Workbook()
+    workbook.active.title = "Blank first tab"
+    useful = workbook.create_sheet("Financial records")
+    useful.append(["Period", "Amount"])
+    useful.append(["September 2026", 1234])
+    if missing_formula:
+        useful["B3"] = "=SUM(B2:B2)"
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 # --- parser ---------------------------------------------------------------
@@ -130,12 +148,26 @@ def test_selected_parser_still_refuses_csv():
         parse_document(b"a,b", "text/csv")
 
 
-def test_live_parse_adds_only_csv_to_the_selected_parser():
+def test_live_parse_adds_csv_and_complete_workbooks_to_the_selected_parser():
     assert parse_live_document(b"a,b\n", "text/csv").pages == ("a | b",)
     assert parse_live_document(b"plain words", "text/plain").pages == ("plain words",)
-    for mime in (XLSX, ODS, PPTX, "text/comma-separated-values", "application/vnd.ms-excel"):
+    parsed = parse_live_document(workbook_bytes(), XLSX)
+    assert "[Blank first tab] empty" in parsed.pages[0]
+    assert "[Financial records] row 2: A=September 2026 | B=1234" in parsed.pages[0]
+    assert not parsed.truncated
+    assert parse_live_document(workbook_bytes(missing_formula=True), XLSX).truncated
+    for mime in (ODS, PPTX, "text/comma-separated-values", "application/vnd.ms-excel"):
         with pytest.raises(ParseError, match="unsupported_format"):
             parse_live_document(b"PK\x03\x04", mime)
+
+
+def test_original_xlsx_page_extraction_reaches_second_tab_and_flags_formula_gap():
+    complete = extract_pages(workbook_bytes(), XLSX)
+    assert complete.complete and not complete.has_gaps
+    assert "[Financial records] row 2: A=September 2026 | B=1234" in complete.pages[0].text
+    incomplete = extract_pages(workbook_bytes(missing_formula=True), XLSX)
+    assert incomplete.complete and incomplete.has_gaps
+    assert incomplete.pages[0].error_code == "source_extraction_incomplete"
 
 
 # --- adapter --------------------------------------------------------------
@@ -156,17 +188,18 @@ def metadata(**changes):
     }
 
 
-async def test_live_read_exports_google_sheets_as_csv():
+async def test_live_read_exports_all_google_sheet_tabs_as_xlsx():
     adapter = drive.GoogleDriveAdapter()
-    adapter._get = AsyncMock(return_value=b"Month,Balance\n")
+    original = workbook_bytes()
+    adapter._get = AsyncMock(return_value=original)
     result = await adapter.read_live_bytes(
         file_id="selected-file", mime_type=SHEET, access_token="synthetic-token"
     )
-    assert result == ("text/csv", b"Month,Balance\n")
+    assert result == (XLSX, original)
     adapter._get.assert_awaited_once_with(
         "/files/selected-file/export",
         access_token="synthetic-token",
-        params={"mimeType": "text/csv"},
+        params={"mimeType": XLSX},
         limit=drive.CONTENT_LIMIT,
     )
 
@@ -227,7 +260,7 @@ async def test_a_lost_grant_is_never_retried_as_plain_text():
     assert adapter._get.await_count == 1
 
 
-@pytest.mark.parametrize("export", ["text/markdown", "text/plain", "text/csv"])
+@pytest.mark.parametrize("export", ["text/markdown", "text/plain", XLSX])
 async def test_the_adapter_admits_each_live_export_type(monkeypatch, export):
     monkeypatch.setattr(
         drive.httpx, "AsyncClient", lambda **_: (_ for _ in ()).throw(RuntimeError("admitted"))
@@ -247,16 +280,38 @@ def test_markdown_images_become_markers_not_base64_text():
         b"![alt](data:image/png;base64,QUJD)\n\n"
         b"[image1]: <data:image/png;base64," + b"A" * 5000 + b">\n"
     )
-    text = parse_live_document(exported, "text/markdown").pages[0]
+    parsed = parse_live_document(exported, "text/markdown")
+    text = parsed.pages[0]
     assert "base64" not in text
     assert "AAAA" not in text
     assert text.count("[image]") == 2
     assert text.startswith("# Trip")
+    assert parsed.truncated is True
 
 
 def test_a_real_markdown_link_is_kept():
-    text = parse_live_document(b"[Plan](https://example.com/plan)", "text/markdown").pages[0]
-    assert text == "[Plan](https://example.com/plan)"
+    parsed = parse_live_document(b"[Plan](https://example.com/plan)", "text/markdown")
+    assert parsed.pages[0] == "[Plan](https://example.com/plan)"
+    assert parsed.truncated is False
+
+
+@pytest.mark.parametrize(
+    "omitted_path", ["word/media/image1.png", "word/header1.xml", "word/footer1.xml"]
+)
+def test_live_docx_marks_unread_embedded_content_incomplete(omitted_path):
+    output = io.BytesIO()
+    body = (
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b"<w:body><w:p><w:r><w:t>Statement period September 2026</w:t></w:r></w:p></w:body>"
+        b"</w:document>"
+    )
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", body)
+        archive.writestr(omitted_path, b"unread original content")
+    parsed = parse_live_document(output.getvalue(), DOCX)
+    assert "Statement period September 2026" in parsed.pages[0]
+    assert parsed.truncated is True
 
 
 async def test_an_uploaded_csv_downloads_as_media():
@@ -297,7 +352,7 @@ async def test_other_csv_labels_stay_unsupported_with_a_reason(mime):
         )
 
 
-async def test_csv_export_is_the_only_new_export_shape(monkeypatch):
+async def test_xlsx_export_is_the_only_new_export_shape(monkeypatch):
     assert SHEET not in drive.EXPORTS
     assert drive.SUPPORTED_TYPES == frozenset(drive.EXPORTS) | drive.BINARY_TYPES
     monkeypatch.setattr(
@@ -307,10 +362,10 @@ async def test_csv_export_is_the_only_new_export_shape(monkeypatch):
         await drive.GoogleDriveAdapter()._get_private(
             "/files/a/export",
             access_token="synthetic-token",
-            params={"mimeType": "text/csv"},
+            params={"mimeType": XLSX},
             limit=drive.CONTENT_LIMIT,
         )
-    for params in ({"mimeType": "text/html"}, {"mimeType": "text/csv", "alt": "media"}):
+    for params in ({"mimeType": "text/html"}, {"mimeType": XLSX, "alt": "media"}):
         with pytest.raises(DriveReadError, match="operation_not_allowed"):
             await drive.GoogleDriveAdapter()._get_private(
                 "/files/a/export",
@@ -385,30 +440,42 @@ def meta(mime, name="Budget"):
 async def test_a_google_sheet_reads_as_table_text(monkeypatch):
     adapter = SimpleNamespace(
         get_metadata=AsyncMock(return_value=meta(SHEET)),
-        read_live_bytes=AsyncMock(return_value=("text/csv", b"Month,Balance\nMarch,10\n")),
+        read_live_bytes=AsyncMock(return_value=(XLSX, workbook_bytes())),
     )
     result = await transport(monkeypatch, adapter).read_tool(
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
     )
-    assert result.payload == {"fileContent": "Month | Balance\nMarch | 10"}
+    assert "[Financial records] row 2: A=September 2026 | B=1234" in result.payload["fileContent"]
 
 
-async def test_a_google_sheet_read_asks_drive_for_one_csv_export(monkeypatch):
+async def test_a_google_sheet_read_asks_drive_for_one_complete_workbook_export(monkeypatch):
     adapter = drive.GoogleDriveAdapter()
     info = json.dumps(
         metadata(id=FILE_ID, mimeType=SHEET, size=None, isAppAuthorized=False)
     ).encode()
-    adapter._get = AsyncMock(side_effect=[info, b"Month,Balance\r\nMarch,10\r\n"])
+    adapter._get = AsyncMock(side_effect=[info, workbook_bytes()])
     result = await transport(monkeypatch, adapter).read_tool(
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
     )
-    assert result.payload == {"fileContent": "Month | Balance\nMarch | 10"}
+    assert "[Financial records] row 2: A=September 2026 | B=1234" in result.payload["fileContent"]
     export = adapter._get.await_args_list[1]
     assert export.args == (f"/files/{FILE_ID}/export",)
-    assert export.kwargs["params"] == {"mimeType": "text/csv"}
+    assert export.kwargs["params"] == {"mimeType": XLSX}
+    assert export.kwargs["limit"] == drive.LIVE_COLLECTION_CONTENT_LIMIT
 
 
-@pytest.mark.parametrize("mime", [XLSX, ODS, PPTX])
+async def test_an_uploaded_xlsx_reads_all_tabs(monkeypatch):
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(return_value=meta(XLSX)),
+        read_live_bytes=AsyncMock(return_value=(XLSX, workbook_bytes())),
+    )
+    result = await transport(monkeypatch, adapter).read_tool(
+        user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
+    )
+    assert "[Financial records] row 2: A=September 2026 | B=1234" in result.payload["fileContent"]
+
+
+@pytest.mark.parametrize("mime", [ODS, PPTX])
 async def test_office_files_are_refused_as_unsupported_format(monkeypatch, mime):
     adapter = SimpleNamespace(
         get_metadata=AsyncMock(return_value=meta(mime)),
@@ -457,11 +524,11 @@ def reader_for(mime):
     )
 
 
-async def test_a_google_sheet_read_is_marked_partial():
-    # The CSV export holds the first sheet only, so a Sheet is never complete.
+async def test_a_complete_google_sheet_read_is_not_marked_partial():
+    # The XLSX export covers every sheet unless parsing reports a gap.
     result = await reader_for(SHEET).read_matches(matches=[{"file_id": FILE_ID, "name": "Budget"}])
     assert [item["text"] for item in result["untrusted_external_content"]] == ["Month | Balance"]
-    assert result["truncated"] is True
+    assert result["truncated"] is False
 
 
 async def test_an_uploaded_csv_read_is_not_marked_partial():

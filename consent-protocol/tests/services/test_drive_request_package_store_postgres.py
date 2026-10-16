@@ -34,7 +34,7 @@ def packages(request_bulk, sharing):
     return DriveRequestPackageStore(db=sharing.db, sharing=sharing)
 
 
-async def request_search(packages, request_bulk, sharing, count=46):
+async def request_search(packages, request_bulk, sharing, count=46, *, names=None, selection=None):
     request_id = (await _request(sharing))["requestId"]
     with sharing.db.engine.begin() as connection:
         row = sharing._request(connection, "owner", request_id)
@@ -52,7 +52,9 @@ async def request_search(packages, request_bulk, sharing, count=46):
                 ),
             },
         )
-    return request_id, _search(request_bulk, request_id=request_id, count=count)
+    return request_id, _search(
+        request_bulk, request_id=request_id, count=count, names=names, selection=selection
+    )
 
 
 def observations(job, *, unreadable=False):
@@ -160,6 +162,85 @@ async def test_46_candidates_survive_restart_and_package_digest_binds_all_source
         )
 
 
+async def test_v1_first_25_prioritizes_hints_then_resumes_every_generic_and_old_file(
+    packages, request_bulk, sharing, monkeypatch
+):
+    names = {
+        1: "scan0001.pdf",
+        2: "Schwab statement 2016.pdf",
+        3: "financial report 2026.pdf",
+        4: "misc.pdf",
+        5: "untitled.pdf",
+        **{position: f"Schwab statement 2026 #{position}.pdf" for position in range(6, 31)},
+    }
+    request_id, search = await request_search(
+        packages,
+        request_bulk,
+        sharing,
+        count=30,
+        names=names,
+        selection={
+            "v1_live_request": True,
+            "authored_plan": {
+                "required_entities": ["Schwab"],
+                "terms": ["statement"],
+                "discovery_clues": ["eStmt", "account"],
+                "expected_document_anatomy": "Statement account balances",
+            },
+        },
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    visited = []
+    sizes = []
+    while len(visited) < 25:
+        job = await packages.claim_evaluation(user_id="owner", job_id=search, v1_only=True)
+        sizes.append(len(job["candidates"]))
+        visited.extend(item["position"] for item in job["candidates"])
+        assert job["candidate_count"] == 30
+        assert job["remaining"] == 30 - len(visited)
+        assert all(
+            item["metadata"]["name"] == names[item["position"]] for item in job["candidates"]
+        )
+        await packages.commit_evaluations(job, observations=observations(job, unreadable=True))
+        await packages.release_evaluation(job)
+        if len(sizes) == 1:
+            # The encrypted priority cohort survives worker restart; no
+            # subsequent claim decrypts/ranks the entire collection again.
+            packages = DriveRequestPackageStore(db=sharing.db, sharing=sharing)
+            monkeypatch.setattr(
+                "hushh_mcp.services.drive_request_package_store._metadata_priority",
+                lambda *_args, **_kwargs: pytest.fail("priority must be reused after restart"),
+            )
+    assert sizes == [6, 6, 6, 6, 1]
+    assert visited == list(range(6, 31))
+    public = await packages.package_review(user_id="owner", request_id=request_id)
+    assert public["candidateCount"] == 30 and public["evaluatedCount"] == 25
+    assert public["status"] == "preparing" and public["canAllow"] is False
+
+    tail = await packages.claim_evaluation(user_id="owner", job_id=search, v1_only=True)
+    assert [item["position"] for item in tail["candidates"]] == [1, 2, 3, 4, 5]
+    # Neither a generic filename nor an old filename was rejected. Even
+    # before the final tail is read, assembly still refuses false completion.
+    with pytest.raises(DriveSharingError, match="package_incomplete"):
+        await packages.finalize_package(
+            tail,
+            assessment=assessment(0, decision="insufficient_evidence", coverage_status="unknown"),
+            policy_version="test-v1",
+        )
+    await packages.commit_evaluations(tail, observations=observations(tail, unreadable=True))
+    await packages.release_evaluation(tail)
+    visited.extend(item["position"] for item in tail["candidates"])
+    final = await packages.claim_evaluation(user_id="owner", job_id=search, v1_only=True)
+    assert final["candidates"] == [] and final["remaining"] == 0
+    assert sorted(visited) == list(range(1, 31))
+    evidence = await packages.package_evidence_page(final)
+    assert evidence["counts"] == {"candidates": 30, "evaluated": 30}
+
+
 async def test_concurrent_claim_and_expired_lease_fence_late_observations(
     packages, request_bulk, sharing
 ):
@@ -232,6 +313,62 @@ async def test_finalization_cannot_hide_unread_candidates_or_invent_selected_ref
         )
     ready = await packages.finalize_package(job, assessment=assessment(6), policy_version="test-v1")
     assert ready["unreadableCount"] == 1 and ready["coverageStatus"] == "partial"
+
+
+@pytest.mark.parametrize("unreadable", [False, True])
+async def test_v1_no_match_closes_only_fully_read_request_and_emits_feed_outcome(
+    packages, request_bulk, sharing, unreadable
+):
+    request_id, search = await request_search(packages, request_bulk, sharing, count=1)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    job = await packages.claim_evaluation(user_id="owner", job_id=search)
+    values = observations(job, unreadable=unreadable)
+    if not unreadable:
+        values[0]["assessment"].update(decision="exclude", reason="Wrong document type.")
+    await packages.commit_evaluations(job, observations=values)
+    result = await packages.finalize_package(
+        job,
+        assessment=assessment(
+            0,
+            decision="no_match",
+            coverage_status="unknown",
+            gaps=[],
+            coverage_summary="No verified matching documents.",
+        ),
+        policy_version="test-v1-no-match",
+    )
+    with sharing.db.engine.begin() as connection:
+        request = sharing._request(connection, "owner", request_id)
+        events = connection.execute(
+            text("""SELECT user_id,event_type FROM drive_share_events
+                WHERE request_id=:request AND event_type='document_share_outcome'"""),
+            {"request": request_id},
+        ).all()
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
+        assert connection.execute(text("SELECT count(*) FROM drive_bulk_shares")).scalar_one() == 0
+    if unreadable:
+        assert result["status"] == "unavailable"
+        assert request["status"] == "pending"
+        assert events == []
+    else:
+        assert result["status"] == "no_match"
+        assert request["status"] == "no_match"
+        assert set(events) == {
+            ("owner", "document_share_outcome"),
+            ("recipient", "document_share_outcome"),
+        }
+        assert (await packages.package_review(user_id="owner", request_id=request_id))[
+            "status"
+        ] == "no_match"
 
 
 async def test_ready_digest_rejects_changed_version_evidence(packages, request_bulk, sharing):
@@ -414,3 +551,34 @@ async def test_background_pause_retains_retryable_work(packages, request_bulk, s
             {"job": search},
         )
     assert (await packages.claim_evaluation(user_id="owner", job_id=search))["candidates"]
+
+
+async def test_v1_verified_preview_does_not_authorize_pending_candidates(
+    packages, request_bulk, sharing
+):
+    request_id, search = await request_search(packages, request_bulk, sharing, count=8)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    job = await packages.claim_evaluation(user_id="owner", job_id=search)
+    values = observations(job)
+    for value in values:
+        value["assessment"]["weightage_out_of_10"] = 8.5
+    await packages.commit_evaluations(job, observations=values)
+    preview = await packages.package_review(user_id="owner", request_id=request_id)
+    assert preview["status"] == "preparing"
+    assert preview["canAllow"] is False
+    assert preview["verifiedCount"] == 6
+    assert preview["pendingCount"] == 2
+    assert len(preview["provisionalFiles"]) == 6
+    assert preview["selectedCount"] == 0
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
+        assert connection.execute(text("SELECT count(*) FROM drive_bulk_shares")).scalar_one() == 0

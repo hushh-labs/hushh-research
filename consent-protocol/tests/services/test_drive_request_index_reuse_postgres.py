@@ -1,6 +1,7 @@
 """Real packet/index -> request reuse; provider and model outputs are synthetic."""
 
 # ruff: noqa: F401,F811 -- isolated fixture dependency graph
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -62,6 +63,25 @@ def transport_for(manifest):
         )
 
     return SimpleNamespace(read_tool=AsyncMock(side_effect=read))
+
+
+def mark_historical_agent_package_request(sharing, request_id):
+    """Keep V2 index reuse covered without routing a new V1 live request through it."""
+    with sharing.db.engine.begin() as connection:
+        row = sharing._request(connection, "owner", request_id)
+        private = sharing._open_request(row)
+        assert private["agent_package_required"] is True
+        assert private["v1_live_request"] is True
+        private.pop("v1_live_request")
+        envelope = sharing.sharing_cipher.seal(
+            private, user_id="owner", resource_id=request_id, purpose="request"
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests
+                SET request_envelope=CAST(:envelope AS jsonb),v1_live_request=FALSE
+                WHERE request_id=:request"""),
+            {"envelope": json.dumps(envelope), "request": request_id},
+        )
 
 
 async def flow(catalog, reusable, sharing):
@@ -220,9 +240,14 @@ async def test_natural_request_prefers_index_and_preserves_selected_dates(
         owner_user_id="owner",
         client_request_id=str(uuid4()),
         purpose=ShareRequestPurpose(
-            purpose="Schwab statements from 2026", periodStart="2026-09-01", periodEnd="2026-10-09"
+            # Explicit statement requests now take the deterministic V1 Drive
+            # search; this request exercises the separate indexed packet path.
+            purpose="Schwab account records from 2026",
+            periodStart="2026-09-01",
+            periodEnd="2026-10-09",
         ),
     )
+    mark_historical_agent_package_request(sharing, request["requestId"])
     search = DriveOwnerSearchService(
         store=DriveOwnerSearchStore(db=sharing.db),
         transport=transport_for(manifest),
@@ -284,6 +309,7 @@ async def test_equivalent_request_reuses_unlisted_packet_with_owner_approval_sti
             periodEnd="2026-10-09",
         ),
     )
+    mark_historical_agent_package_request(sharing, request["requestId"])
     matcher = AsyncMock(
         return_value=SimpleNamespace(decision="exact", packet_id=packet["packetId"], version=1)
     )

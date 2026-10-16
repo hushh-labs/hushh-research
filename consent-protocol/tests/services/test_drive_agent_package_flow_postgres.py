@@ -16,6 +16,7 @@ from hushh_mcp.services.drive_owner_allowed import package_allow_marker
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
 from hushh_mcp.services.drive_request_review_policy import request_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
@@ -54,15 +55,23 @@ def recipient():
     return VerifiedGoogleRecipient("recipient", "1234567", "b@example.invalid", datetime.now(UTC))
 
 
-async def new_request(sharing, *, client_id=None, expected_quote_version=1):
+async def new_request(
+    sharing,
+    *,
+    client_id=None,
+    expected_quote_version=1,
+    purpose_text="Portfolio reports",
+    access_days=None,
+):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=recipient(),
         owner_user_id="owner",
+        access_days=access_days,
         client_request_id=client_id or str(uuid4()),
         expected_quote_version=expected_quote_version,
         purpose=ShareRequestPurpose(
-            purpose="Schwab brokerage statements",
+            purpose=purpose_text,
             periodStart=(today - timedelta(days=42)).isoformat(),
             periodEnd=today.isoformat(),
         ),
@@ -75,8 +84,10 @@ def private_request(sharing, request_id):
         return row, sharing._open_request(row)
 
 
-async def prepared_package(agent_flow, request_bulk, sharing, *, count=46, selected=30):
-    created = await new_request(sharing)
+async def prepared_package(
+    agent_flow, request_bulk, sharing, *, count=46, selected=30, v1_ready=False, access_days=None
+):
+    created = await new_request(sharing, access_days=access_days)
     request_id = created["requestId"]
     search = _search(
         request_bulk,
@@ -90,18 +101,42 @@ async def prepared_package(agent_flow, request_bulk, sharing, *, count=46, selec
             "request_owner_review_required": True,
         },
     )
+    if v1_ready:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"
+                ),
+                {"job": search},
+            )
     while True:
         job = await agent_flow.claim_evaluation(user_id="owner", job_id=search)
         if not job["candidates"]:
             break
         values = observations(job)
         for value in values:
+            if v1_ready:
+                value["assessment"]["weightage_out_of_10"] = 9.0
+                value["assessment"]["covered_periods"] = [
+                    {
+                        "period_start": "2026-09-01",
+                        "period_end": "2026-10-16",
+                        "source_refs": [f"s{value['position']}"],
+                    }
+                ]
             if value["position"] > selected:
                 value["assessment"].update(decision="exclude", reason="Unrelated old record.")
         await agent_flow.commit_evaluations(job, observations=values)
         await agent_flow.release_evaluation(job)
     ready = await agent_flow.finalize_package(
-        job, assessment=assessment(selected), policy_version="test-integration-v1"
+        job,
+        assessment=assessment(
+            selected,
+            **(
+                {"decision": "ready", "coverage_status": "complete", "gaps": []} if v1_ready else {}
+            ),
+        ),
+        policy_version="test-integration-v1",
     )
     return created, search, ready
 
@@ -147,6 +182,37 @@ async def test_new_live_request_prepares_without_prior_trust_allow_price_or_payo
             == 0
         )
         assert connection.execute(text("SELECT count(*) FROM drive_bulk_shares")).scalar_one() == 0
+
+
+async def test_schwab_statement_request_requires_v1_content_evaluation_with_flag_enabled(
+    agent_flow, sharing
+):
+    created = await new_request(sharing, purpose_text="Schwab brokerage statements")
+    row, private = private_request(sharing, created["requestId"])
+    assert private.get("agent_package_required") is True
+    assert row["agent_package_required"] is True
+    assert private.get("v1_live_request") is True
+    assert row["v1_live_request"] is True
+    context = await sharing.request_bulk_context(user_id="owner", request_id=created["requestId"])
+    assert context["v1LiveRequest"] is True
+    assert context["packageAllowed"] is False
+
+
+async def test_nontrusted_v1_ready_selection_enters_existing_exact_file_review(
+    agent_flow, request_bulk, sharing
+):
+    created, _, ready = await prepared_package(
+        agent_flow, request_bulk, sharing, count=2, selected=1, v1_ready=True
+    )
+    assert ready["status"] == "ready" and ready["selectedCount"] == 1
+    review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
+    assert review["v1ManualReview"] is True
+    assert review["verifiedCount"] == 1
+    assert review.get("agentPackage") is None
+    row, private = private_request(sharing, created["requestId"])
+    assert row["status"] == "pending" and row["agent_package_required"] is False
+    assert private["agent_package_required"] is False
+    assert row["owner_allowed_at"] is None
 
 
 async def test_allow_binds_exact_package_and_owner_cent_price_without_sending_files(
@@ -342,3 +408,94 @@ async def test_46_evaluated_candidates_freeze_only_30_selected_before_checkout(
             ).scalar_one()
             == 2
         )
+
+
+async def test_trusted_v1_freezes_verified_files_without_fabricating_owner_approval(
+    agent_flow, request_bulk, sharing
+):
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO one_location_circle_memberships
+            SELECT id,'recipient','active' FROM one_location_circles
+            WHERE owner_user_id='owner' AND system_kind='trusted'""")
+        )
+    created, search, ready = await prepared_package(
+        agent_flow, request_bulk, sharing, count=2, selected=1, v1_ready=True
+    )
+    request_id = created["requestId"]
+    assert await sharing.freeze_trusted_selection(user_id="owner", request_id=request_id)
+    assert await sharing.freeze_trusted_selection(user_id="owner", request_id=request_id)
+    row, private = private_request(sharing, request_id)
+    assert row["owner_allowed_at"] is None
+    assert "owner_allowed" not in private
+    assert private["trusted_selection"]["package_digest"] == ready["digest"]
+    assert private["trusted_selection"]["selected_positions"] == [1]
+    assert row["quoted_amount_cents"] == 1000  # preserve configured owner quote
+    frozen = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    assert frozen["status"] == "review_ready"
+    payment = DriveRequestPaymentStore(db=sharing.db)
+    assert await payment.v1_checkout_eligible(requester_user_id="recipient", request_id=request_id)
+    await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        assert not request_requires_owner_review(
+            connection, user_id="owner", request_id=request_id, revision=created["revision"]
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
+            == 0
+        )
+        connection.execute(
+            text(
+                "UPDATE one_location_circle_memberships SET status='removed' WHERE user_id='recipient'"
+            )
+        )
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
+    assert not await payment.v1_checkout_eligible(
+        requester_user_id="recipient", request_id=request_id
+    )
+
+
+async def test_trusted_v1_unquoted_request_starts_at_fifty_cents(agent_flow, request_bulk, sharing):
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO one_location_circle_memberships
+            SELECT id,'recipient','active' FROM one_location_circles
+            WHERE owner_user_id='owner' AND system_kind='trusted'""")
+        )
+    created, _, _ = await prepared_package(
+        agent_flow, request_bulk, sharing, count=1, selected=1, v1_ready=True
+    )
+    request_id = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET quoted_amount_cents=NULL,
+                quote_version=NULL,initial_quote_cents=NULL WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert await sharing.freeze_trusted_selection(user_id="owner", request_id=request_id)
+    row, private = private_request(sharing, request_id)
+    assert row["quoted_amount_cents"] == private["trusted_selection"]["amount_cents"] == 50
+    assert row["owner_allowed_at"] is None and "owner_allowed" not in private
+
+
+async def test_nontrusted_v1_cannot_claim_trusted_selection(agent_flow, request_bulk, sharing):
+    created, _, _ = await prepared_package(
+        agent_flow, request_bulk, sharing, count=1, selected=1, v1_ready=True
+    )
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await sharing.freeze_trusted_selection(user_id="owner", request_id=created["requestId"])

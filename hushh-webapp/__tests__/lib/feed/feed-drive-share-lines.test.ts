@@ -76,7 +76,7 @@ describe("Drive rows in the Feed", () => {
       presentFeedItem(item("document_share_outcome", {
         user_facing_status: "no_match",
       })).description,
-    ).toBe("No matching files found; nothing was shared");
+    ).toBe("No file candidates in this search; nothing was shared");
   });
 
   it("announces consent without claiming pre-payment sharing, and a decline", () => {

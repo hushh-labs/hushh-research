@@ -144,8 +144,10 @@ async def test_estimates_and_ask_counts_are_bounded(sharing):
                 connection.rollback()
         return False
 
-    assert [rejected("initial_quote_cents", cents) for cents in (50, 150, 50100)] == [True] * 3
-    assert [rejected("initial_quote_cents", cents) for cents in (None, 100, 50000)] == [False] * 3
+    assert [rejected("initial_quote_cents", cents) for cents in (0, 49, 50001)] == [True] * 3
+    assert [rejected("initial_quote_cents", cents) for cents in (None, 50, 150, 50000)] == [
+        False
+    ] * 4
     assert [rejected("review_request_count", n) for n in (-1, 4)] == [True, True]
     assert [rejected("review_request_count", n) for n in (0, 3)] == [False, False]
 

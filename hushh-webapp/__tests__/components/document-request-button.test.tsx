@@ -340,6 +340,9 @@ describe("requesting exact files from a connection", () => {
           ownerPersonRef: personRef,
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
           expectedQuoteVersion: 1,
+          accessDays: 30,
+          requesterActorType: "person",
+          reason: "",
           purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
@@ -358,6 +361,21 @@ describe("requesting exact files from a connection", () => {
     } finally {
       window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
     }
+  });
+
+  it("sends a verified-RIA request with a separate reason and seven-day access term", async () => {
+    mount();
+    await openFiles("Bank statements");
+    fireEvent.change(screen.getByLabelText("Requesting as"), { target: { value: "ria" } });
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Review holdings for advice" } });
+    fireEvent.change(screen.getByLabelText("Access period"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(state.create).toHaveBeenCalledWith(
+      "owner-b", firebaseProof, expect.objectContaining({ requesterActorType: "ria",
+        reason: "Review holdings for advice", accessDays: 7,
+        purpose: expect.objectContaining({ purpose: "Bank statements" }) }), expect.any(Function),
+    ));
   });
 
   it("asks to link Google only when the sign-in has none, then retries with the same key", async () => {
@@ -561,6 +579,9 @@ describe("chat draft question card", () => {
         ownerPersonRef: personRef,
         clientRequestId,
         expectedQuoteVersion: 1,
+        accessDays: 30,
+        requesterActorType: "person",
+        reason: "",
         purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       },
       expect.any(Function),

@@ -17,6 +17,7 @@ PARSER_INPUTS = frozenset(
         "text/markdown",
         "text/csv",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
 
@@ -42,6 +43,5 @@ def test_google_native_export_fallbacks_remain_parseable():
     } <= LIVE_EXTRACTABLE_ORIGINAL_TYPES
     assert {
         "application/msword",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "image/jpeg",
     }.isdisjoint(LIVE_EXTRACTABLE_ORIGINAL_TYPES)
