@@ -539,7 +539,9 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
             bulk,
             request_id=request_id,
             count=3,
-            selection=FILE_ACTIVITY_SELECTION if trusted else None,
+            selection={**FILE_ACTIVITY_SELECTION, "authority_mode": "trusted_auto"}
+            if trusted
+            else None,
         ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
@@ -2709,7 +2711,10 @@ async def test_owner_allowed_request_pays_the_owner_price_without_trusted_member
     review = await request_bulk.create_review(
         user_id="owner",
         search_job_id=_search(
-            request_bulk, request_id=request_id, count=1, selection=FILE_ACTIVITY_SELECTION
+            request_bulk,
+            request_id=request_id,
+            count=1,
+            selection={**FILE_ACTIVITY_SELECTION, "authority_mode": "trusted_auto"},
         ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
