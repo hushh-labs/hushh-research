@@ -396,6 +396,40 @@ describe("VaultFlow create validation", () => {
     );
   });
 
+  it.each([false, true])("keeps visibility actions and hover labels aligned with password state (unlock=%s)", async (unlock) => {
+    checkVaultMock.mockResolvedValue(unlock);
+    render(<VaultFlow user={user} onSuccess={vi.fn()} enableGeneratedDefault={false} />);
+
+    const password = await screen.findByLabelText(unlock ? "Vault password" : "Password");
+    const fields = unlock ? [password] : [password, screen.getByLabelText("Confirm password")];
+    for (const field of fields) {
+      fireEvent.change(field, { target: { value: "fixture-password-123" } });
+      const toggle = field.parentElement!.querySelector("button")!;
+      expect(field).toHaveAttribute("type", "password");
+      expect(toggle).toHaveAccessibleName("Show password");
+      expect(toggle).toHaveAttribute("title", "Show password");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(toggle);
+      expect(field).toHaveAttribute("type", "text");
+      expect(field).toHaveValue("fixture-password-123");
+      expect(toggle).toHaveAccessibleName("Hide password");
+      expect(toggle).toHaveAttribute("title", "Hide password");
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      for (const other of fields.filter(candidate => candidate !== field)) {
+        expect(other).toHaveAttribute("type", "password");
+      }
+
+      fireEvent.click(toggle);
+      expect(field).toHaveAttribute("type", "password");
+      expect(field).toHaveValue("fixture-password-123");
+      expect(toggle).toHaveAttribute("title", "Show password");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+    }
+    expect(createVaultMock).not.toHaveBeenCalled();
+    expect(unlockVaultMock).not.toHaveBeenCalled();
+  });
+
   it("hardens the create/confirm password fields against iOS smart-punctuation substitution", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
