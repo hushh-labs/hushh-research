@@ -9,7 +9,10 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_owner_search_service import (
+    DriveOwnerSearchService,
+    _is_meeting_note_request,
+)
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -135,6 +138,28 @@ def _deterministic_statement_plan(
     )
 
 
+def _deterministic_meeting_note_plan(purpose: dict) -> LiveSearchPlan | None:
+    """Keep a clear meeting-notes request on document and event-date evidence.
+
+    The date fields in the request remain the authority for the window. Drive
+    metadata and the filename are only discovery hints; the content assessor
+    still decides whether each document is an actual note in that window.
+    """
+    query = purpose.get("purpose", "")
+    if not isinstance(query, str) or not _is_meeting_note_request(query):
+        return None
+    return LiveSearchPlan(
+        mode="find",
+        terms=["meeting", "notes"],
+        term_groups=[["meeting", "standup", "sync", "huddle"], ["notes", "minutes"]],
+        subject_scope="specific_records",
+        subject_complete=True,
+        file_kind="document",
+        time_intent="document_coverage",
+        expected_document_anatomy="Dated meeting notes with attendees, discussion or decisions.",
+    )
+
+
 class DriveRequestBulkService:
     def __init__(
         self,
@@ -252,6 +277,8 @@ class DriveRequestBulkService:
             if authority_mode != "agent_package" or context.get("v1LiveRequest")
             else None
         )
+        if statement_plan is None and context.get("v1LiveRequest"):
+            statement_plan = _deterministic_meeting_note_plan(purpose)
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and statement_plan is not None and not context.get("v1LiveRequest"):
             replanned, changed = await self.search.replan_legacy_statement_request(
