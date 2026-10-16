@@ -111,6 +111,15 @@ export function GeminiRuntimeSettingsCard({
   );
   const [selectedOption, setSelectedOption] = useState<string>(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
+  // An already unlocked owner may save BYOK directly to the encrypted vault.
+  // Trust that choice only after refresh has read both the saved mode and key;
+  // an unlocked vault by itself does not prove the key survived a reload.
+  const savedByokReady =
+    requiresExplicitSelection &&
+    initialSetupChoice === "byok_pending_vault" &&
+    mode === "byok" &&
+    hasSavedKey === true;
+  const configuredChoiceReady = initiallyConfigured || savedByokReady;
 
   const invalidateCredentialValidation = useCallback(() => {
     credentialRevisionRef.current += 1;
@@ -124,19 +133,19 @@ export function GeminiRuntimeSettingsCard({
 
   useEffect(() => {
     setHasExplicitSelection(
-      !requiresExplicitSelection || initiallyConfigured,
+      !requiresExplicitSelection || configuredChoiceReady,
     );
-  }, [initiallyConfigured, requiresExplicitSelection]);
+  }, [configuredChoiceReady, requiresExplicitSelection]);
 
   useEffect(() => {
     if (!requiresExplicitSelection) return;
-    setSelectedOption(initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
+    setSelectedOption(configuredChoiceReady ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
     setMode(
       initialSetupChoice === "byok_pending_vault"
         ? "byok"
         : "hushh_managed_vertex",
     );
-  }, [initialSetupChoice, initiallyConfigured, requiresExplicitSelection]);
+  }, [initialSetupChoice, configuredChoiceReady, requiresExplicitSelection]);
 
   const refresh = useCallback(async () => {
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {

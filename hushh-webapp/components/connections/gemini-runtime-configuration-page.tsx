@@ -34,6 +34,10 @@ import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import {
+  GEMINI_RUNTIME_CREDENTIAL_REF,
+  PersonalKnowledgeModelService,
+} from "@/lib/services/personal-knowledge-model-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
@@ -186,6 +190,18 @@ export function GeminiRuntimeConfigurationPage({
         vaultKey,
         vaultOwnerToken,
       });
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      if (bootstrap?.oneRuntimeSetupChoice === "byok_pending_vault") {
+        const savedKey = await PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+        });
+        if (!savedKey) {
+          throw new Error("Your Gemini key was not saved. Choose your AI again.");
+        }
+      }
       await PostUnlockSyncService.run({
         userId: user.uid,
         vaultKey,
@@ -199,7 +215,6 @@ export function GeminiRuntimeConfigurationPage({
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
       if (activeUserRef.current !== user.uid) return;
-      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
       const showContactsWelcome =
         bootstrap?.initialContactsWelcomeAcknowledged === false ||
         InitialContacts.getSnapshot().ownerId === user.uid;
@@ -381,7 +396,7 @@ export function GeminiRuntimeConfigurationPage({
             onRequestVaultUnlock={() => setUnlockOpen(true)}
             requiresExplicitSelection
             initiallyConfigured={hasRuntimeChoice === true && (
-              setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+              setupChoice !== "byok_pending_vault" ||
               Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
             )}
             onCanContinueChange={setCanContinue}
@@ -410,7 +425,7 @@ export function GeminiRuntimeConfigurationPage({
             size="prominent"
             fullWidth
             className={aiStyles.continue}
-            onClick={() => void finishConnections()}
+            onClick={() => void finishConnections().catch(() => undefined)}
             loading={finishing}
             disabled={!canContinue || finishing}
             data-testid="one-setup-connections-terminal"
@@ -521,7 +536,7 @@ export function GeminiRuntimeConfigurationPage({
           onRequestVaultUnlock={() => setUnlockOpen(true)}
           requiresExplicitSelection={setupMode}
           initiallyConfigured={hasRuntimeChoice === true && (
-            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+            setupChoice !== "byok_pending_vault" ||
             Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
           )}
           onCanContinueChange={setupMode ? setCanContinue : undefined}
@@ -557,7 +572,7 @@ export function GeminiRuntimeConfigurationPage({
             <PwmResearchDisclosure className="mb-4" />
             <Button
               type="button" variant="blue" effect="fill" size="prominent" fullWidth
-              onClick={() => void finishConnections()}
+              onClick={() => void finishConnections().catch(() => undefined)}
               loading={finishing} disabled={!canContinue || finishing}
               data-testid="one-setup-connections-terminal"
               data-voice-control-id="one-setup-connections-terminal"

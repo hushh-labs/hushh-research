@@ -4,6 +4,9 @@ import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
   saved: false,
+  choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
+  stagedGeminiKey: false,
+  savedGeminiKey: false,
   unlocked: false,
   pendingContactsWelcome: false,
   completionOrder: [] as string[],
@@ -32,9 +35,26 @@ vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
 vi.mock("@/lib/services/cache-service", () => ({ CACHE_KEYS: { PRE_VAULT_BOOTSTRAP: (id: string) => `bootstrap:${id}` }, CacheService: { getInstance: () => ({ subscribe: (listener: typeof state.listener) => { state.listener = listener; return state.unsubscribe; } }) } }));
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { getCachedBootstrapState: () => ({ saved: state.saved, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }), hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved } }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => {
+  const currentState = () => ({
+    saved: state.saved,
+    oneRuntimeSetupChoice: state.choice,
+    initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome,
+  });
+  return { PreVaultUserStateService: {
+    getCachedBootstrapState: currentState,
+    bootstrapState: async () => currentState(),
+    hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
+  } };
+});
 vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: state.acknowledgeSetupExit }));
-vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false } }));
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false, hasGeminiRuntime: () => state.stagedGeminiKey } }));
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  GEMINI_RUNTIME_CREDENTIAL_REF: "gemini-key",
+  PersonalKnowledgeModelService: {
+    loadRuntimeSecret: async () => state.savedGeminiKey ? "saved-gemini-key" : null,
+  },
+}));
 vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("@/lib/services/post-unlock-sync-service", () => ({ PostUnlockSyncService: { run: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("@/lib/services/world-model-research-service", () => ({ WorldModelResearchService: { updatePreferences: state.updatePreferences } }));
@@ -45,6 +65,9 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActio
 
 beforeEach(() => {
   state.saved = false;
+  state.choice = "hushh_managed_vertex";
+  state.stagedGeminiKey = false;
+  state.savedGeminiKey = false;
   state.unlocked = false;
   state.pendingContactsWelcome = false;
   state.completionOrder.length = 0;
@@ -60,6 +83,41 @@ beforeEach(() => {
   });
 });
 describe("Setup saved AI choice", () => {
+  it("requires a BYOK key again after a reload loses its process-memory draft", async () => {
+    state.saved = true;
+    state.choice = "byok_pending_vault";
+    const view = render(<OneSetupHub />);
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    expect(finish).toBeDisabled();
+    expect(screen.getByTestId("one-setup-ai-choice")).toHaveTextContent("Required");
+
+    state.stagedGeminiKey = true;
+    act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));
+    await waitFor(() => expect(finish).toBeEnabled());
+
+    // A stale enabled button must still re-check the volatile credential.
+    state.stagedGeminiKey = false;
+    fireEvent.click(finish);
+    await waitFor(() => expect(finish).toBeDisabled());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("accepts a BYOK choice backed by an existing encrypted key", async () => {
+    state.saved = true;
+    state.choice = "byok_pending_vault";
+    state.unlocked = true;
+    state.savedGeminiKey = true;
+    render(<OneSetupHub />);
+
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    await waitFor(() => expect(finish).toBeEnabled());
+    fireEvent.click(finish);
+    await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
+    expect(state.replace).toHaveBeenCalledWith("/");
+  });
+
   it("removes redundant progress and disables Finish until the current owner's saved choice arrives", async () => {
     const view = render(<OneSetupHub />);
     const finish = await screen.findByRole("button", { name: "Finish setup" });

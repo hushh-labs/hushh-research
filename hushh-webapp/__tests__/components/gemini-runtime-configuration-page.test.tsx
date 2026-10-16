@@ -19,6 +19,9 @@ const state = vi.hoisted(() => ({
   finance: vi.fn(),
   welcome: vi.fn(),
   hasFinanceIntent: false,
+  setupChoice: "managed",
+  hasGeminiRuntimeDraft: false,
+  savedGeminiKey: false,
   pendingContactsWelcome: false,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => state.router }));
@@ -35,9 +38,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/components/connections/gemini-runtime-settings-card", () => ({
   GeminiRuntimeSettingsCard: ({
     onCanContinueChange,
+    initiallyConfigured,
   }: {
     onCanContinueChange: (ready: boolean) => void;
-  }) => <button onClick={() => onCanContinueChange(true)}>Choose AI</button>,
+    initiallyConfigured: boolean;
+  }) => <button data-initially-configured={initiallyConfigured} onClick={() => onCanContinueChange(true)}>Choose AI</button>,
 }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: () => null,
@@ -46,7 +51,7 @@ vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     getCachedBootstrapState: () => ({
-      oneRuntimeSetupChoice: "managed",
+      oneRuntimeSetupChoice: state.setupChoice,
       initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome,
     }),
     hasOneRuntimeChoice: () => true,
@@ -60,7 +65,14 @@ vi.mock("@/lib/services/initial-contacts-onboarding-service", () => ({
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
   PreVaultSensitiveDraftService: {
     hasFinanceIntent: () => state.hasFinanceIntent,
+    hasGeminiRuntime: () => state.hasGeminiRuntimeDraft,
     finalizeForVault: state.finalize,
+  },
+}));
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  GEMINI_RUNTIME_CREDENTIAL_REF: "pkm:runtime_secrets.llm.gemini_api_key",
+  PersonalKnowledgeModelService: {
+    loadRuntimeSecret: () => state.savedGeminiKey ? "fixture-key" : null,
   },
 }));
 vi.mock("@/lib/services/post-unlock-sync-service", () => ({
@@ -90,6 +102,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   state.user = { uid: "recipient" };
   state.hasFinanceIntent = false;
+  state.setupChoice = "managed";
+  state.hasGeminiRuntimeDraft = false;
+  state.savedGeminiKey = false;
   state.pendingContactsWelcome = false;
   state.finalize.mockResolvedValue(undefined);
   state.sync.mockResolvedValue(undefined);
@@ -103,6 +118,31 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
+  it.each([false, true])(
+    "requires a live BYOK draft even with an unlocked vault (draft: %s)",
+    async (hasDraft) => {
+      state.setupChoice = "byok_pending_vault";
+      state.hasGeminiRuntimeDraft = hasDraft;
+      render(<GeminiRuntimeConfigurationPage setupMode />);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Choose AI" })).toHaveAttribute(
+          "data-initially-configured",
+          String(hasDraft),
+        ),
+      );
+    },
+  );
+
+  it("does not acknowledge BYOK setup when the encrypted key is missing", async () => {
+    state.setupChoice = "byok_pending_vault";
+    render(<GeminiRuntimeConfigurationPage setupMode />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
+    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
+    await waitFor(() => expect(screen.getByRole("alert"))
+      .toHaveTextContent("Your Gemini key was not saved"));
+    expect(state.acknowledge).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("keeps the invite captured across completion (pending Finance: %s)", async (hasFinanceIntent) => {
     state.hasFinanceIntent = hasFinanceIntent;
     let complete!: () => void;

@@ -25,12 +25,68 @@ import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  PreVaultUserStateService,
+  type OneRuntimeSetupChoice,
+  type PreVaultUserState,
+} from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import {
+  GEMINI_RUNTIME_CREDENTIAL_REF,
+  PersonalKnowledgeModelService,
+} from "@/lib/services/personal-knowledge-model-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+
+function immediateRuntimeChoiceReadiness(
+  userId: string,
+  state: PreVaultUserState | null | undefined,
+  canReadVault: boolean,
+): boolean | null {
+  if (!PreVaultUserStateService.hasOneRuntimeChoice(state)) return false;
+  // The BYOK marker is durable, but its credential is deliberately only in
+  // process memory until vault finalization. A reload can leave the marker
+  // behind without a key. An unlocked vault may also hold a saved key.
+  if (state?.oneRuntimeSetupChoice !== "byok_pending_vault") return true;
+  if (PreVaultSensitiveDraftService.hasGeminiRuntime(userId)) return true;
+  return canReadVault ? null : false;
+}
+
+async function hasReadyRuntimeChoice(params: {
+  userId: string;
+  state: PreVaultUserState | null | undefined;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+}): Promise<boolean> {
+  const immediate = immediateRuntimeChoiceReadiness(
+    params.userId,
+    params.state,
+    Boolean(params.vaultKey && params.vaultOwnerToken),
+  );
+  if (immediate !== null) return immediate;
+  return hasStoredGeminiKey(params.userId, params.vaultKey, params.vaultOwnerToken);
+}
+
+async function hasStoredGeminiKey(
+  userId: string,
+  vaultKey: string | null,
+  vaultOwnerToken: string | null,
+): Promise<boolean> {
+  if (!vaultKey || !vaultOwnerToken) return false;
+  try {
+    const credential = await PersonalKnowledgeModelService.loadRuntimeSecret({
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+      credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+    });
+    return Boolean(credential);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -64,7 +120,8 @@ export function OneSetupHub() {
   const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
     userId: string | null;
     state: "loading" | "required" | "complete";
-  }>({ userId: null, state: "loading" });
+    choice: OneRuntimeSetupChoice | null;
+  }>({ userId: null, state: "loading", choice: null });
   const runtimeChoiceState =
     runtimeChoiceSnapshot.userId === (user?.uid ?? null)
       ? runtimeChoiceSnapshot.state
@@ -83,19 +140,46 @@ export function OneSetupHub() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setRuntimeChoiceSnapshot({ userId: null, state: "required" });
+      setRuntimeChoiceSnapshot({ userId: null, state: "required", choice: null });
       return;
     }
     let active = true;
+    let verification = 0;
+    const applySavedChoice = (saved: PreVaultUserState) => {
+      const current = ++verification;
+      const immediate = immediateRuntimeChoiceReadiness(
+        user.uid,
+        saved,
+        Boolean(isVaultUnlocked && vaultKey && vaultOwnerToken),
+      );
+      const choice = saved.oneRuntimeSetupChoice;
+      if (immediate !== null) {
+        setRuntimeChoiceSnapshot({
+          userId: user.uid,
+          state: immediate ? "complete" : "required",
+          choice,
+        });
+        return;
+      }
+      setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading", choice });
+      void hasReadyRuntimeChoice({
+        userId: user.uid,
+        state: saved,
+        vaultKey,
+        vaultOwnerToken,
+      }).then((ready) => {
+        if (!active || current !== verification) return;
+        setRuntimeChoiceSnapshot({
+          userId: user.uid,
+          state: ready ? "complete" : "required",
+          choice,
+        });
+      });
+    };
     const reconcileSavedChoice = () => {
       const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
       if (!active || !saved) return;
-      setRuntimeChoiceSnapshot({
-        userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(saved)
-          ? "complete"
-          : "required",
-      });
+      applySavedChoice(saved);
     };
     const unsubscribe = CacheService.getInstance().subscribe((event) => {
       if (
@@ -107,36 +191,27 @@ export function OneSetupHub() {
     });
     const cleanup = () => {
       active = false;
+      verification++;
       unsubscribe();
     };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
-      setRuntimeChoiceSnapshot({
-        userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(cached)
-          ? "complete"
-          : "required",
-      });
+      applySavedChoice(cached);
       return cleanup;
     }
-    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
+    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading", choice: null });
     void PreVaultUserStateService.bootstrapState(user.uid)
       .then((state) => {
         if (!active) return;
-        setRuntimeChoiceSnapshot({
-          userId: user.uid,
-          state: PreVaultUserStateService.hasOneRuntimeChoice(state)
-            ? "complete"
-            : "required",
-        });
+        applySavedChoice(state);
       })
       .catch(() => {
         if (active) {
-          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required", choice: null });
         }
       });
     return cleanup;
-  }, [user?.uid]);
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
   // Capability setup is optional, but the root vault is not. Finish setup is
@@ -191,6 +266,14 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      if (
+        (bootstrap?.oneRuntimeSetupChoice ?? runtimeChoiceSnapshot.choice) ===
+          "byok_pending_vault" &&
+        !(await hasStoredGeminiKey(user.uid, vaultKey, vaultOwnerToken))
+      ) {
+        throw new Error("Your Gemini key was not saved. Choose your AI again.");
+      }
       await PostUnlockSyncService.run({
         userId: user.uid,
         vaultKey,
@@ -203,7 +286,6 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
       const showContactsWelcome =
         bootstrap?.initialContactsWelcomeAcknowledged === false ||
         InitialContacts.getSnapshot().ownerId === user.uid;
@@ -249,6 +331,7 @@ export function OneSetupHub() {
     returnTo,
     queueEntryWelcome,
     router,
+    runtimeChoiceSnapshot.choice,
     user?.uid,
     vaultKey,
     vaultOwnerToken,
@@ -291,24 +374,33 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      // AI access gate: a runtime choice is mandatory before leaving the hub.
-      // When the client already knows the choice is made (the footer stays
-      // disabled until runtimeChoiceComplete) trust it and skip the network
-      // round-trip. Only re-verify against fresh server state when the client
-      // is unsure — and even then a failed probe must not trap the person, so
-      // fall back to the resolved client gate rather than stranding them.
+      // Recheck the credential on the action path: a staged key can disappear
+      // without a cache event, and a saved vault key can change on this device.
       let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      if (runtimeChoiceConfirmed && runtimeChoiceSnapshot.choice === "byok_pending_vault") {
+        runtimeChoiceConfirmed = await hasReadyRuntimeChoice({
+          userId: user.uid,
+          state: PreVaultUserStateService.getCachedBootstrapState(user.uid),
+          vaultKey: isVaultUnlocked ? vaultKey : null,
+          vaultOwnerToken: isVaultUnlocked ? vaultOwnerToken : null,
+        });
+      }
       if (!runtimeChoiceConfirmed) {
         try {
           const currentState = await PreVaultUserStateService.bootstrapState(
             user.uid,
             { force: true },
           );
-          runtimeChoiceConfirmed =
-            PreVaultUserStateService.hasOneRuntimeChoice(currentState);
+          runtimeChoiceConfirmed = await hasReadyRuntimeChoice({
+            userId: user.uid,
+            state: currentState,
+            vaultKey: isVaultUnlocked ? vaultKey : null,
+            vaultOwnerToken: isVaultUnlocked ? vaultOwnerToken : null,
+          });
           setRuntimeChoiceSnapshot({
             userId: user.uid,
             state: runtimeChoiceConfirmed ? "complete" : "required",
+            choice: currentState.oneRuntimeSetupChoice,
           });
         } catch (error) {
           console.warn(
