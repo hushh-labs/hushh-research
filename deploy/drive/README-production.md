@@ -60,3 +60,16 @@ accounts to confirm a document request resumes, the owner can switch
 background access off, and no new background sharing occurs while off. A
 Scheduler 200 proves dispatch only; it does not prove Google file sharing or
 device notification delivery.
+
+## UAT background processing pause
+
+Set the repository variable `DRIVE_WORK_DRAIN_UAT_ENABLED=false` to keep both
+the UAT API drain and the private worker disabled on release. The worker still
+requires the pinned image, scanner and fresh revision attestation. A paused
+release verifies all three retained scheduler jobs are paused and never dispatches
+them; queued work and stored files remain intact.
+
+Pausing Scheduler alone does not prevent explicit `jobs.run` calls. During an
+incident pause, withdraw the UAT runtime account's `roles/cloudscheduler.jobRunner`
+grant as well, until a serving disabled drain is verified. Restore that grant
+only with an explicitly authorized background-processing resume.

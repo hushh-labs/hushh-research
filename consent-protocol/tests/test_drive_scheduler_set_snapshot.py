@@ -70,8 +70,10 @@ def _run(
     )
 
 
-def test_capture_and_verify_legacy_doc_with_absent_new_jobs(tmp_path: Path):
+@pytest.mark.parametrize("state", ["ENABLED", "PAUSED"])
+def test_capture_and_verify_legacy_doc_with_absent_new_jobs(tmp_path: Path, state: str):
     docs = _job("drive-work-drain-uat", stage="documents", schedule="*/2 * * * *", legacy=True)
+    docs["state"] = state
     captured = _run("capture-set", tmp_path, [docs])
     assert captured.returncode == 0, captured.stderr
     assert json.loads((tmp_path / "baseline.json").read_text()) == {
@@ -81,7 +83,7 @@ def test_capture_and_verify_legacy_doc_with_absent_new_jobs(tmp_path: Path):
             "body": "e30=",
             "schedule": "*/2 * * * *",
             "timeZone": "Etc/UTC",
-            "state": "ENABLED",
+            "state": state,
             "attemptDeadline": "120s",
             "retryConfig": docs["retryConfig"],
             "headers": docs["httpTarget"]["headers"],
@@ -93,7 +95,7 @@ def test_capture_and_verify_legacy_doc_with_absent_new_jobs(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "change", ["retarget", "new_job", "deadline", "body", "oidc", "headers", "retry"]
+    "change", ["retarget", "new_job", "deadline", "body", "oidc", "headers", "retry", "state"]
 )
 def test_verify_rejects_partial_or_substituted_rollback(tmp_path: Path, change: str):
     docs = _job("drive-work-drain-uat", stage="documents", schedule="*/2 * * * *", legacy=True)
@@ -110,6 +112,8 @@ def test_verify_rejects_partial_or_substituted_rollback(tmp_path: Path, change: 
         after["attemptDeadline"] = "240s"
     elif change == "body":
         after["httpTarget"]["body"] = base64.b64encode(b'{"stage":"documents"}').decode()
+    elif change == "state":
+        after["state"] = "PAUSED"
     elif change == "headers":
         after["httpTarget"]["headers"]["X-Extra"] = "unexpected"
     elif change == "retry":
