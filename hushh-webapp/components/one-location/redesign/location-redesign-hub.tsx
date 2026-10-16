@@ -1094,9 +1094,8 @@ const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
 const FLOW_STEP_ONE_CLASSNAME =
   "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
-// The Send button on this step is pinned and carries its own chrome
-// clearance, so this column reserves a reading gap and nothing more. A second
-// reserve here is the empty band under the last card.
+// Ask details stays in document flow as its inline fields grow. The shared
+// scroll root reserves bottom chrome; the action group adds keyboard clearance.
 const FLOW_STEP_CONFIRM_CLASSNAME =
   "mx-auto w-full max-w-[560px] space-y-5 pb-[var(--app-page-content-bottom-gap,24px)]";
 /**
@@ -3593,6 +3592,7 @@ export function PersonRow({
   onOpen,
   onAsk,
   onShare,
+  onShareUnavailable,
   shareReady = true,
 }: {
   name: string;
@@ -3605,6 +3605,7 @@ export function PersonRow({
   onOpen: () => void;
   onAsk?: () => void;
   onShare?: () => void;
+  onShareUnavailable?: () => void;
   shareReady?: boolean;
 }) {
   const hasQuickActions = Boolean(onAsk || onShare);
@@ -3688,8 +3689,9 @@ export function PersonRow({
               type="button"
               variant="link"
               size="compact"
-              onClick={onShare}
-              disabled={!shareReady}
+              onClick={shareReady ? onShare : onShareUnavailable}
+              disabled={!shareReady && !onShareUnavailable}
+              aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
               className={cn(
                 "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline",
                 LOCATION_COMPACT_ACTION_SHAPE,
@@ -4100,6 +4102,7 @@ function PersonActionsDialog({
   onManageSharing,
   onViewLocation,
   onManageConnection,
+  onInvite,
   onCancelRequest,
 }: {
   open: boolean;
@@ -4116,6 +4119,7 @@ function PersonActionsDialog({
   onManageSharing: () => void;
   onViewLocation: () => void;
   onManageConnection: () => void;
+  onInvite: () => void;
   onCancelRequest: () => void;
 }) {
   const cancelBusy =
@@ -4170,18 +4174,13 @@ function PersonActionsDialog({
     actionRows.push(action("share", "Share my location", onShare));
     actionRows.push(action("ask", "Ask for location", onAsk));
   } else {
-    actionRows.push(
-      <SettingsRow
-        key="unavailable"
-        title="Location sharing is not available with this person yet."
-        density="compact"
-        disabled
-        testId="one-location-person-action-unavailable"
-      />,
-    );
+    actionRows.push(action("invite", "Invite to One", onInvite));
     actionRows.push(
       action("connection", "Manage connection", onManageConnection),
     );
+  }
+  if (!shareReady && status.kind !== "neutral") {
+    actionRows.push(action("invite", "Invite to One", onInvite));
   }
 
   return (
@@ -4202,9 +4201,14 @@ function PersonActionsDialog({
               <DialogTitle className="break-words text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
                 {name}
               </DialogTitle>
-              {status.label ? (
-                <DialogDescription className="mt-0.5 text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
-                  {status.label}
+              {status.label || !shareReady ? (
+                <DialogDescription className="mt-0.5 space-y-2 text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+                  {status.label ? <span className="block">{status.label}</span> : null}
+                  {!shareReady ? (
+                    <span className="block">
+                      {`${name} needs to open Location in One and finish setup before receiving your location.`}
+                    </span>
+                  ) : null}
                 </DialogDescription>
               ) : null}
             </div>
@@ -4500,6 +4504,7 @@ export function PeopleHub({
                     onOpen={() => setSelectedPersonId(recipient.userId)}
                     onAsk={() => onStartAsk(recipient.userId)}
                     onShare={() => onStartShare(recipient.userId)}
+                    onShareUnavailable={() => setSelectedPersonId(recipient.userId)}
                     shareReady={vm.isRecipientShareReady(recipient)}
                   />
                 );
@@ -4582,6 +4587,10 @@ export function PeopleHub({
           onManageConnection={() => {
             setSelectedPersonId(null);
             onAddConnections();
+          }}
+          onInvite={() => {
+            setSelectedPersonId(null);
+            onInvite();
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
@@ -6289,84 +6298,87 @@ function AskFlow({
           }
         />
 
-        <SectionCard className="p-5 sm:p-6">
-          <div className="space-y-6">
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              maxWidthClassName={null}
-              label="How long"
-              presentation="ladder"
-              allowUntilStop={false}
-              // Not FULL: the two lanes shared one constant for a moment, and
-              // trimming this screen to four cells must not take rungs off the
-              // owner's own "New time" editor, which has a card to itself.
-              rungs={REQUEST_DURATION_LADDER}
-            />
-            <ReasonChips
-              value={reason}
-              onChange={(next) => {
-                setReason(next);
-                if (next !== "Other") vm.setRequestMessage("");
-              }}
-              label="Reason"
-              presentation="buttons"
-            />
-            {reason === "Other" ? (
-              <div className="space-y-2.5">
-                <FormLabel as="label" htmlFor="one-location-ask-other-reason">
-                  Add reason
-                </FormLabel>
-                <textarea
-                  id="one-location-ask-other-reason"
-                  value={vm.requestMessage}
-                  onChange={(e) =>
-                    vm.setRequestMessage(
-                      e.target.value.slice(
-                        0,
-                        ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
-                      ),
-                    )
-                  }
-                  rows={2}
-                  maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
-                  placeholder="What should they know?"
-                  className="ui-text-input-value block min-h-[88px] w-full resize-none rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 pb-8 pt-3.5 outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-                />
-              </div>
-            ) : null}
-          </div>
-        </SectionCard>
+        <div className="space-y-3" data-testid="one-location-ask-form-actions">
+          <SectionCard className="p-5 sm:p-6">
+            <div className="space-y-6">
+              <DurationSelector
+                value={vm.durationHours}
+                onChange={vm.setDurationHours}
+                maxWidthClassName={null}
+                label="How long"
+                presentation="ladder"
+                allowUntilStop={false}
+                // Not FULL: the two lanes shared one constant for a moment, and
+                // trimming this screen to four cells must not take rungs off the
+                // owner's own "New time" editor, which has a card to itself.
+                rungs={REQUEST_DURATION_LADDER}
+              />
+              <ReasonChips
+                value={reason}
+                onChange={(next) => {
+                  setReason(next);
+                  if (next !== "Other") vm.setRequestMessage("");
+                }}
+                label="Reason"
+                presentation="buttons"
+              />
+              {reason === "Other" ? (
+                <div className="space-y-2.5">
+                  <FormLabel as="label" htmlFor="one-location-ask-other-reason">
+                    Add reason
+                  </FormLabel>
+                  <textarea
+                    id="one-location-ask-other-reason"
+                    value={vm.requestMessage}
+                    onChange={(e) =>
+                      vm.setRequestMessage(
+                        e.target.value.slice(
+                          0,
+                          ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
+                        ),
+                      )
+                    }
+                    rows={2}
+                    maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
+                    placeholder="What should they know?"
+                    className="ui-text-input-value block min-h-[88px] w-full resize-none rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 pb-8 pt-3.5 outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  />
+                </div>
+              ) : null}
+            </div>
+          </SectionCard>
 
-        <div
-          data-testid="one-location-ask-send-bar"
-          className={STICKY_FLOW_ACTION_CLASSNAME}
-        >
-          <FlowActionGroup
-            stacked
-            primary={
-              <Button
-                onClick={sendRequest}
-                size="prominent"
-                disabled={!isRequestFormValid || sendingRequest}
-                aria-disabled={!isRequestFormValid || sendingRequest}
-                isLoading={sendingRequest}
-                className="text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
-              >
-                Send request
-              </Button>
-            }
-            secondary={
-              <Button
-                variant="ghost"
-                size="standard"
-                onClick={() => onClose()}
-                className="bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
-              >
-                Cancel
-              </Button>
-            }
-          />
+          <div
+            data-testid="one-location-ask-send-bar"
+            className="pb-[calc(max(var(--kb-height,0px)-var(--app-scroll-bottom-pad,0px),var(--app-safe-area-bottom-effective,0px))+0.75rem)]"
+          >
+            <FlowActionGroup
+              stacked
+              className="mx-auto max-w-[244px]"
+              primary={
+                <Button
+                  onClick={sendRequest}
+                  size="prominent"
+                  disabled={!isRequestFormValid || sendingRequest}
+                  aria-disabled={!isRequestFormValid || sendingRequest}
+                  isLoading={sendingRequest}
+                  className="text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+                >
+                  Send request
+                </Button>
+              }
+              secondary={
+                <Button
+                  variant="ghost"
+                  size="standard"
+                  onClick={() => onClose()}
+                  className="h-[50px] min-h-[50px] bg-transparent text-[color:var(--app-accent)] hover:bg-transparent"
+                >
+                  Cancel
+                </Button>
+              }
+            />
+          </div>
         </div>
       </div>
     );
