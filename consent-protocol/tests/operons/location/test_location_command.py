@@ -183,16 +183,38 @@ def wav(frames=160, rate=16000, silence=False):
 
 
 @pytest.mark.asyncio
-async def test_transcription_is_bounded_whole_recording_without_live_or_tools():
+@pytest.mark.parametrize("managed_client", [False, True])
+async def test_transcription_is_bounded_whole_recording_without_live_or_tools(
+    monkeypatch, managed_client
+):
     generate = AsyncMock(return_value=SimpleNamespace(text="मेरी location चालू करो"))
-    brain = LocationCommandBrain(
-        client=SimpleNamespace(
+    if managed_client:
+        from google.auth.credentials import AnonymousCredentials
+        from google.genai import Client
+
+        generate = AsyncMock(return_value={"transcript": "मेरी location चालू करो"})
+        monkeypatch.setattr("hushh_mcp.hushh_adk.single_turn.run_single_turn", generate)
+        client = Client(
+            vertexai=True,
+            project="synthetic-project",
+            location="global",
+            credentials=AnonymousCredentials(),
+        )
+    else:
+        client = SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
         )
-    )
+    brain = LocationCommandBrain(client=client)
     assert await brain.transcribe(wav()) == "मेरी location चालू करो"
-    config = generate.call_args.kwargs["config"]
+    config = (
+        generate.call_args.args[0].generate_content_config
+        if managed_client
+        else generate.call_args.kwargs["config"]
+    )
     assert not config.tools and not config.speech_config
+    if managed_client:
+        assert config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+        assert generate.call_args.kwargs["timeout_seconds"] == 30
     for invalid in ("!invalid", wav(0), wav(rate=44100), wav(960001)):
         with pytest.raises(ValueError):
             await brain.transcribe(invalid)
@@ -201,7 +223,7 @@ async def test_transcription_is_bounded_whole_recording_without_live_or_tools():
 
 
 @pytest.mark.asyncio
-async def test_semantic_agent_returns_typed_proposal_only():
+async def test_semantic_agent_returns_typed_proposal_only(monkeypatch):
     model = FakeCommandModel(
         responses=[
             SemanticAssessment(
@@ -212,7 +234,14 @@ async def test_semantic_agent_returns_typed_proposal_only():
             ).model_dump_json()
         ]
     )
-    brain = LocationCommandBrain(client=object(), adk_model=model)
+    options = []
+
+    def managed_model(_name, *, http_options):
+        options.append(http_options)
+        return model
+
+    monkeypatch.setattr("hushh_mcp.runtime_providers.build_managed_gemini_adk_model", managed_model)
+    brain = LocationCommandBrain(client=object())
     _, actions = catalog()
     result = await brain.assess(
         query="meri location dikhao", context={"vault_ready": True}, catalog=actions
@@ -221,6 +250,9 @@ async def test_semantic_agent_returns_typed_proposal_only():
     assert len(model.requests) == 1
     assert model.requests[0].config.response_schema is not None
     assert not model.requests[0].config.speech_config
+    assert len(options) == 1
+    assert options[0].timeout == 20_000
+    assert options[0].retry_options.attempts == 1
 
 
 @pytest.mark.asyncio
