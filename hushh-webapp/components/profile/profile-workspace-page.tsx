@@ -25,6 +25,7 @@ import {
   DeleteRowIcon,
   DiscoverableRowIcon,
   FingerprintProfileIcon,
+  FinanceAgentIcon,
   GmailAgentIcon,
   InboxRowIcon,
   LocationAgentIcon,
@@ -3575,7 +3576,7 @@ function ProfilePageContent({
         ) : null}
       </SettingsGroup>
       <SettingsGroup title="Payments">
-        <SettingsRow icon={WalletAgentIcon} iconTone="capability"
+        <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
           title="Payments and earnings" description="Purchase balance, earnings and transactions."
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
           voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."

@@ -2424,6 +2424,28 @@
     "reviewer": "peer_fixture_review",
     "scope": "Eight independently reviewed exact-source debt ceilings only. Budgets500/250/80, every unrelated finding, exclusions and scanners unchanged. No claim these existing hotspots meet advisory budgets."
   },
+  "byoc_final_hosted_contract_review_20261016": {
+    "boundary": "Existing test contracts only; global budgets, security and production authority unchanged.",
+    "entries": [
+      {
+        "after": 587,
+        "before": 584,
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Measure every mixed-group title at its shared start; preserve all-title centering, full-row, enlarged-copy and negative controls.",
+        "source_sha256": "52a8d1f957d0808d8f36d7ada970d39bc7c8e56a7dbbbc844ab097fb31ae9dbe"
+      },
+      {
+        "after": 524,
+        "before": 516,
+        "key": "module_size|hushh-webapp/e2e/profile-legal-connectors.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Distinguish authored full-window and bounded pane geometry; poll top, height and bottom within the unchanged 0.5px bound.",
+        "source_sha256": "25b53559fd9f9f9962d1c12420ae6984cf288bc0425f52ab73d1b4ced5a9f76c"
+      }
+    ],
+    "evidence_revision": "b0fc97a632bac09770f0f9f7bb7810097b01c206",
+    "prior_baseline_sha256": "0e48afd501f0b34544901a641c1fd46c32d21d595caa9308667052dc522cca53",
+    "reviewer": "browser_viewport_review"
+  },
   "byoc_hosted_browser_fixture_review_20261015": {
     "entries": [
       {
@@ -24701,7 +24723,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
       "symbol": null,
-      "value": 584
+      "value": 587
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29082,7 +29104,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/profile-legal-connectors.layout.spec.ts",
       "symbol": null,
-      "value": 516
+      "value": 524
     },
     {
       "detail": "function exceeds the advisory gene budget",

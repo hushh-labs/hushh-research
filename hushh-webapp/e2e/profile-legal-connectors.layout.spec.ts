@@ -283,11 +283,19 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
         (node as HTMLElement).style.getPropertyValue("--native-overlay-top"),
         (node as HTMLElement).style.getPropertyValue("--native-overlay-bottom"),
       ])).toEqual(regions.fullWindow ? ["0px", "0px"] : ["120px", "280px"]);
-      const box = (await pane(page).boundingBox())!;
-      // Acknowledged full-window coverage fills the viewport; bounded panes retain their frame.
-      expect(box.y).toBeCloseTo(fullWindow ? 0 : 16, 0);
-      expect(box.height).toBeCloseTo(fullWindow ? 852 : 820, 0);
-      expect(box.y + box.height).toBeCloseTo(fullWindow ? 852 : 836, 0);
+      // Full-window native overlays use the entire phone viewport; bounded
+      // presentations keep their own gutter rather than native reservations.
+      const expected = regions.fullWindow
+        ? { top: 0, height: 852, bottom: 852 }
+        : { top: 16, height: 820, bottom: 836 };
+      await expect.poll(async () => {
+        const box = await pane(page).boundingBox();
+        return box ? Math.max(
+          Math.abs(box.y - expected.top),
+          Math.abs(box.height - expected.height),
+          Math.abs(box.y + box.height - expected.bottom),
+        ) : Number.POSITIVE_INFINITY;
+      }).toBeLessThanOrEqual(0.5);
     }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();

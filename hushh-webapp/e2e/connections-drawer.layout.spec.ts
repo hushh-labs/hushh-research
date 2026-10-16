@@ -564,7 +564,8 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
     });
     expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "600" });
-    // Both panels inherit the same material authority in each theme.
+    // Match the side-pane renderer, including WebKit's intentional opaque
+    // fallback. Floating Profile and portaled menus retain their glass policy.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
       const reference = await profileFrame(page, false, true);
@@ -1046,9 +1047,8 @@ for (const width of [390, 768, 1024]) {
     await settled();
     await page.keyboard.press("Escape");
     await expect(connectors).not.toBeVisible();
-    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
-    await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
-    await page.keyboard.press("Escape");
+    // Escape dismisses the modal owner; it does not invoke Back-to-chats.
+    // The next explicit open must use the reset History mode.
     await expect(chats).not.toBeVisible();
     await hamburger.click();
     await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();

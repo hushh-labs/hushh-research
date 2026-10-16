@@ -2345,8 +2345,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 /* WKWebView cannot reliably blur a transformed pane's own backdrop. */
 @supports (-webkit-backdrop-filter: blur(1px)) {
-  .profile-pane-sheet[data-app-side-pane][data-slot="sheet-content"],
-  html.dark .profile-pane-sheet[data-app-side-pane][data-slot="sheet-content"],
+  .profile-pane-sheet:where([data-app-side-pane])[data-slot="sheet-content"],
+  html.dark .profile-pane-sheet:where([data-app-side-pane])[data-slot="sheet-content"],
   [data-app-side-pane],
   .dark [data-app-side-pane] {
     --profile-pane-surface: var(--background);

@@ -2,9 +2,9 @@ import {
   AccountProfileIcon, PreferencesProfileIcon, SecurityProfileIcon,
   DevicesProfileIcon, ConnectedSystemsAgentIcon, InviteFriendsProfileIcon,
   SupportProfileIcon, DeveloperToolsProfileIcon, SignOutProfileIcon,
-  MemoryAgentIcon, PROFILE_ICON_COLORS,
+  MemoryAgentIcon, FinanceAgentIcon, PROFILE_ICON_COLORS,
 } from "@/components/icons/agents";
-import { ProfileAccountBankIcon, ProfileAccountPriceIcon } from "./profile-your-account-icons";
+import { ProfileAccountPriceIcon } from "./profile-your-account-icons";
 import { ShieldCheck, ScrollText, RefreshCw } from "@/components/icons";
 import { ProfilePaneWorldModelIcon } from "./profile-pane-icons";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
@@ -23,7 +23,7 @@ export const PROFILE_MENU_GROUPS = [
     { id: "hosting", label: "Hosting", icon: ConnectedSystemsAgentIcon, symbol: "cloud", iconHex: PROFILE_ICON_COLORS.connectors },
     { id: "software-updates", label: "Software updates", icon: RefreshCw, symbol: "arrow.triangle.2.circlepath", iconHex: PROFILE_ICON_COLORS.connectors },
     { id: "account", label: PROFILE_LABELS.account, icon: AccountProfileIcon, symbol: "person", iconHex: PROFILE_ICON_COLORS.account },
-    { id: "payouts", label: "Payments and earnings", icon: ProfileAccountBankIcon, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
+    { id: "payouts", label: "Payments and earnings", icon: FinanceAgentIcon, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
     { id: "request-pricing", label: "Request pricing", icon: ProfileAccountPriceIcon, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },
     { id: "my-data", label: "Memory", icon: MemoryAgentIcon, symbol: "brain", voiceControlId: "profile_my_data", voiceActionId: "route.profile_my_data", voicePurpose: "Opens saved details and sharing." },
     { id: "world-model", label: "Personal World Model", icon: ProfilePaneWorldModelIcon, symbol: "globe", voiceControlId: "profile_world_model", voiceActionId: "route.profile_world_model", voicePurpose: "Opens your Personal World Model." },

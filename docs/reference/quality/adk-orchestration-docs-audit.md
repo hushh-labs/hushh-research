@@ -29,6 +29,8 @@ rollback retained the prior application. Files 959 is applied; history cleanup
 
 **Candidate:** the isolated integration includes frozen infrastructure `7058898726`,
 local ADK `2462c0bc6f` and the concurrent UI corrections through `67aacf0098`.
+The subsequently published root `ce60384255` is preserved in the same candidate;
+no later ADK changes are being chased during validation.
 Root edits, PDF work and existing browser/device connections remain preserved.
 The resumed core run passed 20,579 backend cases but exposed route-inventory
 merge duplicates, missing accounting for two already-bounded Azure connection
@@ -42,7 +44,12 @@ web typecheck/lint and the production build. The concurrent UI delta passes 36
 focused cases and two Chromium geometry/interaction cases. These are resumed
 local receipts with targeted repairs, not a single clean full-suite invocation.
 Exact-head hosted CI and live acceptance remain required; this candidate has not
-been deployed. The prior [exact `15d83d5bab` passed all 25 hosted
+been deployed. The [exact `9b54e8f566` validation](https://github.com/hushh-labs/hushh-research/actions/runs/38824316099)
+refused stale setup/header/drawer assertions and one legacy Payments glyph.
+The bounded repair retains the authored WebKit fallback, full-row hit targets,
+one-pixel alignment and Back/Search gates; 25 focused unit cases, 26 Chromium/WebKit
+layout cases and 466 Back cases pass locally. A fresh exact-SHA hosted result is
+required before deployment. The prior [exact `15d83d5bab` passed all 25 hosted
 checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
