@@ -74,13 +74,14 @@ flowchart TB
 ## Canonical 3-environment contract
 
 Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local
-path to a reviewed, versioned catalog and its approved raster assets. The empty
-default makes no external provider requests and enables no licensed artwork.
-The contributor backend template documents this optional path. Enabling it in
-production requires a pipeline maintainer to configure a read-only mount after
-rights and asset approval. It is not an API key. Private photo and neutral
-artwork work without it. See [Wallet artwork](../one/wallet.md) for the catalog
-contract.
+path to a reviewed, versioned catalog and its approved raster assets. An unset
+path uses the bundled, reviewed card atlas without external provider requests.
+A configured path replaces the bundle; an invalid or empty override fails
+closed and must not restore withdrawn bundled approvals. The contributor
+backend template documents this optional path. A private override requires a
+pipeline maintainer to configure a read-only mount after rights and asset
+approval. It is not an API key. See [Wallet artwork](../one/wallet.md) for the
+catalog and owner-only display recovery contracts.
 
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
