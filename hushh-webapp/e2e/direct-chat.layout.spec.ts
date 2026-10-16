@@ -433,8 +433,9 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(menuBox.x - iconBox.x - iconBox.width)).toBeLessThanOrEqual(3);
-    const bubbleBox = (await emoji.locator("../..").boundingBox())!;
+    const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
     if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
     else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
   }
@@ -463,6 +464,37 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   expect(screenTitle.weight).toBe("600");
   expect(threadTitle.size).toBe("16px");
   expect(threadTitle.weight).toBe("600");
+});
+
+for (const width of [320, 393, 768, 1440]) test(`compact message controls preserve inline timestamps at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mount(page, width === 393);
+  await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
+  for (const id of ["maya-79", "maya-78"]) {
+    const row = page.locator(`[data-chat-message="${id}"]`);
+    await row.hover();
+    const bubble = row.locator('[data-chat-bubble]');
+    const before = await bubble.boundingBox();
+    await row.getByRole("button", { name: "Message options" }).focus();
+    expect(await bubble.boundingBox()).toEqual(before);
+    const geometry = await bubble.evaluate(element => {
+      const text = element.querySelector(":scope > p")!.getBoundingClientRect();
+      const time = element.querySelector("time")!.getBoundingClientRect();
+      return { textBottom: text.bottom, timeTop: time.top };
+    });
+    expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+    for (const label of ["React to message", "Message options"]) {
+      const button = row.getByRole("button", { name: label });
+      const rect = (await button.boundingBox())!;
+      expect(rect.width).toBeGreaterThanOrEqual(44);
+      expect(rect.height).toBeGreaterThanOrEqual(44);
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+      await expect(button).toHaveCSS("background-image", /14px.*15px/);
+    }
+  }
+  await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
 });
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
