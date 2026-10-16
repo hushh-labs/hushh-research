@@ -5,6 +5,7 @@ import { preload } from "react-dom";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { CircleWarsPanel } from "@/components/profile/circle-wars-panel";
 import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { ReferralHeroArtwork, REFERRAL_HERO_ARTWORK_SRC } from "./referral-hero-artwork";
@@ -19,14 +20,13 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
+import { formatWeeklyPrizeCountdown, weeklyPrizeRemainingMs } from "@/lib/referral/weekly-prize-clock";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   ReferralService,
-  type CircleLeaderboardEntry,
-  type CircleSelection,
   type EngagementStatus,
   type LeaderboardPage,
   type MilestoneProgress,
@@ -75,43 +75,21 @@ function fmt(value: number): string {
   return value.toLocaleString("en-IN");
 }
 
-function twoDigit(value: number): string {
-  return String(Math.max(0, value)).padStart(2, "0");
-}
+// Compatibility export; the small prize clock owns formatting and time math.
+export const formatCountdown = formatWeeklyPrizeCountdown;
 
-/**
- * Total-hours `HHH:MM:SS` remaining until `remainingMs` from now, clamped to
- * `00:00:00` once passed. A pure function so the countdown math is testable
- * without rendering or faking a timer.
- */
-export function formatCountdown(remainingMs: number): string {
-  if (remainingMs <= 0) return "00:00:00";
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${twoDigit(hours)}:${twoDigit(minutes)}:${twoDigit(seconds)}`;
-}
-
-/**
- * `HHH:MM:SS` remaining until the absolute `cutoffIso` the backend reports,
- * recomputed every tick from that fixed instant -- never a client-side
- * `Date.now() + demo duration`, and never reset by a re-render, a route
- * change, a tab switch, or an account switch (those can only ever change
- * which `cutoffIso` the caller passes in, which is itself sourced from
- * `GET /api/one/referrals/challenge`, not invented here).
- */
-function useCountdown(cutoffIso: string | null, serverNow?: string, receivedAt?: number): string | null {
+function useCountdown(challenge: WeeklyChallenge | null): string | null {
   const [label, setLabel] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!cutoffIso) {
+    if (!challenge || weeklyPrizeRemainingMs(challenge, performance.now()) === null) {
       setLabel(null);
       return;
     }
-    const cutoff = new Date(cutoffIso).getTime();
-    const now = () => serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
-    const tick = () => setLabel(formatCountdown(cutoff - now()));
+    const tick = () => {
+      const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+      setLabel(remaining === null ? null : formatCountdown(remaining));
+    };
     tick();
     const interval = window.setInterval(tick, 1000);
     // A backgrounded tab throttles `setInterval`; recompute immediately from
@@ -125,7 +103,7 @@ function useCountdown(cutoffIso: string | null, serverNow?: string, receivedAt?:
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [cutoffIso, serverNow, receivedAt]);
+  }, [challenge]);
 
   return label;
 }
@@ -267,9 +245,6 @@ function ReferralDashboardContent() {
   const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, "leaderboard", (idToken) =>
     ReferralService.getLeaderboard({ idToken, limit: 10 }),
   );
-  const [circleLeaderboardRes, reloadCircleLeaderboard] = useReferralResource(user, "circleleaderboard", (idToken) =>
-    ReferralService.getCircleLeaderboard({ idToken }).then((r) => r.teams),
-  );
   const [policyRes, reloadPolicy] = useReferralResource(user, "policy", (idToken) =>
     ReferralService.getPolicy({ idToken }),
   );
@@ -282,30 +257,25 @@ function ReferralDashboardContent() {
   const [challengeRes, reloadChallenge] = useReferralResource(user, "challenge", (idToken) =>
     ReferralService.getChallenge({ idToken }),
   );
-  const [circleRes, reloadCircle] = useReferralResource(user, "circle", (idToken) =>
-    ReferralService.getCircleSelection({ idToken }),
-  );
+  const [circleRefresh, setCircleRefresh] = useState(0);
 
   const reloadAll = useCallback(() => {
     reloadSummary();
     reloadPoints();
     reloadLeaderboard();
-    reloadCircleLeaderboard();
     reloadMilestones();
     reloadPolicy();
     reloadEngagement();
     reloadChallenge();
-    reloadCircle();
+    setCircleRefresh((value) => value + 1);
   }, [
     reloadSummary,
     reloadPoints,
     reloadLeaderboard,
-    reloadCircleLeaderboard,
     reloadMilestones,
     reloadPolicy,
     reloadEngagement,
     reloadChallenge,
-    reloadCircle,
   ]);
 
   // A pushed "something changed" doorbell re-reads everything: the server
@@ -332,25 +302,14 @@ function ReferralDashboardContent() {
   }, [connected, reloadAll]);
 
   const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
-  const countdown = useCountdown(
-    challengeRes.status === "ready" && challengeRes.data.active
-      ? challengeRes.data.cutoff_at
-      : null,
-    challengeRes.status === "ready" ? challengeRes.data.server_now : undefined,
-    challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined,
-  );
-
-  const cutoffAt = challengeRes.status === "ready" ? challengeRes.data.cutoff_at : null;
-  const serverNow = challengeRes.status === "ready" ? challengeRes.data.server_now : undefined;
-  const receivedAt = challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined;
+  const challenge = challengeRes.status === "ready" ? challengeRes.data : null;
+  const countdown = useCountdown(challenge);
   useEffect(() => {
-    if (!cutoffAt) return;
-    const now = serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
-    const delay = new Date(cutoffAt).getTime() - now;
-    if (!Number.isFinite(delay)) return;
-    const timer = window.setTimeout(reloadChallenge, Math.max(0, delay) + 1000);
+    const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+    if (remaining === null) return;
+    const timer = window.setTimeout(reloadChallenge, remaining + 250);
     return () => window.clearTimeout(timer);
-  }, [cutoffAt, reloadChallenge, serverNow, receivedAt]);
+  }, [challenge, reloadChallenge]);
 
   const onCopy = useCallback(async () => {
     if (!link) return;
@@ -385,7 +344,7 @@ function ReferralDashboardContent() {
 
   return (
     <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} showHowItWorks={showHowItWorks} onHowItWorks={() => setShowHowItWorks(true)}>
-      {[summaryRes,pointsRes,leaderboardRes,milestonesRes,engagementRes,challengeRes,circleRes,circleLeaderboardRes].some((res) => res.status === "ready" && res.refreshFailed) ? <p role="status" className="referral-type-caption">Unable to refresh. Showing the last update. <button onClick={reloadAll}>Try again</button></p> : null}
+      {[summaryRes,pointsRes,leaderboardRes,milestonesRes,engagementRes,challengeRes].some((res) => res.status === "ready" && res.refreshFailed) ? <p role="status" className="referral-type-caption">Unable to refresh. Showing the last update. <button onClick={reloadAll}>Try again</button></p> : null}
       {showHowItWorks ? <section aria-label="How referrals work"><RulesTab policyRes={policyRes} onRetry={reloadPolicy} /></section> : <SwipeViews className="relative" tabSetId="referrals" activeValue={tab} options={TABS.map(({ key, label }) => ({ value: key, label }))} onSelectionChange={(value) => setTab(value as TabKey)} viewportMinHeight="fill" heightMode="active">
       <div>
       {summaryRes.status !== "ready" ? <>
@@ -418,8 +377,7 @@ function ReferralDashboardContent() {
               countdown={countdown}
               link={link}
               onShare={onShare}
-              circleRes={circleRes}
-              onRetryCircle={reloadCircle}
+              circlePanel={tab === "you" && user ? <CircleWarsPanel userId={user.uid} view="card" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => { setTab("standings"); setBoard("circles"); }} /> : null}
             />
           ) : null}
         </>
@@ -429,8 +387,7 @@ function ReferralDashboardContent() {
         <StandingsTab
           leaderboardRes={leaderboardRes}
           onRetryLeaderboard={reloadLeaderboard}
-          circleLeaderboardRes={circleLeaderboardRes}
-          onRetryCircleLeaderboard={reloadCircleLeaderboard}
+          circlePanel={tab === "standings" && board === "circles" && user ? <CircleWarsPanel userId={user.uid} view="leaderboard" refreshKey={circleRefresh} onInvite={onShare} onViewRankings={() => setBoard("circles")} /> : null}
           board={board}
           onBoardChange={setBoard}
         />
@@ -548,8 +505,7 @@ function YouTab({
   countdown,
   link,
   onShare,
-  circleRes,
-  onRetryCircle,
+  circlePanel,
 }: {
   active: boolean;
   summary: ReferralSummary;
@@ -564,8 +520,7 @@ function YouTab({
   countdown: string | null;
   link: string;
   onShare: () => void;
-  circleRes: Res<CircleSelection>;
-  onRetryCircle: () => void;
+  circlePanel: React.ReactNode;
 }) {
   return (
     <>
@@ -640,12 +595,7 @@ function YouTab({
         </Card>
 
       </div>
-      <Card className="p-[22px]">
-        <h3 className="referral-section-heading">Your circle</h3>
-        <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
-          {(circle) => <CircleCardBody circle={circle} />}
-        </Section>
-      </Card>
+      {circlePanel}
     </>
   );
 }
@@ -666,111 +616,41 @@ function ChallengeClock({
   onRetryChallenge: () => void;
   countdown: string | null;
 }) {
-  // The compact seven-day track keeps its accessible day labels in every
-  // resource state; only an active server window supplies progress.
-  const weekProgress = (() => {
-    if (challengeRes.status === "ready" && challengeRes.data.active) {
-      const { week_started_at, cutoff_at } = challengeRes.data;
-      if (week_started_at && cutoff_at) {
-        const start = new Date(week_started_at).getTime();
-        const end = new Date(cutoff_at).getTime();
-        const now = challengeRes.data.server_now && challengeRes.data.received_at_monotonic !== undefined
-          ? new Date(challengeRes.data.server_now).getTime() + performance.now() - challengeRes.data.received_at_monotonic
-          : Date.now();
-        const totalDays = Math.max(1, Math.round((end - start) / 86_400_000));
-        const elapsedDays = Math.min(totalDays, Math.max(0, (now - start) / 86_400_000));
-        return { totalDays, elapsedDays, live: true };
-      }
-    }
-    return { totalDays: 7, elapsedDays: 0, live: false };
-  })();
-
-  const headline =
-    challengeRes.status === "loading"
-      ? { label: "Weekly calendar", value: "…" }
-      : challengeRes.status === "error"
-        ? { label: "Weekly calendar", value: "Unable to load" }
-        : challengeRes.data.active
-          ? { label: "This week ends in", value: countdown ?? "—" }
-          : { label: "Weekly calendar", value: "Not yet scheduled" };
+  const challenge = challengeRes.status === "ready" ? challengeRes.data : null;
+  const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+  const running = remaining !== null && remaining > 0;
+  const timingUnavailable = Boolean(challenge && (challenge.active || challenge.campaign_active === true)
+    && challenge.weekly_prizes_enabled !== false && challenge.campaign_active !== false && remaining === null);
+  const value = challengeRes.status === "loading" ? "Loading…"
+    : challengeRes.status === "error" ? "Unable to load"
+    : challenge?.status === "not_configured" ? "Not yet scheduled"
+    : challenge?.weekly_prizes_enabled === false ? "Paused"
+    : timingUnavailable ? "Timing unavailable"
+    : running ? countdown ?? "Updating…"
+    : remaining === 0 ? "Updating…" : "Not yet scheduled";
 
   return (
-    <div
-      className="referral-clock"
-    >
-      {challengeRes.status === "ready" && !challengeRes.data.weekly_prizes_enabled ? <p className="referral-type-caption">Weekly prizes are not active</p> : null}
+    <div className="referral-clock">
       <p className="referral-challenge-heading">
         <span className="inline-flex items-center gap-[9px]">
           <span
             className="inline-flex size-[7px] rounded-full"
-            style={{ background: "#34c759" }}
+            style={{ background: running ? COLORS.green : COLORS.text3 }}
             aria-hidden="true"
           />
-          {headline.label}
+          {running ? "Weekly prizes end in" : "Weekly prizes"}
         </span>
       </p>
       <div className="referral-challenge-status referral-type-support">
-        <span className={`tabular-nums${challengeRes.status === "ready" && challengeRes.data.active ? " referral-countdown-value" : ""}`}>
-          {headline.value}
+        <span className={`tabular-nums${running ? " referral-countdown-value" : ""}`}>
+          {value}
         </span>
-      {challengeRes.status === "error" ? (
+      {challengeRes.status === "error" || timingUnavailable ? (
         <button onClick={onRetryChallenge} className="min-h-11 referral-type-support underline">
           Try again
         </button>
       ) : null}
       </div>
-      <div
-        className="referral-challenge-track grid gap-2"
-        style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}
-        role="img"
-        aria-label={
-          weekProgress.live
-            ? `Weekly calendar progress: day ${Math.min(7, Math.floor(weekProgress.elapsedDays) + 1)} of ${weekProgress.totalDays}`
-            : "Weekly calendar progress: not yet started"
-        }
-      >
-        {Array.from({ length: weekProgress.totalDays }, (_, i) => {
-          const fill = weekProgress.live
-            ? Math.max(0, Math.min(1, weekProgress.elapsedDays - i)) * 100
-            : 0;
-          const isNow =
-            weekProgress.live &&
-            i === Math.min(weekProgress.totalDays - 1, Math.floor(weekProgress.elapsedDays));
-          return (
-            <div
-              key={i}
-              className="relative h-[6px] rounded-full"
-              style={{ background: "rgba(255,255,255,.14)" }}
-            >
-              <div
-                    className="h-full rounded-full bg-white"
-                style={{ width: `${fill}%` }}
-              />
-              {isNow ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1/2 size-[14px] -translate-y-1/2 rounded-full bg-white"
-                  style={{ left: `calc(${fill}% - 7px)`, boxShadow: "0 0 0 5px rgba(255,255,255,.16)" }}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      <ol className="referral-challenge-days sr-only">
-        {Array.from({ length: weekProgress.totalDays }, (_, i) => {
-          const isNow =
-            weekProgress.live &&
-            i === Math.min(weekProgress.totalDays - 1, Math.floor(weekProgress.elapsedDays));
-          return (
-            <li key={i} className="min-w-0 text-center referral-type-caption" style={{ color: isNow ? "#aeaeb2" : "#8e8e93" }}>
-              <b className="block whitespace-nowrap" style={{ color: isNow ? "#fff" : "#aeaeb2" }}>
-                Day {i + 1}
-              </b>
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
 }
@@ -912,53 +792,16 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
   );
 }
 
-function CircleCardBody({
-  circle,
-}: {
-  circle: CircleSelection;
-}) {
-  if (!circle.circle_id) {
-    return (
-      <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-        Circle League — Win Together is in preview. Opt-in referral teams are not available yet.
-      </p>
-    );
-  }
-  return (
-          <>
-            <p className="mt-1 text-lg font-semibold">
-              {circle.circle_name ?? "Referral circle"}
-            </p>
-            <dl className="mt-4 flex justify-between gap-4 border-t pt-4" style={{ borderColor: COLORS.sep }}>
-              <div>
-                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team rank</dt>
-                <dd className="mt-0.5 text-base font-semibold tabular-nums">
-                  {circle.rank ? `#${circle.rank}` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team referrals</dt>
-                <dd className="mt-0.5 text-base font-semibold tabular-nums">
-                  {circle.contribution_count === undefined ? "—" : fmt(circle.contribution_count)}
-                </dd>
-              </div>
-            </dl>
-          </>
-  );
-}
-
 function StandingsTab({
   leaderboardRes,
   onRetryLeaderboard,
-  circleLeaderboardRes,
-  onRetryCircleLeaderboard,
+  circlePanel,
   board,
   onBoardChange,
 }: {
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
-  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
-  onRetryCircleLeaderboard: () => void;
+  circlePanel: React.ReactNode;
   board: "individual" | "circles";
   onBoardChange: (board: "individual" | "circles") => void;
 }) {
@@ -1013,7 +856,7 @@ function StandingsTab({
                     <BoardRow
                       key={entry.rank}
                       rank={entry.rank}
-                      who={entry.handle}
+                      who={entry.display_name ?? entry.handle}
                       points={entry.points}
                       top={leaderboard.entries[0]?.points ?? entry.points}
                       me={entry.is_viewer}
@@ -1023,7 +866,7 @@ function StandingsTab({
                   {leaderboard.viewer && !leaderboard.entries.some((e) => e.is_viewer) ? (
                     <BoardRow
                       rank={leaderboard.viewer.rank}
-                      who={leaderboard.viewer.handle}
+                      who={leaderboard.viewer.display_name ?? leaderboard.viewer.handle}
                       points={leaderboard.viewer.points}
                       top={leaderboard.entries[0]?.points ?? leaderboard.viewer.points}
                       me
@@ -1035,27 +878,7 @@ function StandingsTab({
             }
           </Section>
         ) : (
-          <Section res={circleLeaderboardRes} onRetry={onRetryCircleLeaderboard} retryLabel="the circle standings">
-            {(teams) =>
-              teams.length === 0 ? (
-                <EmptyBoard note="No circle standings yet." />
-              ) : (
-                <ol className="divide-y" style={{ borderColor: COLORS.sep }}>
-                  {teams.map((team, index) => (
-                    <BoardRow
-                      key={team.circle_id}
-                      rank={team.rank}
-                      who={team.circle_name}
-                      points={team.contribution_count}
-                      top={teams[0]?.contribution_count ?? team.contribution_count}
-                      me={false}
-                      first={index === 0}
-                    />
-                  ))}
-                </ol>
-              )
-            }
-          </Section>
+          circlePanel
         )}
       </Card>
     </div>
@@ -1069,7 +892,7 @@ function gapCopy(lb: LeaderboardPage): string | null {
   if (!ahead) return `You're #${v.rank}.`;
   const gap = ahead.points - v.points;
   if (gap <= 0) return `You're #${v.rank}.`;
-  return `You're #${v.rank}. ${fmt(gap)} coins to pass ${ahead.handle}.`;
+  return `You're #${v.rank}. ${fmt(gap)} coins to pass ${ahead.display_name ?? ahead.handle}.`;
 }
 
 function BoardRow({

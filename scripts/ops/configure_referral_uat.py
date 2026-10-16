@@ -11,6 +11,8 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from sync_backend_runtime_secrets import _retained_referral_config
@@ -157,15 +159,162 @@ def configure_scheduler(*, run: bool) -> None:
     print(f"UAT scheduler {JOB} verified; run_requested={run}")
 
 
+def serving_revision():
+    service = json.loads(
+        _cloud(
+            "run",
+            "services",
+            "describe",
+            "consent-protocol",
+            f"--region={REGION}",
+            "--format=json",
+        ).stdout
+    )
+    serving = [r for r in service["status"]["traffic"] if r.get("percent", 0)]
+    if len(serving) != 1 or serving[0]["percent"] != 100:
+        raise RuntimeError("UAT backend must have one fully serving revision")
+    return json.loads(
+        _cloud(
+            "run",
+            "revisions",
+            "describe",
+            serving[0]["revisionName"],
+            f"--region={REGION}",
+            "--format=json",
+        ).stdout
+    )
+
+
+@contextmanager
+def uat_database(revision=None):
+    """Use the verified serving revision's database and process-only credentials."""
+    from google.cloud.sql.connector import Connector
+    from google.oauth2.credentials import Credentials
+
+    revision = revision or serving_revision()
+    envs = {
+        item["name"]: item for item in revision["spec"]["containers"][0].get("env", [])
+    }
+
+    def value(name):
+        entry = envs.get(name, {})
+        if "value" in entry:
+            return entry["value"]
+        ref = entry.get("valueFrom", {}).get("secretKeyRef", {})
+        return (
+            _cloud(
+                "secrets", "versions", "access", ref["key"], f"--secret={ref['name']}"
+            ).stdout.strip()
+            if ref
+            else None
+        )
+
+    config = json.loads(value(SECRET) or "{}")
+    instance = config.get("cloudsql_instance_connection_name")
+    if (
+        config.get("environment") != "uat"
+        or instance != f"{PROJECT}:{REGION}:hushh-uat-pg"
+    ):
+        raise RuntimeError("UAT database pin does not match")
+    token = _cloud("auth", "print-access-token").stdout.strip()
+    with Connector(
+        credentials=Credentials(token=token), refresh_strategy="LAZY"
+    ) as connector:
+        connection = connector.connect(
+            instance,
+            "pg8000",
+            user=value("DB_USER"),
+            password=value("DB_PASSWORD"),
+            db=config.get("db_name") or "postgres",
+            timeout=15,
+        )
+        try:
+            yield connection
+        finally:
+            connection.rollback()
+            connection.close()
+
+
+def configure_prizes(*, apply: bool, sha: str | None) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "consent-protocol"))
+    from db.referral_prize_activation import activate_weekly_prizes_sql
+
+    revision = serving_revision()
+    if apply:
+        if not sha:
+            raise RuntimeError(
+                "Prize activation requires the verified deployed main SHA"
+            )
+        labels = revision["metadata"].get("labels", {})
+        local_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        if labels.get("deploy-sha") != sha or local_sha != sha:
+            raise RuntimeError(
+                "Activation code and serving UAT revision must match the verified SHA"
+            )
+        root = Path(__file__).resolve().parents[2]
+        for relative in (
+            "consent-protocol/db/referral_prize_activation.py",
+            "consent-protocol/db/migration_authority.py",
+            "scripts/ops/configure_referral_uat.py",
+        ):
+            committed = subprocess.run(
+                ["git", "show", f"{sha}:{relative}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if (
+                committed.returncode
+                or committed.stdout != (root / relative).read_text()
+            ):
+                raise RuntimeError(
+                    "Activation source must be committed in the deployed SHA"
+                )
+    try:
+        with uat_database(revision) as connection:
+            cursor = connection.cursor()
+            if apply:
+                cursor.execute("SET LOCAL lock_timeout='5s'")
+                cursor.execute("SET LOCAL statement_timeout='30s'")
+                cursor.execute(activate_weekly_prizes_sql())
+                connection.commit()
+            else:
+                cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                "SELECT version,feature_active FROM one_referral_program_settings WHERE activated_at IS NOT NULL AND retired_at IS NULL"
+            )
+            version, active = cursor.fetchone()
+            print(
+                json.dumps(
+                    {
+                        "environment": "uat",
+                        "settings_version": version,
+                        "weekly_prizes_enabled": active,
+                        "applied": apply,
+                    }
+                )
+            )
+    except Exception as exc:  # noqa: BLE001 -- driver errors may contain credentials
+        raise RuntimeError(
+            f"UAT prize operation failed: {type(exc).__name__}"
+        ) from None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("config", "scheduler"))
+    parser.add_argument("phase", choices=("config", "scheduler", "prizes"))
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--sha")
     args = parser.parse_args()
     if args.phase == "config":
         configure_runtime()
-    else:
+    elif args.phase == "scheduler":
         configure_scheduler(run=args.run)
+    else:
+        configure_prizes(apply=args.apply, sha=args.sha)
 
 
 if __name__ == "__main__":

@@ -177,7 +177,7 @@ class _ProcessJobConnection:
                 raise RuntimeError("simulated insert failure")
             self.inserted_score_events.append(dict(params))
             return _Result([])
-        if "SELECT circle_id" in sql and "one_referral_circle_selections" in sql:
+        if "SELECT s.circle_id" in sql and "one_referral_circle_selections" in sql:
             if self.contributing_circle_id is None:
                 return _Result([])
             return _Result([SimpleNamespace(circle_id=self.contributing_circle_id)])

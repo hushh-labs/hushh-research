@@ -232,6 +232,15 @@ def test_leaderboard_doorbell_refreshes_viewers_without_broadcasting_private_fie
     )
     assert all(queue.get_nowait() == {"reason": "leaderboard_published"} for queue in queues["bob"])
     listener._notify_callback(
+        None, None, None, json.dumps({"reason": "weekly_prizes_enabled", "points": 9999})
+    )
+    assert all(
+        queue.get_nowait() == {"reason": "weekly_prizes_enabled"} for queue in queues["alice"]
+    )
+    assert all(queue.get_nowait() == {"reason": "weekly_prizes_enabled"} for queue in queues["bob"])
+    listener._notify_callback(None, None, None, json.dumps({"reason": "unknown_global_reason"}))
+    assert all(queue.empty() for owner in queues.values() for queue in owner)
+    listener._notify_callback(
         None,
         None,
         None,

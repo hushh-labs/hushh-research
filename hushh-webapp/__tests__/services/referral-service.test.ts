@@ -35,6 +35,15 @@ afterEach(() => {
 });
 
 describe("ReferralService.getSummary", () => {
+  it("estimates challenge transit without counting server processing twice", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValueOnce(1000).mockReturnValueOnce(5000);
+    stubFetch({ active: true, server_processing_ms: 3000, server_now: "2026-10-16T10:00:00Z" });
+    const result = await ReferralService.getChallenge({ idToken: "owner" });
+    expect(result.received_at_monotonic).toBe(5000);
+    expect(result.estimated_transit_ms).toBe(500);
+    expect(result.server_now).toBe("2026-10-16T10:00:00Z");
+    now.mockRestore();
+  });
   it("rejects a stale server contract instead of guessing joined referrals or Coins", async () => {
     const spy = stubFetch({qualified_count:0,in_progress_count:2});
     await expect(ReferralService.getSummary({idToken:"owner"})).rejects.toThrow("Joined referral totals");

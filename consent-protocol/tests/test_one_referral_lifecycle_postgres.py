@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 from db.migration_authority import _replay_sql, build_manifest_entries
 from hushh_mcp.services import one_referral_activity_service as activity
 from hushh_mcp.services import one_referral_challenge_service as challenge
+from hushh_mcp.services import one_referral_circle_service as wars
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard
 from hushh_mcp.services import one_referral_maintenance_service as maintenance
 from hushh_mcp.services import one_referral_network_service as network
@@ -46,14 +47,15 @@ def db(monkeypatch):
               CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,created_at TIMESTAMPTZ DEFAULT clock_timestamp());
               CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT,phone_verified BOOLEAN);
               CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY,setup_completed BOOLEAN,setup_completed_at BIGINT);
-              CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT);
+              CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT,status TEXT DEFAULT 'active',owner_user_id TEXT,system_kind TEXT);
+              CREATE TABLE one_location_circle_memberships(circle_id UUID,user_id TEXT,status TEXT DEFAULT 'active',PRIMARY KEY(circle_id,user_id));
               CREATE TABLE one_location_circle_members(circle_id UUID,user_id TEXT,status TEXT);
               CREATE TABLE pkm_data(user_id TEXT PRIMARY KEY,encrypted_data_ciphertext TEXT);
               CREATE TABLE pkm_events(id BIGSERIAL PRIMARY KEY,user_id TEXT NOT NULL,domain TEXT NOT NULL,
                 operation_type TEXT NOT NULL,metadata JSONB NOT NULL DEFAULT '{}');
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
             """)
-            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348, 349):
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348, 349, 358):
                 path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
                 conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
 
@@ -63,6 +65,7 @@ def db(monkeypatch):
                 yield conn
 
         for module in (
+            wars,
             activity,
             challenge,
             leaderboard,
@@ -1014,3 +1017,178 @@ def test_deleted_participants_and_zero_score_cohort_refresh_rank_immediately(db)
     after = leaderboard.get_individual_leaderboard(viewer_user_id="viewer")
     assert next(r for r in after["entries"] if r["is_viewer"])["rank"] == 1
     assert after["snapshot_id"] != before["snapshot_id"]
+
+
+def _circle(db, owner="alice", name="Private friends"):
+    cid = str(uuid4())
+    with db.begin() as conn:
+        conn.execute(
+            text("INSERT INTO one_location_circles(id,name,owner_user_id) VALUES(:cid,:name,:uid)"),
+            {"cid": cid, "name": name, "uid": owner},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships(circle_id,user_id) VALUES(:cid,:uid)"
+            ),
+            {"cid": cid, "uid": owner},
+        )
+    return cid
+
+
+def test_circle_wars_qualification_snapshot_preserves_individual_coins_and_private_names(db):
+    _actor(db, "alice")
+    _actor(db, "outsider")
+    cid = _circle(db)
+    state = wars.opt_in("alice", cid)
+    assert state["period"]["timezone"] == "Asia/Kolkata"
+    assert state["participation"]["team"]["participating_members"] == 1
+    _invite(db, "alice", "bob")
+    activity.reconcile_product_activity("bob", _reply(db, "bob"))
+    # Leaving before the delayed worker runs must not erase event-time eligibility.
+    with db.begin() as conn:
+        conn.execute(
+            text("UPDATE one_location_circle_memberships SET status='left' WHERE user_id='alice'")
+        )
+    assert _settle()[0]["status"] == "completed"
+    assert not _settle()
+    board = wars.get_leaderboard("outsider")
+    team = board["teams"][0]
+    assert team["qualified_referrals"] == 1 and team["circle_id"] is None
+    assert team["anonymous"] and "Private friends" not in str(board)
+    assert activity.get_balances("alice") == {"points": 115, "coins": 115}
+    assert wars.get_state("alice")["participation"]["team"]["anonymous"]
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_relationships SET status='revoked',revoked_at=clock_timestamp() WHERE referred_user_id='bob'"
+            )
+        )
+    assert wars.get_leaderboard("outsider")["teams"][0]["qualified_referrals"] == 0
+
+
+@pytest.mark.parametrize("before_join", [True, False])
+def test_circle_wars_never_awards_pre_opt_in_or_nonmember_referrals(db, before_join):
+    _actor(db, "alice")
+    cid = _circle(db)
+    if before_join:
+        _invite(db, "alice", "bob")
+    wars.opt_in("alice", cid)
+    if not before_join:
+        _invite(db, "alice", "bob")
+        with db.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE one_location_circle_memberships SET status='left' WHERE user_id='alice'"
+                )
+            )
+    activity.reconcile_product_activity("bob", _reply(db, "bob"))
+    assert _settle()[0]["status"] == "completed"
+    assert wars.get_leaderboard("alice")["teams"][0]["qualified_referrals"] == 0
+    assert activity.get_balances("alice")["coins"] == 115
+
+
+def test_circle_wars_concurrent_selection_is_one_per_week_and_no_automatic_members(db):
+    _actor(db, "alice")
+    _actor(db, "other")
+    cid = _circle(db)
+    other = _circle(db, name="Another private Circle")
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships(circle_id,user_id) VALUES(:cid,'other')"
+            ),
+            {"cid": cid},
+        )
+
+    def join(chosen):
+        try:
+            return wars.opt_in("alice", chosen)["participation"]["team"]["circle_id"]
+        except wars.CircleWarsError as exc:
+            return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(join, [cid, other]))
+    assert results.count("CIRCLE_ALREADY_SELECTED_THIS_WEEK") == 1
+    selected = wars.get_state("alice")["participation"]
+    assert selected["team"]["participating_members"] == 1
+    assert wars.get_state("other")["participation"] is None
+    assert wars.opt_in("alice", selected["team"]["circle_id"])["participation"] == selected
+    with pytest.raises(wars.CircleWarsError):
+        wars.opt_in("other", other)
+
+
+def test_circle_wars_weekly_history_does_not_reset_coins_or_copy_opt_ins(db, monkeypatch):
+    _actor(db, "alice")
+    cid = _circle(db)
+    old = wars.opt_in("alice", cid)
+    _invite(db, "alice", "bob")
+    activity.reconcile_product_activity("bob", _reply(db, "bob"))
+    assert _settle()[0]["status"] == "completed"
+    # A separately persisted round proves ownership comes from round ID, never
+    # a recomputed date or today's roster. Earlier fixture round is historical.
+    with db.begin() as conn:
+        rid = conn.execute(
+            text("""INSERT INTO one_referral_reward_rounds(settings_version,started_at,cutoff_at,timezone)
+          SELECT settings_version,clock_timestamp()-INTERVAL '1 hour',cutoff_at+INTERVAL '7 days',timezone
+          FROM one_referral_reward_rounds WHERE id=CAST(:rid AS UUID) RETURNING id"""),
+            {"rid": old["period"]["round_id"]},
+        ).scalar_one()
+    monkeypatch.setattr(
+        wars, "get_challenge_status", lambda: {"calendar_active": True, "round_id": str(rid)}
+    )
+    assert wars.get_state("alice")["participation"] is None
+    assert wars.get_leaderboard("alice")["teams"] == []
+    assert (
+        wars.get_state("alice", old["period"]["round_id"])["participation"]["team"][
+            "qualified_referrals"
+        ]
+        == 1
+    )
+    assert activity.get_balances("alice")["coins"] == 115
+
+
+def test_circle_wars_api_requires_owner_and_explicit_consent_and_bounds_pages(db):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from tests.test_one_referral_dashboard_routes import routes
+
+    _actor(db, "alice")
+    cid = _circle(db)
+    app = FastAPI()
+    app.include_router(routes.router)
+    client = TestClient(app)
+    assert client.get("/api/one/referrals/circle-wars").status_code in (401, 403)
+    app.dependency_overrides[routes.require_vault_owner_token] = lambda: {"user_id": "alice"}
+    path = "/api/one/referrals/circle-wars/participation"
+    for payload in (
+        {"circle_id": cid},
+        {"circle_id": cid, "consent": "true"},
+        {"circle_id": cid, "consent": False},
+        {"circle_id": cid, "consent": True, "user_id": "other"},
+    ):
+        assert client.post(path, json=payload).status_code == 422
+    result = client.post(path, json={"circle_id": cid, "consent": True})
+    assert result.status_code == 200 and result.headers["cache-control"] == "private, no-store"
+    assert client.get("/api/one/referrals/circle-wars/leaderboard?offset=-1").status_code == 422
+    page = client.get("/api/one/referrals/circle-wars/leaderboard?offset=25").json()
+    assert page["teams"] == [] and page["total_teams"] == 1 and not page["has_more"]
+
+
+def test_circle_wars_immutable_history_and_migration_replay(db):
+    _actor(db, "alice")
+    cid = _circle(db)
+    wars.opt_in("alice", cid)
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError), db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_circle_selections SET selected_at=selected_at-INTERVAL '1 day'"
+            )
+        )
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.connection.cursor().execute(
+            (ROOT / "db/migrations/358_circle_wars_weekly_opt_in.sql").read_text()
+        )
+    assert wars.get_state("alice")["participation"]["team"]["participating_members"] == 1

@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 357,
+  "expected_migration_version": 358,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1887,6 +1887,24 @@
       "recorded_at",
       "dashboard_visited_at"
     ],
+    "one_referral_circle_contributions": [
+      "relationship_id",
+      "round_id",
+      "selection_id"
+    ],
+    "one_referral_circle_selections": [
+      "id",
+      "user_id",
+      "circle_id",
+      "round_id",
+      "selected_at",
+      "ended_at"
+    ],
+    "one_referral_circle_teams": [
+      "round_id",
+      "circle_id",
+      "team_key"
+    ],
     "one_referral_events": [
       "scored_at"
     ],
@@ -1916,6 +1934,10 @@
     ],
     "one_referral_score_events": [
       "coins"
+    ],
+    "one_referral_scoring_jobs": [
+      "job_id",
+      "circle_selection_id"
     ],
     "one_referral_streak_state": [
       "last_activity_date",
