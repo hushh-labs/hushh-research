@@ -1,7 +1,7 @@
 """The V1 queue only handles server-planned statement searches."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -61,7 +61,7 @@ async def test_request_search_marks_only_canonical_provider_statement_plan(
 
 
 @pytest.mark.asyncio
-async def test_v1_worker_never_starts_planning_or_automatic_batches(monkeypatch):
+async def test_v1_worker_limits_request_preparation_to_v1(monkeypatch):
     job_id = str(uuid4())
     store = SimpleNamespace(
         due=AsyncMock(return_value=[{"user_id": "owner", "job_id": job_id}]),
@@ -69,8 +69,8 @@ async def test_v1_worker_never_starts_planning_or_automatic_batches(monkeypatch)
     )
     service = SimpleNamespace(store=store, run_one=AsyncMock(return_value="queued"))
     trusted_auto = SimpleNamespace(
-        continue_batches=AsyncMock(),
-        start_pending=AsyncMock(),
+        continue_batches=AsyncMock(return_value=0),
+        start_pending=AsyncMock(return_value={"started": 0, "deferred": 0}),
         search_authority_for_job=AsyncMock(),
         after_search_page=AsyncMock(),
         after_search_slice=AsyncMock(),
@@ -80,13 +80,13 @@ async def test_v1_worker_never_starts_planning_or_automatic_batches(monkeypatch)
 
     result = await DriveOwnerSearchWorker(service, trusted_auto=trusted_auto).run(v1_only=True)
 
-    assert result["outcomes"] == {"queued": 1}
+    assert result["outcomes"] == {"queued": 1, "unavailable": 0}
     store.due.assert_awaited_once_with(limit=1, v1_only=True)
     service.run_one.assert_awaited_once()
     assert "after_page" not in service.run_one.await_args.kwargs
     assert "require_current" not in service.run_one.await_args.kwargs
-    trusted_auto.continue_batches.assert_not_awaited()
-    trusted_auto.start_pending.assert_not_awaited()
+    trusted_auto.continue_batches.assert_awaited_once_with(max_jobs=1, v1_only=True)
+    trusted_auto.start_pending.assert_awaited_once_with(max_jobs=1, deadline_at=ANY, v1_only=True)
     trusted_auto.search_authority_for_job.assert_not_awaited()
     trusted_auto.after_search_page.assert_not_awaited()
     trusted_auto.after_search_slice.assert_not_awaited()

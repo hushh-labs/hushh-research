@@ -124,10 +124,15 @@ async def test_unverified_recipient_is_excluded_not_authorized(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_approval_queues_only_stored_review_and_wakes_worker(monkeypatch):
+@pytest.mark.parametrize("access_days", [None, 30])
+async def test_approval_queues_only_stored_review_and_wakes_worker(monkeypatch, access_days):
     subject, store, _, _, current, wake = service(monkeypatch)
     result = await subject.approve(
-        user_id=OWNER, share_id=SHARE, revision=3, review_digest="a" * 64
+        user_id=OWNER,
+        share_id=SHARE,
+        revision=3,
+        review_digest="a" * 64,
+        access_days=access_days,
     )
     assert result["status"] == "queued"
     store.approve.assert_awaited_once_with(
@@ -135,6 +140,7 @@ async def test_approval_queues_only_stored_review_and_wakes_worker(monkeypatch):
         share_id=SHARE,
         revision=3,
         review_digest="a" * 64,
+        access_days=access_days,
         approval_source="owner",
     )
     wake.assert_awaited_once_with("sharing")
