@@ -853,6 +853,11 @@ test.describe("Circle roster row", () => {
         ),
       ).toBeLessThanOrEqual(2);
       expect(menuBox[0].left).toBeGreaterThan(selectedRow[0].right);
+      expect(menuBox[0].width).toBeCloseTo(280, 0);
+      for (const action of await boxesOf(page, '[role="menuitem"]')) {
+        expect(action.height).toBeGreaterThanOrEqual(51.99);
+        expect(action.width).toBeCloseTo(menuBox[0].width - 10, 0);
+      }
 
       const overlaps = (first: Box, second: Box) =>
         first.left < second.right &&
@@ -863,6 +868,14 @@ test.describe("Circle roster row", () => {
       expect(overlaps(menuBox[0], selectedIdentity[0])).toBe(false);
       expect(overlaps(menuBox[0], relationship[0])).toBe(false);
       await expect(page.getByTestId("relationship-action")).toBeVisible();
+
+      for (const width of [640, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect.poll(async () => {
+          const box = await menu.boundingBox();
+          return Boolean(box && box.x >= 12 && box.x + box.width <= width - 12);
+        }).toBe(true);
+      }
 
       await page.reload();
       await expect(page.getByRole("heading", { name: "SMS Circle" }))
@@ -946,16 +959,14 @@ test.describe("Circle roster row", () => {
           const menu = sheet.getByRole("menu");
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
-          await expect(share).toHaveCSS("height", "56px");
+          await expect(share).toHaveCSS("height", "52px");
           await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 113, 227)");
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
-          await expect(cancel).toHaveCSS("height", "52px");
-          await expect(cancel).toHaveCSS("border-radius", "20px");
+          await expect(cancel).toHaveCSS("height", "50px");
           if (!owner) {
-            await expect(remove).toHaveCSS("justify-content", "center");
+            await expect(remove).toHaveCSS("justify-content", "normal");
           }
-          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
-          await expect(cancel).toHaveCSS("color", "rgb(0, 113, 227)");
+          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
             const cancel = element.querySelector<HTMLButtonElement>('button:not([role="menuitem"])')!;
@@ -974,8 +985,10 @@ test.describe("Circle roster row", () => {
             };
           });
           expect(sheetGeometry.overflow).toBe(false);
-          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.cancelLeft);
-          expect(sheetGeometry.menuRight).toBe(sheetGeometry.cancelRight);
+          expect(sheetGeometry.menuLeft).toBe(24);
+          expect(sheetGeometry.menuRight).toBe(width - 24);
+          expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
+          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2).toBeCloseTo(width / 2, 0);
           expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 24);
           expect(sheetGeometry.handleHeight).toBe(6);
           expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
@@ -1005,6 +1018,9 @@ test.describe("Circle roster row", () => {
           const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
           if (evidenceDir && width === 390) {
             fs.mkdirSync(evidenceDir, { recursive: true });
+            await sheet.evaluate(async (element) => {
+              await Promise.all(element.getAnimations().map((animation) => animation.finished));
+            });
             await page.screenshot({
               path: path.join(
                 evidenceDir,
