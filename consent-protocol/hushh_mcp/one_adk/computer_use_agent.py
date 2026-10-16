@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2
 from hushh_mcp.runtime_providers.gemini_config import (
+    SUPPORTED_GEMINI_TEXT_MODELS,
     build_generate_content_config,
     thinking_config_for,
 )
@@ -109,7 +110,7 @@ def build_computer_use_agent(
     transport = f"{type(model).__module__}.{type(model).__qualname__}"
     if control.readiness.model_name != model_name or control.readiness.model_transport != transport:
         raise BrowserRefused("BROWSER_MODEL_TRANSPORT_UNVERIFIED")
-    if model_name not in {"gemini-3.7-flash", "gemini-3.6-flash"}:
+    if model_name not in SUPPORTED_GEMINI_TEXT_MODELS:
         raise BrowserRefused("BROWSER_MODEL_UNSUPPORTED")
     if (
         not isinstance(processing, BrowserModelProcessing)
