@@ -10,7 +10,7 @@ on:
       # uses. The default used to be `all`, which put iOS on one of the org's
       # five macOS slots on every dispatch: one 30-minute dispatch loop made 59
       # of the 77 runs dispatched from 2026-10-07 to 2026-10-15. `frontend`
-      # and `backend` are diagnostic only: CI Status Gate fails them, so a
+      # and `backend` are diagnostic only: Branch Validation Gate fails them, so a
       # partial run can never stand in for a full one.
       scope:
         description: "auto (lanes from changed paths), all, or a diagnostic-only frontend/backend subset"
@@ -115,7 +115,7 @@ jobs:
 
   dco-check:
     name: "DCO"
-    # Dispatched runs too: their CI Status Gate lands on the branch head, so
+    # Dispatched runs too: their Branch Validation Gate lands on the branch head, so
     # the gate requires DCO on both events. Without a PR range,
     # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
     # the branch's own commits.
@@ -1410,7 +1410,7 @@ jobs:
   # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
-    name: "CI Status Gate"
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
     needs:
       - ui-contracts
       - secret-scan
@@ -1561,58 +1561,24 @@ jobs:
           fi
           echo "All required CI jobs passed or were intentionally skipped."
 
-      # A dispatched run reports this check on the branch head. When that commit
-      # also heads an open pull request, the newest CI Status Gate on it is the
-      # one branch protection reads, so a green dispatch used to overwrite a red
-      # pull_request verdict. A dispatch skips PR Base Policy and Base Freshness
-      # Gate and tests the head tree, not the merge with the base, so it must
-      # never pass there. The lookup lists the open pull requests into each base
-      # that requires this check and matches their head SHA. commits/{sha}/pulls
-      # cannot stand in: for a commit already on main it returns only the merged
-      # pull request that introduced it, so it missed open #4268 into
-      # integration/pr-train, whose head a6bb87e88e is on main and for which
-      # `auto` selects no lane. On 2026-10-15 that was 16 pages (1430 open into
-      # integration/pr-train, 100 into main), about 20 seconds, on dispatches
-      # only. A failed lookup fails closed. A branch with no such pull request
-      # keeps a usable gate, which is how deploy-dev.yml
-      # (require-deploy-sha-on-main.sh) accepts a branch SHA.
-      - name: Refuse a dispatch that cannot stand in for pull request checks
+      # A manual branch verdict has its own name and cannot satisfy PR branch
+      # protection. The same full selected lanes remain required for dev.
+      - name: Refuse diagnostic-only dispatch scopes
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ github.sha }}
           SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
-          fail=0
           case "$SCOPE" in
             auto|all) ;;
             frontend|backend)
               echo "::error::Scope '${SCOPE}' runs a subset of the lanes, so it is diagnostic only. Dispatch with scope auto or all for a verdict."
-              fail=1
+              exit 1
               ;;
             *)
               echo "::error::Unknown dispatch scope '${SCOPE}'."
-              fail=1
+              exit 1
               ;;
           esac
-          heads=""
-          for base in main integration/pr-train; do
-            if ! listed="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=${base}&per_page=100" \
-              --jq '.[] | select(.head.sha == $ENV.HEAD_SHA) | "#\(.number) into \(.base.ref)"')"; then
-              echo "::error::Could not list the open pull requests into ${base}, so this run cannot prove ${HEAD_SHA} heads none of them."
-              fail=1
-            elif [ -n "$listed" ]; then
-              heads="${heads:+${heads} }$(printf '%s' "$listed" | tr '\n' ' ')"
-            fi
-          done
-          if [ -n "$heads" ]; then
-            echo "::error::${HEAD_SHA} heads open pull request ${heads}. A dispatched run skips PR Base Policy and Base Freshness Gate and tests the head instead of the merge with the base, so it cannot stand in for that pull request's checks. Re-run the pull request's own PR Validation run (event pull_request) to restore its gate."
-            fail=1
-          fi
-          if [ "$fail" -ne 0 ]; then
-            exit 1
-          fi
-          echo "Dispatch scope ${SCOPE} ran every selected lane, and ${HEAD_SHA} heads no open pull request into main or integration/pr-train."
+          echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
