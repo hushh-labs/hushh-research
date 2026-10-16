@@ -262,10 +262,14 @@ async function mount(page: Page, enter = true) {
 for (const width of [390, 1024]) {
   test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    // Measure the authored spring on every animation frame. Shared runners can
+    // otherwise delay both paint and observation past the unchanged 400ms limit.
+    await page.clock.install();
     const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
     await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
     await mount(page, false);
     await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     const add = page.getByRole("tab", { name: "Add", exact: true });
     await add.evaluate((tab) => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
@@ -286,6 +290,7 @@ for (const width of [390, 1024]) {
       });
     });
     await add.click();
+    await page.clock.runFor(816);
     const frames = await page.evaluate(() => (window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> }).__walletTabMotion);
     const rendering = await add.evaluate(tab => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
@@ -301,6 +306,7 @@ for (const width of [390, 1024]) {
     expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
     expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
     expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
+    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `motion must include intermediate positions: ${diagnostics}`).toBe(true);
     expect(errors).toEqual([]);
   });
 }

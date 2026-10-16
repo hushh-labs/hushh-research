@@ -89,13 +89,28 @@ it("fills readable scan details only after crop confirmation and never saves aut
   expect(screen.getByRole("button", { name: "Scan card" }).querySelector("img")).not.toBeNull();
   await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
   expect(screen.getByLabelText("Name on card")).toHaveValue("Scanned Owner"); expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"); expect(save).not.toHaveBeenCalled();
-  expect(scan.read).toHaveBeenCalledWith(expect.any(Blob), expect.any(AbortSignal), expect.objectContaining({ corners: expect.any(Array), artwork: true }));
+  expect(scan.read).toHaveBeenCalledWith(expect.any(Blob), expect.any(AbortSignal), { corners: expect.any(Array) });
 });
 it("preserves manual corrections and partial scan fields during rescans", async () => {
   scan.read.mockResolvedValue(reading({ cardholderName: "Scanned Owner", expiry: "11/99" }));
   render(<SecureCardAddForm onSubmit={vi.fn()} />); fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Correct Owner" } });
   await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"));
   expect(screen.getByLabelText("Name on card")).toHaveValue("Correct Owner"); expect(screen.getByLabelText("Card number")).toHaveValue("");
+});
+it.each([{}, { expiry: "11/99" }])("keeps toolbar scanning reachable after an unclear reading %j", async fields => {
+  scan.read.mockResolvedValueOnce(reading(fields)).mockResolvedValueOnce(reading({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" }));
+  scan.native.mockReturnValue(true);
+  scan.pick.mockResolvedValue(new Blob(["synthetic photo"], { type: "image/jpeg" }));
+  const save = vi.fn(); render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
+  await selectPhoto();
+  await waitFor(() => expect(screen.getByTestId("wallet-scan-field-status")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Take photo", exact: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Read card", exact: true })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: "Read card", exact: true }));
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+  expect(scan.pick).toHaveBeenCalledWith("camera", expect.any(AbortSignal));
+  expect(screen.getByRole("button", { name: "Choose from photos", exact: true })).toBeEnabled();
+  expect(save).not.toHaveBeenCalled();
 });
 it("keeps failed scans retryable without exposing image diagnostics", async () => {
   scan.read.mockRejectedValueOnce(new Error("private image diagnostic")).mockResolvedValueOnce(reading({ expiry: "11/99" }));

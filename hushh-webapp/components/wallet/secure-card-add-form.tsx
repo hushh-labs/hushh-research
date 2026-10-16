@@ -201,7 +201,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar} onBusyChange={setScanning} onRead={(draft) => {
+  const scanner = scanEnabled ? <WalletCardScanner key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={(draft) => {
         setScanReading(draft);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(draft.fields.expiry);
