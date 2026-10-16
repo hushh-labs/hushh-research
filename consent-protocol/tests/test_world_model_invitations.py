@@ -411,6 +411,21 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             True,
             "pwm-default-v1",
         )
+        # A previously default-enrolled owner has not opted into Azure/Bing.
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                research_preferences,
+                "load_pwm_policy",
+                lambda: {"provider": "azure_openai_web_search"},
+            )
+            assert research_preferences.public_preferences(row)["enabled"] is False
+            await research_preferences.update_preferences(
+                "wrong", "fixture", enabled=True, email_enabled=True
+            )
+            opted_in = dict(await pool.fetchrow(enrolled))
+            assert opted_in["consent_version"] == "pwm-azure-bing-v1"
+            assert opted_in["generation"] != row["generation"]
+            assert research_preferences.public_preferences(opted_in)["enabled"] is True
         await pool.execute(
             "UPDATE pwm_research_preferences SET enabled=false,email_enabled=false WHERE user_id='wrong'"
         )

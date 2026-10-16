@@ -32,6 +32,63 @@ vi.mock("@/lib/share/app-origin", () => ({
 }));
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
 
+it("accepts only matching display-only research provenance", () => {
+  const result = {
+    status: "offered",
+    pkm_written: false,
+    draft_id: "00000000-0000-4000-8000-000000000001",
+    report: {
+      match_status: "no_match",
+      name: "Alex Example",
+      summary: "No supported match was found.",
+      sections: [],
+    },
+    grounded_answers: [],
+    search_suggestions: [],
+    research: {
+      identity: {
+        state: "no_match",
+        reason: "No public contact match.",
+        probability: null,
+        selected_candidate_id: null,
+        supporting_anchor_ids: [],
+        next_step: "finish",
+      },
+      coverage: [
+        "business", "career", "education", "personal", "projects", "publications",
+        "achievements", "community", "interests", "preferences", "dislikes", "style",
+        "food", "travel", "entertainment", "shopping", "communication",
+        "digital_presence", "public_records", "security",
+      ].map((topic) => ({
+        topic,
+        status: "not_attempted",
+        attempt_ids: [],
+        explanation: "No search for this topic.",
+      })),
+      gaps: [],
+      checked_topics: [],
+      searches_used: 0,
+      candidates: [],
+      source_use: "google_grounded_display_only",
+      provider: "vertex_google_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(result).success).toBe(true);
+  const azure = {
+    ...result,
+    research: {
+      ...result.research,
+      source_use: "azure_web_grounded_display_only",
+      provider: "azure_openai_web_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(azure).success).toBe(true);
+  expect(pwmResultSchema.safeParse({
+    ...azure,
+    research: { ...azure.research, provider: "vertex_google_search" },
+  }).success).toBe(false);
+});
+
 it("accepts a deep PWM draft with scored evidence but rejects padded duplicates", () => {
   const sections = [
     "business", "career", "education", "projects", "publications", "achievements", "community",

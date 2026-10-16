@@ -299,6 +299,132 @@ async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
     assert result["research_exhausted"] is True
 
 
+@pytest.mark.asyncio
+async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monkeypatch):
+    from hushh_mcp.one_adk import azure_workload_identity, world_model_azure
+    from hushh_mcp.services import world_model_service as service
+
+    config = {
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "client_id": "00000000-0000-4000-8000-000000000002",
+        "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
+        "primary_deployment": "pwm-primary",
+        "phi_endpoint": "https://synthetic.services.ai.azure.com/openai/v1/",
+        "phi_deployment": "pwm-phi",
+    }
+
+    def token_supplier():
+        return "synthetic-token"
+
+    def azure_token_provider(**kwargs):
+        return token_supplier
+
+    azure_run = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search", "azure": config})
+    monkeypatch.setattr(service, "admission", AsyncMock(return_value=(None, "owner-binding")))
+    monkeypatch.setattr(service, "owner_identity", AsyncMock(return_value=IDENTITY))
+    monkeypatch.setattr(
+        service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "g1",
+                "consent_version": "pwm-azure-bing-v1",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(service, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service, "run_world_model", AsyncMock(side_effect=AssertionError("Vertex dispatched"))
+    )
+    monkeypatch.setattr(
+        azure_workload_identity, "azure_openai_token_provider", azure_token_provider
+    )
+    monkeypatch.setattr(world_model_azure, "run_world_model_azure", azure_run)
+
+    result = await service.offer(
+        user_id="owner",
+        consent_token="synthetic-owner-token",  # noqa: S106 - synthetic test authority
+        on_attempts_start=AsyncMock(),
+    )
+    assert result == {"status": "unavailable", "pkm_written": False}
+    azure_run.assert_awaited_once()
+    kwargs = azure_run.await_args.kwargs
+    assert kwargs["identity"] == IDENTITY
+    assert kwargs["primary_deployment"] == "pwm-primary"
+    assert kwargs["phi_deployment"] == "pwm-phi"
+    assert kwargs["primary_token_supplier"] is token_supplier
+    assert kwargs["phi_token_supplier"] is token_supplier
+    await kwargs["require_access"]()
+
+
+@pytest.mark.asyncio
+async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    owner_identity = AsyncMock()
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})
+    monkeypatch.setattr(
+        service, "get_app_runtime_settings", lambda: SimpleNamespace(environment="production")
+    )
+    monkeypatch.setattr(service, "owner_identity", owner_identity)
+
+    result, binding = await service.admission("owner", "synthetic-owner-token")  # noqa: S106
+    assert result == {"status": "disabled", "pkm_written": False}
+    assert binding == ""
+    owner_identity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})
+    monkeypatch.setattr(
+        service, "get_app_runtime_settings", lambda: SimpleNamespace(environment="uat")
+    )
+    monkeypatch.setattr(service, "owner_identity", AsyncMock(return_value=IDENTITY))
+    monkeypatch.setattr(service, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "g1",
+                "consent_version": "pwm-default-v1",
+            }
+        ),
+    )
+    setup = AsyncMock(return_value=False)
+    monkeypatch.setattr(service, "owner_setup_resolved", setup)
+
+    result, binding = await service.admission("owner", "synthetic-owner-token")  # noqa: S106
+    assert result == {"status": "consent_required", "pkm_written": False}
+    assert binding == ""
+    setup.assert_not_awaited()
+
+
+def test_azure_public_preferences_do_not_reuse_vertex_default_consent(monkeypatch):
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
+    previous = {
+        "enabled": True,
+        "email_enabled": True,
+        "consent_version": "pwm-default-v1",
+    }
+    assert preferences.public_preferences(previous)["enabled"] is False
+    accepted = {**previous, "consent_version": "pwm-azure-bing-v1"}
+    assert preferences.public_preferences(accepted)["enabled"] is True
+
+
 def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -393,8 +519,11 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     assert ensure.await_count == 2 and start.await_count == 1
 
 
-@pytest.mark.parametrize("source_use", ["google_grounded_display_only", "owner_supplied"])
-def test_complete_refuses_display_only_google_research(monkeypatch, source_use):
+@pytest.mark.parametrize(
+    "source_use",
+    ["google_grounded_display_only", "azure_web_grounded_display_only", None, "owner_supplied"],
+)
+def test_complete_accepts_only_owner_supplied_research(monkeypatch, source_use):
     from uuid import uuid4
 
     jobs = SimpleNamespace(
@@ -410,7 +539,7 @@ def test_complete_refuses_display_only_google_research(monkeypatch, source_use):
         "/api/one/world-model/complete",
         json={"draft_id": str(uuid4()), "commits": [{"domain": "profile", "plan_id": "p1"}]},
     )
-    if source_use == "google_grounded_display_only":
+    if source_use != "owner_supplied":
         assert response.status_code == 409
         commit.assert_not_awaited()
         jobs.dismiss.assert_not_awaited()

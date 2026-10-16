@@ -6,6 +6,8 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import UUID
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "config" / "managed-ai-runtime.json"
 FIELDS = {
@@ -61,26 +63,72 @@ def profile_hash(value: dict) -> str:
 
 
 def load_pwm_policy(path: Path = PROFILE_PATH) -> dict:
-    """Research limits share the managed-runtime configuration; no provider env split."""
+    """Research limits and provider are one checked-in runtime contract."""
     value = json.loads(path.read_text())["pwm_research"]
+    provider = value.get("provider")
+    azure = provider == "azure_openai_web_search"
     if (
         set(value)
-        != {
-            "provider",
-            "owner_source_provider",
-            "search_invocations",
-            "model_calls",
-            "slice_seconds",
-            "job_seconds",
-            "lease_seconds",
-            "preview_source_limit",
-            "preview_fact_limit",
-            "notification_scheduler",
-        }
-        or value["provider"] != "vertex_google_search"
+        != (
+            {
+                "provider",
+                "owner_source_provider",
+                "search_invocations",
+                "model_calls",
+                "slice_seconds",
+                "job_seconds",
+                "lease_seconds",
+                "preview_source_limit",
+                "preview_fact_limit",
+                "notification_scheduler",
+            }
+            | ({"azure"} if azure else set())
+        )
+        or provider not in {"vertex_google_search", "azure_openai_web_search"}
         or value["owner_source_provider"] != "vertex_url_context"
     ):
-        raise ValueError("PWM requires the declared native Vertex providers")
+        raise ValueError("PWM requires a declared research provider and Vertex source review")
+    if azure:
+        config = value["azure"]
+        if not isinstance(config, dict) or set(config) != {
+            "tenant_id",
+            "client_id",
+            "primary_endpoint",
+            "primary_deployment",
+            "phi_endpoint",
+            "phi_deployment",
+        }:
+            raise ValueError("PWM Azure runtime fields do not match the contract")
+        for key in ("tenant_id", "client_id"):
+            try:
+                if str(UUID(config[key])) != config[key]:
+                    raise ValueError
+            except (TypeError, ValueError, AttributeError) as error:
+                raise ValueError(f"Invalid PWM Azure {key}") from error
+        for key, suffix in (
+            ("primary_endpoint", ".openai.azure.com"),
+            ("phi_endpoint", ".services.ai.azure.com"),
+        ):
+            endpoint = config[key]
+            if not isinstance(endpoint, str):
+                raise ValueError(f"Invalid PWM Azure {key}")
+            parsed = urlsplit(endpoint)
+            if (
+                parsed.scheme != "https"
+                or not (parsed.hostname or "").endswith(suffix)
+                or parsed.path.rstrip("/") != "/openai/v1"
+                or parsed.username
+                or parsed.password
+                or parsed.port is not None
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(f"Invalid PWM Azure {key}")
+        for key in ("primary_deployment", "phi_deployment"):
+            if not isinstance(config[key], str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", config[key]
+            ):
+                raise ValueError(f"Invalid PWM Azure {key}")
     limits = {
         "search_invocations": 32,
         "model_calls": 128,
@@ -94,6 +142,8 @@ def load_pwm_policy(path: Path = PROFILE_PATH) -> dict:
         type(value[key]) is not int or not 1 <= value[key] <= limit for key, limit in limits.items()
     ):
         raise ValueError("PWM budget exceeds the reviewed execution contract")
+    if azure and (value["search_invocations"], value["model_calls"]) != (8, 16):
+        raise ValueError("Azure PWM requires its reviewed 8-search, 16-model-call budget")
     if not value["slice_seconds"] < value["job_seconds"] < value["lease_seconds"] <= 300:
         raise ValueError("PWM execution must fit the existing owner-key lifetime")
     validate_pwm_scheduler(value["notification_scheduler"])

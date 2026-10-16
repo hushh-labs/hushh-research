@@ -175,7 +175,7 @@ async def complete(
     user_id, consent_token = owner(token)
     try:
         draft = await world_model_jobs.status(user_id, consent_token)
-        if draft.get("research", {}).get("source_use") == "google_grounded_display_only":
+        if draft.get("research", {}).get("source_use") != "owner_supplied":
             raise HTTPException(
                 409,
                 "This search response is for viewing. Add your own details or a permitted source to save knowledge.",

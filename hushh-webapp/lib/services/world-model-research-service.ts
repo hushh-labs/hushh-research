@@ -167,10 +167,20 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
                 .strict(),
             )
             .max(6),
-          source_use: z.literal("google_grounded_display_only"),
-          provider: z.literal("vertex_google_search"),
+          source_use: z.enum([
+            "google_grounded_display_only",
+            "azure_web_grounded_display_only",
+          ]),
+          provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
         })
-        .strict(),
+        .strict()
+        .refine(
+          ({ source_use, provider }) =>
+            (source_use === "google_grounded_display_only" &&
+              provider === "vertex_google_search") ||
+            (source_use === "azure_web_grounded_display_only" &&
+              provider === "azure_openai_web_search"),
+        ),
     })
     .strict(),
   z
