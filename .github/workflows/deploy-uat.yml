@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       skip_managed_vertex_probe_once:
-        description: "One-time UAT exception for d8133e4d; Chat and Voice remain degraded"
+        description: "One-time UAT Vertex probe exception for 3ac26e6e; verify runtime after release"
         required: false
         default: false
         type: boolean
@@ -129,7 +129,7 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "d8133e4d05ee98074f4a424ac96297ebefb32a9f" ||
+          if [[ "$REQUESTED_SHA" != "3ac26e6e1ceb835e257087f11bd274467708c217" ||
                 "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
                 "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
                 "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
