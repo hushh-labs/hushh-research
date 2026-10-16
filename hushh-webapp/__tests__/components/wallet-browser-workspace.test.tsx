@@ -126,6 +126,45 @@ describe("Wallet video browser workspace", () => {
     await screen.findByTestId("wallet-card-browser");
     return view;
   };
+  it("retries artwork on resume even when every card initially has a neutral face", async () => {
+    const view = await open();
+    serviceMock.listCardSummaries.mockClear();
+    fireEvent.focus(window);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalledOnce());
+    await act(async () => {});
+    vaultMock.locked = true;
+    view.rerender(<WalletWorkspace />);
+    serviceMock.listCardSummaries.mockClear();
+    fireEvent.focus(window);
+    expect(serviceMock.listCardSummaries).not.toHaveBeenCalled();
+  });
+  it("recovers a newly saved fallback without closing a newer Add draft", async () => {
+    const view = await open();
+    const summary = makeCards(3)[2]!;
+    serviceMock.addCard.mockResolvedValueOnce({ cardId: summary.cardId, summary, cardholderName: "Synthetic owner" });
+    let finish!: (cards: unknown[]) => void;
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Card number", { exact: true }), { target: { value: "4242424242424242" } });
+    fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "Synthetic owner" } });
+    fireEvent.change(screen.getByLabelText("Expiry (MM/YY)", { exact: true }), { target: { value: "12/30" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add to Wallet", exact: true }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "New draft" } });
+    await act(async () => finish(makeCards(3)));
+    expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Name on card", { exact: true })).toHaveValue("New draft");
+    expect(screen.queryByText("Your cards could not be loaded. Please try again.")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(3));
+    vaultMock.token = "renewed_after_recovery";
+    view.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenLastCalledWith(expect.objectContaining({ vaultOwnerToken: "renewed_after_recovery" })));
+    expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
+  });
   it("preloads history with a session context that survives tab changes but never lock or epoch changes", async () => {
     const view = await open();
     const context = historyProbe.getContext?.("");

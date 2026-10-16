@@ -252,6 +252,8 @@ export function WalletWorkspace() {
   const introductionOpen = introductionLoading || !introduction?.seen;
   const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [formRevision, setFormRevision] = useState(0);
+  const [artworkRetryRevision, setArtworkRetryRevision] = useState(0);
+  const consumedArtworkRetryRevision = useRef(0);
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -507,16 +509,15 @@ export function WalletWorkspace() {
     void refresh();
   }, [refresh]);
 
-  // Saved immutable versions remain pinned, but approval is never permanent.
+  // Saved versions remain pinned; neutral cards retry automatic artwork too.
   // Hide catalog copies while rechecking on resume and every visible minute.
   useEffect(() => {
-    let disposed = false, inFlight = false, needsRecheck = false;
+    let disposed = false, inFlight = false;
     const recheck = async () => {
       if (disposed || inFlight || document.visibilityState === "hidden") return;
       const before = cardSnapshotRef.current, context = vaultContextRef.current();
       if (!context || before?.ownerId !== context.userId) return;
-      needsRecheck ||= Object.values(before.artworks).some(artwork => artwork?.source === "catalog");
-      if (!needsRecheck) return;
+      if (!before.cards.length) return;
       inFlight = true;
       const revision = ++cardReadRevision.current;
       setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
@@ -528,11 +529,15 @@ export function WalletWorkspace() {
       finally { inFlight = false; }
     };
     const resume = () => void recheck();
+    if (consumedArtworkRetryRevision.current !== artworkRetryRevision) {
+      consumedArtworkRetryRevision.current = artworkRetryRevision;
+      resume();
+    }
     const timer = window.setInterval(resume, 60_000);
     window.addEventListener("focus", resume);
     document.addEventListener("visibilitychange", resume);
     return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
-  }, [renderedOwnerId, vaultKey, vaultOwnerToken]);
+  }, [renderedOwnerId, vaultKey, vaultOwnerToken, artworkRetryRevision]);
 
   useEffect(() => {
     if (introductionOpen || !renderedOwnerId || view.kind !== "list") return;
@@ -979,6 +984,7 @@ export function WalletWorkspace() {
                   const context = vaultContext();
                   if (!context) throw new Error("Unlock your vault to save a card.");
                   let savedCardId: string | null = null;
+                  let retryArtwork = false;
                   try {
                     const saved = await WalletService.addCard({
                       ...context,
@@ -1011,6 +1017,7 @@ export function WalletWorkspace() {
                     });
                     setSelectedDeckCardId(saved.cardId);
                     savedCardId = saved.cardId;
+                    retryArtwork = !saved.artwork || saved.artwork.source === "neutral";
                     if (activeOwnerIdRef.current === context.userId) {
                       trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
                     }
@@ -1024,6 +1031,8 @@ export function WalletWorkspace() {
                   setTab("cards");
                   dispatch({ type: "close_add" });
                   if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });
+                  // Show the saved card immediately; recover optional art in the background.
+                  if (retryArtwork) setArtworkRetryRevision(revision => revision + 1);
                   setOfferNickname(null);
                   if (filing) {
                     clearSecretOffer();

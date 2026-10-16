@@ -458,10 +458,12 @@ embossed metal and severe glare are not guaranteed by these bounds.
 `wallet_artwork_catalog.py` defines the `MetadataProvider` port and a strict
 versioned catalog. `HUSHH_WALLET_ARTWORK_CATALOG_PATH` optionally names a mounted,
 reviewed JSON file; its `assets/` directory contains digest-named rasters.
-There is **no licensed issuer provider configured and no bundled production bank artwork**
-in this change. The default-off approved-feed adapter, provider evaluation and
+The bundled reviewed card atlas supplies approved network illustrations; an
+issuer provider agreement is not needed for these authorized local images.
+There is no licensed issuer provider configured. The default-off approved-feed adapter, provider evaluation and
 activation conditions are documented in [Wallet artwork providers](./wallet-artwork-providers.md). No API keys, partnerships, scraped assets or exact product coverage
-are implied. The fully working fallback paths are a reviewed private photo or neutral.
+are implied. A reviewed private photo or neutral face remains available when
+approved artwork cannot be read.
 
 The catalog records issuer, product, family, variant, country, network, IINs,
 version, SHA-256 digest, raster MIME, provenance, rights reference, approving
@@ -474,12 +476,21 @@ invalidate their presentation on authorized reads and visible approval rechecks.
 encrypted copy, so a license requiring copy deletion is unsupported.
 
 The [supplied card atlas](./wallet-card-atlas.md) adds reviewed, adapted bank
-designs and owner-selected unused-image suggestions for manual Add. It does not
+designs assigned automatically by the selected network during Add. It does not
 infer a bank from a sample number or claim an exact physical-card match. The
 bundled catalog is replaced by an explicitly configured private catalog.
 
+Owner Cards reads also recover missing or neutral artwork from the approved
+network catalog in memory, including cards saved before artwork was available.
+Different numbers prefer unused image digests; the full number is compared only
+inside the unlocked client. This display recovery does not write PKM, change
+credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
+reference. Four network workers share an eight-second deadline. Focus and
+visible-minute checks retry even when all initial faces were neutral; a newly
+saved fallback card also starts a quiet retry without delaying its appearance.
+
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
-`POST /resolve`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
+`POST /resolve`, `POST /banks`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
 a six/eight-digit IIN, PAN length and optional selected network. It refuses full
 credentials, names and photos without echoing them. Validate accepts at most
 24 explicit catalog references, within the private 16 KB body cap. Responses

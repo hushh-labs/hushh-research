@@ -50,32 +50,34 @@ dimension and pixel-integrity checks. OCR alone is not a blank-art approval.
 
 ## Manual Add behavior
 
-After network recognition, Add offers the available bank/country choices from
-the approved backend catalog. Selecting a bank is an owner statement and a
-cosmetic choice; it does not verify the issuer or card product. Bank browsing
-does not send a number, prefix, expiry, name, photograph, card ID or vault key.
+After network recognition, Add automatically assigns a design from that
+network's approved backend catalog without a bank or image chooser. This is a
+cosmetic illustration; it does not verify the issuer or physical card product.
+Artwork browsing does not send a number, prefix, expiry, name, photograph, card ID or vault key.
 No IIN association is inferred from a printed sample number in the PDF.
 
 The unlocked Wallet service reads its existing encrypted artwork and secrets
 in memory. The same full normalized number reuses an eligible existing design.
-A different number prefers an unused image digest for that bank and network;
+A different number prefers an unused image digest for that network;
 after every available image is used it selects the least-used design with a
 stable tie-break. Aliases of identical image bytes do not count as new designs.
 Last-four digits and PAN hashes are not used as card identity. No allocation
 counter, additional server record or plaintext storage is introduced.
 
-The owner can select another design, clear the bank choice or use the inspected
-card-photo flow. Add omits the simple-design control and empty design section;
+Add omits the simple-design control and empty design section;
 Cancel stays left of Add to Wallet in one row at phone and desktop widths.
 Add remains available while bank artwork loads and can save a neutral
-design if artwork is unavailable. Suffix-only edits cancel old suggestions;
-owner/vault changes and inactive views cancel pending work. A draft's chosen
-design is revalidated on resume rather than silently reallocated. Saving pins
-the chosen reference under the existing card ID. Listing or adding another card
-does not rotate previously saved cards, alter their credentials or change grants.
+design if artwork is unavailable. Saving pins the chosen reference under the
+existing card ID. Listing or adding another card does not rotate pinned designs,
+alter credentials or change grants. Missing and neutral artwork is recovered
+on owner reads in memory; it is not silently written back to PKM. Recovery uses
+unused image digests and leaves saved photos and withdrawn references alone.
+Focus and visible-minute rechecks also retry an initially neutral collection.
 
-The bank response has `selectionBasis: owner_selected_bank` and
-`requiresConfirmation: true`. It has no exact-match proof. Catalog entries with
+Automatic requests use `automatic: true`; their response has
+`selectionBasis: network_illustration` and `requiresConfirmation: false`.
+The optional bank-browsing API retains `selectionBasis: owner_selected_bank`
+and `requiresConfirmation: true`. Neither response has exact-match proof. Catalog entries with
 `bank_design: true` are excluded from exact physical-variant matching, including
 when an injected metadata provider happens to return their identifiers.
 
@@ -94,7 +96,9 @@ no-store, encrypted storage and revocation contracts still apply.
 {"network":"mastercard","country":"IN"}
 ```
 
-`country`, `bankKey` and `offset` are optional. Use the returned 32-character
+`country`, `bankKey`, `offset` and `automatic` are optional. Wallet Add and
+owner display recovery send only network, `automatic: true` and offset,
+without inferring a country from the user's profile. Use the returned 32-character
 hexadecimal bank key for a design request. Without a bank key the response
 lists approved bank choices. With one it returns up to 24 designs and a
 `nextOffset` cursor. The key binds provider namespace, issuer and country; network and approval are
@@ -128,11 +132,12 @@ mark an unreviewed source sanitized merely to admit it.
 
 The existing `e2e/wallet-intelligent-card-add.layout.spec.ts` browser pack
 exercises production Add, artwork rendering, service validation and PKM/AES
-storage, with only external authentication/API responses substituted. The bank
-cases use the actual packaged HDFC image bytes. They add two synthetic card
+storage, with only external authentication/API responses substituted. Network
+cases use the actual packaged Visa, Mastercard, Amex, Discover and RuPay image bytes. They add two synthetic card
 numbers, assert different artwork digests, reload and assert both assignments
-remain unchanged. The complete pack covers crop Back, OCR review, chooser,
-provider outage, encrypted save, change design, revocation and lock in Chromium
+remain unchanged. Legacy Amex, Discover and RuPay cases save during an outage,
+then recover two distinct approved images without another encrypted write.
+The complete pack covers crop Back, OCR review, provider outage, encrypted save, revocation and lock in Chromium
 and WebKit. This is browser fixture proof, not physical-device camera proof.
 
 Reviewed WebKit screenshots: [390px](../../assets/wallet-artwork/atlas-two-cards-390.png)
