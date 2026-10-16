@@ -14,6 +14,7 @@ from hushh_mcp.services.drive_permission_executor import recipient_identity_for_
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_service import (
+    LiveSearchPlan,
     interpret_live_search,
     plan_live_search,
 )
@@ -82,6 +83,45 @@ _GENERIC_TOPIC = frozenset(
         "thousand",
     }
 )
+
+_STATEMENT_NOUN = re.compile(r"\bstatements?\b", re.I)
+_BROKERAGE_NOUN = re.compile(r"\b(?:brokerage|broker)\b", re.I)
+_SCHWAB_ISSUER = re.compile(r"\b(?:charles\s+)?schwab\b", re.I)
+
+
+def _deterministic_statement_plan(purpose: dict) -> LiveSearchPlan | None:
+    """Plan the supported brokerage-statement request without a model call.
+
+    The selected period belongs to the document contents. It is deliberately
+    absent from Drive metadata filters, and provider matches remain candidates
+    until the request evidence/approval path verifies them.
+    """
+    query = purpose.get("purpose", "")
+    if not isinstance(query, str) or not _STATEMENT_NOUN.search(query):
+        return None
+    brokerage = bool(_BROKERAGE_NOUN.search(query))
+    schwab = bool(_SCHWAB_ISSUER.search(query))
+    if not (brokerage or schwab):
+        return None
+    terms = []
+    groups = []
+    if schwab:
+        terms.append("Schwab")
+        groups.append(["Schwab", "Charles Schwab"])
+    if brokerage:
+        terms.append("brokerage")
+        groups.append(["brokerage", "broker"])
+    terms.append("statement")
+    groups.append(["statement", "statements"])
+    return LiveSearchPlan(
+        mode="find",
+        terms=terms,
+        term_groups=groups,
+        subject_scope="specific_records",
+        subject_complete=True,
+        file_kind="document",
+        time_intent="document_coverage",
+    )
 
 
 class DriveRequestBulkService:
@@ -238,8 +278,11 @@ class DriveRequestBulkService:
                 "time_intent": "document_coverage",
             }
         else:
+            statement_plan = _deterministic_statement_plan(context["purpose"])
             plan = (
-                await self._plan(
+                statement_plan
+                if statement_plan is not None
+                else await self._plan(
                     user_id=user_id,
                     purpose=context["purpose"],
                     timezone=timezone,

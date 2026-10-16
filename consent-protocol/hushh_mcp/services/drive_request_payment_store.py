@@ -604,6 +604,18 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
 
             package_required = bool(private and private.get("agent_package_required") is True)
+            legacy_auto = bool(
+                private
+                and private.get("trusted_auto") is True
+                and not package_required
+                and request["status"] == "pending"
+                and not request_requires_owner_review(
+                    connection,
+                    user_id=request["user_id"],
+                    request_id=request["request_id"],
+                    revision=request["revision"],
+                )
+            )
             disclosure = (
                 buyer_package_disclosure(
                     private or {},
@@ -731,6 +743,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 **(
                     {"_package_owner_user_id": request["user_id"]}
                     if private is not None and private.get("agent_package_required") is True
+                    else {}
+                ),
+                **({"_legacy_auto_owner_user_id": request["user_id"]} if legacy_auto else {}),
+                **(
+                    {"_legacy_manual_owner_user_id": request["user_id"]}
+                    if private is not None and not package_required and approved and not legacy_auto
                     else {}
                 ),
                 **setup,

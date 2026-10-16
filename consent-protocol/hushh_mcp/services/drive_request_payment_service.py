@@ -100,6 +100,72 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
 
+    def _guard_legacy_duplicate_purchase(
+        self,
+        connection,
+        *,
+        owner_user_id: str,
+        requester_user_id: str,
+        request_id: str,
+        selected_ids: frozenset[str],
+    ) -> None:
+        """Block another charge for the same exact legacy file set and buyer.
+
+        The caller holds the owner/buyer graph lock. Source IDs remain inside
+        encrypted file envelopes and this transaction; no plaintext manifest is
+        persisted or logged. Bounded reads fail closed if comparison is unclear.
+        """
+        if not selected_ids or len(selected_ids) > 120:
+            raise DriveSharingError("payment_not_ready")
+        prior = list(
+            connection.execute(
+                text("""SELECT o.request_id,o.status FROM drive_request_payment_orders o
+                     JOIN drive_share_requests r ON r.request_id=o.request_id
+                     WHERE r.user_id=:owner AND r.recipient_user_id=:requester
+                       AND o.request_id<>:request
+                       AND (o.status='paid' OR
+                            (o.checkout_attempt_id IS NOT NULL AND
+                             o.status IN ('awaiting_payment','checkout_open')))
+                     ORDER BY o.created_at DESC LIMIT 65"""),
+                {"owner": owner_user_id, "requester": requester_user_id, "request": request_id},
+            ).mappings()
+        )
+        if len(prior) > 64:
+            raise DriveSharingError("payment_not_ready")
+        from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+
+        bulk = DriveBulkShareStore(db=self.db)
+        for order in prior:
+            rows = list(
+                connection.execute(
+                    text("""SELECT f.source_job_id,f.source_position,f.metadata_envelope
+                         FROM drive_bulk_share_files f
+                         JOIN drive_bulk_shares b ON b.share_id=f.share_id
+                         WHERE f.user_id=:owner AND f.origin_request_id=:prior
+                           AND b.user_id=:owner AND b.origin_request_id=:prior
+                         ORDER BY f.source_position LIMIT 121"""),
+                    {"owner": owner_user_id, "prior": order["request_id"]},
+                ).mappings()
+            )
+            if len(rows) != len(selected_ids):
+                continue
+            try:
+                prior_ids = frozenset(
+                    bulk._open(
+                        row["metadata_envelope"],
+                        user_id=owner_user_id,
+                        resource_id=f"{row['source_job_id']}:{row['source_position']}",
+                        purpose="owner-search-result",
+                    )["id"]
+                    for row in rows
+                )
+            except (DriveSharingError, KeyError, TypeError, ValueError):
+                raise DriveSharingError("payment_not_ready") from None
+            if prior_ids == selected_ids:
+                raise DriveSharingError(
+                    "payment_already_paid" if order["status"] == "paid" else "payment_not_ready"
+                )
+
     async def ensure_payment_for_frozen_batch(
         self, user_id: str, request_id: str, share_id: str
     ) -> dict:
@@ -328,7 +394,11 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         # immediately before reserving provider work. Failed access checks must
         # not leave an undispatched attempt allocated. Reserve then rechecks
         # database authority; provider ACL and Stripe cannot be one transaction.
-        if package_owner := state.get("_package_owner_user_id"):
+        package_owner = state.get("_package_owner_user_id")
+        legacy_owner = state.get("_legacy_auto_owner_user_id")
+        manual_owner = state.get("_legacy_manual_owner_user_id")
+        selected_legacy_ids = None
+        if package_owner or legacy_owner or manual_owner:
             from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
             from hushh_mcp.services.drive_package_access_preflight import (
                 DrivePackageAccessPreflight,
@@ -337,33 +407,61 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 DrivePackageExistingAccessStore,
             )
 
+            owner = package_owner or legacy_owner or manual_owner
             sharing = DriveSharingStore(db=self.db)
+            bulk = DriveBulkShareStore(db=self.db)
 
             async def require_current():
-                await sharing.trusted_request_authority(
-                    user_id=package_owner, request_id=request_id
-                )
+                if manual_owner:
+                    await self._transaction(
+                        lambda connection: self._current_checkout_authority(
+                            connection,
+                            request_id=request_id,
+                            requester_user_id=requester_user_id,
+                            require_package_disclosure=True,
+                        )
+                    )
+                else:
+                    await sharing.trusted_request_authority(user_id=owner, request_id=request_id)
 
             try:
                 async with asyncio.timeout(25):
-                    access = await DrivePackageAccessPreflight(
-                        sharing=sharing, bulk=DriveBulkShareStore(db=self.db)
-                    ).inspect(
-                        user_id=package_owner,
+                    # Legacy automatic reviews are progressive. The first
+                    # frozen batch alone is not the purchased file set; wait
+                    # for a completed search and every shareable source to be
+                    # frozen before inspecting buyer access or opening Stripe.
+                    files = None
+                    if legacy_owner:
+                        files = await bulk.legacy_checkout_sources(
+                            user_id=owner, request_id=request_id
+                        )
+                    elif manual_owner:
+                        files = await bulk.legacy_manual_checkout_sources(
+                            user_id=owner, request_id=request_id
+                        )
+                    access = await DrivePackageAccessPreflight(sharing=sharing, bulk=bulk).inspect(
+                        user_id=owner,
                         request_id=request_id,
                         require_current=require_current,
+                        files=files,
                     )
             except Exception:
                 raise DriveSharingError("payment_not_ready") from None
             if access.status == "all_existing":
-                await DrivePackageExistingAccessStore(db=self.db).complete(
-                    user_id=package_owner, request_id=request_id, result=access
-                )
+                if package_owner:
+                    await DrivePackageExistingAccessStore(db=self.db).complete(
+                        user_id=owner, request_id=request_id, result=access
+                    )
                 raise DriveSharingError("request_already_accessible")
             if access.status == "mixed":
                 raise DriveSharingError("package_existing_access_requires_review")
             if access.status != "none":
                 raise DriveSharingError("payment_not_ready")
+            checked_revision = getattr(access, "request_revision", None)
+            if legacy_owner or manual_owner:
+                selected_legacy_ids = frozenset(file["id"] for file in files)
+        else:
+            checked_revision = None
 
         def reserve(connection):
             request = self._current_checkout_authority(
@@ -372,6 +470,16 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 requester_user_id=requester_user_id,
                 require_package_disclosure=True,
             )
+            if checked_revision is not None and request["revision"] != checked_revision:
+                raise DriveSharingError("payment_not_ready")
+            if selected_legacy_ids is not None:
+                self._guard_legacy_duplicate_purchase(
+                    connection,
+                    owner_user_id=request["user_id"],
+                    requester_user_id=requester_user_id,
+                    request_id=request_id,
+                    selected_ids=selected_legacy_ids,
+                )
             order = self._row(
                 connection,
                 """SELECT o.*,r.status AS request_status,r.expires_at AS request_expires_at

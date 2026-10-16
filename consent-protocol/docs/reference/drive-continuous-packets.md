@@ -19,6 +19,19 @@ from $0.50–$500. He chooses **Allow** or **Deny**. He never assembles or label
 the packet. Technical assessment and importance stay under View details.
 Checkout and delivery retain the exact approved sources, version and price.
 
+### V1 request-search bridge
+
+Brokerage-statement requests, including Chris's two recorded wordings, use a
+bounded deterministic search plan instead of calling the Gemini query planner.
+The selected dates describe statement coverage, so Drive creation/modification
+timestamps cannot qualify a file. Search first asks Drive for all stated concepts,
+then pages through a broader union query; the result rows are unverified candidates,
+not verified statements. The old all-words-in-filename gate does not discard
+document-coverage candidates. A legacy automatic checkout waits for the complete
+frozen selection and checks the buyer's current access before opening Stripe.
+This bridge does not certify a statement's content period or whole-Drive recall;
+the indexed facts and packet verifier below own those claims.
+
 ### Request dates
 
 One's `one_document_period` gene assesses authenticated request text independently

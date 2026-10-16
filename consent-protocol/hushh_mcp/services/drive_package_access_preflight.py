@@ -112,7 +112,23 @@ class DrivePackageAccessPreflight:
                     actual = await reader.adapter.get_metadata(
                         **args, require_app_authorized=False, require_genai_eligibility=False
                     )
-                    if actual.version != file["sourceVersion"] or actual.name != file["name"]:
+                    # Agent packets pin the Drive version. Older automatic
+                    # searches saved a modified timestamp instead; compare
+                    # that frozen source fingerprint without interpreting it
+                    # as the document's financial coverage period.
+                    version = file.get("sourceVersion")
+                    modified = file.get("modifiedTime")
+                    if (
+                        actual.name != file["name"]
+                        or version is not None
+                        and actual.version != version
+                        or version is None
+                        and (
+                            not isinstance(modified, str)
+                            or not modified
+                            or actual.modified_time != modified
+                        )
+                    ):
                         raise DriveSharingError("source_changed")
                     await require_current()
 
@@ -128,8 +144,8 @@ class DrivePackageAccessPreflight:
                 )
                 return {
                     "id": file["id"],
-                    "sourceVersion": file["sourceVersion"],
-                    "contentFingerprint": file["contentFingerprint"],
+                    "sourceVersion": file.get("sourceVersion"),
+                    "contentFingerprint": file.get("contentFingerprint"),
                     "generation": file["generation"],
                     "access": state,
                     "permission": permission,

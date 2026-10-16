@@ -398,6 +398,7 @@ def compile_request_queries(
         base.extend([f"mimeType != '{FOLDER_MIME}'", f"mimeType != '{SHORTCUT_MIME}'"])
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
+    broader_subject = None
     if parsed.exact_title:
         subject = f"name = {quote_literal(parsed.exact_title)}"
     elif parsed.terms:
@@ -427,6 +428,12 @@ def compile_request_queries(
             else " and "
         )
         subject = "(" + joiner.join(groups) + ")"
+        if parsed.time_intent == "document_coverage" and len(groups) > 1 and joiner == " and ":
+            # A Drive full-text index can omit one of several request words
+            # even when the original document is relevant. Exhaust a second,
+            # broader provider query after the precise one. These rows remain
+            # unverified candidates and cannot authorize automatic sharing.
+            broader_subject = "(" + " or ".join(groups) + ")"
     else:
         subject = None
     clauses = [*([subject] if subject else []), *base]
@@ -448,7 +455,13 @@ def compile_request_queries(
         if parsed.result_limit is not None or parsed.time_intent == "file_activity"
         else "modifiedTime"
     )
-    return [{"arguments": {"query": query, "orderBy": f"{order} desc"}}], period
+    queries = [{"arguments": {"query": query, "orderBy": f"{order} desc"}}]
+    if broader_subject is not None:
+        broader_query = " and ".join([broader_subject, *base])
+        if len(broader_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        queries.append({"arguments": {"query": broader_query, "orderBy": f"{order} desc"}})
+    return queries, period
 
 
 def _in_requested_period(match: dict, period: dict | None) -> bool:

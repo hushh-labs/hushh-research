@@ -1343,6 +1343,303 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
+    async def legacy_checkout_sources(self, *, user_id, request_id):
+        """Return the complete frozen automatic selection before a legacy charge.
+
+        Progressive reviews can be written while Drive search is still running.
+        A paid order may already exist for the first review, but Checkout must
+        wait until every shareable result of a completed search is frozen.
+        """
+        request_id = _uuid(request_id)
+
+        def operation(connection):
+            current = self.live_active(connection, user_id=user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                   WHERE user_id=:user AND request_id=:request""",
+                {"user": user_id, "request": request_id},
+            )
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["access_stop_requested_at"] is not None
+            ):
+                raise DriveSharingError("payment_not_ready")
+            private = self._open(
+                request["request_envelope"],
+                user_id=user_id,
+                resource_id=request_id,
+                purpose="request",
+            )
+            if (
+                private.get("trusted_auto") is not True
+                or private.get("agent_package_required") is True
+            ):
+                raise DriveSharingError("payment_not_ready")
+            search = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs
+                   WHERE user_id=:user AND client_request_id=:request
+                     AND expires_at>clock_timestamp()""",
+                {"user": user_id, "request": request_id},
+            )
+            if (
+                search is None
+                or search["status"] != "completed"
+                or search["incomplete_search"]
+                or search["connection_generation"] != current["connection_generation"]
+                or not 1 <= search["matched"] <= 10000
+            ):
+                raise DriveSharingError("payment_not_ready")
+            checkpoint = self._open(
+                search["checkpoint_envelope"],
+                user_id=user_id,
+                resource_id=str(search["job_id"]),
+                purpose="owner-search-checkpoint",
+            )
+            if (
+                checkpoint.get("request_origin_id") != request_id
+                or checkpoint.get("request_revision") != request["revision"]
+                or checkpoint.get("request_shareability_version") != 1
+                or checkpoint.get("request_result_limit") is not None
+                and checkpoint.get("request_results_finalized") is not True
+            ):
+                raise DriveSharingError("payment_not_ready")
+            results = list(
+                connection.execute(
+                    text("""SELECT position,file_digest,metadata_envelope
+                    FROM drive_owner_search_results WHERE user_id=:user AND job_id=:job
+                    ORDER BY position"""),
+                    {"user": user_id, "job": search["job_id"]},
+                ).mappings()
+            )
+            if len(results) != search["matched"] or [row["position"] for row in results] != list(
+                range(1, len(results) + 1)
+            ):
+                raise DriveSharingError("payment_not_ready")
+            frozen = list(
+                connection.execute(
+                    text("""SELECT f.source_position,f.file_digest,f.metadata_envelope,
+                           f.source_job_id,b.search_job_id,b.connection_generation,
+                           b.origin_request_revision,b.status,b.approved_at
+                    FROM drive_bulk_share_files f JOIN drive_bulk_shares b ON b.share_id=f.share_id
+                    WHERE f.user_id=:user AND f.origin_request_id=:request
+                      AND b.user_id=:user AND b.origin_request_id=:request
+                      AND b.progressive_batch=TRUE
+                    ORDER BY f.source_position"""),
+                    {"user": user_id, "request": request_id},
+                ).mappings()
+            )
+            frozen_by_position = {row["source_position"]: row for row in frozen}
+            if len(frozen_by_position) != len(frozen):
+                raise DriveSharingError("payment_not_ready")
+            selected = []
+            for row in results:
+                metadata = self._open(
+                    row["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{search['job_id']}:{row['position']}",
+                    purpose="owner-search-result",
+                )
+                frozen_row = frozen_by_position.get(row["position"])
+                if metadata.get("shareable") is not True:
+                    if frozen_row is not None:
+                        raise DriveSharingError("payment_not_ready")
+                    continue
+                if (
+                    frozen_row is None
+                    or frozen_row["source_job_id"] != search["job_id"]
+                    or frozen_row["search_job_id"] != search["job_id"]
+                    or frozen_row["file_digest"] != row["file_digest"]
+                    or frozen_row["connection_generation"] != current["connection_generation"]
+                    or frozen_row["origin_request_revision"] != request["revision"]
+                    or frozen_row["status"] != "review_ready"
+                    or frozen_row["approved_at"] is not None
+                ):
+                    raise DriveSharingError("payment_not_ready")
+                frozen_metadata = self._open(
+                    frozen_row["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{search['job_id']}:{row['position']}",
+                    purpose="owner-search-result",
+                )
+                if frozen_metadata != metadata:
+                    raise DriveSharingError("payment_not_ready")
+                if not all(
+                    isinstance(metadata.get(key), str) and metadata[key]
+                    for key in ("id", "name", "modifiedTime")
+                ):
+                    raise DriveSharingError("payment_not_ready")
+                selected.append(
+                    {
+                        **metadata,
+                        "generation": current["connection_generation"],
+                    }
+                )
+            if (
+                not selected
+                or len(selected) > 120
+                or len(frozen) != len(selected)
+                or len({item["id"] for item in selected}) != len(selected)
+            ):
+                raise DriveSharingError("payment_not_ready")
+            return selected
+
+        return await self._transaction(operation)
+
+    async def legacy_manual_checkout_sources(self, *, user_id, request_id):
+        """Read the exact owner-approved legacy selection before paid checkout."""
+        request_id = _uuid(request_id)
+
+        def operation(connection):
+            current = self.live_active(connection, user_id=user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                   WHERE user_id=:user AND request_id=:request""",
+                {"user": user_id, "request": request_id},
+            )
+            if (
+                request is None
+                or request["status"] not in {"pending", "approved", "partial"}
+                or request["access_stop_requested_at"] is not None
+            ):
+                raise DriveSharingError("payment_not_ready")
+            private = self._open(
+                request["request_envelope"],
+                user_id=user_id,
+                resource_id=request_id,
+                purpose="request",
+            )
+            if private.get("agent_package_required") is True:
+                raise DriveSharingError("payment_not_ready")
+            search = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs
+                   WHERE user_id=:user AND client_request_id=:request
+                     AND expires_at>clock_timestamp()""",
+                {"user": user_id, "request": request_id},
+            )
+            if (
+                search is None
+                or search["status"] != "completed"
+                or search["incomplete_search"]
+                or search["connection_generation"] != current["connection_generation"]
+                or not 1 <= search["matched"] <= 10000
+            ):
+                raise DriveSharingError("payment_not_ready")
+            checkpoint = self._open(
+                search["checkpoint_envelope"],
+                user_id=user_id,
+                resource_id=str(search["job_id"]),
+                purpose="owner-search-checkpoint",
+            )
+            if (
+                checkpoint.get("request_origin_id") != request_id
+                or checkpoint.get("request_revision") != request["revision"]
+                or checkpoint.get("request_shareability_version") != 1
+                or checkpoint.get("request_result_limit") is not None
+                and checkpoint.get("request_results_finalized") is not True
+            ):
+                raise DriveSharingError("payment_not_ready")
+            results = list(
+                connection.execute(
+                    text("""SELECT position,file_digest,metadata_envelope
+                    FROM drive_owner_search_results WHERE user_id=:user AND job_id=:job
+                    ORDER BY position"""),
+                    {"user": user_id, "job": search["job_id"]},
+                ).mappings()
+            )
+            if len(results) != search["matched"] or [row["position"] for row in results] != list(
+                range(1, len(results) + 1)
+            ):
+                raise DriveSharingError("payment_not_ready")
+            result_by_position = {row["position"]: row for row in results}
+            frozen = list(
+                connection.execute(
+                    text("""SELECT f.source_position,f.file_digest,f.metadata_envelope,
+                           f.source_job_id,b.search_job_id,b.connection_generation,
+                           b.origin_request_revision,b.status,b.approved_at,
+                           b.approval_source,b.progressive_batch,b.file_count,b.share_id
+                    FROM drive_bulk_share_files f JOIN drive_bulk_shares b ON b.share_id=f.share_id
+                    WHERE f.user_id=:user AND f.origin_request_id=:request
+                      AND b.user_id=:user AND b.origin_request_id=:request
+                    ORDER BY f.source_position"""),
+                    {"user": user_id, "request": request_id},
+                ).mappings()
+            )
+            if not frozen or len(frozen) > 120:
+                raise DriveSharingError("payment_not_ready")
+            progressive = frozen[0]["progressive_batch"] is True
+            if any(row["progressive_batch"] is not progressive for row in frozen):
+                raise DriveSharingError("payment_not_ready")
+            if (request["status"] == "pending") is not progressive:
+                raise DriveSharingError("payment_not_ready")
+            if not progressive and len({row["share_id"] for row in frozen}) != 1:
+                raise DriveSharingError("payment_not_ready")
+            frozen_by_position = {row["source_position"]: row for row in frozen}
+            if len(frozen_by_position) != len(frozen):
+                raise DriveSharingError("payment_not_ready")
+            count_by_share = Counter(row["share_id"] for row in frozen)
+            if any(count_by_share[row["share_id"]] != row["file_count"] for row in frozen):
+                raise DriveSharingError("payment_not_ready")
+            selected = []
+            for row in frozen:
+                result = result_by_position.get(row["source_position"])
+                if (
+                    result is None
+                    or row["file_digest"] != result["file_digest"]
+                    or row["source_job_id"] != search["job_id"]
+                    or row["search_job_id"] != search["job_id"]
+                    or row["connection_generation"] != current["connection_generation"]
+                    or row["origin_request_revision"] != request["revision"]
+                    or row["status"] != "queued"
+                    or row["approval_source"] != "owner"
+                    or row["approved_at"] is None
+                ):
+                    raise DriveSharingError("payment_not_ready")
+                metadata = self._open(
+                    result["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{search['job_id']}:{row['source_position']}",
+                    purpose="owner-search-result",
+                )
+                frozen_metadata = self._open(
+                    row["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{search['job_id']}:{row['source_position']}",
+                    purpose="owner-search-result",
+                )
+                if (
+                    frozen_metadata != metadata
+                    or metadata.get("shareable") is not True
+                    or not all(
+                        isinstance(metadata.get(key), str) and metadata[key]
+                        for key in ("id", "name", "modifiedTime")
+                    )
+                ):
+                    raise DriveSharingError("payment_not_ready")
+                selected.append({**metadata, "generation": current["connection_generation"]})
+            if progressive:
+                eligible = set()
+                for result in results:
+                    metadata = self._open(
+                        result["metadata_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{search['job_id']}:{result['position']}",
+                        purpose="owner-search-result",
+                    )
+                    if metadata.get("shareable") is True:
+                        eligible.add(result["position"])
+                if eligible != set(frozen_by_position):
+                    raise DriveSharingError("payment_not_ready")
+            if len({item["id"] for item in selected}) != len(selected):
+                raise DriveSharingError("payment_not_ready")
+            return selected
+
+        return await self._transaction(operation)
+
     async def unclaimed_positions(self, *, user_id, request_id, limit=25):
         request = _uuid(request_id)
         if type(limit) is not int or not 1 <= limit <= 25:

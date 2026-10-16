@@ -156,3 +156,28 @@ async def test_source_change_during_acl_read_and_revoked_owner_fence_discard_rec
     with pytest.raises(DriveSharingError, match="background_preparation_required"):
         await service.inspect(user_id="owner", request_id="request", require_current=guard)
     adapter.list_permissions.assert_not_awaited()
+
+
+async def test_legacy_frozen_modified_time_is_rechecked_but_not_used_as_coverage():
+    service, bulk, reader, _, _ = pipeline(acl())
+    bulk.package_sources.return_value = [
+        {
+            "id": "source-1",
+            "name": "Statement.pdf",
+            "modifiedTime": "2026-10-01T00:00:00Z",
+            "generation": 1,
+        }
+    ]
+    reader.adapter.get_metadata.return_value = SimpleNamespace(
+        name="Statement.pdf", modified_time="2026-10-01T00:00:00Z", version="8"
+    )
+    result = await service.inspect(
+        user_id="owner", request_id="request", require_current=AsyncMock()
+    )
+    assert result.status == "none"
+    assert result.files[0]["sourceVersion"] is None
+    reader.adapter.get_metadata.return_value = SimpleNamespace(
+        name="Statement.pdf", modified_time="2026-10-02T00:00:00Z", version="8"
+    )
+    with pytest.raises(DriveSharingError, match="source_changed"):
+        await service.inspect(user_id="owner", request_id="request", require_current=AsyncMock())

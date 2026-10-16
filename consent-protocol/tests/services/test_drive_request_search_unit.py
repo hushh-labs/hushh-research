@@ -99,6 +99,97 @@ def test_request_plan_keeps_all_candidate_file_dates_and_shortcut_mime():
     assert period == {"start": start, "end": end, "timezone": "UTC"}
 
 
+def test_statement_coverage_search_retries_with_broad_terms_without_a_timestamp_cut():
+    plan = {
+        "mode": "find",
+        "terms": ["Schwab", "brokerage", "statement"],
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+    purpose = {
+        "purpose": "All Schwab brokerage statements from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    queries, period = compile_request_queries(plan, purpose, "America/New_York")
+
+    assert len(queries) == 2
+    precise, broad = (entry["arguments"]["query"] for entry in queries)
+    assert precise.count(" and ") > broad.count(" and ")
+    assert " or " in broad
+    assert all(term in precise and term in broad for term in plan["terms"])
+    assert "modifiedTime >= " not in broad and "createdTime >= " not in broad
+    assert period == {
+        "start": "2026-09-01",
+        "end": "2026-10-09",
+        "timezone": "America/New_York",
+    }
+
+    # Explicit file-activity requests retain the precise query: those may
+    # enter the existing automatic-share lane and need its title/date gates.
+    activity, _ = compile_request_queries(
+        {**plan, "time_intent": "file_activity"}, purpose, "America/New_York"
+    )
+    assert len(activity) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "expected_terms"),
+    [
+        ("Last months brokerage statements", ["brokerage", "statement"]),
+        (
+            "I need all brokerage statements that contains Schwab from 2026",
+            ["Schwab", "brokerage", "statement"],
+        ),
+    ],
+)
+async def test_statement_request_uses_deterministic_coverage_plan_without_model(
+    request_text, expected_terms
+):
+    purpose = {
+        "purpose": request_text,
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 2,
+        "requestTimeZone": "Asia/Kolkata",
+        "requestCreatedAt": datetime(2026, 10, 13, tzinfo=UTC),
+    }
+    planner = AsyncMock(side_effect=AssertionError("statement route must not call Gemini"))
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "job", "status": "queued"}),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request", authority_mode="trusted_auto")
+
+    planner.assert_not_awaited()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["terms"] == expected_terms
+    assert frozen["plan"]["time_intent"] == "document_coverage"
+    assert frozen["plan"]["file_kind"] == "document"
+    assert frozen["purpose"] == purpose
+    queries, period = compile_request_queries(
+        frozen["plan"], purpose, "Asia/Kolkata", requested_at=context["requestCreatedAt"]
+    )
+    assert len(queries) == 2
+    assert all("modifiedTime >= " not in row["arguments"]["query"] for row in queries)
+    assert period == {
+        "start": "2026-09-01",
+        "end": "2026-10-09",
+        "timezone": "Asia/Kolkata",
+    }
+
+
 @pytest.mark.parametrize(
     "extra,expected_order",
     [
@@ -1147,6 +1238,47 @@ async def test_request_folder_children_need_topic_and_search_carries_shareabilit
         drive_id=None,
     )
     assert [item["id"] for item in direct] == ["full-text-hit"]
+
+
+@pytest.mark.asyncio
+async def test_broad_statement_hit_remains_unverified_when_title_and_modified_date_mislead():
+    checkpoint = _checkpoint()
+    checkpoint.update(
+        authority_mode="trusted_auto",
+        request_owner_review_required=True,
+        request_subject_terms=["Schwab", "brokerage", "statement"],
+        request_notes=False,
+        requested_period={
+            "start": "2026-09-01",
+            "end": "2026-10-09",
+            "timezone": "America/New_York",
+        },
+    )
+    candidate = _request_candidate(
+        "generic-title",
+        "Account record.pdf",
+        "application/pdf",
+        createdTime="2017-03-14T00:00:00Z",
+        modifiedTime="2026-10-01T00:00:00Z",
+    )
+    service = DriveOwnerSearchService()
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, [candidate], folder_scoped=False, drive_id=None
+    )
+    assert not incomplete
+    assert [item["id"] for item in files] == ["generic-title"]
+    assert files[0]["requestEvidence"] == {
+        "version": 1,
+        "assessment": "unverified",
+        "basis": "provider_search",
+    }
+
+    # The same broad hit cannot enter the metadata-only trusted-auto path.
+    checkpoint["request_owner_review_required"] = False
+    automatic, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, [candidate], folder_scoped=False, drive_id=None
+    )
+    assert automatic == []
 
 
 async def test_matching_folder_shortcut_pages_generic_gemini_notes_and_nested_folders(monkeypatch):
