@@ -2,6 +2,18 @@
 
 Status: proposed DNS change; this document does not modify DNS or enable calling.
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  DNS[turn-uat.hushh.ai DNS record] --> IP[104.197.235.130 static GCP IP]
+  IP --> VM[hushh-uat-turn VM]
+  VM --> TURN[Authenticated WebRTC audio relay]
+```
+
+The DNS record is proposed. The VM already exists; trusted TLS and application
+release remain separate verification steps.
+
 ## Requested record
 
 | Field | Value |
