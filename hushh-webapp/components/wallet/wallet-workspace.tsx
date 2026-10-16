@@ -1091,6 +1091,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                artworkEnabled
                 collectSecurityCode
                 showIntroduction={false}
                 getNetworkContext={vaultContext}

@@ -27,7 +27,7 @@ test.beforeAll(async () => {
   approvedArt = await Promise.all([{ name: "Blue", width: 856, height: 540, color: "#223852" }, { name: "Gold", width: 540, height: 856, color: "#9a773e" }].map(async (design, index) => {
     const bytes = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${design.width}" height="${design.height}"><rect width="100%" height="100%" rx="24" fill="${design.color}"/><path d="M0 180 Q250 80 900 600" fill="none" stroke="#ffffff" stroke-opacity=".12" stroke-width="70"/><text x="44" y="82" font-family="Arial" font-size="28" fill="white">SYNTHETIC ART</text><text x="44" y="126" font-family="Arial" font-size="20" fill="white">Owned test design · ${design.name}</text></svg>`)).png().toBuffer();
     const digest = createHash("sha256").update(bytes).digest("hex");
-    return { bytes, variant: { assetId: `owned-${index}`, issuerId: "owned-test-bank", productId: "owned-test-product", variantId: design.name.toLowerCase(), label: `Test ${design.name}`, issuerName: "Synthetic Test Bank", productName: "Example product", variantName: design.name, country: "US", providerId: "owned-fixtures", artworkVersion: "2026-1", width: design.width, height: design.height, image: `/api/one/wallet/card-access/artwork/assets/${digest}`, digest, allowOverlay: false } };
+    return { bytes, variant: { assetId: `owned-${index}`, issuerId: "owned-test-bank", productId: `owned-test-product-${index}`, variantId: design.name.toLowerCase(), label: `Test ${design.name}`, issuerName: "Synthetic Test Bank", productName: `Example ${design.name}`, variantName: design.name, country: "US", providerId: "owned-fixtures", artworkVersion: "2026-1", width: design.width, height: design.height, image: `/api/one/wallet/card-access/artwork/assets/${digest}`, digest, allowOverlay: false } };
   }));
   execFileSync(process.execPath, [path.join(root, "scripts/prepare-wallet-ocr.mjs")]);
   const scanner = new Scanner({}), candidates = new Set<string>();
@@ -66,7 +66,15 @@ test.beforeAll(async () => {
         const input = JSON.parse(body);
         if (artworkMode === "outage") { res.statusCode = 503; json({ error: "Unavailable" }); return; }
         const variants = bankMode ? atlasArt.filter(row => row.network === input.network && (!focusedArtworkId || row.variant.assetId === focusedArtworkId) && (atlasRevision === "previous" ? row.historical : row.selectable)).map(row => atlasRevision === "previous" ? { ...row.variant, allowOverlay: false, replaces: [] } : row.variant) : artworkMode === "ambiguous" || artworkMode === "exact" ? approvedArt.map(row => row.variant) : [];
-        json({ catalogVersion: bankMode ? atlasRevision === "previous" ? "atlas-adapted-20261015-v1" : atlasVersion : "owned-1", network: input.network, selectionBasis: "network_illustration", requiresConfirmation: false, bankKey: null, banks: [], variants: variants.slice(input.offset, input.offset + 24), nextOffset: variants.length > input.offset + 24 ? input.offset + 24 : null }); return;
+        const groups = new Map<string, any>();
+        for (const variant of variants) {
+          const bankKey = createHash("sha256").update(`${variant.issuerId}:${variant.country}`).digest("hex").slice(0, 32);
+          const bank = groups.get(bankKey) ?? { bankKey, issuerId: variant.issuerId, name: variant.issuerName, country: variant.country, designCount: 0 };
+          bank.designCount++; groups.set(bankKey, bank);
+        }
+        const bank = groups.get(input.bankKey), selected = bank ? variants.filter((variant: any) => variant.issuerId === bank.issuerId && variant.country === bank.country) : [];
+        const offset = input.offset ?? 0;
+        json({ catalogVersion: bankMode ? atlasRevision === "previous" ? "atlas-adapted-20261015-v1" : atlasVersion : "owned-1", selectionBasis: "owner_selected_bank", requiresConfirmation: true, bankKey: input.bankKey ?? null, banks: [...groups.values()], variants: selected.slice(offset, offset + 24), nextOffset: selected.length > offset + 24 ? offset + 24 : null }); return;
       }
 
       if (url.endsWith("/artwork/resolve")) {
@@ -99,6 +107,7 @@ test("manual CVV stays masked, encrypts, reloads and reveals only to the owner",
   await page.getByLabel("Card number", { exact: true }).fill("4242424242424242");
   await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
   await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("1230");
+  await chooseNetwork(page, "Visa");
   const code = page.getByLabel("CVV", { exact: true });
   await expect(code).toHaveAttribute("type", "password");
   await code.fill("0931");
@@ -174,6 +183,9 @@ for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242 4242 4242 4242", { timeout: 120000 });
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("ALEX SAMPLE"); await expect(page.getByLabel("Expiry (MM/YY)", { exact: true })).toHaveValue("12/30");
   expect(record).toBeNull();
+  await chooseNetwork(page, "Visa");
+  await page.getByLabel("Bank name", { exact: true }).fill("Synthetic Test Bank");
+  await page.getByLabel("Card product", { exact: true }).fill("Example Blue");
   const action = page.getByRole("button", { name: "Add to Wallet", exact: true }); await expect(action).toBeEnabled();
   await expect.poll(() => action.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -192,16 +204,24 @@ for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real
   expect(errors).toEqual([]);
 });
 
+async function chooseNetwork(page: import("@playwright/test").Page, network: string) {
+  await page.getByTestId("secure-card-network-select").click();
+  await page.getByRole("option", { name: network, exact: true }).click();
+}
 async function enterOwnedCard(page: import("@playwright/test").Page) {
   await page.getByLabel("Card number", { exact: true }).fill("4242424242424242");
   await page.getByLabel("Name on card", { exact: true }).fill("ALEX SAMPLE");
   await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
+  await chooseNetwork(page, "Visa");
+  await page.getByLabel("Bank name", { exact: true }).fill("Synthetic Test Bank");
+  await page.getByLabel("Card product", { exact: true }).fill("Example Blue");
 }
 
-for (const width of [320, 390, 1440]) test(`automatic artwork form at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [320, 390, 1440]) test(`bank/product artwork form at ${width}px`, async ({ page }, testInfo) => {
   record = null; wire.length = 0; artworkMode = "ambiguous";
   await page.setViewportSize({ width, height: 1000 }); await page.goto(origin); await awaitProductFont(page); await enterOwnedCard(page);
-  await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
+  await expect(page.getByLabel("Bank name", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Card product", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Approved card designs")).toHaveCount(0);
   const save = page.getByRole("button", { name: "Add to Wallet", exact: true }), cancel = page.getByRole("button", { name: "Cancel", exact: true });
   await save.scrollIntoViewIfNeeded();
@@ -216,7 +236,7 @@ for (const width of [320, 390, 1440]) test(`automatic artwork form at ${width}px
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("automatic network artwork survives encrypted reload and falls back after revocation", async ({ page }) => {
+test("selected bank/product artwork survives encrypted reload and falls back after revocation", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "ambiguous";
   await page.goto(origin); await enterOwnedCard(page);
   await page.getByRole("button", { name: "Add to Wallet", exact: true }).click();
@@ -232,7 +252,8 @@ test("automatic network artwork survives encrypted reload and falls back after r
 
 test("an unavailable artwork catalog keeps saving available without a chooser", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "outage"; await page.goto(origin); await enterOwnedCard(page);
-  await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
+  await expect(page.getByLabel("Bank name", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Card product", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Add to Wallet", exact: true }).click();
   await expect(page.getByRole("region", { name: "Cards" })).toBeVisible();
@@ -252,8 +273,14 @@ async function addNetworkCard(page: import("@playwright/test").Page, network: st
   await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
   await page.getByTestId("secure-card-network-select").click();
   await page.getByRole("option", { name: network, exact: true }).click();
-  await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
+  await expect(page.getByLabel("Bank name", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Card product", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Approved card designs")).toHaveCount(0);
+  const networkId = network === "American Express" ? "amex" : network.toLowerCase();
+  const available = atlasArt.filter(row => row.network === networkId && (!focusedArtworkId || row.variant.assetId === focusedArtworkId) && (atlasRevision === "previous" ? row.historical : row.selectable));
+  const selected = available[0]!.variant;
+  await page.getByLabel("Bank name", { exact: true }).fill(String(selected.issuerName));
+  await page.getByLabel("Card product", { exact: true }).fill(String(selected.productName));
   await expect(page.getByTestId("secure-card-save")).toBeEnabled(); await page.getByTestId("secure-card-save").click();
   await expect(page.getByRole("region", { name: "Cards", exact: true })).toBeVisible();
 }
@@ -277,7 +304,7 @@ async function expectEmbeddedDetails(page: import("@playwright/test").Page) {
   }
 }
 
-for (const width of [320, 390, 1440]) for (const [network, pans] of Object.entries(networkPans)) test(`atlas ${network} designs rotate automatically and persist at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [320, 390, 1440]) for (const [network, pans] of Object.entries(networkPans)) test(`selected ${network} product stays the same for different numbers at ${width}px`, async ({ page }, testInfo) => {
   record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true;
   try {
     await page.setViewportSize({ width, height: width > 800 ? 1300 : 1000 }); await page.goto(origin); await awaitProductFont(page);
@@ -285,6 +312,7 @@ for (const width of [320, 390, 1440]) for (const [network, pans] of Object.entri
       await addNetworkCard(page, network, pan, width === 320 ? "SYNTHETIC OWNER WITH A VERY LONG FULL NAME" : "SYNTHETIC OWNER");
       const faces = page.locator('[data-card-artwork="catalog"]');
       const digests = await faces.evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
+      for (const image of await faces.locator("img").all()) { await expect(image).toHaveAttribute("src", /^blob:/); }
       for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
       await expectEmbeddedDetails(page);
       for (const pan of pans) expect(await page.getByRole("region", { name: "Cards", exact: true }).innerText()).not.toContain(pan);
@@ -292,7 +320,8 @@ for (const width of [320, 390, 1440]) for (const [network, pans] of Object.entri
     };
     const first = await add(pans[0]);
     await page.getByRole("button", { name: "Add another card", exact: true }).click();
-    const second = await add(pans[1]); expect(second).not.toBe(first);
+    const second = await add(pans[1]); expect(second).toBe(first);
+    for (const body of wire) { expect(body).not.toContain('"iinPrefix"'); expect(body).not.toContain('"automatic":true'); }
     const ids = await page.locator("[data-card-id]").evaluateAll(elements => elements.map(element => element.getAttribute("data-card-id")));
     expect(ids).toHaveLength(2);
     await page.reload(); await awaitProductFont(page);
@@ -326,6 +355,7 @@ for (const width of [320, 390]) test(`embedded details reserve fixed card brandi
 
 for (const network of ["American Express", "RuPay"]) test(`saved ${network} blurred or portrait artwork adopts the clean landscape revision without rewriting the vault`, async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true; atlasRevision = "previous";
+  focusedArtworkId = String(atlasArt.find(row => row.network === (network === "American Express" ? "amex" : "rupay") && row.historical && row.replacementId)!.variant.assetId);
   try {
     await page.setViewportSize({ width: 390, height: 1000 }); await page.goto(origin);
     for (const [index, pan] of networkPans[network]!.entries()) {
@@ -345,13 +375,14 @@ for (const network of ["American Express", "RuPay"]) test(`saved ${network} blur
     }
     expect(JSON.stringify(record)).toBe(saved);
     await page.getByRole("button", { name: "Add another card", exact: true }).click();
+    focusedArtworkId = String(atlasArt.find(row => row.variant.digest === current[0])!.variant.assetId);
     await addNetworkCard(page, network, networkPans[network]![0]);
     const repeated = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
     expect(repeated.at(-1)).toBe(current[0]);
-  } finally { bankMode = false; atlasRevision = "current"; }
+  } finally { bankMode = false; atlasRevision = "current"; focusedArtworkId = null; }
 });
 
-for (const network of ["American Express", "Discover", "RuPay"]) test(`legacy ${network} blue cards recover original atlas images without rewriting the vault`, async ({ page }, testInfo) => {
+for (const network of ["American Express", "Discover", "RuPay"]) test(`saved ${network} product recovers its matching image after an outage without rewriting the vault`, async ({ page }, testInfo) => {
   record = null; wire.length = 0; artworkMode = "outage"; bankMode = true;
   try {
     await page.setViewportSize({ width: 390, height: 1000 }); await page.goto(origin);
@@ -365,10 +396,11 @@ for (const network of ["American Express", "Discover", "RuPay"]) test(`legacy ${
     artworkMode = "unknown"; await page.reload(); await awaitProductFont(page);
     const faces = page.locator('[data-card-artwork="catalog"]'); await expect(faces).toHaveCount(2);
     const digests = await faces.evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
-    expect(new Set(digests).size).toBe(2);
+    expect(new Set(digests).size).toBe(1);
     const networkId = network === "American Express" ? "amex" : network.toLowerCase();
     for (const digest of digests) expect(atlasArt.some(row => row.network === networkId && row.variant.digest === digest)).toBe(true);
-    for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    for (const image of await faces.locator("img").all()) { await expect(image).toHaveAttribute("src", /^blob:/); }
+      for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     expect(JSON.stringify(record)).toBe(saved);
     await page.reload(); await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(2);
     expect(await page.locator('[data-card-artwork="catalog"]').evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")))).toEqual(digests);

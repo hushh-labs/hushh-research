@@ -3,8 +3,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
-const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn() }));
-vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display, bankArtwork: networkApi.banks } }));
+const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn(), products: vi.fn() }));
+vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display, bankArtwork: networkApi.banks, cardProductChoices: networkApi.products } }));
 // Exercise the real region dropdown with a bounded, representative catalog.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
   { value: "US", label: "United States" }, { value: "IN", label: "India" },
@@ -66,6 +66,7 @@ beforeEach(() => {
     networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] });
     networkApi.preview.mockResolvedValue("data:image/png;base64,c3ludGhldGlj");
     networkApi.display.mockResolvedValue(true);
+    networkApi.products.mockResolvedValue({ catalogVersion: "test", banks: [], variants: [], nextOffset: null });
     networkApi.banks.mockResolvedValue({ catalogVersion: "test", banks: [], variants: [], nextOffset: null });
     networkApi.select.mockReset();
     scan.read.mockReset();
@@ -278,4 +279,40 @@ it.each([
   await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
   fireEvent.click(screen.getByTestId("secure-card-save"));
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan, brand, expiryMonth: 12, expiryYear: 2030 })));
+});
+
+
+it("submits explicit bank/product metadata with no prefix lookup and resets product when bank changes", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm artworkEnabled onSubmit={save} />); fillRequired();
+  fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Visa", exact: true }));
+  fireEvent.change(screen.getByLabelText("Bank name"), { target: { value: "Selected Bank" } });
+  fireEvent.change(screen.getByLabelText("Card product"), { target: { value: "Wrong Product" } });
+  fireEvent.change(screen.getByLabelText("Bank name"), { target: { value: "Updated Bank" } });
+  expect(screen.getByLabelText("Card product")).toHaveValue("");
+  fireEvent.change(screen.getByLabelText("Card product"), { target: { value: "Selected Product" } });
+  await waitFor(() => expect(networkApi.products).toHaveBeenCalled());
+  submit(); await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).toMatchObject({ bankName: "Updated Bank", cardProduct: "Selected Product", brand: "visa" });
+  expect(networkApi.resolve).not.toHaveBeenCalled(); expect(networkApi.artwork).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByLabelText("Bank name")).toHaveValue(""));
+});
+
+it("discards old bank suggestions and clears private names on an owner change", async () => {
+  let resolve!: (value: any) => void;
+  networkApi.products.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  let owner = "owner";
+  const context = () => ({ userId: owner, vaultOwnerToken: "synthetic" });
+  const save = vi.fn();
+  const view = render(<SecureCardAddForm artworkEnabled getNetworkContext={context} onSubmit={save} />);
+  fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Visa", exact: true }));
+  await waitFor(() => expect(resolve).toBeDefined());
+  fireEvent.change(screen.getByLabelText("Bank name"), { target: { value: "Private Bank" } });
+  fireEvent.change(screen.getByLabelText("Card product"), { target: { value: "Private Product" } });
+  owner = "other"; view.rerender(<SecureCardAddForm artworkEnabled getNetworkContext={context} onSubmit={save} />);
+  await act(async () => resolve({ banks: [{ name: "Stale Bank" }], variants: [], nextOffset: null }));
+  expect(screen.getByLabelText("Bank name")).toHaveValue(""); expect(screen.getByLabelText("Card product")).toHaveValue("");
+  expect(screen.queryByText("Stale Bank")).toBeNull();
 });
