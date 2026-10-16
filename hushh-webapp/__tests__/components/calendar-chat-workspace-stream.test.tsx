@@ -99,13 +99,59 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "thinking"));
       push({ type: "TEXT_MESSAGE_START", messageId: "presence-answer", role: "assistant" });
       push({ type: "TEXT_MESSAGE_CONTENT", messageId: "presence-answer", delta: "Your calendar proposal is ready." });
-      await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "answering"));
+      await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "working"));
       push({ type: "TEXT_MESSAGE_END", messageId: "presence-answer" });
       push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "run-presence" });
     } else {
       push({ type: "RUN_ERROR", code: "TOOL_FAILED", message: "Calendar request failed." });
     }
     act(() => channel.close());
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "connected"));
+  });
+
+  it("shows Working for written output in both avatars and recovers after a failed draft", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const channels: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const encoder = new TextEncoder();
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () =>
+      new Response(new ReadableStream<Uint8Array>({ start(controller) { channels.push(controller); } }),
+        { headers: { "Content-Type": "text/event-stream" } }));
+    const push = (event: Record<string, unknown>) => act(() => channels.at(-1)!.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const view = workspace();
+    const avatar = () => view.container.querySelector("[data-agent-chat-one-profile-trigger] [data-one-presence-state]");
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Write a TypeScript greeting function" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledOnce());
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "writing" });
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "thinking"));
+    fireEvent.click(screen.getByRole("button", { name: "Open One profile" }));
+    const profile = await screen.findByRole("dialog", { name: "One" });
+    const expectBoth = (state: string) => {
+      expect(avatar()).toHaveAttribute("data-one-presence-state", state);
+      expect(profile.querySelector("[data-one-presence-state]")).toHaveAttribute("data-one-presence-state", state);
+    };
+    await waitFor(() => expectBoth("thinking"));
+    push({ type: "TEXT_MESSAGE_START", messageId: "written-answer", role: "assistant" });
+    push({ type: "TEXT_MESSAGE_CONTENT", messageId: "written-answer", delta: "Here is the function:\n" });
+    await waitFor(() => expectBoth("working"));
+    push({ type: "TEXT_MESSAGE_CONTENT", messageId: "written-answer", delta: "```ts\nfunction greet() { return 'Hi'; }\n```" });
+    await waitFor(() => expect(view.container.textContent).toContain("function greet()"));
+    expectBoth("working");
+    push({ type: "RUN_ERROR", code: "STREAM_FAILED", message: "The response was interrupted." });
+    act(() => channels[0].close());
+    await waitFor(() => expectBoth("connected"));
+    fireEvent.click(screen.getByRole("button", { name: "Close One profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(2));
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "writing-retry" });
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "thinking"));
+    push({ type: "TEXT_MESSAGE_START", messageId: "retried-answer", role: "assistant" });
+    push({ type: "TEXT_MESSAGE_CONTENT", messageId: "retried-answer", delta: "function greet() { return 'Hi'; }" });
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "working"));
+    push({ type: "TEXT_MESSAGE_END", messageId: "retried-answer" });
+    push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "writing-retry" });
+    act(() => channels[1].close());
     await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "connected"));
   });
 
