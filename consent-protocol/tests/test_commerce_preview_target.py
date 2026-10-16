@@ -249,7 +249,7 @@ def test_preview_keeps_authority_gates_and_checks_bindings_before_promotion():
     source = (ROOT / ".github/workflows/deploy-dev.yml").read_text()
     assert 'REQUIRE_CI_SUCCESS: "1"' in source
     assert (
-        'REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate"'
+        'REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"'
         in source
     )
 
