@@ -268,6 +268,14 @@ transient failure, but does not establish its cause. Verify serving digest,
 durable key/cursor, private IAM and unchanged service identity before recording
 recovery. Isolated maintenance never substitutes for Settings owner approval.
 
+For native recovery Jobs, read the exact execution receipt from either structured
+`jsonPayload` or JSON `textPayload`. Bound log queries to that Job and execution.
+A logging-read quota refusal is control-plane evidence, not a model 429 or a
+reason to rerun completed work. Reconcile the existing terminal execution; require
+the original byte-integrity receipt before qualifying recovery. Verify temporary
+Job deletion independently. Native storage recovery alone does not prove direct
+admission or an authenticated image-update handoff.
+
 Cancelling an Azure update fences further worker writes and joins the actual
 thread before releasing local lifecycle authority. Handoff polling and optional
 image pruning recheck that fence. A completed local thread does not prove a lost

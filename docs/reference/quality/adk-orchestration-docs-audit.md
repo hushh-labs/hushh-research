@@ -108,6 +108,12 @@ An isolated native Azure Job recovered 57 encrypted records from the exact Dev 1
 fixture using its managed identity. Reads were bounded; no keys were exported or
 storage contents changed. The Job was deleted and ARM absence verified. This is
 predecessor recovery evidence, not target-image or owner-update acceptance.
+Dev 20 subsequently passed a native GCP read of the original **4,195,328-byte**
+synthetic Files fixture, byte-exact, with no key export or storage writes. Its
+45-record recovery receipt was reconciled from structured Cloud Logging after a
+logging-read 429; the Job was not rerun and deletion/absence was verified. This
+does not establish direct admission, authenticated update continuity or Azure
+target-image recovery; the predecessor list remains empty.
 
 **Lifecycle correction — hub deployed; owner image not installed:** setup, updates and rebuilds
 retain exact admitted requests and join actual workers before release. Connector
