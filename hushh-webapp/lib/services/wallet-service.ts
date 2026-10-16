@@ -130,6 +130,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+interface ArtworkDisplayApproval {
+  approved: boolean;
+  allowOverlay: boolean;
+  replacement?: { catalogVersion: string; variant: WalletArtworkVariant };
+}
+
 function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
   if (!isRecord(value)) return null;
   return {
@@ -164,11 +170,12 @@ function chooseUnusedWalletArtwork(data: Record<string, unknown> | null, inputPa
   for (const [cardId, record] of Object.entries(artwork)) {
     const chosen = readWalletArtwork(record);
     if (chosen?.source !== "catalog") continue;
-    const candidate = sorted.find(row => row.assetId === chosen.assetId && row.digest === chosen.digest && row.issuerId === chosen.issuerId && row.productId === chosen.productId && row.variantId === chosen.variantId);
+    const candidate = sorted.find(row => row.issuerId === chosen.issuerId && row.productId === chosen.productId && row.variantId === chosen.variantId && ((row.assetId === chosen.assetId && row.digest === chosen.digest) || row.replaces?.some(old => old.assetId === chosen.assetId && old.digest === chosen.digest)));
     const secret = secrets[cardId];
     if (candidate && pan.length >= 13 && isRecord(secret) && normalizePan(String(secret.pan ?? "")) === pan) return candidate;
     // Retired aliases still occupy these pixels in the owner's collection.
-    if (counts.has(chosen.digest)) counts.set(chosen.digest, counts.get(chosen.digest)! + 1);
+    const occupied = candidate?.digest ?? chosen.digest;
+    if (counts.has(occupied)) counts.set(occupied, counts.get(occupied)! + 1);
   }
   return unique.reduce((least, row) => counts.get(row.digest)! < counts.get(least.digest)! ? row : least);
 }
@@ -244,7 +251,8 @@ export class WalletService {
     const bank = banks.find(row => row.bankKey === input.bankKey);
     const variants: WalletArtworkVariant[] = data.variants.map(row => {
       if (!isRecord(row) || (!input.automatic && (!bank || row.issuerId !== bank.issuerId)) || ![row.assetId, row.issuerId, row.productId, row.variantId].every(id) || !text(row.label) || typeof row.digest !== "string" || !/^[a-f0-9]{64}$/.test(row.digest) || row.image !== `/api/one/wallet/card-access/artwork/assets/${row.digest}` || typeof row.allowOverlay !== "boolean") throw new Error("Bank designs unavailable.");
-      return { assetId: String(row.assetId), issuerId: String(row.issuerId), productId: String(row.productId), variantId: String(row.variantId), label: String(row.label), digest: row.digest, image: String(row.image), allowOverlay: row.allowOverlay, issuerName: bank?.name ?? (text(row.issuerName) ? String(row.issuerName) : String(row.issuerId)), productName: text(row.productName) ? String(row.productName) : String(row.label), variantName: text(row.variantName) ? String(row.variantName) : "Bank design", country: bank?.country ?? (typeof row.country === "string" && /^[A-Z]{2}$/.test(row.country) ? row.country : undefined) };
+      if (row.replaces !== undefined && (!Array.isArray(row.replaces) || row.replaces.length > 24 || !row.replaces.every(old => isRecord(old) && id(old.assetId) && old.assetId !== row.assetId && typeof old.digest === "string" && /^[a-f0-9]{64}$/.test(old.digest) && old.digest !== row.digest))) throw new Error("Bank designs unavailable.");
+      return { assetId: String(row.assetId), issuerId: String(row.issuerId), productId: String(row.productId), variantId: String(row.variantId), label: String(row.label), digest: row.digest, image: String(row.image), allowOverlay: row.allowOverlay, issuerName: bank?.name ?? (text(row.issuerName) ? String(row.issuerName) : String(row.issuerId)), productName: text(row.productName) ? String(row.productName) : String(row.label), variantName: text(row.variantName) ? String(row.variantName) : "Bank design", country: bank?.country ?? (typeof row.country === "string" && /^[A-Z]{2}$/.test(row.country) ? row.country : undefined), ...(Array.isArray(row.replaces) ? { replaces: row.replaces as { assetId: string; digest: string }[] } : {}) };
     });
     if (new Set(variants.map(row => row.assetId)).size !== variants.length) throw new Error("Bank designs unavailable.");
     return { catalogVersion: String(data.catalogVersion), banks, variants, nextOffset: data.nextOffset as number | null };
@@ -347,7 +355,7 @@ export class WalletService {
     return Boolean((await artworkDeadline(signal, bounded => this.validateArtworkReferences(context, [reference], bounded, purpose)))[0]?.approved);
   }
 
-  private static async validateArtworkReferences(context: WalletNetworkContext, artworks: WalletArtworkReference[], signal?: AbortSignal, purpose: "selection" | "saved" = "selection"): Promise<{ approved: boolean; allowOverlay: boolean }[]> {
+  private static async validateArtworkReferences(context: WalletNetworkContext, artworks: WalletArtworkReference[], signal?: AbortSignal, purpose: "selection" | "saved" = "selection"): Promise<ArtworkDisplayApproval[]> {
     const assertCurrent = networkSessionGuard(context, signal); assertCurrent();
     const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId }); assertCurrent();
     if (!token) throw new Error("Artwork unavailable.");
@@ -358,7 +366,16 @@ export class WalletService {
     assertCurrent(); if (!response.ok) throw new Error("Artwork unavailable.");
     const result = await response.json(); assertCurrent();
     if (!Array.isArray(result.selections) || result.selections.length !== selections.length || !result.selections.every((row: unknown, index: number) => isRecord(row) && row.assetId === selections[index]!.assetId && typeof row.approved === "boolean" && typeof row.allowOverlay === "boolean")) throw new Error("Artwork unavailable.");
-    return result.selections.map((row: { approved: boolean; allowOverlay: boolean }) => ({ approved: row.approved, allowOverlay: row.allowOverlay }));
+    return result.selections.map((row: Record<string, unknown>, index: number) => {
+      const approval: ArtworkDisplayApproval = { approved: row.approved as boolean, allowOverlay: row.allowOverlay as boolean };
+      if (row.replacement === undefined) return approval;
+      const replacement = row.replacement, source = artworks[index]!;
+      if (!approval.approved || purpose !== "saved" || !isRecord(replacement) || typeof replacement.catalogVersion !== "string" || !/^[A-Za-z0-9._-]{1,100}$/.test(replacement.catalogVersion) || !isRecord(replacement.variant)) throw new Error("Artwork unavailable.");
+      const variant = replacement.variant;
+      if (typeof variant.assetId !== "string" || !/^[A-Za-z0-9._-]{1,100}$/.test(variant.assetId) || variant.assetId === source.assetId || variant.issuerId !== source.issuerId || variant.productId !== source.productId || variant.variantId !== source.variantId || typeof variant.digest !== "string" || !/^[a-f0-9]{64}$/.test(variant.digest) || variant.digest === source.digest || variant.image !== `/api/one/wallet/card-access/artwork/assets/${variant.digest}` || typeof variant.allowOverlay !== "boolean" || typeof variant.label !== "string" || !variant.label.trim() || variant.label.length > 100 || /[\u0000-\u001f\u007f]/.test(variant.label) || variant.providerId) throw new Error("Artwork unavailable.");
+      approval.replacement = { catalogVersion: replacement.catalogVersion, variant: { assetId: variant.assetId, issuerId: source.issuerId, productId: source.productId, variantId: source.variantId, digest: variant.digest, image: variant.image as string, label: variant.label, allowOverlay: variant.allowOverlay } };
+      return approval;
+    });
   }
 
   /** Change design atomically, preserving card identity, details, history and grants. */
@@ -450,9 +467,30 @@ export class WalletService {
           const batch = savedReferences.slice(offset, offset + 24);
           const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(() => []);
           assertDisplayCurrent();
-          batch.forEach((artwork, index) => {
-            if (approvals[index]?.approved) catalogCards[offset + index]!.artwork = { ...artwork, allowOverlay: approvals[index]!.allowOverlay };
-          });
+          let next = 0;
+          const refreshSaved = async () => {
+            while (next < batch.length) {
+              const index = next++, artwork = batch[index]!, approval = approvals[index];
+              if (!approval?.approved) continue;
+              const row = catalogCards[offset + index]!;
+              if (!approval.replacement) {
+                row.artwork = { ...artwork, allowOverlay: approval.allowOverlay };
+                continue;
+              }
+              try {
+                const { variant, catalogVersion } = approval.replacement;
+                const cleaned = await this.readCatalogArtwork(params, variant, catalogVersion, signal);
+                // Both ends must still be approved after the binary read. A
+                // withdrawn source may never authorize a replacement display.
+                const final = (await this.validateArtworkReferences(params, [artwork], signal, "saved"))[0];
+                assertDisplayCurrent();
+                if (final?.approved && final.replacement?.catalogVersion === catalogVersion && final.replacement.variant.assetId === variant.assetId && final.replacement.variant.digest === variant.digest) {
+                  row.artwork = { ...cleaned, allowOverlay: final.replacement.variant.allowOverlay, evidence: artwork.evidence };
+                }
+              } catch { assertDisplayCurrent(); }
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(4, batch.length) }, refreshSaved));
         }
       };
       // Read-only display enrichment: no PKM write or persistence approval.
@@ -489,7 +527,8 @@ export class WalletService {
         }
       };
       // At most four concurrent downloads, under one total deadline.
-      await Promise.all([validateSaved(), ...Array.from({ length: Math.min(4, networks.length) }, recoverNetwork)]);
+      await validateSaved();
+      await Promise.all(Array.from({ length: Math.min(4, networks.length) }, recoverNetwork));
     }).catch(() => { assertCurrent(); });
     assertCurrent();
     return presentations;

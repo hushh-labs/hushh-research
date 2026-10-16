@@ -11,6 +11,8 @@ export interface WalletArtworkVariant {
   label: string; image: string; digest: string; allowOverlay: boolean;
   issuerName?: string; productName?: string; variantName?: string; country?: string;
   providerId?: string; artworkVersion?: string; width?: number; height?: number;
+  /** Reviewed same-design revisions for private unused-image allocation only. */
+  replaces?: readonly { assetId: string; digest: string }[];
 }
 export type WalletArtworkReference = Pick<Extract<WalletCardArtwork, { source: "catalog" }>, "assetId" | "issuerId" | "productId" | "variantId" | "digest" | "catalogVersion">;
 export interface WalletArtworkResolution {

@@ -7,7 +7,7 @@ flowchart LR
   pdf[Hash-pinned local PDF] --> originals[100 lossless source extractions]
   originals --> review[Recorded crop / field removal / size / split recipes]
   review --> catalog[Reviewed private bank-design catalog]
-  catalog --> bank[Owner selects bank and network]
+  catalog --> bank[Owner provides card network]
   bank --> choice[Local unused-image suggestion]
   choice --> confirm[Owner reviews Add]
   confirm --> wallet[Existing encrypted Wallet artwork per card ID]
@@ -33,14 +33,22 @@ text only; neither tool fetches them. Source originals are preserved separately
 and are not runtime assets or repository additions.
 
 Runtime designs are **adapted bank artwork**, not untouched original physical
-card faces. Recipes trim backgrounds, preserve portrait/landscape proportions,
-remove printed sample fields and machine codes, flatten transparency, and
-resize/compress as necessary. Removed fields are filled from clean surrounding
-colors with a bounded smoothing operation. Two Bradesco Amex derivatives reuse
-the matching licensed Centurion graphic from the supplied Amex entries to remove
-number overprint; both source references are recorded. No new bank/network logo
-or card product is generated. The original and adapted hashes are deliberately
-different.
+card faces. On 16 October 2026 the requester explicitly requested sharp blank
+backgrounds, owner details inside the card, and the default landscape shape for
+every card. The review includes 51 background repairs, 16 portrait adaptations
+(one also needed background repair), and one rectified Chase front photograph:
+67 new immutable revisions. Complete clean fronts were visually reviewed;
+clipped texture patches were rejected because they left rectangular seams.
+
+The repair plates were edited with imagegen from the already sanitized supplied
+designs. They retain the recognizable bank/product design but are reviewed
+derivatives, not issuer-supplied blank templates or proof of a physical match.
+The manifest pins each edited PNG's hash, dimensions, scope and previous prepared
+image hash. Preparation performs no model or network call: it verifies the
+original extracted source and reviewed repair, flattens transparency, normalizes
+the repaired front to 856 by 540, and applies the existing encoding bounds.
+Current recipes never use the old blurred field-removal fill. Source originals
+and reviewed PNG plates remain preserved outside the runtime repository.
 
 The runtime files are opaque, metadata-free WebP, at most 900 pixels per side
 and 128 KiB per design (below the existing 512 KiB serving limit). Lossless
@@ -73,6 +81,26 @@ alter credentials or change grants. Missing and neutral artwork is recovered
 in the background after Cards loads; it is not silently written back to PKM. Recovery uses
 unused image digests and leaves saved photos and withdrawn references alone.
 Focus and visible-minute rechecks also retry an initially neutral collection.
+
+The supplied Atlas designs permit an owner-only display layer containing the
+name, masked number and expiry inside the card. Full numbers still require the
+existing explicit reveal path. The text is never baked into shared catalog
+images, sent to the artwork API, or added to agent summaries. External catalog
+designs without overlay permission retain their restricted presentation.
+
+Approval/recovery and image decoding use a plain surface at the same dimensions
+as the final card, preventing a transient blue fallback during refresh. A genuine
+unavailable image still settles to the existing fallback rather than loading
+indefinitely. Every personalized card uses the default landscape frame.
+
+The 67 prior immutable rows and image files are retained, excluded from new
+selection, and explicitly linked to the corresponding reviewed revision. Saved
+display validates the exact prior identity and both current approvals, loads the
+new bytes with hash verification, then revalidates the original mapping after
+download. Withdrawal or mapping changes fail closed. Retiring a target does not
+disable unrelated catalog entries. Upgrades are memory-only and never rewrite
+PKM; allocation recognizes these reviewed aliases so same-number reuse and
+unused-first selection still work.
 
 Automatic requests use `automatic: true`; their response has
 `selectionBasis: network_illustration` and `requiresConfirmation: false`.
@@ -112,7 +140,7 @@ Use the existing backend environment (pdfplumber and Pillow are already present)
 ```bash
 cd consent-protocol
 python scripts/extract_wallet_card_atlas.py /path/to/World-Credit-Card-Atlas.pdf /new/source-output
-python scripts/prepare_wallet_card_atlas.py /new/source-output /new/adapted-output
+python scripts/prepare_wallet_card_atlas.py /new/source-output /new/adapted-output --reviewed-edits /path/to/hash-named-reviewed-PNGs
 ```
 
 Extraction accepts only the reviewed PDF hash, reads and parses the same bounded
@@ -122,6 +150,9 @@ per image, 128 MiB extracted output and a 120-second extraction deadline.
 The tools execute no PDF action, attachment, script or network request.
 Preparation verifies the exact extracted source bytes/pixels before using a
 recipe. Its output is a review pack, not an automatic approval or live upload.
+The reviewed-edits directory contains the PNGs named by the manifest's edit
+digests; regenerating those edits is not a reproducible model operation. Only
+compilation from the pinned reviewed plates is deterministic.
 
 For a changed PDF or recipe, repeat rights/blank-art review, record the new
 final digests, update the packaged catalog and run the asset integrity and
@@ -133,7 +164,9 @@ mark an unreviewed source sanitized merely to admit it.
 The existing `e2e/wallet-intelligent-card-add.layout.spec.ts` browser pack
 exercises production Add, artwork rendering, service validation and PKM/AES
 storage, with only external authentication/API responses substituted. Network
-cases use the actual packaged Visa, Mastercard, Amex, Discover and RuPay image bytes. They add two synthetic card
+cases use the actual packaged Visa, Mastercard, Amex, Discover and RuPay image
+bytes at 320, 390 and 1440 pixels. They check embedded-field bounds, long names,
+masking and landscape dimensions, then add two synthetic card
 numbers, assert different artwork digests, reload and assert both assignments
 remain unchanged. Legacy Amex, Discover and RuPay cases save during an outage,
 then recover two distinct approved images without another encrypted write.
@@ -142,6 +175,8 @@ and WebKit. This is browser fixture proof, not physical-device camera proof.
 
 Reviewed WebKit screenshots: [390px](../../assets/wallet-artwork/atlas-two-cards-390.png)
 and [1440px](../../assets/wallet-artwork/atlas-two-cards-1440.png).
+The [landscape RuPay examples](../../assets/wallet-artwork/atlas-landscape-rupay-390.png)
+also reserve the network logo area; expiry and holder details do not share that space.
 The nearest service and form tests protect private unused-first allocation,
 retired aliases, same-number reuse, suffix edits, resume, immutable-choice
 restoration and owner-epoch cancellation. Backend tests read and decode every
