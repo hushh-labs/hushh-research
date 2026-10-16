@@ -269,7 +269,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
     assert "fail-fast: false" in full
 
-    gate = workflow[workflow.index('name: "CI Status Gate"') :]
+    gate = workflow[workflow.index("  ci-status:") :]
     assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
     assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
     assert '[ "$WEB_TARGETED" != "success" ]' in gate
