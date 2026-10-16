@@ -98,6 +98,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   });
 
   it("does not manufacture a selected choice before the fresh user confirms one", () => {
+    getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -114,6 +115,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     expect(screen.queryByText("Selected")).toBeNull();
+    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
   });
 
   it("on the first-run step keeps Gemini selectable and defers the coming-soon models", async () => {
@@ -142,6 +144,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   });
 
   it("in the settings context lists the coming-soon models without a decorative badge", () => {
+    getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -156,6 +159,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
+    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
     for (const provider of [
       ["openai", "OpenAI"],
       ["anthropic", "Claude"],

@@ -19,6 +19,12 @@ The next candidate adds restart-safe private command/MCP recovery; local evidenc
 is not deployed acceptance. Computer Use and cross-cloud moves remain disabled.
 Existing owners retain their resources and selected configuration.
 
+**16 October resource correction:** the personal Azure owner approved 1 vCPU /
+2 GiB on the same Dev 19 image. Authenticated idle handoff, exact replacement
+readback and durable-key recovery pass. Min 0/max 1, one worker, HTTP threshold
+eight and the 600-second relay grace are preserved. The temporary OIDC-only admin
+grant was removed and absence verified. Protected Files readback remains separate.
+
 ## Current implementation slice — Azure AI and Shared Files
 
 **Serving:** dev remains at `5c2d1483aa`, backend `00172-7q4` and frontend
@@ -49,7 +55,13 @@ refused stale setup/header/drawer assertions and one legacy Payments glyph.
 The bounded repair retains the authored WebKit fallback, full-row hit targets,
 one-pixel alignment and Back/Search gates; 25 focused unit cases, 26 Chromium/WebKit
 layout cases and 466 Back cases pass locally. A fresh exact-SHA hosted result is
-required before deployment. The prior [exact `15d83d5bab` passed all 25 hosted
+required before deployment. [Validation of `c8015dff7a`](https://github.com/hushh-labs/hushh-research/actions/runs/38828983524)
+also found a premature AI-choice control during hosting verification. Both radio
+and button now retain the existing disabled predicate. The original code fails
+the readiness assertions; all 31 nearest cases pass after repair, including the
+unchanged owner-generation refusal. The affected web-core and generated UI
+contracts pass; unaffected backend receipts are retained. This repair is not yet
+deployed. The prior [exact `15d83d5bab` passed all 25 hosted
 checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key

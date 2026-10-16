@@ -163,6 +163,8 @@ function OwnerRuntimeSettingsCard({
   const [vertexLocation, setVertexLocation] = useState("global");
   const [isSaving, setIsSaving] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const managedChoiceDisabled =
+    isSaving || isRemoving || (!privateCloud && placement !== "shared");
   const [agentOutcome, setAgentOutcome] = useState("");
   const [credentialValidation, setCredentialValidation] =
     useState<CredentialValidationState>({ status: "idle" });
@@ -954,11 +956,7 @@ function OwnerRuntimeSettingsCard({
                 )
               }
               title={defaultLabel}
-              disabled={
-                isSaving ||
-                isRemoving ||
-                (!privateCloud && placement !== "shared")
-              }
+              disabled={managedChoiceDisabled}
               description={
                 placement === "azure"
                   ? `${cloudAiVerified ? "AI verified" : "Check AI connection"} · your Azure deployment`
@@ -998,6 +996,7 @@ function OwnerRuntimeSettingsCard({
               {requiresExplicitSelection ? (
                 <RadioPrimitive.Item
                   value="hushh_managed_vertex"
+                  disabled={managedChoiceDisabled}
                   onClick={() => {
                     if (
                       selectedOption === "hushh_managed_vertex" &&
@@ -1010,6 +1009,7 @@ function OwnerRuntimeSettingsCard({
               ) : (
                 <button
                   type="button"
+                  disabled={managedChoiceDisabled}
                   onClick={() => void selectManaged()}
                   aria-pressed={mode === "hushh_managed_vertex"}
                 />
