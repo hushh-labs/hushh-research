@@ -38,20 +38,21 @@ installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 
 pending and history cleanup 249 remains deferred. No failed ledger row or checksum
 drift was found; no setup worker was running at this observation.
 
-**Candidate:** frozen local ADK `2462c0bc6f` and infrastructure work now include
-committed root intake `f3f1afd0e8`. Incoming managed-model policy preserves the
-serving 3.8/global bridge and unchanged readiness preload; a stale 3.6 candidate
-must not replace it. Independent review found no owner-key, placement or native
-browser-gate regression. Concurrent uncommitted PDF/config/native work is excluded.
-The integrated core passed in 857 seconds. The repaired backend passes 20,641
-parallel and 976 serial database checks. A later unused UI prop was removed;
-remaining canonical web/package/integration checks passed. Concurrent Wallet
-commit `b8fa64b200` is preserved with four integrated Chromium/WebKit motion checks
-and unchanged arrival/overshoot budgets. Final combined web/governance checks,
-exact-SHA hosted CI and serving readback remain release gates. Prior [de635 validation](https://github.com/hushh-labs/hushh-research/actions/runs/38835084481)
-passed on attempt 2 after rerunning only an inherited WebKit Wallet height
-precondition failure. Unchanged local Chromium/WebKit checks pass, without
-relaxing the original timeout, geometry or frame budgets. Retain failed receipts.
+**Candidate — local, not deployed:** frozen ADK `2462c0bc6f`, root
+`194f425fe7` (including main `a8e36651c1`) and the private-pod changes are integrated
+in isolation. Concurrent root/PDF/native work is preserved. The selected-provider
+repair passes 48 setup/settings cases; the Calendar readiness repair passes 38.
+Original-code negative controls fail as required. The local core exposed one
+synthetic placement fixture and imported UI fixture/style defects; these were
+corrected without weakening authority, geometry or timing gates. Backend evidence
+is 20,807 parallel passes plus 1,007 serial passes; the remaining schema-projection
+ordering failure now passes through its owning generator. Unchanged schema fields
+and function multisets are verified. Canonical web (production build, typecheck, lint), package and 396 integration
+checks pass. All 32 setup layout cases pass across the four browser profiles; the
+interrupted dependency-reinstall attempt remains recorded. Exact-SHA hosted PR CI
+must finish before a governed dev deployment.
+Prior hosted run [38875805183](https://github.com/hushh-labs/hushh-research/actions/runs/38875805183)
+remains failed evidence. No newer owner image has been installed.
 
 **New Azure signup:** the pod, storage and signed direct access completed in
 20m51s; Azure environment creation accounted for 14m26s. Optional model quota was

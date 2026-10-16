@@ -63,14 +63,6 @@ describe("One setup hub terminal action contract", () => {
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const styles = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/one-setup-hub.module.css",
-      ),
-      "utf8",
-    );
-
     const tile = readFileSync(join(process.cwd(), "components/onboarding/setup/capability-setup-tile.tsx"), "utf8");
 
     // "Required" in the same muted grey as every other trailing label reads as

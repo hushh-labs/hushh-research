@@ -4346,6 +4346,14 @@
     ],
     "scope": "Exactly28 independently reviewed source-bound ceilings:15 backend and13 frontend. Eleven entries are byte-exact incoming main; composed entries preserve private Calendar placement/proposal authority, typed grant recovery, one_memory privacy and main Wallet artwork/scanner semantics with route-bound Back. Focused348Calendar and96UI checks pass. Budgets500/250/80, scanner/exclusions and all unrelated findings unchanged; accepted integration debt does not establish runtime or production readiness."
   },
+  "byoc_main_fixture_admission_review_20261016": {
+    "after": 2057,
+    "before": 2052,
+    "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+    "review": "The imported saved-statement regression now injects its synthetic admission port and asserts exact owner/purpose. Zero sharing and no-auto-share assertions remain; production placement enforcement is unchanged.95nearest checks include actualShared/BYOC/pending/unknown/failed-observation controls. Only this5line core-fixture growth (including2required Ruff wrapping lines) admitted; budgets unchanged.",
+    "reviewer": "adk_authority_review",
+    "source_sha256": "20ac2ab764aa8a3903f3c86115eb898c2e0f4ff9126def26fdd7ef870a3f36a9"
+  },
   "byoc_main_pwm_drain_review_20261015": {
     "entries": [
       {
@@ -22334,7 +22342,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 2052
+      "value": 2057
     },
     {
       "detail": "module exceeds the advisory operon budget",

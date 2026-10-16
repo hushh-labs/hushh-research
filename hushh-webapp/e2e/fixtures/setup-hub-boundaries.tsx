@@ -45,3 +45,8 @@ export const GuidedConnectionScreen = () => null;
 export const VaultExplainerScreens = () => null;
 export const migrateOnboardingBuffer = unavailable;
 export const isPersonalAgentReadyFromCachedFeed = () => false;
+
+export const GEMINI_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key";
+export const OPENAI_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.openai_api_key";
+export const RUNTIME_CREDENTIAL_MODE_REF = "pkm:runtime_secrets.llm.credential_mode";
+export const PersonalKnowledgeModelService = { loadRuntimeSecret: unavailable, storeRuntimeSecret: unavailable, removeRuntimeSecret: unavailable };
