@@ -101,8 +101,23 @@ test("Back cancels the crop/read layer and keeps the Add draft in place", async 
 for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real encrypted write → Cards/reload/lock at ${width}px`, async ({ page }, testInfo) => {
   test.setTimeout(180000); record = null; wire.length = 0; artworkMode = "ambiguous";
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  if (width < 640) await page.addInitScript(() => {
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: () => Promise.reject(new DOMException("Synthetic permission rejection", "NotAllowedError")) } });
+  });
   await page.setViewportSize({ width, height: 900 }); await page.goto(origin); await awaitProductFont(page);
-  await page.getByLabel("Choose a card photo", { exact: true }).setInputFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
+  if (width < 640) {
+    await page.getByRole("button", { name: "Scan card", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Camera unavailable" })).toBeVisible();
+    const capture = page.getByRole("region", { name: "Photograph your card", exact: true });
+    for (const name of ["Take photo", "Choose from photos", "Cancel"]) {
+      const box = await capture.getByRole("button", { name, exact: true }).boundingBox();
+      expect(box).not.toBeNull(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`camera-photo-fallback-${width}.png`) });
+  }
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
+  await (await chooser).setFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
   await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Use full photo" }).click(); await page.getByRole("button", { name: "Read card", exact: true }).click();
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242424242424242", { timeout: 120000 });
@@ -173,28 +188,39 @@ test("an unavailable artwork catalog keeps saving available without a chooser", 
   await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(0);
 });
 
-for (const width of [390, 1440]) for (const network of ["Visa", "Mastercard", "American Express"]) test(`atlas ${network} designs rotate automatically and persist at ${width}px`, async ({ page }, testInfo) => {
+const networkPans: Record<string, [string, string]> = {
+  Visa: ["4242424242424242", "4111111111111111"],
+  Mastercard: ["5555555555554444", "5105105105105100"],
+  "American Express": ["378282246310005", "371449635398431"],
+  Discover: ["6011111111111117", "6011000990139424"],
+  RuPay: ["6080018765432101", "6080010000000009"],
+};
+async function addNetworkCard(page: import("@playwright/test").Page, network: string, pan: string) {
+  await page.getByLabel("Card number", { exact: true }).fill(pan);
+  await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
+  await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
+  await page.getByTestId("secure-card-network-select").click();
+  await page.getByRole("option", { name: network, exact: true }).click();
+  await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
+  await expect(page.getByLabel("Approved card designs")).toHaveCount(0);
+  await expect(page.getByTestId("secure-card-save")).toBeEnabled(); await page.getByTestId("secure-card-save").click();
+  await expect(page.getByRole("region", { name: "Cards", exact: true })).toBeVisible();
+}
+
+for (const width of [390, 1440]) for (const [network, pans] of Object.entries(networkPans)) test(`atlas ${network} designs rotate automatically and persist at ${width}px`, async ({ page }, testInfo) => {
   record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true;
   try {
     await page.setViewportSize({ width, height: width > 800 ? 1300 : 1000 }); await page.goto(origin); await awaitProductFont(page);
     const add = async (pan: string) => {
-      await page.getByLabel("Card number", { exact: true }).fill(pan);
-      await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
-      await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
-      await page.getByTestId("secure-card-network-select").click();
-      await page.getByRole("option", { name: network, exact: true }).click();
-      await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
-      await expect(page.getByLabel("Approved card designs")).toHaveCount(0);
-      await expect(page.getByTestId("secure-card-save")).toBeEnabled(); await page.getByTestId("secure-card-save").click();
-      await expect(page.getByRole("region", { name: "Cards", exact: true })).toBeVisible();
+      await addNetworkCard(page, network, pan);
       const faces = page.locator('[data-card-artwork="catalog"]');
       const digests = await faces.evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
       for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
       return digests.at(-1)!;
     };
-    const first = await add(network === "American Express" ? "378282246310005" : network === "Mastercard" ? "5555555555554444" : "4242424242424242");
+    const first = await add(pans[0]);
     await page.getByRole("button", { name: "Add another card", exact: true }).click();
-    const second = await add(network === "American Express" ? "371449635398431" : network === "Mastercard" ? "5105105105105100" : "4111111111111111"); expect(second).not.toBe(first);
+    const second = await add(pans[1]); expect(second).not.toBe(first);
     const ids = await page.locator("[data-card-id]").evaluateAll(elements => elements.map(element => element.getAttribute("data-card-id")));
     expect(ids).toHaveLength(2);
     await page.reload(); await awaitProductFont(page);
@@ -202,7 +228,35 @@ for (const width of [390, 1440]) for (const network of ["Visa", "Mastercard", "A
     const digests = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(element => element.getAttribute("data-artwork-digest")));
     expect(digests).toEqual(expect.arrayContaining([first, second]));
     expect(await page.locator("[data-card-id]").evaluateAll(elements => elements.map(element => element.getAttribute("data-card-id")))).toEqual(ids);
-    expect(wire.every(body => !body.includes("5555555555554444") && !body.includes("5105105105105100"))).toBe(true);
+    expect(wire.every(body => pans.every(pan => !body.includes(pan)))).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`atlas-${network}-two-cards-${width}.png`), fullPage: true });
+  } finally { bankMode = false; }
+});
+
+for (const network of ["American Express", "Discover", "RuPay"]) test(`legacy ${network} blue cards recover original atlas images without rewriting the vault`, async ({ page }, testInfo) => {
+  record = null; wire.length = 0; artworkMode = "outage"; bankMode = true;
+  try {
+    await page.setViewportSize({ width: 390, height: 1000 }); await page.goto(origin);
+    for (const [index, pan] of networkPans[network]!.entries()) {
+      if (index) await page.getByRole("button", { name: "Add another card", exact: true }).click();
+      await addNetworkCard(page, network, pan);
+    }
+    await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(0);
+    const saved = JSON.stringify(record);
+    const ids = await page.locator("[data-card-id]").evaluateAll(elements => elements.map(el => el.getAttribute("data-card-id")));
+    artworkMode = "unknown"; await page.reload(); await awaitProductFont(page);
+    const faces = page.locator('[data-card-artwork="catalog"]'); await expect(faces).toHaveCount(2);
+    const digests = await faces.evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")));
+    expect(new Set(digests).size).toBe(2);
+    const networkId = network === "American Express" ? "amex" : network.toLowerCase();
+    for (const digest of digests) expect(atlasArt.some(row => row.network === networkId && row.variant.digest === digest)).toBe(true);
+    for (const image of await faces.locator("img").all()) await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    expect(JSON.stringify(record)).toBe(saved);
+    await page.reload(); await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(2);
+    expect(await page.locator('[data-card-artwork="catalog"]').evaluateAll(elements => elements.map(el => el.getAttribute("data-artwork-digest")))).toEqual(digests);
+    expect(await page.locator("[data-card-id]").evaluateAll(elements => elements.map(el => el.getAttribute("data-card-id")))).toEqual(ids);
+    expect(JSON.stringify(record)).toBe(saved);
+    for (const pan of networkPans[network]!) expect(wire.join("\n")).not.toContain(pan);
+    await page.screenshot({ path: testInfo.outputPath(`recovered-${network}-390.png`), fullPage: true });
   } finally { bankMode = false; }
 });

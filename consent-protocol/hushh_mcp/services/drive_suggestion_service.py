@@ -189,6 +189,17 @@ def _validated_search_terms(terms: list[str]) -> list[str]:
     return cleaned
 
 
+def _validated_discovery_clues(clues: list[str]) -> list[str]:
+    """Bound each OR clue without applying the three-concept AND limit."""
+    try:
+        cleaned = [DriveLiveReader._validate_query([clue])[0] for clue in clues]
+    except DriveReadError as error:
+        raise ValueError("invalid discovery clue") from error
+    if len({clue.casefold() for clue in cleaned}) != len(cleaned):
+        raise ValueError("duplicate discovery clues")
+    return cleaned
+
+
 class LiveSearchPlan(BaseModel):
     """What to look for, in the Drive MCP's own terms; the reader compiles it.
 
@@ -200,6 +211,14 @@ class LiveSearchPlan(BaseModel):
     # OR within each concept; AND between concepts. Empty preserves old plans.
     # Validate inner bounds after parsing to keep the model response schema small.
     term_groups: list[list[str]] = Field(default_factory=list, max_length=3)
+    # These broaden candidate discovery only. They never prove issuer, type,
+    # statement period, permission or package readiness.
+    semantic_intent: (
+        Literal["institutional_statement", "broad_financial_records", "other"] | None
+    ) = None
+    discovery_clues: list[str] = Field(default_factory=list, max_length=12)
+    required_entities: list[str] = Field(default_factory=list, max_length=4)
+    expected_document_anatomy: str | None = Field(default=None, max_length=500)
     # Stored plans predate this audit; new provider answers must supply it.
     subject_scope: Literal["specific_records", "metadata_listing"] | None = None
     subject_complete: bool | None = None
@@ -236,6 +255,21 @@ class LiveSearchPlan(BaseModel):
         variants = [term.casefold() for group in cleaned for term in group]
         if len(set(variants)) != len(variants):
             raise ValueError("duplicate search variants across concepts")
+        return cleaned
+
+    @field_validator("discovery_clues", "required_entities")
+    @classmethod
+    def validate_discovery_clues(cls, value: list[str]) -> list[str]:
+        return _validated_discovery_clues(value)
+
+    @field_validator("expected_document_anatomy")
+    @classmethod
+    def validate_expected_document_anatomy(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned or any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
+            raise ValueError("invalid expected document anatomy")
         return cleaned
 
     @model_validator(mode="after")
@@ -372,6 +406,10 @@ class LiveSearchModelPlan(LiveSearchPlan):
 
     subject_scope: Literal["specific_records", "metadata_listing"]
     subject_complete: bool
+    semantic_intent: Literal["institutional_statement", "broad_financial_records", "other"]
+    discovery_clues: list[str] = Field(min_length=1, max_length=12)
+    required_entities: list[str] = Field(max_length=4)
+    expected_document_anatomy: str = Field(min_length=1, max_length=500)
 
 
 async def interpret_live_search(*, prompt, user_id):

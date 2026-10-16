@@ -564,6 +564,8 @@ describe("ApiService.apiFetch", () => {
   it.each([
     ["ios", "/api/one/connections/directory?page=1", 60_000],
     ["android", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/one/agent-chat/proposals", 150_000],
+    ["android", "/api/one/agent-chat/proposals", 150_000],
     ["ios", "/api/ria/onboarding/verify", 90_000],
     ["android", "/api/ria/onboarding/verify", 90_000],
     ["android", "/api/connectors/google_drive/searches", 180_000],

@@ -655,8 +655,14 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_QUERY_EMPTY", "No name given to look up.", status_code=422
             )
-        people = self._directory_lookup(owner_user_id) or []
-        matches = [p for p in people if needle in str(p.get("displayName") or "").strip().lower()]
+        # Ask the directory for THIS name. Filtering the unqualified first page
+        # (the 50 alphabetically-first people) could only ever find someone who
+        # happened to sort into it, so a name past that page never resolved.
+        matches = list(
+            self.search_directory(owner_user_id, query=needle, page=1, limit=20, name_only=True)[
+                "items"
+            ]
+        )
         if len(matches) == 1:
             return str(matches[0].get("userId") or "")
         raise IdentityUnresolvedError(

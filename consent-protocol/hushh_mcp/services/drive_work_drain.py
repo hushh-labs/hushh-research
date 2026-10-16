@@ -44,6 +44,17 @@ WORKER_JOB_LIMITS = {
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
+    "v1": frozenset(
+        {
+            "searches",
+            "suggestions",
+            "bulk_shares",
+            "bulk_removals",
+            "checkouts",
+            "refunds",
+            "owner_payouts",
+        }
+    ),
     "sharing": frozenset(
         {
             "permissions",
@@ -377,6 +388,7 @@ class DriveWorkDrain:
                         if name == "bulk_shares"
                         else min(max_jobs_per_worker, WORKER_JOB_LIMITS[name]),
                         deadline_seconds=budget,
+                        **({"v1_only": True} if stage == "v1" else {}),
                     )
             except TimeoutError:
                 summaries[name] = {"deadline": 1}
@@ -387,9 +399,29 @@ class DriveWorkDrain:
 
         if stage == "suggestions":
             # Independent read-only leases each get a bounded slice. A slow
-            # preparation cannot starve metadata searches (or vice versa).
-            # The sharing stage below retains permissions-before-notifications.
+            # preparation cannot starve metadata searches.
             await asyncio.gather(*(run_worker(name, worker) for name, worker in self._workers))
+        elif stage == "v1":
+            # Each worker has its own V1-only candidate and claim fence. Run
+            # search, Checkout preparation and paid grants together; then
+            # settle delivery before reconciling earnings and refunds.
+            await asyncio.gather(
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name in {"searches", "suggestions", "checkouts", "bulk_shares"}
+                )
+            )
+            for name, worker in self._workers:
+                if name == "owner_payouts":
+                    await run_worker(name, worker)
+            await asyncio.gather(
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name in {"bulk_removals", "refunds"}
+                )
+            )
         elif stage == "sharing":
             # Bind checkout sessions before dispatching payment-ready notices.
             # Payment preparation can overlap grant work; its own authority

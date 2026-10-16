@@ -35,15 +35,37 @@ class DriveSuggestionWorker:
                 attempted += int(enabled)
                 yield row, enabled
 
-    async def run(self, *, max_jobs=8, deadline_seconds=540):
+    async def run(self, *, max_jobs=8, deadline_seconds=540, v1_only=False):
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= 20
             or type(deadline_seconds) is not int
             or not 1 <= deadline_seconds <= 540
+            or type(v1_only) is not bool
         ):
             raise ValueError("invalid worker bounds")
         counts = Counter()
+        if v1_only:
+            # V1 reuses request-scoped content evaluation only. It never runs
+            # the legacy selected-file suggestion queue or catalog builders.
+            result = (
+                await self.packages.run(
+                    max_jobs=max_jobs, deadline_seconds=deadline_seconds, v1_only=True
+                )
+                if self.packages is not None
+                else {"not_claimed": 1}
+            )
+            for outcome, count in result.items():
+                counts[
+                    {
+                        "queued": "package_queued",
+                        "ready": "review_ready",
+                        "no_match": "no_ready_files",
+                        "not_claimed": "not_claimed",
+                        "deadline": "deadline",
+                    }.get(outcome, "unavailable")
+                ] += count
+            return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
         if self.packages is not None:
             # A separate finite task prevents either legacy or package traffic
             # from starving the other; neither branch can extend this deadline.

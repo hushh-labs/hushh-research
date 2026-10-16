@@ -3,7 +3,10 @@ import { ApiError, apiJson } from "@/lib/services/api-client";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
-import { profileReportSchema } from "@/lib/services/profile-research-service";
+import {
+  profileFactSchema,
+  profileSectionKindSchema,
+} from "@/lib/services/profile-research-service";
 import type { PwmOwnerDecisions } from "@/lib/services/world-model-decision-service";
 
 export const pwmPreferencesSchema = z
@@ -70,13 +73,47 @@ export const pwmProgressSchema = z
   })
   .strict();
 export type PwmProgress = z.infer<typeof pwmProgressSchema>;
+/** PWM alone has room for a deep draft; Magic Intelligence keeps its eight-fact bound. */
+export const pwmReportSchema = z
+  .object({
+    match_status: z.enum(["matched", "uncertain", "no_match"]),
+    name: z.string().min(1).max(160),
+    summary: z.string().min(1).max(500),
+    sections: z
+      .array(
+        z.object({
+          kind: profileSectionKindSchema,
+          facts: z
+            .array(
+              profileFactSchema.extend({
+                // Older sealed drafts can still be reviewed after this release.
+                evidence_score: z.number().int().min(1).max(10).optional(),
+                evidence_reason: z.string().max(300).optional(),
+              }),
+            )
+            .min(1)
+            .max(40),
+        }).strict(),
+      )
+      .max(20),
+  })
+  .strict()
+  .refine((value) => {
+    const facts = value.sections.flatMap((section) => section.facts);
+    return (
+      new Set(value.sections.map((section) => section.kind)).size === value.sections.length &&
+      (value.match_status === "no_match") === (facts.length === 0) &&
+      facts.length <= 269 &&
+      new Set(facts.map((fact) => fact.statement.trim().replace(/\s+/g, " ").toLowerCase())).size === facts.length
+    );
+  });
 export const pwmResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("offered"),
       pkm_written: z.literal(false),
       draft_id: z.string().uuid(),
-      report: profileReportSchema,
+      report: pwmReportSchema,
       grounded_answers: z
         .array(
           z

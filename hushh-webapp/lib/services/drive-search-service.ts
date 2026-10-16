@@ -1,8 +1,14 @@
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 
 const PATH = "/api/connectors/google_drive/searches";
 const STATES = ["queued", "running", "completed", "stopped", "failed", "limited"] as const;
+const TERMINAL_STATES = new Set<DriveSearchStatus["status"]>(["completed", "stopped", "failed", "limited"]);
+const EVALUATION_STATES = ["pending", "running", "ready", "no_match", "failed", "obsolete"] as const;
+const STREAM_MAX_BYTES = 1_048_576;
+const STREAM_FRAME_MAX_CHARS = 16_384;
 type DriveSearchSelectionCoverage = {
   requestedResultLimit: number;
   resultOrder: "createdTime desc" | "modifiedTime desc";
@@ -42,6 +48,8 @@ export type DriveSearchStatus = {
   updatedAt: string;
   errorCode: string | null;
   unshareableCount?: number;
+  /** Live V1 content checking; absent for older search jobs. */
+  evaluation?: { status: (typeof EVALUATION_STATES)[number]; evaluatedCount: number; pendingCount: number; verifiedCount: number };
   coverage?: DriveSearchCoverage;
 };
 export type DriveSearchFile = {
@@ -52,6 +60,10 @@ export type DriveSearchFile = {
   modifiedTime: string | null;
   openUrl: string | null;
   shareable?: boolean;
+  /** Owner-only V1 document assessment; not a calibrated probability. */
+  confidenceScore?: number;
+  /** Relative usefulness of this verified file for the request. */
+  weightageOutOf10?: number;
   unavailableReason?: "shortcut_target_unavailable" | "source_not_shareable" | "shareability_unverified" | null;
 };
 /** A single saved result, resolved and rechecked by the owner-authenticated chat route. */
@@ -65,6 +77,10 @@ export type DriveSearchResults = {
 };
 export class DriveSearchError extends Error {
   constructor(public readonly code: string) { super("Drive search could not finish."); }
+}
+/** An older backend or a stream proxy can still serve the durable GET status. */
+export class DriveSearchStreamUnavailable extends Error {
+  constructor() { super("Drive search progress stream is unavailable."); }
 }
 type Guard = () => void;
 type RecordValue = Record<string, unknown>;
@@ -173,6 +189,18 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
     throw new DriveSearchError("invalid_response");
   if (item.unshareableCount !== undefined && count(item.unshareableCount) > count(item.matched))
     throw new DriveSearchError("invalid_response");
+  const evaluation = item.evaluation === undefined ? undefined : (() => {
+    const value = record(item.evaluation);
+    if (!EVALUATION_STATES.includes(value.status as (typeof EVALUATION_STATES)[number]))
+      throw new DriveSearchError("invalid_response");
+    const matched = count(item.matched);
+    const evaluatedCount = count(value.evaluatedCount);
+    const pendingCount = count(value.pendingCount);
+    const verifiedCount = count(value.verifiedCount);
+    if (evaluatedCount > matched || pendingCount !== matched - evaluatedCount || verifiedCount > evaluatedCount)
+      throw new DriveSearchError("invalid_response");
+    return { status: value.status as (typeof EVALUATION_STATES)[number], evaluatedCount, pendingCount, verifiedCount };
+  })();
   const result: DriveSearchStatus = {
     jobId: id(item.jobId), status: item.status as DriveSearchStatus["status"],
     revision: count(item.revision, Number.MAX_SAFE_INTEGER), matched: count(item.matched),
@@ -181,6 +209,7 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
     createdAt: date(item.createdAt), expiresAt: date(item.expiresAt), updatedAt: date(item.updatedAt),
     errorCode: item.errorCode == null ? null : text(item.errorCode, 80),
     ...(item.unshareableCount === undefined ? {} : { unshareableCount: count(item.unshareableCount) }),
+    ...(evaluation === undefined ? {} : { evaluation }),
     ...(item.coverage == null ? {} : { coverage: coverage(item.coverage) }),
   };
   if (result.coverage?.requestedResultLimit !== undefined &&
@@ -199,6 +228,13 @@ function file(value: unknown): DriveSearchFile {
     item.unavailableReason !== "source_not_shareable" &&
     item.unavailableReason !== "shareability_unverified")
     throw new DriveSearchError("invalid_response");
+  const confidenceScore = item.confidenceScore === undefined ? undefined : count(item.confidenceScore, 100);
+  const weightageOutOf10 = item.weightageOutOf10 === undefined ? undefined : item.weightageOutOf10;
+  if (weightageOutOf10 !== undefined &&
+    (typeof weightageOutOf10 !== "number" || !Number.isFinite(weightageOutOf10) ||
+      weightageOutOf10 < 1 || weightageOutOf10 > 10) ||
+    (confidenceScore === undefined) !== (weightageOutOf10 === undefined))
+    throw new DriveSearchError("invalid_response");
   // Accept Google file links only. Provider response strings never become HTML.
   let openUrl: string | null = null;
   if (item.openUrl != null) {
@@ -211,6 +247,8 @@ function file(value: unknown): DriveSearchFile {
   return { position: position(item.position), id: text(item.id, 256), name: text(item.name, 1000), mimeType: text(item.mimeType, 256),
     modifiedTime: item.modifiedTime == null ? null : date(item.modifiedTime), openUrl,
     ...(item.shareable === undefined ? {} : { shareable: item.shareable as boolean }),
+    ...(confidenceScore === undefined ? {} : { confidenceScore,
+      weightageOutOf10: weightageOutOf10 as number }),
     ...(item.unavailableReason == null ? {} : { unavailableReason: item.unavailableReason as DriveSearchFile["unavailableReason"] }) };
 }
 
@@ -266,6 +304,82 @@ export class DriveSearchService {
     const value = parseDriveSearchStatus(await this.send(token, guard, `/${id(jobId)}`));
     if (value.jobId !== jobId) throw new DriveSearchError("invalid_response");
     return value;
+  }
+  /** Live status is advisory; callers still load the owner review for file decisions. */
+  static async streamStatus(
+    token: string,
+    jobId: string,
+    guard: Guard,
+    onStatus: (status: DriveSearchStatus) => void,
+    signal?: AbortSignal,
+  ): Promise<"complete" | "interrupted"> {
+    id(jobId);
+    guard();
+    let response: Response;
+    try {
+      response = await nativeStreamFetch(`${PATH}/${jobId}/stream`, {
+        method: "GET", cache: "no-store", signal,
+        headers: { ...ApiService.getAuthHeaders(token), Accept: "text/event-stream" },
+      });
+    } catch (cause) {
+      if (signal?.aborted) return "interrupted";
+      throw cause;
+    }
+    guard();
+    if ([404, 405, 503].includes(response.status)) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new DriveSearchStreamUnavailable();
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new DriveSearchError("request_failed");
+    }
+    if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new DriveSearchStreamUnavailable();
+    }
+    const reader = response.body.getReader();
+    const cancel = () => void reader.cancel().catch(() => undefined);
+    signal?.addEventListener("abort", cancel, { once: true });
+    const decoder = new TextDecoder();
+    let remainder = "";
+    let received = 0;
+    let revision = -1;
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try { chunk = await reader.read(); }
+        catch { return "interrupted"; }
+        guard();
+        if (chunk.done) return "interrupted";
+        received += chunk.value.byteLength;
+        if (received > STREAM_MAX_BYTES) throw new DriveSearchError("invalid_response");
+        const parsed = parseSSEBlocks(decoder.decode(chunk.value, { stream: true }), remainder);
+        remainder = parsed.remainder;
+        if (remainder.length > STREAM_FRAME_MAX_CHARS) throw new DriveSearchError("invalid_response");
+        for (const frame of parsed.events) {
+          if (frame.data.length > STREAM_FRAME_MAX_CHARS) throw new DriveSearchError("invalid_response");
+          if (frame.event !== "status") continue;
+          let payload: unknown;
+          try { payload = JSON.parse(frame.data); }
+          catch { throw new DriveSearchError("invalid_response"); }
+          const item = record(payload);
+          if (item.event !== "status") throw new DriveSearchError("invalid_response");
+          const status = parseDriveSearchStatus(item);
+          if (status.jobId !== jobId) throw new DriveSearchError("invalid_response");
+          if (status.revision <= revision) continue;
+          revision = status.revision;
+          onStatus(status);
+          if (TERMINAL_STATES.has(status.status) &&
+              !(status.status === "completed" &&
+                (status.evaluation?.status === "pending" || status.evaluation?.status === "running")))
+            return "complete";
+        }
+      }
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      cancel();
+    }
   }
   static async results(token: string, jobId: string, guard: Guard, cursor: string | null = null): Promise<DriveSearchResults> {
     const query = cursor == null ? "" : `?cursor=${encodeURIComponent(text(cursor, 1024))}`;

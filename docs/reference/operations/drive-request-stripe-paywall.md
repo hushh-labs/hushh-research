@@ -8,40 +8,78 @@ Canonical visual owner: [Architecture Index](../architecture/README.md).
 sequenceDiagram
     participant Chris
     participant Manish
-    participant PrivateAgent as Manish's private agent
+    participant Agent as Private agent
     participant Feed
     participant Stripe
-    participant Bank as Manish's bank
     participant Drive
-    Chris->>PrivateAgent: Request documents
-    PrivateAgent->>Feed: Request sent
-    opt Legacy bank-settled request without a linked bank
-        Feed->>Manish: Link bank
-        Manish->>Stripe: Complete US Connect setup
-    end
-    alt Chris is in Manish's Trusted Circle
-        alt Saved default price
-            PrivateAgent->>PrivateAgent: Freeze the saved quote
-        else Ask each time
-            Feed->>Manish: Set price for this request
+    Chris->>Feed: Send request, dates, reason, Viewer access period
+    Feed->>Agent: Prepare request
+    Agent->>Drive: Discover candidates and read current content
+    Agent->>Agent: Verify issuer, document type, content dates and evidence
+    alt No verified matches after completed evaluation
+        Agent->>Feed: No documents found; no checkout
+    else Verified matching documents
+        alt Chris is currently in Manish's Trusted Circle
+            Agent->>Agent: Freeze exact files under current background permission
+        else Chris is outside Trusted Circle
+            Agent->>Manish: Show verified candidates and requester identity
+            Manish->>Feed: Select exact files, access period, Approve or Decline
         end
-    else Chris is outside the Trusted Circle
-        Feed->>Manish: Deny or Allow with a price
+        Agent->>Drive: Recheck current source versions and existing access
+        Agent->>Feed: Pay saved quote, or $0.50 default
+        Chris->>Stripe: Complete secure checkout
+        Stripe->>Agent: Confirm payment with signed webhook
+        Agent->>Drive: Grant exact frozen files as expiring Viewer
+        Agent->>Feed: Documents shared with Drive links
+        Agent->>Drive: End access at deadline or owner revocation
+        Agent->>Feed: Process earnings after confirmed delivery
     end
-    PrivateAgent->>Drive: Search and freeze shareable batch
-    PrivateAgent->>Feed: Pay the agreed price
-    Chris->>Stripe: Complete hosted Checkout
-    Stripe->>PrivateAgent: Signed payment webhook
-    PrivateAgent->>Drive: Grant exact files
-    Drive->>Chris: Confirmed access
-    PrivateAgent->>Feed: Credit net Hussh Coins after delivery, refunds and fees
-    Manish->>Stripe: Redeem separate test coins in payout sandbox
-    Stripe->>Bank: Simulated deposit only, real balance unchanged
 ```
+
+
+## V1 live document requests
+
+New eligible live requests carry a creation-time `v1_live_request` marker.
+The Documents agent plans the request, Drive REST discovers candidates, and
+content extraction plus cited assessment verifies the selected documents.
+File modification dates and filename words do not prove statement coverage.
+This work reuses the existing Feed, Checkout, Viewer delivery and earnings flow.
+It does not build or publish reusable packet listings.
+
+- **Trusted Circle:** current background permission and current Trusted membership
+  permit preparation. A sealed `trusted_selection` binds the evaluated files,
+  source versions and request revision. It does not fabricate an owner Allow.
+  Checkout follows exact source/access checks; signed payment precedes sharing.
+- **Other connections:** preparation produces a sealed `v1_manual_review` set of
+  verified candidates. The owner uses the existing file-selection and Approve
+  screen, and may shorten the requested Viewer period. Only that selected
+  subset may enter Checkout and delivery. A requester choosing "Verified RIA"
+  is checked against server-side RIA verification before sending; the owner
+  sees the verified identity and the request reason.
+- Missing prices for this new V1 flow default to **$0.50**. Saved owner prices
+  remain unchanged. Amounts use integer cents from 50 through 50,000.
+- A completed search with no verified matches produces **No documents found**
+  and no payment. Provider failures, unreadable content and incomplete coverage
+  remain distinct from an empty result.
+- Existing access and prior paid delivery are checked before charging. Current
+  source versions, recipient identity and consent are checked again before grants.
+  Payout/earnings processing follows confirmed delivery under the existing rules.
+- V1 Viewer grants expire at the approved 1–90 day period after delivery starts.
+  The owner may request earlier revocation. Existing unexpired access is not
+  counted as a new paid grant.
+
+Search progress streams through the authenticated search status endpoint. It is
+an observer of durable work; closing the stream does not cancel the request.
+The server reports measured counts and elapsed times. A provider page size of
+1,000 is a maximum, not a guarantee of two calls or subsecond latency. Model
+assessment scores and importance rankings are distinct from measured accuracy.
+
+The sections below also document legacy request and settlement paths. New V1
+markers never enroll historical requests or change their frozen quotes.
 
 ## User story
 
-The owner sets a whole-dollar default from $1 to $500 in **Profile → Request
+The owner sets a default from $0.50 to $500, including cents in **Profile → Request
 pricing**. **Ask each time** removes the automatic default. Existing requests
 retain their recorded quote; an unset price never becomes an implicit $10.
 
@@ -171,8 +209,8 @@ define the native query, pagination and corpus boundaries used here.
    server-selected return origin. The order fixes that amount when it is
    created from the saved default or the owner's request-specific quote. New
    owner-settlement requests with no valid quote cannot fall back to `1000` cents.
-   Migration 291 limits every live order and retained
-   obligation to whole dollars from `100` to `50000` cents. A success URL is an
+   Migration 329 limits every live order and retained
+   obligation to integer cents from `50` to `50000`. A success URL is an
    indication to refresh status, never proof of payment.
 4. The public webhook verifies Stripe's signature on the raw request body,
    matches its session, amount, currency, request ID, and opaque payer binding to

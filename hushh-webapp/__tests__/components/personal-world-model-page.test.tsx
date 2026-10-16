@@ -318,7 +318,7 @@ describe("Personal World Model page", () => {
       "an offered report with no statements",
       { ...offered([], "no_match") },
       "Nothing to review yet",
-      "We couldn’t find public pages we can confidently connect to you. You can add one below.",
+      "We couldn’t find public pages we can confidently connect to you. You can check again later.",
     ],
     [
       "no active draft",
@@ -395,8 +395,7 @@ describe("Personal World Model page", () => {
     const { unmount } = render(<PersonalWorldModelPage embedded />);
     expect(await screen.findByText("Preparing your model")).toBeInTheDocument();
     expect(screen.getByText("Research and email")).toBeInTheDocument();
-    // Adding a source never waits for a usable model; inviting does.
-    expect(screen.getByText("Add a public source")).toBeInTheDocument();
+    expect(screen.queryByText("Add a public source")).not.toBeInTheDocument();
     expect(screen.queryByText("Invite someone")).not.toBeInTheDocument();
     unmount();
 
@@ -792,7 +791,7 @@ describe("Personal World Model page", () => {
     expect(
       screen.getByText("2 possible matches found, none confirmed as you."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Add a public source below/)).toHaveClass("profile-account-note");
+    expect(screen.getByText(/We couldn’t link a public page to your account/)).toHaveClass("profile-account-note");
   });
 
   it("waits out a research outage by the store's clock, then lets the owner ask again", async () => {

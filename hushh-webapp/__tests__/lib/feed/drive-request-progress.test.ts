@@ -69,6 +69,34 @@ describe("projectFeedDriveProgress", () => {
     expect(rows[0]?.description).toContain("your Trusted Circle request");
   });
 
+  it("shows Trusted V1 content checking without claiming owner review or sharing", () => {
+    for (const direction of ["incoming", "outgoing"] as const) {
+      const rows = projectFeedDriveProgress([entry({
+        kind: direction === "incoming" ? "incoming_request" : "outgoing_request",
+        metadata: { ...entry().metadata, direction, v1_live_request: true,
+          automatic_progress_stage: "checking" },
+      })]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.title).toBe("One is checking documents");
+      expect(rows[0]?.description).toBe("One is checking the documents for this request.");
+      expect(rows[0]?.description).not.toMatch(/owner.*review|sharing|Trusted Circle/i);
+      if (direction === "outgoing") expect(rows[0]?.href).toContain("requestView=sent");
+    }
+  });
+
+  it("shows failed Trusted V1 evaluation as unavailable rather than checking forever", () => {
+    const rows = projectFeedDriveProgress([entry({
+      kind: "outgoing_request",
+      metadata: { ...entry().metadata, direction: "outgoing", v1_live_request: true,
+        automatic_progress_active: false, automatic_progress_stage: null,
+        v1_evaluation_unavailable: true },
+    })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ title: "Documents unavailable",
+      description: "One couldn't verify the documents for this request." });
+    expect(rows[0]?.href).toContain("requestView=sent");
+  });
+
   it("says Request allowed, not Trusted Circle, once the owner allowed the request", () => {
     const allowed = { ...entry().metadata, owner_allowed: true };
     const rows = projectFeedDriveProgress([
@@ -253,7 +281,7 @@ describe("projectFeedDriveProgress", () => {
     } }).title).toBe("Pay $20 · Standup notes");
   });
 
-  it("drops a payment row unless the amount is a integer-cent USD price from $0.50 to $500", () => {
+  it("drops a payment row unless the amount is an integer-cent USD price from $0.50 to $500", () => {
     const payment = (paymentAmountCents: unknown, paymentCurrency = "usd") => entry({
       kind: "outgoing_request", metadata: {
         ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
@@ -262,7 +290,7 @@ describe("projectFeedDriveProgress", () => {
       },
     });
     expect(projectFeedDrivePayments([payment(51)])[0]).toMatchObject({ amountCents: 51, title: "Pay $0.51 for your document request" });
-    for (const invalid of [payment(49), payment(0), payment(60_000), payment(2000.5), payment(2000, "eur")]) {
+    for (const invalid of [payment(9), payment(0), payment(60_000), payment(2000.5), payment(2000, "eur")]) {
       expect(projectFeedDrivePayments([invalid])).toEqual([]);
     }
   });

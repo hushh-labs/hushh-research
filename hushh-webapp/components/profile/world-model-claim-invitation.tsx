@@ -8,7 +8,6 @@ import { HelperText, RowDescription } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useWorldModelResearch } from "./world-model-provider";
 import { useWorldModelOwnerAction } from "./world-model-invitations";
-import type { ProfileReport } from "@/lib/services/profile-research-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -34,10 +33,9 @@ export function WorldModelClaimInvitation({
   const query = useSearchParams();
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
-  const [receivedPreview, setReceivedPreview] = useState<{
-    report: ProfileReport;
-    introduction: string;
-  } | null>(null);
+  const [receivedPreview, setReceivedPreview] = useState<
+    Awaited<ReturnType<typeof WorldModelInvitationsService.preview>> | null
+  >(null);
   const [researchConsent, setResearchConsent] = useState(false);
   const { reload: reloadResearch, preferences } = useWorldModelResearch();
   // Research is on by default, so the choice only exists for a recipient who
@@ -75,7 +73,7 @@ export function WorldModelClaimInvitation({
     if (claimToken)
       void WorldModelInvitationsService.preview(claimToken)
         .then((row) => {
-          if (active && "report" in row) setReceivedPreview(row);
+          if (active) setReceivedPreview(row);
         })
         .catch(() => {});
     return () => {
@@ -102,10 +100,14 @@ export function WorldModelClaimInvitation({
         {claimToken && (
           <div className="space-y-2">
             <RowDescription className="break-words [overflow-wrap:anywhere]">
-              Someone prepared a Personal World Model for you. Claim it to
-              review it here, or decline. Nothing is shared back with them.
+              Someone invited you to prepare your Personal World Model. Claim
+              it to review your own research here, or decline. Nothing is shared
+              back with them.
             </RowDescription>
-            {receivedPreview && (
+            {receivedPreview && "subject_name" in receivedPreview && receivedPreview.subject_name ? (
+              <RowDescription>Invitation for {receivedPreview.subject_name}</RowDescription>
+            ) : null}
+            {receivedPreview && "report" in receivedPreview && (
               <div className="space-y-2 break-words [overflow-wrap:anywhere]">
                 <RowDescription>{receivedPreview.introduction}</RowDescription>
                 <RowDescription>Prepared by the person who invited you</RowDescription>
@@ -157,7 +159,7 @@ export function WorldModelClaimInvitation({
                       isCurrent: capture.isCurrent,
                       signal: lifetime.current.signal,
                     };
-                    await WorldModelInvitationsService.claim(
+                    const claimed = await WorldModelInvitationsService.claim(
                       actionSession,
                       claimToken,
                       // Only a shown, checked box is a research request.
@@ -166,7 +168,11 @@ export function WorldModelClaimInvitation({
                     await capture.assertCurrent();
                     clearWorldModelInvitationHandoffsForToken(claimToken);
                     setMessage(
-                      "Claimed. Review your model below. Nothing was shared back.",
+                      claimed.research_started || claimed.draft_id
+                        ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
+                        : offerResearch && !researchConsent
+                          ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
+                          : "Claimed. Open your model to check its research status. Nothing was shared back.",
                     );
                     setClaimToken(null);
                     reloadResearch();

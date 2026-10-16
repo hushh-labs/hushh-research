@@ -182,6 +182,15 @@ function OwnerRuntimeSettingsCard({
       : "",
   );
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
+  // An already unlocked owner may save BYOK directly to the encrypted vault.
+  // Trust that choice only after refresh has read both the saved mode and key;
+  // an unlocked vault by itself does not prove the key survived a reload.
+  const savedByokReady =
+    requiresExplicitSelection &&
+    initialSetupChoice === "byok_pending_vault" &&
+    mode === "byok" &&
+    hasSavedKey === true;
+  const configuredChoiceReady = initiallyConfigured || savedByokReady;
 
   useEffect(() => {
     setAgentOutcome("");
@@ -198,13 +207,13 @@ function OwnerRuntimeSettingsCard({
   }, [hasExplicitSelection, isSaving, isRemoving, onCanContinueChange]);
 
   useEffect(() => {
-    setHasExplicitSelection(!requiresExplicitSelection || initiallyConfigured);
-  }, [initiallyConfigured, requiresExplicitSelection]);
+    setHasExplicitSelection(!requiresExplicitSelection || configuredChoiceReady);
+  }, [configuredChoiceReady, requiresExplicitSelection]);
 
   useEffect(() => {
     if (!requiresExplicitSelection) return;
     setSelectedOption(
-      initiallyConfigured
+      configuredChoiceReady
         ? initialSetupChoice === "byok_pending_vault"
           ? "byok"
           : "hushh_managed_vertex"
@@ -215,7 +224,7 @@ function OwnerRuntimeSettingsCard({
         ? "byok"
         : "hushh_managed_vertex",
     );
-  }, [initialSetupChoice, initiallyConfigured, requiresExplicitSelection]);
+  }, [initialSetupChoice, configuredChoiceReady, requiresExplicitSelection]);
 
   const refresh = useCallback(async () => {
     const ownerIsCurrent = captureOwnerGuard();

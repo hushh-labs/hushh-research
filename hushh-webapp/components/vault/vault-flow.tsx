@@ -21,6 +21,7 @@ import {
   Check,
   Copy,
   Download,
+  ArrowRight,
   Fingerprint,
   type LucideIcon,
 } from "@/components/icons";
@@ -98,6 +99,10 @@ interface VaultFlowProps {
    * not dismiss until the user explicitly confirms that they saved it.
    */
   onRecoveryKeyDisclosureChange?: (active: boolean) => void;
+  /** Prevent setup navigation while a newly created vault is being persisted. */
+  onCreateBusyChange?: (busy: boolean) => void;
+  /** Setup-only visual layout; vault creation and recovery remain unchanged. */
+  setupPresentation?: boolean;
   enableGeneratedDefault?: boolean;
   /** Hard gates own the automatic passkey ceremony when surfaces overlap. */
   isHardGate?: boolean;
@@ -297,12 +302,14 @@ function VaultFlowHeader({
   title,
   description,
   hint,
+  setupPresentation = false,
 }: {
   user: User;
   icon: LucideIcon;
   title: string;
   description: string;
   hint?: string | null;
+  setupPresentation?: boolean;
 }) {
   // Presentation only: the current authenticated owner supplies the identity.
   // Email/provider presence never authorizes unlock or infers a vault method.
@@ -331,7 +338,9 @@ function VaultFlowHeader({
         data-vault-account-identity
         className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
       >
-        <EmailIdentityMark email={user.email} providerId={providerId} />
+        {setupPresentation
+          ? <span data-vault-setup-avatar aria-hidden="true">O</span>
+          : <EmailIdentityMark email={user.email} providerId={providerId} />}
         <span className="min-w-0 break-all">
           {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
         </span>
@@ -350,6 +359,8 @@ export function VaultFlow({
   onSuccess,
   onStepChange,
   onRecoveryKeyDisclosureChange,
+  onCreateBusyChange,
+  setupPresentation = false,
   enableGeneratedDefault = false,
   isHardGate = false,
   allowVaultCreation = true,
@@ -900,6 +911,7 @@ export function VaultFlow({
     if (!attempt) return;
     createPassphraseAttemptRef.current = true;
     setIsUnlocking(true);
+    onCreateBusyChange?.(true);
     try {
       setError(null);
       // 1. Generate encrypted vault data
@@ -945,6 +957,7 @@ export function VaultFlow({
       toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       createPassphraseAttemptRef.current = false;
+      onCreateBusyChange?.(false);
       finishAttempt(attempt);
     }
   };
@@ -1569,8 +1582,10 @@ export function VaultFlow({
       {signOutEscape}
     </div>
   ) : null;
+  // The 44px escape targets already leave 24px below their 20px labels.
+  // Keep the last-resort copy in the same secondary group without extra gaps.
   const lostVaultDeleteEscape = onSignOut ? (
-    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] pt-[var(--app-form-section-gap)] text-center type-footnote">
+    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] text-center type-footnote">
       <p className="text-muted-foreground">Lost every way in?</p>
       <button
         type="button"
@@ -1799,7 +1814,12 @@ export function VaultFlow({
       <div
         data-vault-flow-content
         data-vault-flow-step={step}
-        className="max-h-[var(--vault-available-height,min(640px,calc(90svh-3rem-var(--kb-height,0px))))] space-y-4 overflow-y-auto overscroll-contain px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "space-y-4 overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          setupPresentation
+            ? "w-full overflow-visible px-0 py-0"
+            : "max-h-[var(--vault-available-height,min(640px,calc(90svh-3rem-var(--kb-height,0px))))] overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] pt-1 sm:px-7",
+        )}
       >
           {step === "setup_required" && (
             <div className="mx-auto max-w-[21rem] space-y-4 text-center">
@@ -1817,7 +1837,8 @@ export function VaultFlow({
           {/* Create Passphrase */}
           {step === "create" && (
             <form
-              className="mx-auto max-w-[21rem] space-y-3"
+              data-vault-create-form
+              className={cn("space-y-3", setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem]")}
               onSubmit={handleCreatePassphraseSubmit}
             >
               <VaultFlowHeader
@@ -1835,25 +1856,29 @@ export function VaultFlow({
                 // Carries the promise the removed "private place" invitation
                 // screen used to make, on the step that actually needs it.
                 description="Only you can open what you save."
+                setupPresentation={setupPresentation}
               />
               <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
                   Password
                 </Label>
                   <div
+                    data-vault-password-field
                     className={cn(
                       VAULT_INPUT_SHELL_CLASS,
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <AccentedKeyIcon size={18} className="shrink-0" />
+                    {setupPresentation
+                      ? <Icon icon={Lock} size={18} className="shrink-0" />
+                      : <AccentedKeyIcon size={18} className="shrink-0" />}
                     <Input
                       id="passphrase"
                       type={showPassphrase ? "text" : "password"}
                       placeholder="Create password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
-                      autoFocus
+                      autoFocus={!setupPresentation}
                       autoComplete="new-password"
                       autoCorrect="off"
                       autoCapitalize="off"
@@ -1876,12 +1901,15 @@ export function VaultFlow({
                   Confirm password
                 </Label>
                   <div
+                    data-vault-confirm-field
                     className={cn(
                       VAULT_INPUT_SHELL_CLASS,
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <AccentedKeyIcon size={18} className="shrink-0" />
+                    {setupPresentation
+                      ? <Icon icon={Lock} size={18} className="shrink-0" />
+                      : <AccentedKeyIcon size={18} className="shrink-0" />}
                     <Input
                       id="confirm"
                       type={showConfirmPassphrase ? "text" : "password"}
@@ -1910,8 +1938,10 @@ export function VaultFlow({
                   </p>
                 )}
               </div>
-              <p className="text-center type-footnote leading-snug text-muted-foreground">
-                At least 8 characters. Only you know it.
+              <p data-vault-create-hint className="text-center type-footnote leading-snug text-muted-foreground">
+                {setupPresentation
+                  ? "At least 8 characters. Choose something only you know."
+                  : "At least 8 characters. Only you know it."}
               </p>
               {createQuickUnlockMethod ? (
                 // The whole of the screen this replaced. It asked one yes/no
@@ -1930,7 +1960,7 @@ export function VaultFlow({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block type-subhead font-medium text-foreground">
-                      Also unlock with {createQuickUnlockLabel}
+                      Also unlock with {setupPresentation && isPasskeyQuickUnlock ? "a passkey" : createQuickUnlockLabel}
                     </span>
                     <span className="block type-footnote leading-snug text-muted-foreground">
                       Your password and recovery key still work.
@@ -1945,6 +1975,7 @@ export function VaultFlow({
                 </label>
               ) : null}
               <Button
+                data-vault-create-cta
                 variant="none"
                 effect="fill"
                 size="default"
@@ -2100,8 +2131,12 @@ export function VaultFlow({
                   </Button>
                 )}
 
-                {unlockSecondaryActions}
-                {lostVaultDeleteEscape}
+                {unlockSecondaryActions || lostVaultDeleteEscape ? (
+                  <div className="flex flex-col">
+                    {unlockSecondaryActions}
+                    {lostVaultDeleteEscape}
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
@@ -2149,8 +2184,10 @@ export function VaultFlow({
                     "Unlock"
                   )}
                 </Button>
-                {recoverySecondaryActions}
-                {lostVaultDeleteEscape}
+                <div className="flex flex-col">
+                  {recoverySecondaryActions}
+                  {lostVaultDeleteEscape}
+                </div>
               </div>
             </div>
           )}
@@ -2298,29 +2335,33 @@ export function VaultFlow({
           {step === "recovery" && recoveryKey ? (
             <div
               data-vault-recovery-key
-              className="mx-auto max-w-[21rem] space-y-4"
+              className={cn(setupPresentation ? "w-full max-w-none" : "mx-auto max-w-[21rem] space-y-4")}
             >
               <VaultFlowHeader
                 user={user}
                 icon={Key}
                 title="Save your recovery key"
-                description="Keep it somewhere only you can reach."
+                description={setupPresentation
+                  ? "If you forget your password, this key can help you get back in."
+                  : "Keep it somewhere only you can reach."}
               />
 
-              <Alert className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
+              <Alert data-vault-recovery-warning className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
                 <Icon icon={AlertCircle} size="sm" className="text-orange-500" />
                 <AlertDescription className="text-[13.5px] leading-[1.4] text-orange-700 dark:text-orange-300">
-                  Save this now. It cannot be shown again.
+                  {setupPresentation
+                    ? "Save this now. You won't see it again."
+                    : "Save this now. It cannot be shown again."}
                 </AlertDescription>
               </Alert>
 
-              <div className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
+              <div data-vault-recovery-code className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
                 <code className="break-all font-mono text-[15px] font-medium leading-[1.5] tracking-normal">
                   {recoveryKey}
                 </code>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div data-vault-recovery-actions className="grid grid-cols-2 gap-2">
                 <Button
                   variant="none"
                   effect="fade"
@@ -2361,7 +2402,14 @@ export function VaultFlow({
                 </Button>
               </div>
 
+              {setupPresentation ? (
+                <p className="text-center text-xs leading-[18px] text-muted-foreground">
+                  Store it somewhere safe, separate from this device.
+                </p>
+              ) : null}
+
               <Button
+                data-vault-recovery-cta
                 variant="none"
                 effect="fill"
                 size="default"
@@ -2371,6 +2419,7 @@ export function VaultFlow({
                 disabled={isUnlocking}
               >
                 {isUnlocking ? "Opening..." : "I’ve saved my recovery key"}
+                {setupPresentation && !isUnlocking ? <Icon icon={ArrowRight} size="sm" className="ml-2" aria-hidden="true" /> : null}
               </Button>
             </div>
           ) : null}

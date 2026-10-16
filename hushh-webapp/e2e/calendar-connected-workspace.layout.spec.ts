@@ -538,3 +538,112 @@ for (const width of [390, 1280]) {
     expect(fixture.errors).toEqual([]);
   });
 }
+
+for (const width of [390, 1280]) {
+  test(`35 invitations keep selection visible and every date reachable at ${width}px`, async ({ page }) => {
+    const fixture = await openFixture(page, width);
+    const events = Array.from({ length: 35 }, (_, index) => {
+      const day = new Date(Date.UTC(2026, 9, 14 + index)).toISOString().slice(0, 10);
+      return { ...dayEvents(day)[0], id: `invitation-${index + 1}`, title: `QA Invitation ${index + 1}`, response_status: "needsAction", can_respond: true, conflicts: [] };
+    });
+    await page.route("**/api/one/calendar/invitations", route => route.fulfill({ json: {
+      events, pending_count: 35, unreadable_calendars: [], complete: true, time_zone: "Asia/Kolkata",
+      start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
+    } }));
+    await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+    const rows = page.getByRole("button", { name: /^Open invitation:/ });
+    await expect(rows).toHaveCount(35);
+    await expect(page.getByText(/Next 90 days/)).toHaveCount(0);
+    await page.screenshot({ path: path.join(screenshotDirectory, `invitations-35-list-${width}.png`), animations: "disabled" });
+    const row = page.getByRole("button", { name: "Open invitation: QA Invitation 30", exact: true });
+    await row.scrollIntoViewIfNeeded();
+    const root = page.getByTestId("calendar-scroll-root");
+    const scrollBefore = await root.evaluate(node => node.scrollTop);
+    const list = page.locator('[aria-label="Invitation list"]');
+    const listScrollBefore = await list.evaluate(node => node.scrollTop);
+    await row.click();
+    const detail = page.getByRole("article", { name: "Invitation details: QA Invitation 30", exact: true });
+    await expect(detail).toBeVisible();
+    if (width >= 768) {
+      expect(await root.evaluate(node => node.scrollTop)).toBe(scrollBefore);
+      expect(await list.evaluate(node => node.scrollTop)).toBe(listScrollBefore);
+      await expect(row).toHaveAttribute("aria-pressed", "true");
+      const box = (await detail.boundingBox())!;
+      const chrome = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(48);
+      expect(box.y).toBeLessThan(chrome.y);
+    } else {
+      await expect(list).toBeHidden();
+      const back = await page.getByRole("button", { name: "Invitations", exact: true }).boundingBox();
+      expect(back!.y).toBeGreaterThanOrEqual(48);
+    }
+    await page.screenshot({ path: path.join(screenshotDirectory, `invitations-35-selected-${width}.png`), animations: "disabled" });
+    await page.getByRole("button", { name: "Invitations", exact: true }).click();
+    await expect(row).toBeVisible();
+    await page.getByLabel("Invitation date", { exact: true }).fill("2026-11-16");
+    await expect(rows).toHaveCount(35);
+    await expect(page.getByRole("button", { name: "Open invitation: QA Invitation 34", exact: true })).toBeInViewport();
+    await page.getByRole("button", { name: "Previous day", exact: true }).click();
+    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-11-15");
+    await page.getByRole("button", { name: "Next day", exact: true }).click();
+    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-11-16");
+    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-10-14");
+    await expect(rows.first()).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
+test("quiet loading preserves same-context previews and exposes real failures", async ({ page }) => {
+  await openFixture(page, 1280);
+  let release!: () => void;
+  let gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/one/calendar/invitations", async route => {
+    await gate;
+    return route.fulfill({ status: 503, json: { detail: { message: "Calendar temporarily unavailable", reason_code: "calendar_invalid_response" } } });
+  });
+  await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Invitations loading" })).toBeVisible();
+  await expect(page.getByText("Loading invitations…", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: path.join(screenshotDirectory, "invitations-initial-loading.png") });
+  release();
+  await expect(page.getByRole("alert")).toContainText("Invitations could not be loaded");
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+  await page.getByRole("tab", { name: "Free time", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Ask One about/ })).toHaveCount(3);
+  const before = await page.getByRole("button", { name: /^Ask One about/ }).first().boundingBox();
+  gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/one/calendar/schedule/availability", async route => {
+    await gate;
+    return route.fulfill({ status: 503, json: { detail: { message: "Calendar temporarily unavailable", reason_code: "calendar_invalid_response" } } });
+  });
+  await page.clock.setFixedTime(new Date(qaNow + 5000));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  const preview = page.locator('[aria-label="Previous availability"]');
+  await expect(preview).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Ask One about/ })).toHaveCount(0);
+  expect((await preview.locator("li").first().boundingBox())!.y).toBe(before!.y);
+  await page.screenshot({ path: path.join(screenshotDirectory, "free-time-background-refresh.png") });
+  release();
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByText("Availability could not be checked.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Insights", exact: true }).click();
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
+  gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/one/calendar/insights", async route => { await gate; return route.fulfill({ status: 503, json: { detail: "Insights temporarily unavailable" } }); });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByText("Scheduled events", { exact: true })).toBeVisible();
+  await expect(page.getByText("Last loaded snapshot · updates pending")).toBeVisible();
+  await page.screenshot({ path: path.join(screenshotDirectory, "insights-background-refresh.png") });
+  release();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
+  gate = new Promise<void>(resolve => { release = resolve; });
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByText("Scheduled events", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Snapshot loading")).toBeVisible();
+  release();
+  await expect(page.getByRole("alert")).toBeVisible();
+});

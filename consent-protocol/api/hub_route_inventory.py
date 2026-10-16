@@ -12,6 +12,7 @@ GET /api/connectors/google_drive/documents
 GET /api/connectors/google_drive/searches
 GET /api/connectors/google_drive/searches/{job_id}
 GET /api/connectors/google_drive/searches/{job_id}/results
+GET /api/connectors/google_drive/searches/{job_id}/stream
 GET /api/connectors/google_drive/sharing/bulk
 GET /api/connectors/google_drive/sharing/bulk/{share_id}
 GET /api/connectors/google_drive/sharing/bulk/{share_id}/files

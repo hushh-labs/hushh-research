@@ -72,7 +72,9 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     const controller = new AbortController(); request.current = controller;
     setBusy(true); busyCallback.current(true); setNotice("");
     try {
-      const draft = await scanWalletCardForReview(photo.file, controller.signal, { corners, artwork: true });
+      // Add assigns catalog artwork when saving. Reading its fields must not
+      // wait for a photo-artwork inspection that this form never consumes.
+      const draft = await scanWalletCardForReview(photo.file, controller.signal, { corners });
       if (request.current !== controller || controller.signal.aborted) return;
       onRead(draft); release();
       setNotice(Object.keys(draft.fields).length ? "Review the recognized details below." : "Details were unclear. Retake the photo or enter them below.");
@@ -84,13 +86,13 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void acquire(async () => file); }} />;
   return <div className={styles.scanner} data-testid="wallet-card-scanner">
     {fileInput(camera, true)}{fileInput(gallery, false)}
-    {live ? <WalletLiveCardCapture onCancel={release} onPhoto={file => { setLive(false); void acquire(async () => file); }} /> : !photo ? <>
+    {live ? <WalletLiveCardCapture onCancel={release} onChoosePhoto={() => { release(); choose("photos"); }} onPhoto={file => { setLive(false); void acquire(async () => file); }} /> : !photo ? <>
       {featured ? <div className={styles.scanIntro}><button type="button" className={styles.scanArtwork} aria-label="Scan card" disabled={disabled || busy || !active} onClick={() => choose("camera")}>
         <Image src="/wallet/card-scan-agent-one-emerging.webp" alt="" width={644} height={768} unoptimized className={styles.scanReference} />
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan here to add card</span>
       </button></div> : null}
-      {showPhotoActions ? <div className={styles.scanActions}>
-        <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button>
+      {showPhotoActions || featured ? <div className={styles.scanActions}>
+        {showPhotoActions ? <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button> : null}
         <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("photos")}>Choose from photos</Button>
       </div> : null}
     </> : <section aria-label="Crop card photo" className="flex flex-col gap-3">

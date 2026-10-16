@@ -5,7 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useCommerceSession } from "@/components/consent/use-commerce-session";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
-import { parseDrivePackageDisclosure, packageCoverageLabel, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
+import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import {
   formatPaymentMoney,
   presentRequesterPayment,
@@ -207,16 +207,16 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
 
   return (
     <>
-      {disclosure ? <section aria-label="Approved packet" className="space-y-2 px-1 pb-3">
-        <BodyText className="font-medium">{packageCoverageLabel(disclosure.coverageStatus)}</BodyText>
+      {disclosure ? <section aria-label="Approved documents" className="space-y-2 px-1 pb-3">
+        <BodyText className="font-medium">{{ complete: "Documents ready", partial: "Incomplete documents", unknown: "Unable to verify documents" }[disclosure.coverageStatus]}</BodyText>
         <HelperText>{disclosure.selectedCount} {disclosure.selectedCount === 1 ? "document" : "documents"} · {{ complete: "Complete coverage", partial: "Partial coverage", unknown: "Coverage not verified" }[disclosure.coverageStatus]}</HelperText>
         {disclosure.periods.length ? <ul aria-label="Document periods" className="space-y-1">
           {disclosure.periods.map((period, index) => <li key={index}><HelperText>{period.start} – {period.end}</HelperText></li>)}
         </ul> : <HelperText>Date coverage could not be verified.</HelperText>}
-        {disclosure.limitations.length ? <ul aria-label="Packet limitations" className="space-y-1">
+        {disclosure.limitations.length ? <ul aria-label="Document limitations" className="space-y-1">
           {disclosure.limitations.map((limitation, index) => <li key={index}><BodyText className="[overflow-wrap:anywhere]">{limitation}</BodyText></li>)}
         </ul> : null}
-      </section> : payBlocked ? <HelperText role="status">Packet details are unavailable. Refresh before paying.</HelperText> : null}
+      </section> : payBlocked ? <HelperText role="status">Document details are unavailable. Refresh before paying.</HelperText> : null}
       <PaymentBlock
         payBlocked={payBlocked}
         view={view}

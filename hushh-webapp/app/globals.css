@@ -3465,6 +3465,34 @@ html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   )) !important;
 }
 
+/* The small iPhone keyboard leaves room for the Circle search, result list,
+   and invite action only when its already-read helper line is collapsed. */
+html.kb-open [data-circle-invite-picker] [data-slot="sheet-description"] {
+  display: none;
+}
+html.kb-open [data-circle-invite-picker] {
+  padding-top: .25rem;
+  padding-bottom: .25rem;
+}
+html.kb-open [data-circle-invite-picker] [data-slot="sheet-header"] {
+  gap: 0;
+  padding: .375rem .5rem 0;
+}
+html.kb-open [data-circle-invite-content] {
+  margin-top: 0;
+  gap: 0;
+}
+html.kb-open [data-circle-invite-picker] .circle-invite-group > div:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
   --palette-chrome-clearance: 0px;
 }

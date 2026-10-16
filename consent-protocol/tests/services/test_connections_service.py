@@ -1984,6 +1984,32 @@ def test_search_directory_name_only_excludes_contact_matches_before_pagination()
     assert result["hasMore"] is False
 
 
+def test_request_by_name_asks_the_directory_for_that_name_not_the_first_page():
+    """A name past the first 50 people must resolve; two matches must not."""
+    asked: list[dict[str, object]] = []
+
+    def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
+        asked.append(options)
+        people = {
+            "zed": [{"userId": "user-z", "displayName": "Zed Zimmer"}],
+            "sam": [
+                {"userId": "user-s1", "displayName": "Sam One"},
+                {"userId": "user-s2", "displayName": "Sam Two"},
+            ],
+        }
+        return {"items": people.get(str(options["query"]), []), "page": 1, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        assert svc._resolve_query("user-a", "Zed") == "user-z"
+        with pytest.raises(ConnectionsError) as ambiguous:
+            svc._resolve_query("user-a", "Sam")
+    assert [call["query"] for call in asked] == ["zed", "sam"]
+    assert ambiguous.value.code == "CONNECTION_IDENTITY_UNRESOLVED"
+    assert len(ambiguous.value.candidates) == 2
+
+
 def test_search_directory_delegates_pagination_to_eligible_directory_query():
     calls: list[tuple[str, dict[str, object]]] = []
 

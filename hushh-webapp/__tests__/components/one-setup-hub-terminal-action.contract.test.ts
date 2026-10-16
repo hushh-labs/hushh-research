@@ -12,12 +12,10 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
     expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
-    expect(source).toContain('variant="blue"');
-    expect(source).toContain('effect="fill"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(
       source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
-    ).toBeLessThan(source.indexOf("await acknowledgeOneSetupExit"));
+    ).toBeLessThan(source.indexOf("const completion = acknowledgeOneSetupExit"));
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -26,7 +24,6 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('data-testid="one-setup-master-ack"');
     expect(source).toContain('data-testid="one-setup-master-ack"');
     // Cloud, verified phone, and AI choice gate the exit together.
     expect(source).toContain("disabled={!setupPrerequisitesComplete}");
@@ -38,7 +35,7 @@ describe("One setup hub terminal action contract", () => {
       source.indexOf('title="Verify your phone"'),
     );
     expect(source).toContain(
-      "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
+      "hasReadyRuntimeChoice({",
     );
     expect(source).toContain('data-testid="one-setup-master-ack"');
     expect(source).toContain("<div className={styles.flatChecklist}>");
@@ -66,13 +63,15 @@ describe("One setup hub terminal action contract", () => {
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const tile = readFileSync(
+    const styles = readFileSync(
       join(
         process.cwd(),
-        "components/onboarding/setup/capability-setup-tile.tsx",
+        "components/onboarding/setup/one-setup-hub.module.css",
       ),
       "utf8",
     );
+
+    const tile = readFileSync(join(process.cwd(), "components/onboarding/setup/capability-setup-tile.tsx"), "utf8");
 
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the

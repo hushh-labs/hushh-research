@@ -4,6 +4,9 @@ import copy
 
 import pytest
 
+from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSourceRef
+from hushh_mcp.one_adk.world_model import OwnerDecisions
+from hushh_mcp.one_adk.world_model_confidence import evidence_rating
 from hushh_mcp.one_adk.world_model_contracts import TOPICS, IdentityAssessment, WorldModelReport
 
 PLAN = {
@@ -14,6 +17,13 @@ PLAN = {
     "topics": ["career"],
     "question": "Who is Alex Example?",
 }
+
+
+def test_owner_decisions_accept_full_draft_but_bound_the_request():
+    rows = [f"Rejected statement {index}" for index in range(269)]
+    assert len(OwnerDecisions.model_validate({"rejected": rows}).rejected) == 269
+    with pytest.raises(ValueError):
+        OwnerDecisions.model_validate({"rejected": [*rows, "extra"]})
 
 
 def assessment():
@@ -95,6 +105,82 @@ def validate(identity):
         .validate_receipts(IdentityAssessment.model_validate(assessment()), attempts, {"s1"})
         .model_dump()
     )
+
+
+def test_deep_draft_keeps_distinct_facts_without_forcing_269():
+    value = report(assessment()["identity"])
+    value["sections"][0]["facts"] = [
+        {
+            "statement": f"Published distinct project detail {index}.",
+            "confidence": "supported",
+            "sources": [{"title": "Bio", "ref": "s1"}],
+        }
+        for index in range(40)
+    ]
+    assert len(WorldModelReport.model_validate(value).sections[0].facts) == 40
+    repeated = copy.deepcopy(value)
+    repeated["sections"][0]["facts"][1]["statement"] = "  published DISTINCT project detail 0. "
+    with pytest.raises(ValueError, match="repeats"):
+        WorldModelReport.model_validate(repeated)
+    value["sections"][0]["facts"].append(value["sections"][0]["facts"][0])
+    with pytest.raises(ValueError):
+        WorldModelReport.model_validate(value)
+
+    deep = report(assessment()["identity"])
+    deep["sections"] = [
+        {
+            "kind": kind,
+            "facts": [
+                {
+                    "statement": f"Distinct sourced detail {group}-{index}.",
+                    "confidence": "supported",
+                    "sources": [{"title": "Bio", "ref": "s1"}],
+                }
+                for index in range(29 if group == 6 else 40)
+            ],
+        }
+        for group, kind in enumerate(TOPICS[:7])
+    ]
+    assert (
+        sum(len(section.facts) for section in WorldModelReport.model_validate(deep).sections) == 269
+    )
+    deep["sections"][-1]["facts"].append(
+        {
+            "statement": "One too many.",
+            "confidence": "supported",
+            "sources": [{"title": "Bio", "ref": "s1"}],
+        }
+    )
+    with pytest.raises(ValueError, match="limit"):
+        WorldModelReport.model_validate(deep)
+
+
+def test_evidence_score_is_host_computed_and_caps_preferences_and_namesakes():
+    fact = ProfileFact[ProfileSourceRef].model_validate(
+        {
+            "statement": "Publishes a technical paper.",
+            "confidence": "supported",
+            "sources": [{"title": "First", "ref": "s1"}, {"title": "Second", "ref": "s2"}],
+        }
+    )
+    receipts = {
+        "s1": {"url": "https://publisher.example/paper"},
+        "s2": {"url": "https://university.example/author"},
+    }
+    linked = evidence_rating(
+        fact=fact, topic="publications", identity_state="owner_linked", receipts=receipts
+    )
+    namesake = evidence_rating(
+        fact=fact, topic="publications", identity_state="candidate_for_review", receipts=receipts
+    )
+    preference = evidence_rating(
+        fact=fact, topic="preferences", identity_state="owner_linked", receipts=receipts
+    )
+    assert linked["evidence_score"] > namesake["evidence_score"]
+    assert namesake["evidence_score"] <= 4
+    assert preference["evidence_score"] <= 5
+    assert linked["evidence_score"] <= 4
+    assert "unverified" in linked["evidence_reason"]
 
 
 @pytest.mark.parametrize("restated", ["reason", "next_step", "anchor_order"])

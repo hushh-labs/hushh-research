@@ -4,10 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
-import type { ProfileResearchResult } from "@/lib/services/profile-research-service";
 import { Input } from "@/components/ui/input";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -82,22 +78,17 @@ export function WorldModelInvitations({
   vaultKey: string;
   vaultOwnerToken: string;
 }) {
-  const [name, setName] = useState(""),
-    [sourceUrl, setSourceUrl] = useState(""),
-    [introduction, setIntroduction] = useState("");
-  const [preview, setPreview] = useState<Extract<
-    ProfileResearchResult,
-    { status: "offered" }
-  > | null>(null);
-  const [selected, setSelected] = useState<string[]>([]),
-    [permission, setPermission] = useState(false);
-  const [contact, setContact] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [link, setLink] = useState<string | null>(null);
   const [rows, setRows] = useState<WorldModelInvitation[]>([]);
   const [revision, setRevision] = useState(0);
   const { busy, message, setMessage, guard, run, active, current, lifetime } =
     useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken });
   const session = { vaultKey, vaultOwnerToken };
+  const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const phoneValid = !phone.trim() || /^\+[1-9]\d{7,14}$/.test(phone.trim());
   useEffect(() => {
     const controller = new AbortController();
     const capture = createAgentPkmCaptureGuard({
@@ -123,8 +114,8 @@ export function WorldModelInvitations({
     <SettingsGroup>
       <div className="space-y-3 px-4 py-3">
         <HelperText>
-          Prepare a short preview from one public professional page, then send
-          an invitation to their email or phone. They control their own model.
+          Invite someone by name and contact. They can claim the link using a
+          verified email or phone, then their own model prepares for their review.
         </HelperText>
         <label className="block space-y-1 text-xs">
           <span className="font-semibold">Their name</span>
@@ -132,139 +123,58 @@ export function WorldModelInvitations({
             aria-label="Their name"
             disabled={busy}
             value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setPreview(null);
-            }}
+            onChange={(e) => setName(e.target.value)}
             maxLength={160}
           />
         </label>
         <label className="block space-y-1 text-xs">
-          <span className="font-semibold">Public profile link</span>
+          <span className="font-semibold">Their email</span>
           <Input
-            aria-label="Public profile link"
+            aria-label="Their email"
+            type="email"
             disabled={busy}
-            value={sourceUrl}
-            onChange={(e) => {
-              setSourceUrl(e.target.value);
-              setPreview(null);
-            }}
-            maxLength={2048}
-          />
-        </label>
-        <label className="block space-y-1 text-xs">
-          <span className="font-semibold">Introduction (optional)</span>
-          <Textarea
-            aria-label="Introduction (optional)"
-            value={introduction}
-            onChange={(e) => setIntroduction(e.target.value)}
-            maxLength={500}
-          />
-        </label>
-        <label className="flex min-h-11 items-center gap-3 text-xs">
-          <Checkbox
-            checked={permission}
-            onCheckedChange={(v) => setPermission(v === true)}
-          />
-          This page is public and I’m allowed to use it.
-        </label>
-        <Button
-          size="compact"
-          variant="muted"
-          data-voice-control-id="pwm_preview"
-          disabled={busy || !permission || !name.trim() || !sourceUrl.trim()}
-          onClick={() =>
-            void run(async () => {
-              const capture = guard();
-              const result = await WorldModelSourceService.prepare(
-                { ...session, ...capture },
-                {
-                  name,
-                  urls: [sourceUrl],
-                  purpose: "invitation",
-                  permitted_public_sources: true,
-                },
-              );
-              await capture.assertCurrent();
-              if (result.status === "offered") {
-                setPreview(result);
-                setSelected([]);
-              }
-            })
-          }
-        >
-          {busy ? "Preparing…" : "Prepare preview"}
-        </Button>
-        {preview && (
-          <div className="space-y-3 text-xs">
-            <p>Select the details to include. Sources remain attached.</p>
-            {preview.report.sections.flatMap((section) =>
-              section.facts.map((fact, index) => {
-                const id = `${section.kind}:${index}`;
-                return (
-                  <div key={id}>
-                    <label className="flex min-h-11 items-center gap-3">
-                      <Checkbox
-                        checked={selected.includes(id)}
-                        onCheckedChange={(v) =>
-                          setSelected((rows) =>
-                            v === true
-                              ? [...rows, id]
-                              : rows.filter((x) => x !== id),
-                          )
-                        }
-                      />
-                      {fact.statement}
-                    </label>
-                    {fact.sources.map((source) => (
-                      <a
-                        key={source.url}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex min-h-11 items-center underline"
-                      >
-                        {source.title}
-                      </a>
-                    ))}
-                  </div>
-                );
-              }),
-            )}
-          </div>
-        )}
-        <label className="block space-y-1 text-xs">
-          <span className="font-semibold">Recipient’s email or phone with country code</span>
-          <Input
-            aria-label="Recipient’s email or phone with country code"
-            value={contact}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             maxLength={320}
-            onChange={(event) => setContact(event.target.value)}
-            autoComplete="off"
           />
         </label>
+        <label className="block space-y-1 text-xs">
+          <span className="font-semibold">Their phone with country code</span>
+          <Input
+            aria-label="Their phone with country code"
+            type="tel"
+            disabled={busy}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            maxLength={16}
+          />
+        </label>
+        <HelperText>Enter at least one contact. If you enter both, either one can be used to claim.</HelperText>
         <Button
           data-voice-control-id="pwm_invite"
           size="compact"
           variant="muted"
           disabled={
-            busy || !contact.trim() || !preview?.draft_id || !selected.length
+            busy || !name.trim() || (!email.trim() && !phone.trim()) || !emailValid || !phoneValid
           }
           onClick={() =>
             void run(async () => {
               const capture = guard();
               const result = await WorldModelInvitationsService.create(
                 { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
-                contact,
+                email.trim() || phone.trim(),
                 {
-                  preview_draft_id: preview!.draft_id!,
-                  selected_fact_ids: selected,
-                  introduction,
+                  subject_name: name.trim(),
+                  ...(email.trim() && phone.trim()
+                    ? { secondary_contact: phone.trim() }
+                    : {}),
                 },
               );
               await capture.assertCurrent();
               setLink(result.url);
-              setContact("");
+              setEmail("");
+              setPhone("");
+              setName("");
               setRevision((value) => value + 1);
             })
           }

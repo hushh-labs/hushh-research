@@ -44,6 +44,14 @@ class DriveBulkShareService:
             raise DriveSharingError("owner_authority_required")
         await self.require_owner()
 
+    async def _wake_approved(self, *, user_id: str, share_id: str, result: dict) -> None:
+        # The store checks the durable search marker and exact owner-approved
+        # selected batch. A caller-provided stage cannot route grant work.
+        v1 = result.get("progressiveBatch") is True and await self.store.v1_approved(
+            user_id=user_id, share_id=share_id
+        )
+        await self.wake("v1" if v1 else "sharing")
+
     @staticmethod
     def _admit(user_id: str):
         if not all(
@@ -132,6 +140,7 @@ class DriveBulkShareService:
         share_id: str,
         revision: int,
         review_digest: str,
+        access_days: int | None = None,
         approval_source: str = "owner",
     ) -> dict:
         started = time.perf_counter()
@@ -142,10 +151,11 @@ class DriveBulkShareService:
             share_id=share_id,
             revision=revision,
             review_digest=review_digest,
+            access_days=access_days,
             approval_source=approval_source,
         )
         # PostgreSQL is authoritative; a lost wake still resumes on schedule.
-        await self.wake("sharing")
+        await self._wake_approved(user_id=user_id, share_id=share_id, result=result)
         await self._owner()
         logger.info(
             "drive_bulk_share.approve outcome=accepted duration_ms=%d",
@@ -162,7 +172,7 @@ class DriveBulkShareService:
         result = await self.store.retry(
             user_id=user_id, share_id=share_id, revision=revision, review_digest=review_digest
         )
-        await self.wake("sharing")
+        await self._wake_approved(user_id=user_id, share_id=share_id, result=result)
         await self._owner()
         return result
 

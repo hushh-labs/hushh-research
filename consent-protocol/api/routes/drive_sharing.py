@@ -41,6 +41,11 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
 )
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +138,10 @@ class CreateRequest(StrictRequest):
     ownerPersonRef: UUID | None = None
     clientRequestId: UUID
     purpose: ShareRequestPurpose
+    # The content dates live in purpose; this is the separate Viewer access term.
+    accessDays: int = Field(default=30, ge=1, le=90, strict=True)
+    requesterActorType: Literal["person", "ria"] = "person"
+    reason: str = Field(default="", max_length=500)
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
     expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
 
@@ -140,6 +149,8 @@ class CreateRequest(StrictRequest):
     def one_owner_target(self):
         if (self.ownerUserId is None) == (self.ownerPersonRef is None):
             raise ValueError("Specify one owner target.")
+        if self.requesterActorType == "ria" and not self.reason.strip():
+            raise ValueError("A verified RIA must give a reason.")
         return self
 
 
@@ -240,6 +251,7 @@ class RequestPrice(AllowRequest):
 class BulkShareApprovalRequest(StrictRequest):
     revision: int = Field(ge=1, strict=True)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
     confirmed: StrictBool
 
     @model_validator(mode="after")
@@ -501,6 +513,25 @@ async def create_request(
         except (ValueError, ZoneInfoNotFoundError):
             raise _error(DriveSharingError("invalid_argument")) from None
     owner_user_id = await _owner_target(owner, body)
+    requester_profile = None
+    if body.requesterActorType == "ria":
+        ria_service = RIAIAMService()
+        try:
+            await ria_service.require_ria_verified(owner.user_id)
+            ria = await ria_service.get_ria_onboarding_status(owner.user_id)
+        except IAMSchemaNotReadyError as exc:
+            raise HTTPException(status_code=503, detail="RIA verification unavailable") from exc
+        except RIAIAMPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if not ria.get("exists"):
+            raise HTTPException(status_code=403, detail="RIA verification required")
+        requester_profile = {
+            "type": "ria",
+            "displayName": ria.get("display_name"),
+            "legalName": ria.get("individual_legal_name") or ria.get("legal_name"),
+            "crd": ria.get("individual_crd") or ria.get("finra_crd"),
+            "firmName": ria.get("advisory_firm_legal_name"),
+        }
     return await _call(
         "create",
         owner=owner,
@@ -508,6 +539,9 @@ async def create_request(
         owner_user_id=owner_user_id,
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
+        access_days=body.accessDays,
+        requester_profile=requester_profile,
+        reason=body.reason.strip(),
         request_time_zone=body.timeZone,
         expected_quote_version=body.expectedQuoteVersion,
     )
@@ -1345,6 +1379,7 @@ async def approve_bulk_share(
         share_id=str(share_id),
         revision=body.revision,
         review_digest=body.reviewDigest,
+        access_days=body.accessDays,
     )
 
 

@@ -6,6 +6,8 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let outDir: string;
+
 test.beforeAll(async () => {
   const root = process.cwd();
   const { build } = await import("vite");
@@ -18,29 +20,20 @@ test.beforeAll(async () => {
   await build({
     configFile: false,
     logLevel: "error",
-    plugins: [
-      {
-        name: "fixture-css-candidates",
-        transform(source, id) {
-          if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
-            for (const candidate of scanner.scanFiles([
-              { content: source, extension: "tsx" },
-            ]))
-              candidates.add(candidate);
-          }
-        },
+    plugins: [{
+      name: "fixture-css-candidates",
+      transform(source, id) {
+        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+        }
       },
-    ],
-    // Match production React regardless of the parent process build mode.
+    }],
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
       ...["@/components/onboarding/setup/local-first-vault-sequence", "@/lib/services/onboarding-buffer-migration-service", "@/lib/feed/personal-agent-readiness", "@/lib/services/account-identity-service", "@/lib/services/api-service", "@/lib/onboarding/use-capability-setup-states", "@/components/dashboard/one-agent-presence", "@/components/profile/public-profile-discovery-card", "@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
       { find: "@", replacement: root },
     ] },
-    define: {
-      "process.env.NODE_ENV": JSON.stringify("production"),
-      "process.env": "{}",
-    },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
       outDir,
       emptyOutDir: false,
@@ -59,33 +52,33 @@ test.beforeAll(async () => {
   }
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
-    fs
-      .readFileSync(path.join(root, "app/globals.css"), "utf8")
+    fs.readFileSync(path.join(root, "app/globals.css"), "utf8")
       .replace(/^@source\s+[^;]+;\s*$/gm, ""),
     {
       base: path.join(root, "app"),
       loadStylesheet: async (id, base) => {
-        const file =
-          id === "tailwindcss"
-            ? path.join(root, "node_modules/tailwindcss/index.css")
-            : id === "tw-animate-css"
-              ? path.join(
-                  root,
-                  "node_modules/tw-animate-css/dist/tw-animate.css",
-                )
-              : path.resolve(base, id);
-        return {
-          path: file,
-          base: path.dirname(file),
-          content: fs.readFileSync(file, "utf8"),
-        };
+        const file = id === "tailwindcss"
+          ? path.join(root, "node_modules/tailwindcss/index.css")
+          : id === "tw-animate-css"
+            ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
+            : path.resolve(base, id);
+        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
       },
     },
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss;
 });
 
-for (const width of [320, 393, 768, 1440]) {
+test.afterAll(() => {
+  if (outDir) fs.rmSync(outDir, { recursive: true, force: true });
+});
+
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 390, height: 844 },
+  { width: 800, height: 600 },
+  { width: 1440, height: 900 },
+]) {
   for (const theme of ["light", "dark"]) {
     test(`Setup hub ${width}px ${theme}`, async ({page}, testInfo) => {
       await page.setViewportSize({width,height:852});
@@ -118,7 +111,10 @@ for (const width of [320, 393, 768, 1440]) {
         await expect(finish).toHaveCSS(property,expected);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-      await page.screenshot({path:testInfo.outputPath("setup-required.png")});
+      await page.screenshot({ path: testInfo.outputPath("setup-required.png") });
+      await finish.scrollIntoViewIfNeeded();
+      await expect(finish).toBeInViewport();
+
       await page.evaluate(() => window.dispatchEvent(new Event("fixture:ai-choice-saved")));
       await expect(finish).toBeEnabled();
       await expect(page.getByRole("button", {name:"Agent home: Connected"})).toBeVisible();

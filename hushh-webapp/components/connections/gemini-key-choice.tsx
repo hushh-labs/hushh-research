@@ -97,7 +97,7 @@ export function GeminiKeyChoice({
           isSaving || isRemoving || (!privateCloud && placement !== "shared")
         }
         description={
-          requiresExplicitSelection && !vaultReady
+          requiresExplicitSelection
             ? "Add your own Gemini key."
             : "Your key stays locked to you."
         }

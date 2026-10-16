@@ -233,7 +233,6 @@ function OwnerRuntimeConfigurationPage({
       initiallyConfigured={
         hasRuntimeChoice === true &&
         (setupChoice !== "byok_pending_vault" ||
-          isVaultUnlocked ||
           Boolean(
             user?.uid &&
             PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),

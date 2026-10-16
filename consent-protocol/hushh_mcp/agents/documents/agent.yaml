@@ -74,6 +74,41 @@ subagents:
       planner_validation_feedback, correct the plan from the original request,
       retaining its subject and every explicit constraint. If you cannot do
       that, return subject_complete=false so the search fails without widening.
+      Interpret ordinary typos, abbreviations and Hinglish as the same request
+      when the meaning is clear: "finacial staements", "broker stmt", and
+      "pichle chhe mahine" must not become literal filename requirements.
+      Set semantic_intent="institutional_statement" for a request for an
+      issuer's bank or brokerage statements; "broad_financial_records" when
+      the requester seeks a cross-category view of financial records, such as
+      last year's finances ranked by usefulness; otherwise "other". An exact
+      named institution remains a required subject concept, never a guessed
+      institution from earlier chat or a generic financial clue.
+      Return required_entities as 0..4 literal names/aliases of institutions,
+      companies or accounts explicitly required by this request. For Schwab
+      statements use ["Schwab"]; the broader discovery still searches name OR
+      fullText for this entity, so generic filenames remain discoverable.
+      Alternatives are OR, not simultaneous requirements. For broad finances
+      without a named institution return []; never infer names from ownership,
+      earlier chat or document contents. Do not put "statement", "account",
+      "PDF" or other generic anatomy words into required_entities. These
+      entity clues prioritize provider discovery; content must still verify
+      the actual issuer/account before inclusion.
+      Return 1..12 distinct discovery_clues: bounded literal synonyms or
+      abbreviations for OR candidate discovery, not required title words or
+      evidence that a file matches. For Schwab brokerage statements, preserve
+      Schwab and statement as separate terms and use broad clues such as
+      Schwab, eStmt, statement, brokerage, holdings and portfolio. For a broad
+      financial request, clues may cover statement, salary, invoice, expense,
+      receipt, tax, fund and investment; do not silently redefine an explicit
+      request for official statements as every receipt. Never invent a company,
+      person, account, issuer or folder name. No fixed top-N cutoff can prove
+      the rest of Drive irrelevant. Treat filename years and file timestamps
+      as ranking hints only, never as proof of a document's content period.
+      Return expected_document_anatomy as a short, concrete description of
+      internal evidence to check later. An institutional statement normally
+      needs issuer, account/subject, statement period and populated balances
+      or activity; a broad financial record may have varied structure. This
+      description is a model hint, never source evidence or permission.
       mode: "find" to locate, list or open files; "read" only when the owner
       asks about contents or wants a summary or an answer from the files.
       Decide from the requested operation, preserving the owner's question.
@@ -618,13 +653,29 @@ subagents:
       existing owner approval and payment rules still apply.
       For package_mode="document_assessment", assess EVERY supplied document
       exactly once using its document_ref. Return documents with decision
-      include, exclude or uncertain; confidence as an integer 0 to 100; a short
-      reason; citations [{source_ref,quote}]; and covered_periods with calendar
+      include, exclude or uncertain; confidence as an integer 0 to 100;
+      weightage_out_of_10 as a finite number from 1 to 10; a short
+      reason; record_type_claim as the document's actual short category;
+      entity_claim as its issuer or subject when known; period_role as one of
+      statement_coverage, reporting_period, event_date, transaction_date or
+      unknown; citations [{source_ref,quote}]; and covered_periods with calendar
       period_start, period_end and source_refs. Confidence is your assessment
       of evidential support, NOT a calibrated probability or permission.
+      Weightage is relative usefulness to this request, separate from evidence
+      confidence and package price. Use a stable scale across batches: 9..10
+      for primary requested evidence, 6..8 for useful supporting records, and
+      1..5 for marginal or unrelated records. Compare against other supplied
+      candidates without changing the scale merely because a batch contains
+      only weak files. Wealth, balances, sensitivity and account size never
+      increase weightage. A high weightage cannot change an uncertain or
+      excluded document into an included one.
       Include only when actual text establishes the requested record type,
-      issuer and relevant content period. Cite exact short substrings from
-      that SAME document establishing relevance and any claimed period.
+      any explicitly required issuer or subject, and a relevant content period
+      or event date with its correct period_role. Cite exact short substrings from
+      that SAME document establishing relevance, each record/entity claim and
+      any claimed period. A broad financial request may include records across
+      categories; do not demand a literal financial or statement keyword in
+      each file. An explicit institutional statement request remains narrow.
       A filename, a provider creation/modification date, an incidental mention
       or a transaction date alone does not prove the requested statement period.
       A 2016 transaction printout modified in 2026 is not a 2026 statement.
@@ -656,11 +707,20 @@ subagents:
       include. Return decision ready, partial, no_match or insufficient_evidence;
       coverage_status complete, partial or unknown; selected_document_refs;
       confidence 0..100; importance 1..500; suggested_price_cents 50..50000;
-      rationale; coverage_summary; and gaps. Choose ready/complete only if
-      cited content periods cover the requested interval, all material request
-      conditions are satisfied, no uncertain or unreadable candidate remains,
-      and retrieval is not truncated. Use partial when relevant files exist
-      but coverage is incomplete, uncertain or search/read limits were reached.
+      rationale; coverage_summary; and gaps. For institutional statements or
+      another explicitly continuous reporting series, choose ready/complete
+      only when cited statement periods cover the requested interval. For a
+      broad financial-records request, the dates select records whose actual
+      content periods or event dates overlap the window. It does not require
+      one record per day or month. Such a collection can be ready when every
+      discovered candidate was assessed, every selected record is supported,
+      and no material omission or uncertainty remains. Describe the actual
+      selected months and categories; never call them full-year continuous
+      coverage merely because the retrieval finished. In either case, all
+      material request conditions must be met, no uncertain or unreadable
+      candidate may remain, and retrieval must not be truncated. Use partial
+      when relevant files exist but required coverage is incomplete, uncertain
+      or search/read limits were reached.
       With no included files and all supplied candidates confidently excluded,
       use no_match if retrieval is complete and no unreadable or uncertain
       candidate remains. no_match means no match in the checked candidate set;

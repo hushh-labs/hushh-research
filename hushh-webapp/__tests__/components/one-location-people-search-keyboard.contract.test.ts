@@ -16,26 +16,37 @@ import { describe, expect, it } from "vitest";
 const read = (relativePath: string) =>
   readFileSync(join(process.cwd(), relativePath), "utf8");
 
-const PICKER_SHEETS = [
-  "components/one-location/redesign/circles/named-circle-flows.tsx",
-  "components/one-location/redesign/circles/circle-grow-actions.tsx",
-];
+const NAMED_CIRCLE_SHEET =
+  "components/one-location/redesign/circles/named-circle-flows.tsx";
+const CIRCLE_GROW_SHEET =
+  "components/one-location/redesign/circles/circle-grow-actions.tsx";
+const PICKER_SHEETS = [NAMED_CIRCLE_SHEET, CIRCLE_GROW_SHEET];
 
 describe("Location people-search keyboard contract", () => {
-  it.each(PICKER_SHEETS)(
-    "keeps the keyboard height inside the sheet's max-height (%s)",
-    (path) => {
-      const source = read(path);
+  it("keeps the keyboard height inside the named Circle sheet's max-height", () => {
+    const source = read(NAMED_CIRCLE_SHEET);
 
-      // SheetContent pairs `bottom-[var(--kb-height,0px)]` with a max-height
-      // that subtracts the same value: the sheet lifts above the keyboard and
-      // shrinks by exactly as much. A bare `max-h-[88dvh]` wins the
-      // tailwind-merge and drops only the shrink, so the sheet still lifts and
-      // carries its own title and search field off the top of the screen.
-      expect(source).toContain("max-h-[calc(88dvh-var(--kb-height,0px))]");
-      expect(source).not.toContain("max-h-[88dvh]");
-    },
-  );
+    // SheetContent lifts above the keyboard. This cap shrinks with it so the
+    // title and search field stay on screen.
+    expect(source).toContain("max-h-[calc(88dvh-var(--kb-height,0px))]");
+    expect(source).not.toContain("max-h-[88dvh]");
+  });
+
+  it("uses the shared keyboard-safe height cap for the Circle grow sheet", () => {
+    const source = read(CIRCLE_GROW_SHEET);
+    const layout = read("components/connections/contact-sheet-layout.ts");
+
+    // The shared cap leaves room for the keyboard and top safe area while
+    // retaining the 88dvh cap when the keyboard is closed.
+    expect(source).toContain(
+      'import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout"',
+    );
+    expect(source).toContain(", CONTACT_SHEET_MAX_HEIGHT_CLASSNAME)}");
+    expect(layout).toContain(
+      '"max-h-[min(88dvh,calc(100dvh-var(--kb-height,0px)-var(--app-safe-area-top-effective,0px)-1rem))]"',
+    );
+    expect(source).not.toContain("max-h-[88dvh]");
+  });
 
   it.each(PICKER_SHEETS)(
     "does not let a downward swipe over the results close the sheet (%s)",

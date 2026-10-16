@@ -108,6 +108,33 @@ def _record_new_owner_payout(
         )
 
 
+# Checkout verifies the live, exact owner-approved batch. Refunds use the
+# durable obligation marker after request, search and share retention.
+_V1_APPROVED_BATCH_REQUEST_SQL = text("""SELECT EXISTS (
+  SELECT 1 FROM drive_share_requests r
+  WHERE r.request_id=:request AND r.recipient_user_id=:requester
+    AND r.user_id=COALESCE(:owner,r.user_id)
+    AND r.revision=COALESCE(:revision,r.revision)
+    AND EXISTS (
+      SELECT 1 FROM drive_bulk_shares b
+      JOIN drive_owner_search_jobs j
+        ON j.job_id=b.search_job_id AND j.user_id=b.user_id
+      JOIN drive_bulk_share_recipients recipient ON recipient.share_id=b.share_id
+      WHERE b.origin_request_id=r.request_id
+        AND b.origin_request_revision=r.revision
+        AND b.user_id=r.user_id
+        AND j.v1_statement_search=TRUE
+        AND j.expires_at>clock_timestamp()
+        AND b.progressive_batch=TRUE
+        AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+        AND b.status IN ('queued','running','completed','partial')
+        AND b.expires_at>clock_timestamp()
+        AND b.file_count>0 AND b.recipient_count=1
+        AND recipient.recipient_user_id=r.recipient_user_id
+    )
+)""")
+
+
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
     @staticmethod
     def settle_existing_access_nocharge_locked(connection, request) -> None:
@@ -174,10 +201,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             identity,
         )
 
-    async def due_checkout_orders(self, *, limit: int = 20) -> list[dict[str, str]]:
+    async def due_checkout_orders(
+        self, *, limit: int = 20, v1_only: bool = False
+    ) -> list[dict[str, str]]:
         """Read bounded eligible orders; checkout rechecks all authority under locks."""
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError("invalid checkout preparation bound")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid checkout preparation mode")
 
         def operation(connection):
             return [
@@ -207,8 +238,37 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                                 AND b.approved_at IS NOT NULL
                                 AND b.status IN ('queued','running','completed','partial')))
                         ))
+                        AND (NOT :v1_only OR EXISTS (
+                          SELECT 1 FROM drive_bulk_shares v1_batch
+                          JOIN drive_owner_search_jobs v1_search
+                            ON v1_search.job_id=v1_batch.search_job_id
+                            AND v1_search.user_id=v1_batch.user_id
+                          JOIN drive_bulk_share_recipients v1_recipient
+                            ON v1_recipient.share_id=v1_batch.share_id
+                          WHERE v1_batch.origin_request_id=r.request_id
+                            AND v1_batch.origin_request_revision=r.revision
+                            AND v1_batch.user_id=r.user_id
+                            AND v1_search.v1_statement_search=TRUE
+                            AND v1_search.expires_at>clock_timestamp()
+                            AND v1_batch.progressive_batch=TRUE
+                            AND ((v1_batch.approval_source='owner'
+                                  AND v1_batch.approved_at IS NOT NULL
+                                  AND v1_batch.status IN ('queued','running','completed','partial'))
+                              OR (r.v1_live_request=TRUE
+                                AND ((v1_batch.status='review_ready' AND v1_batch.approved_at IS NULL)
+                                  OR (v1_batch.approval_source='trusted_auto'
+                                    AND v1_batch.approved_at IS NOT NULL
+                                    AND v1_batch.status IN ('queued','running','completed','partial')))))
+                            AND v1_batch.expires_at>clock_timestamp()
+                            AND v1_batch.file_count>0 AND v1_batch.recipient_count=1
+                            AND v1_recipient.recipient_user_id=r.recipient_user_id
+                        ))
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": limit,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 )
                 .mappings()
                 .all()
@@ -217,10 +277,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         return await self._transaction(operation)
 
     async def defer_unready_checkout_order(
-        self, *, request_id: str, requester_user_id: str
+        self, *, request_id: str, requester_user_id: str, v1_only: bool = False
     ) -> None:
         """Move a stale candidate behind newer orders without granting authority."""
         request_id = _request_id(request_id)
+        if type(v1_only) is not bool:
+            raise ValueError("invalid checkout preparation mode")
 
         def operation(connection):
             from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
@@ -239,11 +301,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             request = self._row(
                 connection,
-                """SELECT request_id FROM drive_share_requests
+                """SELECT * FROM drive_share_requests
                    WHERE request_id=:request AND recipient_user_id=:requester FOR UPDATE""",
                 {"request": request_id, "requester": requester_user_id},
             )
             if request is None:
+                return
+            if v1_only and not self.v1_approved_progressive_batch(connection, request):
                 return
             connection.execute(
                 text("""UPDATE drive_request_payment_orders
@@ -255,6 +319,40 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
 
         await self._transaction(operation)
+
+    @staticmethod
+    def v1_approved_progressive_batch(connection, request) -> bool:
+        """Require the live server-marked job and exact owner-approved batch."""
+        from hushh_mcp.services.drive_v1_authority import v1_package_allowed
+
+        if request.get("v1_live_request") is True and request.get("agent_package_required") is True:
+            return v1_package_allowed(connection, request)
+        return bool(
+            connection.execute(
+                _V1_APPROVED_BATCH_REQUEST_SQL,
+                {
+                    "request": request["request_id"],
+                    "owner": request["user_id"],
+                    "requester": request["recipient_user_id"],
+                    "revision": request["revision"],
+                },
+            ).scalar_one_or_none()
+        )
+
+    async def v1_checkout_eligible(self, *, requester_user_id: str, request_id: str) -> bool:
+        """Check live V1 provenance before payout or Stripe preflight I/O."""
+        request_id = _request_id(request_id)
+
+        def operation(connection):
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                  WHERE request_id=:request AND recipient_user_id=:requester""",
+                {"request": request_id, "requester": requester_user_id},
+            )
+            return bool(request and self.v1_approved_progressive_batch(connection, request))
+
+        return await self._transaction(operation)
 
     @staticmethod
     def owner_approved_progressive_batch(connection, request) -> bool:
@@ -601,9 +699,30 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or request["status"] in {"approved", "partial", "completed"}
                     or self.owner_approved_progressive_batch(connection, request)
                 )
-            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+            from hushh_mcp.services.drive_request_package_disclosure import (
+                buyer_package_disclosure,
+                manual_buyer_disclosure,
+            )
 
             package_required = bool(private and private.get("agent_package_required") is True)
+            manual_disclosure_required = bool(
+                private
+                and private.get("v1_live_request") is True
+                and private.get("agent_package_required") is False
+            )
+            disclosure_required = package_required or manual_disclosure_required
+            legacy_auto = bool(
+                private
+                and private.get("trusted_auto") is True
+                and not package_required
+                and request["status"] == "pending"
+                and not request_requires_owner_review(
+                    connection,
+                    user_id=request["user_id"],
+                    request_id=request["request_id"],
+                    revision=request["revision"],
+                )
+            )
             disclosure = (
                 buyer_package_disclosure(
                     private or {},
@@ -611,10 +730,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     owner_allowed_at=request.get("owner_allowed_at"),
                 )
                 if package_required
+                else manual_buyer_disclosure(private or {}, request_revision=request["revision"])
+                if manual_disclosure_required
                 else None
             )
             if (
-                package_required
+                disclosure_required
                 and disclosure is None
                 and (order is None or order["status"] not in {"paid", "refunded"})
             ):
@@ -661,7 +782,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             view = requester_payment_view(
                 payment_required=True,
-                package_disclosure_required=package_required,
+                package_disclosure_required=disclosure_required,
                 package_disclosure=disclosure,
                 request_status=request["status"],
                 request_expires_at=request.get("expires_at"),
@@ -690,13 +811,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 ),
                 configured_mode=configured_stripe_mode(),
             )
-            if package_required:
+            if disclosure_required:
                 # This authenticated read knows whether sealed terms are current.
                 # Null prevents clients from reusing a stale context disclosure.
                 view["packageDisclosure"] = disclosure
             return {
                 "paymentView": view,
-                **({"packageDisclosureRequired": True} if package_required else {}),
+                **({"packageDisclosureRequired": True} if disclosure_required else {}),
                 **({"packageDisclosure": disclosure} if disclosure is not None else {}),
                 "status": status,
                 "amountCents": None
@@ -733,12 +854,18 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     if private is not None and private.get("agent_package_required") is True
                     else {}
                 ),
+                **({"_legacy_auto_owner_user_id": request["user_id"]} if legacy_auto else {}),
+                **(
+                    {"_legacy_manual_owner_user_id": request["user_id"]}
+                    if private is not None and not package_required and approved and not legacy_auto
+                    else {}
+                ),
                 **setup,
             }
 
         return await self._transaction(operation)
 
-    async def repair_paid_request_authority(self, *, limit: int = 64) -> int:
+    async def repair_paid_request_authority(self, *, limit: int = 64, v1_only: bool = False) -> int:
         """Move legacy paid-request correction off the read path.
 
         Old GETs could make an order before consent. Rotate a bounded set of
@@ -747,6 +874,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         """
         if type(limit) is not int or not 1 <= limit <= 256:
             raise ValueError("invalid repair limit")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid repair mode")
 
         def operation(connection):
             from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
@@ -760,8 +889,17 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                   WHERE o.status='paid' AND o.reconciliation_required=FALSE AND o.stripe_mode=:stripe_mode
                     AND r.payment_required=TRUE
                     AND r.status IN ('pending','approved','partial')
+                    AND (NOT :v1_only OR EXISTS (
+                      SELECT 1 FROM drive_request_payment_obligations obligation
+                      WHERE obligation.request_id=o.request_id
+                        AND obligation.v1_statement_search=TRUE
+                    ))
                   ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
+                    {
+                        "limit": limit,
+                        "stripe_mode": configured_stripe_mode(),
+                        "v1_only": v1_only,
+                    },
                 )
                 .mappings()
                 .all()
@@ -800,6 +938,15 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or order["reconciliation_required"]
                 ):
                     continue
+                if v1_only:
+                    obligation = self._row(
+                        connection,
+                        """SELECT v1_statement_search FROM drive_request_payment_obligations
+                           WHERE request_id=:request FOR SHARE""",
+                        {"request": candidate["request_id"]},
+                    )
+                    if obligation is None or obligation["v1_statement_search"] is not True:
+                        continue
                 private = sharing._open_request(request)
                 # Trusted creation and an owner's Allow both seal trusted_auto.
                 authorized = (

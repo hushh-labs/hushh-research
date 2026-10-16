@@ -45,16 +45,40 @@ def managed_bulk_plan(*, receipt: dict, file: dict, recipient: dict) -> dict | N
         "permission_id": permission_id,
         "recipient_email": email,
         "issuer": issuer,
+        **(
+            {"expiration_time": receipt["expiration_time"]}
+            if receipt.get("expiration_time")
+            else {}
+        ),
     }
 
 
 class DriveRequestBulkRemovalStore(DriveBulkShareStore):
-    def _materialize(self, connection, *, limit: int) -> int:
+    @staticmethod
+    def _expire_due(connection, *, limit: int, v1_only: bool = False) -> None:
+        # Google expires each granted ACL natively. Recovery also closes local
+        # authority and records removal/absence through the same provenance-safe
+        # queue used by an owner's earlier Stop. No unauthenticated ACL is deleted.
+        connection.execute(
+            text("""WITH due AS (
+            SELECT request_id FROM drive_share_requests
+            WHERE access_expires_at<=clock_timestamp() AND access_stop_requested_at IS NULL
+              AND (:v1_only=FALSE OR v1_live_request=TRUE)
+            ORDER BY access_expires_at,request_id LIMIT :limit FOR UPDATE SKIP LOCKED
+          ) UPDATE drive_share_requests r SET access_stop_requested_at=clock_timestamp(),
+              status=CASE WHEN r.status IN ('pending','approved') THEN 'partial' ELSE r.status END,
+              updated_at=clock_timestamp()
+            FROM due WHERE r.request_id=due.request_id"""),
+            {"limit": limit, "v1_only": v1_only},
+        )
+
+    def _materialize(self, connection, *, limit: int, v1_only: bool = False) -> int:
         # The source effect is locked while its successful receipt is copied.
         # No private Drive identifier or email enters the queue in plaintext.
         rows = connection.execute(
             text("""SELECT e.*, f.metadata_envelope, f.source_job_id,
-                 f.source_position, r.identity_envelope, b.origin_request_id
+                 f.source_position, r.identity_envelope, b.origin_request_id,
+                 b.v1_statement_search
               FROM drive_bulk_share_effects e
               JOIN drive_bulk_shares b ON b.share_id=e.share_id
               JOIN drive_bulk_share_files f ON f.share_id=e.share_id AND f.position=e.position
@@ -64,12 +88,17 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
               WHERE request.access_stop_requested_at IS NOT NULL
                 AND request.user_id=e.user_id AND e.state='succeeded'
                 AND e.receipt_envelope IS NOT NULL
+                AND (:v1_only = FALSE OR (
+                  b.v1_statement_search=TRUE
+                  AND b.origin_request_id IS NOT NULL
+                  AND b.progressive_batch=TRUE
+                  AND b.approval_source IN ('owner','trusted_auto') AND b.approved_at IS NOT NULL))
                 AND NOT EXISTS (SELECT 1 FROM drive_request_bulk_removals removal
                   WHERE removal.share_id=e.share_id AND removal.position=e.position
                     AND removal.recipient_user_id=e.recipient_user_id)
               ORDER BY e.updated_at,e.share_id,e.position
               LIMIT :limit FOR UPDATE OF e SKIP LOCKED"""),
-            {"limit": limit},
+            {"limit": limit, "v1_only": v1_only},
         ).mappings()
         count = 0
         for row in rows:
@@ -105,8 +134,10 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
             )
             connection.execute(
                 text("""INSERT INTO drive_request_bulk_removals
-                  (removal_id,request_id,user_id,share_id,position,recipient_user_id,plan_envelope,state)
-                  VALUES (:id,:request,:user,:share,:position,:recipient,CAST(:plan AS jsonb),:state)
+                  (removal_id,request_id,user_id,share_id,position,recipient_user_id,
+                   plan_envelope,state,v1_statement_search)
+                  VALUES (:id,:request,:user,:share,:position,:recipient,
+                    CAST(:plan AS jsonb),:state,:v1)
                   ON CONFLICT (share_id,position,recipient_user_id) DO NOTHING"""),
                 {
                     "id": removal_id,
@@ -117,16 +148,24 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
                     "recipient": recipient_id,
                     "plan": json.dumps(envelope),
                     "state": state,
+                    "v1": item["v1_statement_search"],
                 },
             )
             count += 1
         return count
 
-    async def materialize(self, *, limit: int = 100) -> int:
+    async def materialize(self, *, limit: int = 100, v1_only: bool = False) -> int:
         if type(limit) is not int or not 1 <= limit <= 200:
             raise ValueError("invalid bulk removal limit")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid bulk removal mode")
+        # Release request expiry locks before locking effects (settle takes
+        # effect then request); retries can safely resume between transactions.
+        await self._transaction(
+            lambda connection: self._expire_due(connection, limit=limit, v1_only=v1_only)
+        )
         return await self._transaction(
-            lambda connection: self._materialize(connection, limit=limit)
+            lambda connection: self._materialize(connection, limit=limit, v1_only=v1_only)
         )
 
     def _plan(self, row):
@@ -137,9 +176,11 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
             purpose="bulk-removal-plan",
         )
 
-    async def due(self, *, limit: int = 20) -> list[dict]:
+    async def due(self, *, limit: int = 20, v1_only: bool = False) -> list[dict]:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("invalid bulk removal limit")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid bulk removal mode")
 
         def operation(connection):
             return [
@@ -147,24 +188,28 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
                 for row in connection.execute(
                     text("""SELECT removal_id,user_id,state FROM drive_request_bulk_removals
                       WHERE state IN ('queued','dispatching','unknown')
+                        AND (:v1_only = FALSE OR v1_statement_search=TRUE)
                         AND next_at<=clock_timestamp()
                         AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
                       ORDER BY next_at,created_at,removal_id LIMIT :limit"""),
-                    {"limit": limit},
+                    {"limit": limit, "v1_only": v1_only},
                 ).mappings()
             ]
 
         return await self._transaction(operation)
 
-    async def claim(self, *, user_id: str, removal_id: str) -> dict | None:
+    async def claim(self, *, user_id: str, removal_id: str, v1_only: bool = False) -> dict | None:
         identifier = str(UUID(removal_id))
+        if type(v1_only) is not bool:
+            raise DriveSharingError("invalid_argument")
 
         def operation(connection):
             row = self._row(
                 connection,
                 """SELECT * FROM drive_request_bulk_removals
-                  WHERE removal_id=:id AND user_id=:user FOR UPDATE""",
-                {"id": identifier, "user": user_id},
+                  WHERE removal_id=:id AND user_id=:user
+                    AND (:v1_only = FALSE OR v1_statement_search=TRUE) FOR UPDATE""",
+                {"id": identifier, "user": user_id, "v1_only": v1_only},
             )
             if row is None or row["state"] not in {"queued", "dispatching", "unknown"}:
                 return None
@@ -193,17 +238,22 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
 
         return await self._transaction(operation)
 
-    async def require_current(self, job: dict) -> None:
+    async def require_current(self, job: dict, *, v1_only: bool = False) -> None:
+        if type(v1_only) is not bool:
+            raise DriveSharingError("invalid_argument")
+
         def operation(connection):
             row = self._row(
                 connection,
-                """SELECT state,lease_id,lease_expires_at FROM drive_request_bulk_removals
+                """SELECT state,lease_id,lease_expires_at,v1_statement_search
+                   FROM drive_request_bulk_removals
                    WHERE removal_id=:id AND user_id=:user""",
                 {"id": job["removal_id"], "user": job["user_id"]},
             )
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row is None
+                or (v1_only and row["v1_statement_search"] is not True)
                 or row["lease_id"] != job["lease_id"]
                 or row["lease_expires_at"] <= now
                 or row["state"] not in {"queued", "dispatching", "unknown"}
@@ -212,29 +262,44 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
 
         await self._transaction(operation)
 
-    async def mark_dispatching(self, job: dict) -> None:
+    async def mark_dispatching(self, job: dict, *, v1_only: bool = False) -> None:
+        if type(v1_only) is not bool:
+            raise DriveSharingError("invalid_argument")
+
         def operation(connection):
             changed = connection.execute(
                 text("""UPDATE drive_request_bulk_removals SET state='dispatching',
                    updated_at=clock_timestamp()
-                   WHERE removal_id=:id AND user_id=:user AND lease_id=:lease AND state='queued'"""),
-                {"id": job["removal_id"], "user": job["user_id"], "lease": job["lease_id"]},
+                   WHERE removal_id=:id AND user_id=:user AND lease_id=:lease
+                     AND state='queued'
+                     AND (:v1_only = FALSE OR v1_statement_search=TRUE)"""),
+                {
+                    "id": job["removal_id"],
+                    "user": job["user_id"],
+                    "lease": job["lease_id"],
+                    "v1_only": v1_only,
+                },
             ).rowcount
             if changed != 1:
                 raise DriveSharingError("permission_job_superseded")
 
         await self._transaction(operation)
 
-    async def settle(self, job: dict, *, state: str, code: str | None = None) -> None:
+    async def settle(
+        self, job: dict, *, state: str, code: str | None = None, v1_only: bool = False
+    ) -> None:
         if state not in {"removed", "absent", "needs_review", "unavailable", "unknown", "queued"}:
             raise ValueError("invalid bulk removal outcome")
+        if type(v1_only) is not bool:
+            raise DriveSharingError("invalid_argument")
 
         def operation(connection):
             current = self._row(
                 connection,
                 """SELECT state,lease_id FROM drive_request_bulk_removals
-                  WHERE removal_id=:id AND user_id=:user FOR UPDATE""",
-                {"id": job["removal_id"], "user": job["user_id"]},
+                  WHERE removal_id=:id AND user_id=:user
+                    AND (:v1_only = FALSE OR v1_statement_search=TRUE) FOR UPDATE""",
+                {"id": job["removal_id"], "user": job["user_id"], "v1_only": v1_only},
             )
             if current is None or current["lease_id"] != job["lease_id"]:
                 raise DriveSharingError("permission_job_superseded")

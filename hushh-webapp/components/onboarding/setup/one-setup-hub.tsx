@@ -68,6 +68,7 @@ import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { PublicProfileDiscoveryCard } from "@/components/profile/public-profile-discovery-card";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { immediateRuntimeChoiceReadiness, hasReadyRuntimeChoice, hasStoredGeminiKey } from "@/lib/one/setup-runtime-readiness";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
@@ -195,21 +196,33 @@ export function OneSetupHub() {
       return;
     }
     let active = true;
+    let verification = 0;
     const project = (
       state: Parameters<typeof PreVaultUserStateService.hasOneCloudProject>[0],
+      ready = immediateRuntimeChoiceReadiness(user.uid, state, Boolean(vaultKey && vaultOwnerToken)),
     ) => ({
       userId: user.uid,
       cloud: PreVaultUserStateService.hasOneCloudProject(state)
         ? ("complete" as const)
         : ("required" as const),
-      runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+      runtime: ready === null ? ("loading" as const) : ready
         ? ("complete" as const)
         : ("required" as const),
     });
+    const publish = (state: Parameters<typeof project>[0]) => {
+      const revision = ++verification;
+      const snapshot = project(state);
+      setPrereqSnapshot(snapshot);
+      if (snapshot.runtime !== "loading") return;
+      void hasReadyRuntimeChoice({ userId: user.uid, state, vaultKey, vaultOwnerToken })
+        .then(ready => {
+          if (active && revision === verification) setPrereqSnapshot(project(state, ready));
+        });
+    };
     const unsubscribe = CacheService.getInstance().subscribe((event) => {
       if (!active || event.type !== "set" || event.key !== CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) return;
       const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-      if (saved) setPrereqSnapshot(project(saved));
+      if (saved) publish(saved);
     });
     const cleanup = () => {
       active = false;
@@ -217,7 +230,7 @@ export function OneSetupHub() {
     };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
-      setPrereqSnapshot(project(cached));
+      publish(cached);
       // Stale-while-revalidate: the cached record can predate a prerequisite
       // completed on another surface. The founder-hit case (2026-08-21): the
       // one-click BYOC flow finished and this checklist kept demanding an
@@ -226,7 +239,7 @@ export function OneSetupHub() {
       // only when the truth differs.
       void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
         .then((state) => {
-          if (active) setPrereqSnapshot(project(state));
+          if (active) publish(state);
         })
         .catch(() => undefined);
       return cleanup;
@@ -239,7 +252,7 @@ export function OneSetupHub() {
     void PreVaultUserStateService.bootstrapState(user.uid)
       .then((state) => {
         if (!active) return;
-        setPrereqSnapshot(project(state));
+        publish(state);
       })
       .catch(() => {
         if (active) {
@@ -251,7 +264,7 @@ export function OneSetupHub() {
         }
       });
     return cleanup;
-  }, [user?.uid]);
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   // The cloud setup runs as a background job; while it does, the row says so
   // ("step N of 6") instead of "Required", and the person keeps onboarding.
@@ -288,14 +301,15 @@ export function OneSetupHub() {
           void PreVaultUserStateService.bootstrapState(user.uid, {
             force: true,
           })
-            .then((state) => {
+            .then(async (state) => {
+              const ready = await hasReadyRuntimeChoice({ userId: user.uid, state, vaultKey, vaultOwnerToken });
               if (!cancelled) {
                 setPrereqSnapshot({
                   userId: user.uid,
                   cloud: PreVaultUserStateService.hasOneCloudProject(state)
                     ? "complete"
                     : "required",
-                  runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+                  runtime: ready
                     ? "complete"
                     : "required",
                 });
@@ -312,7 +326,7 @@ export function OneSetupHub() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [user?.uid, cloudComplete_forJob]);
+  }, [user?.uid, cloudComplete_forJob, vaultKey, vaultOwnerToken]);
   const cloudSetupRunning = cloudSetupJob !== null;
   const cloudSetupStageLabel = cloudSetupJob
     ? `Setting up (step ${Math.min(Math.max(cloudSetupJob.stagesReached, 1), 6)} of 6)`
@@ -411,6 +425,12 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid)
+        ?? await PreVaultUserStateService.bootstrapState(user.uid, { force: true });
+      if (bootstrap.oneRuntimeSetupChoice === "byok_pending_vault" &&
+          !(await hasStoredGeminiKey(user.uid, vaultKey, vaultOwnerToken))) {
+        throw new Error("Your Gemini key was not saved. Choose your AI again.");
+      }
       await PostUnlockSyncService.run({
         userId: user.uid,
         vaultKey,
@@ -423,7 +443,7 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      await acknowledgeOneSetupExit({
+      const completion = acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: false,
         isVaultUnlocked: true,
@@ -435,6 +455,7 @@ export function OneSetupHub() {
       // in-memory context and consumes this marker once; no private values
       // enter the route or conversation history.
       if (!shouldShowContactsWelcome()) queueEntryWelcome(user.uid);
+      await completion;
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       if (localFirstEnabled) {
@@ -596,7 +617,10 @@ export function OneSetupHub() {
       // must not trap the person, so fall back to the resolved client gate rather
       // than stranding them.
       let cloudConfirmed = cloudComplete;
-      let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      const cachedRuntimeState = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      let runtimeChoiceConfirmed = cachedRuntimeState
+        ? await hasReadyRuntimeChoice({ userId: user.uid, state: cachedRuntimeState, vaultKey, vaultOwnerToken })
+        : runtimeChoiceComplete;
       let phoneConfirmed = phoneVerified;
       if (!phoneConfirmed) {
         const identity =
@@ -617,8 +641,9 @@ export function OneSetupHub() {
           );
           cloudConfirmed =
             PreVaultUserStateService.hasOneCloudProject(currentState);
-          runtimeChoiceConfirmed =
-            PreVaultUserStateService.hasOneRuntimeChoice(currentState);
+          runtimeChoiceConfirmed = await hasReadyRuntimeChoice({
+            userId: user.uid, state: currentState, vaultKey, vaultOwnerToken,
+          });
           setPrereqSnapshot({
             userId: user.uid,
             cloud: cloudConfirmed ? "complete" : "required",

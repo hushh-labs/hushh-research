@@ -34,6 +34,12 @@ def bulk(lifecycle, monkeypatch):
     with lifecycle.db.engine.begin() as connection:
         connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
         connection.execute(text((MIGRATIONS / "254_drive_bulk_shares.sql").read_text()))
+        # This fixture has no payment ledgers. Mirror only migration 352's
+        # search marker needed by the V1 share queue.
+        connection.execute(
+            text("""ALTER TABLE drive_owner_search_jobs
+            ADD COLUMN v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE""")
+        )
         # Migrations 256 and 259 also need share-request tables absent from this
         # generic bulk fixture. Mirror only their columns used without an origin.
         connection.execute(
@@ -52,6 +58,7 @@ def bulk(lifecycle, monkeypatch):
             text("""ALTER TABLE drive_bulk_shares
             ADD COLUMN progressive_batch BOOLEAN NOT NULL DEFAULT FALSE,
             ADD COLUMN approval_source TEXT,
+            ADD COLUMN v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE,
             ADD CONSTRAINT drive_bulk_approval_source_check
               CHECK ((approved_at IS NULL AND approval_source IS NULL)
                 OR (approved_at IS NOT NULL AND approval_source IN ('owner','trusted_auto')))""")
@@ -132,6 +139,83 @@ def _seed_completed_search(store, count=2000):
             envelopes,
         )
     return job
+
+
+@pytest.mark.asyncio
+async def test_v1_delivery_queue_excludes_unmarked_auto_and_nonprogressive_shares(bulk):
+    """The isolated worker sees only an explicit V1 owner selection."""
+    cases = [
+        ("approved_v1", True, True, "owner"),
+        ("nonprogressive", True, False, "owner"),
+        ("automatic", True, True, "trusted_auto"),
+        ("unmarked", False, True, "owner"),
+    ]
+    shares = {}
+    with bulk.db.engine.begin() as connection:
+        for name, marked, progressive, approval_source in cases:
+            search = str(uuid4())
+            share = str(uuid4())
+            shares[name] = share
+            connection.execute(
+                text("""INSERT INTO drive_owner_search_jobs(
+                  job_id,user_id,client_request_id,request_digest,connection_generation,
+                  consent_version,status,checkpoint_envelope,v1_statement_search)
+                  VALUES(:search,'owner',:client,:digest,7,'drive-owner-search-v1',
+                    'completed','{}'::jsonb,:marked)"""),
+                {"search": search, "client": str(uuid4()), "digest": "a" * 64, "marked": marked},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_shares(
+                  share_id,user_id,search_job_id,client_request_id,request_digest,
+                  connection_generation,search_revision,review_digest,status,file_count,
+                  recipient_count,excluded_envelope,origin_request_id,origin_request_revision,
+                  progressive_batch,approval_source,approved_at,v1_statement_search)
+                  VALUES(:share,'owner',:search,:client,:digest,7,1,:review,'queued',1,1,
+                    '{}'::jsonb,:origin,1,:progressive,:approval_source,clock_timestamp(),:v1)"""),
+                {
+                    "share": share,
+                    "search": search,
+                    "client": str(uuid4()),
+                    "digest": "b" * 64,
+                    "review": "c" * 64,
+                    "origin": str(uuid4()),
+                    "progressive": progressive,
+                    "approval_source": approval_source,
+                    "v1": marked and progressive and approval_source == "owner",
+                },
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_files(
+                  share_id,user_id,position,source_job_id,source_position,file_digest,
+                  metadata_envelope)
+                  VALUES(:share,'owner',1,:search,1,:digest,'{}'::jsonb)"""),
+                {"share": share, "search": search, "digest": "d" * 64},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_recipients(
+                  share_id,user_id,recipient_user_id,identity_envelope)
+                  VALUES(:share,'owner','recipient-1','{}'::jsonb)"""),
+                {"share": share},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_effects(
+                  share_id,user_id,position,recipient_user_id)
+                  VALUES(:share,'owner',1,'recipient-1')"""),
+                {"share": share},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_notifications(
+                  share_id,user_id,recipient_user_id)
+                  VALUES(:share,'owner','recipient-1')"""),
+                {"share": share},
+            )
+
+    assert {str(row["share_id"]) for row in await bulk.due(v1_only=True)} == {shares["approved_v1"]}
+    assert {str(row["share_id"]) for row in await bulk.due_notifications(v1_only=True)} == {
+        shares["approved_v1"]
+    }
+    assert {str(row["share_id"]) for row in await bulk.due()} == set(shares.values())
+    assert {str(row["share_id"]) for row in await bulk.due_notifications()} == set(shares.values())
 
 
 @pytest.mark.asyncio
