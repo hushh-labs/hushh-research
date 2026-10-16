@@ -321,10 +321,14 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     content.append(card);
     stack.append(content);
     reference.append(stack);
+    const canvas = document.createElement("div");
+    canvas.style.backgroundColor = "var(--background)";
+    reference.append(canvas);
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
     const style = getComputedStyle(reference);
-    const result = { x: innerWidth - bounds.right, y: bounds.y,
+    const result = { canvas: getComputedStyle(canvas).backgroundColor,
+      x: innerWidth - bounds.right, y: bounds.y,
       width: bounds.width, height: bounds.height,
       radius: style.borderTopLeftRadius,
       card: { background: getComputedStyle(card).backgroundColor,
@@ -338,6 +342,34 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     return result;
   }, safeSidePane);
 }
+
+for (const width of [390, 1440]) for (const dark of [false, true])
+  test(`New chat stays a plain action at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.toggle("dark", enabled);
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const newChat = chats.getByRole("button", { name: "Create new chat", exact: true });
+    await page.mouse.move(0, 0);
+    await expect(newChat).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(newChat).toHaveCSS("border-top-width", "0px");
+    const shadow = await newChat.evaluate(element => getComputedStyle(element).boxShadow);
+    expect(shadow === "none" || shadow.split(/,(?![^()]*\))/)
+      .every(layer => layer.trim().endsWith("0px 0px 0px 0px"))).toBe(true);
+    expect((await newChat.boundingBox())!.height + 0.001).toBeGreaterThanOrEqual(44);
+    await chats.screenshot({ path: info.outputPath("new-chat-plain.png"), animations: "disabled" });
+    const requests = () => page.evaluate(() => (window as unknown as { __newChatRequests: () => number }).__newChatRequests());
+    await newChat.click();
+    expect(await requests()).toBe(1);
+    await page.keyboard.press("Tab");
+    await newChat.focus();
+    expect(await newChat.evaluate(element => element.matches(":focus-visible"))).toBe(true);
+    await page.keyboard.press("Enter");
+    expect(await requests()).toBe(2);
+  });
 
 for (const width of [320, 1440]) for (const dark of [false, true])
   test(`Drive sharing stays on the Chats side with Profile detail material and returns safely at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
@@ -432,9 +464,21 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
       fixture.style.background = "linear-gradient(135deg, #86b6ed, #dcaa9d 55%, #94c4b3)";
       (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
     }, dark);
+    const routeBackgrounds = () => page.evaluate(() => [
+      getComputedStyle(document.documentElement).backgroundColor,
+      getComputedStyle(document.body).backgroundColor,
+    ]);
+    // Capture the theme after its root/body color transitions have settled.
+    await page.waitForFunction(() => [document.documentElement, document.body]
+      .every(element => element.getAnimations().every(animation => animation.playState !== "running")));
+    const beforeOpen = await routeBackgrounds();
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const reference = await profileFrame(page);
+    expect(reference.material.background).toBe(reference.canvas);
+    expect(reference.material.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await chats.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.canvas);
+    expect(await routeBackgrounds()).toEqual(beforeOpen);
     const row = chats.locator('[data-agent-history-row][data-state="active"]');
     const actions = row.getByRole("button", { name: "Open actions for Weekly planning" });
     await expect(actions).toBeVisible();
@@ -470,6 +514,7 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
       getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
     await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
+    expect(await routeBackgrounds()).toEqual(beforeOpen);
     expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
   });
 
@@ -487,6 +532,7 @@ for (const dark of [false, true])
     // With the platform's intentional blur-off policy, alpha must not expose
     // sharp transcript text through either pane or its portaled action menu.
     expect(reference.material.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(reference.material.background).toBe(reference.canvas);
     expect(await chats.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
     expect(await chats.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
     await chats.getByRole("button", { name: "Open actions for Weekly planning" }).click();

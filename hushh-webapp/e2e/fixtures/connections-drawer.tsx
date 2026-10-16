@@ -208,12 +208,14 @@ function Fixture() {
   const [open, setOpen] = useState(false);
   const [historyRows, setHistoryRows] = useState<AgentChatConversation[]>([]);
   const historySelections = useRef<string[]>([]);
+  const newChatRequests = useRef(0);
   Object.assign(window, {
     __seedChatHistory: () => setHistoryRows([
       { id: "history-one", title: "Weekly planning", status: "active", message_count: 2, updated_at: new Date().toISOString() },
       { id: "history-two", title: "Draft email", status: "active", message_count: 1, updated_at: new Date().toISOString() },
     ]),
     __chatHistorySelections: historySelections.current,
+    __newChatRequests: () => newChatRequests.current,
   });
   const [gestureEnabled, setGestureEnabled] = useState(true);
   Object.assign(window, { __setHistoryGestureEnabled: setGestureEnabled });
@@ -292,7 +294,7 @@ function Fixture() {
             driveActivity={location.search.includes("drive-sharing") ? <DriveRecentSharing presentation="sidebar" active={open} /> : undefined}
             conversations={historyRows}
             activeConversationId={historyRows[0]?.id ?? null}
-            onCreateNew={() => {}}
+            onCreateNew={() => { newChatRequests.current += 1; }}
             onSelectConversation={id => { historySelections.current.push(id); changeOpen(false); }}
             onRenameConversation={() => {}}
             onDeleteConversation={() => {}}

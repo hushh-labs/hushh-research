@@ -51,6 +51,17 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...[
+          /^@ag-ui\/client$/,
+          /^@\/lib\/hermes\/use-puppy-link$/,
+          /^@\/lib\/services\/puppy-one-service$/,
+          /^@\/components\/agent\/puppy-model-picker$/,
+          /^@\/components\/agent\/puppy-resource-monitor$/,
+        ].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") })),
+        {
+          find: /^@\/components\/agent\/agent-structured-experience$/,
+          replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts"),
+        },
         {
           find: /^next\/navigation$/,
           replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts"),
@@ -97,10 +108,70 @@ test.beforeAll(async () => {
 
 type Theme = "light" | "dark";
 
+for (const width of [390, 1280]) for (const theme of ["light", "dark"] as const) {
+  test(`Puppy matches opening chat typography and spacing at ${width}px in ${theme}`, async ({ page }, info) => {
+    const { errors, remoteRequests } = await mount(page, width, { theme, puppy: true });
+    const puppy = page.getByTestId("puppy-chat");
+    const opening = page.getByTestId("opening-chat");
+    const typeMetrics = (element: Element) => {
+      const style = getComputedStyle(element);
+      return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight,
+        weight: style.fontWeight, tracking: style.letterSpacing };
+    };
+    const openingCopy = await opening.locator("p").first().evaluate(typeMetrics);
+    expect(openingCopy.family).toContain("Plus Jakarta Sans");
+    expect(openingCopy.size).toBe(width < 640 ? "16px" : "17px");
+    expect(openingCopy.line).toBe("28px");
+    expect(await puppy.getByText("A personal supercomputer you own.", { exact: false }).evaluate(typeMetrics)).toEqual(openingCopy);
+    const emptyCopy = puppy.getByText("Puppy One isn't connected to your account yet.", { exact: false });
+    await expect(emptyCopy).toBeVisible();
+    expect(await emptyCopy.evaluate(typeMetrics)).toEqual(openingCopy);
+    expect(await emptyCopy.evaluate(element => {
+      const next = element.nextElementSibling!;
+      return next.getBoundingClientRect().top - element.getBoundingClientRect().bottom;
+    })).toBe(12);
+    const readingWidth = await puppy.locator("[data-agent-surface=puppy] > div").evaluate(element => element.getBoundingClientRect().width);
+    expect(readingWidth).toBe(await opening.locator(":scope > div").evaluate(element => element.getBoundingClientRect().width));
+    expect(readingWidth).toBeLessThanOrEqual(768);
+    await expect(puppy.getByRole("textbox", { name: "Message Puppy One" })).toBeDisabled();
+    await page.getByRole("button", { name: "Connect synthetic Puppy" }).click();
+    const composer = puppy.getByRole("textbox", { name: "Message Puppy One" });
+    await expect(composer).toBeEnabled();
+    expect(await composer.evaluate(typeMetrics)).toEqual(await opening.getByRole("textbox").evaluate(typeMetrics));
+    expect((await composer.evaluate(typeMetrics)).size).toBe("16px");
+    await composer.fill("Compare the chat spacing.");
+    await composer.press("Enter");
+    await expect(puppy.getByRole("button", { name: "Copy answer" })).toBeVisible();
+    const user = puppy.getByText("Compare the chat spacing.", { exact: true });
+    const assistant = puppy.locator(".agent-markdown").locator("..");
+    expect(await user.evaluate(typeMetrics)).toEqual(await page.getByTestId("opening-user").evaluate(typeMetrics));
+    expect(await assistant.evaluate(typeMetrics)).toEqual(await page.getByTestId("opening-assistant").evaluate(typeMetrics));
+    const insets = (element: Element) => {
+      const style = getComputedStyle(element);
+      return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
+    };
+    expect(await user.evaluate(insets)).toEqual(await page.getByTestId("opening-user").evaluate(insets));
+    expect(await assistant.evaluate(insets)).toEqual(await page.getByTestId("opening-assistant").evaluate(insets));
+    const assistantFill = await assistant.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(assistantFill).toBe(await page.getByTestId("opening-assistant").evaluate(element => getComputedStyle(element).backgroundColor));
+    expect(assistantFill).not.toBe("rgba(0, 0, 0, 0)");
+    expect(await user.locator("..").locator("..").evaluate(element => getComputedStyle(element).rowGap)).toBe("20px");
+    const paragraphs = (element: Element) => Array.from(element.querySelectorAll("p,li"), child => {
+      const style = getComputedStyle(child);
+      return [style.fontSize, style.lineHeight, style.marginTop, style.marginBottom];
+    });
+    expect(await assistant.evaluate(paragraphs)).toEqual(await page.getByTestId("opening-assistant").evaluate(paragraphs));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(errors).toEqual([]);
+    expect(remoteRequests).toEqual([]);
+    await puppy.screenshot({ path: info.outputPath("puppy-chat-type.png"), animations: "disabled" });
+  });
+}
+
 async function mount(
   page: Page,
   width: number,
-  { theme = "light", accent = "blue", soul = false }: { theme?: Theme; accent?: "blue" | "gold"; soul?: boolean } = {},
+  { theme = "light", accent = "blue", soul = false, activity = false, puppy = false }: { theme?: Theme; accent?: "blue" | "gold"; soul?: boolean; activity?: boolean; puppy?: boolean } = {},
 ) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -116,7 +187,7 @@ async function mount(
   page.on("request", (request) => {
     if (!request.url().startsWith("http://localhost/")) remoteRequests.push(request.url());
   });
-  await page.goto(`http://localhost/agent-markdown${soul ? "?document=soul" : ""}`);
+  await page.goto(`http://localhost/agent-markdown${soul ? "?document=soul" : activity ? "?document=activity" : puppy ? "?document=puppy" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByTestId("transcript")).toBeVisible();
@@ -159,6 +230,41 @@ for (const width of [375, 1440]) {
     });
   }
 }
+
+for (const width of [390, 1280]) for (const theme of ["light", "dark"] as const)
+  test(`Activity stays plain through live and completed turns at ${width}px in ${theme}`, async ({ page }, info) => {
+    const { errors } = await mount(page, width, { theme, activity: true });
+    const region = page.getByRole("region", { name: "One activity" });
+    const activity = () => region.getByRole("button", { name: /^Activity 1$/ });
+    const section = () => activity().locator("..");
+    await expect(section()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(section()).toHaveCSS("background-image", "none");
+    await expect(section()).toHaveCSS("box-shadow", "none");
+    await expect(region).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect((await activity().boundingBox())!.height + 0.001).toBeGreaterThanOrEqual(44);
+    await expect(activity()).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Tab");
+    await activity().focus();
+    await page.keyboard.press("Enter");
+    await expect(activity()).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Enter");
+    await expect(activity()).toHaveAttribute("aria-expanded", "false");
+    await activity().click();
+    await expect(region.getByRole("list", { name: "Activity events" })).toBeVisible();
+    await expect(region.getByText("Calendar checked.")).toBeVisible();
+    await page.getByRole("button", { name: "Start stream", exact: true }).click();
+    await expect(activity()).toHaveAttribute("aria-expanded", "true");
+    await expect(region.getByText("Reading calendar events.")).toBeVisible();
+    await expect(section()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await page.getByRole("button", { name: "Finish stream", exact: true }).click();
+    await expect(activity()).toHaveAttribute("aria-expanded", "false");
+    await expect(section()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(region.getByText("Your calendar is ready.")).toBeVisible();
+    // The shared import section keeps its existing surface default.
+    expect(await page.getByRole("button", { name: "Import progress" }).locator("..").evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await region.screenshot({ path: info.outputPath("activity-plain.png"), animations: "disabled" });
+    expect(errors).toEqual([]);
+  });
 
 type Geometry = {
   viewport: number;

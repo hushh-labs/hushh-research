@@ -886,7 +886,7 @@ export function SettingsRow({
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
+            "pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
             "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
           )}
         />
