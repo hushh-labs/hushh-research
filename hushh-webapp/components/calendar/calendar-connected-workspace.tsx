@@ -4,7 +4,7 @@ import { CalendarLoading } from "./calendar-loading";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarInvitations } from "./calendar-invitations";
-import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -53,7 +53,7 @@ type Props = {
   status: GoogleCalendarStatus;
   busy: boolean;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
-  onChat: (prompt?: string, slot?: CalendarSlotHandoff, invitation?: CalendarInvitationHandoff) => void;
+  onChat: (prompt?: string, slot?: CalendarSlotHandoff, invitation?: CalendarInvitationHandoff, attendance?: CalendarAttendanceHandoff) => void;
   onDisconnect: () => void;
   onMailConnect?: () => Promise<void>;
   connectionNotice?: ReactNode;
@@ -406,7 +406,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       {connectionNotice}
       <p className="text-xs text-muted-foreground">Times shown in {zone}</p>
       <TopShellTabs disabled={submitting || busy} tabSet={{ id: "calendar", label: "Calendar", queryParam: null, activeValue: tab, tabs: MAIN_TABS }} onValueChange={setTab} />
-      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} accountKey={calendarAccountKey} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
+      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations onSend={attendance => onChat(undefined, undefined, undefined, attendance)} workspaceLayout userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} accountKey={calendarAccountKey} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
         <div className="py-1"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel="Schedule views" options={SCHEDULE_TABS} value={view} onValueChange={setView} /></div>
         <CalendarDateNavigation date={date} today={today} disabled={submitting || busy} onChange={setDate} todayRef={refreshButton} />
         {view === "today" ? <section aria-label="Today's events" aria-busy={eventsLoading} className="space-y-3">

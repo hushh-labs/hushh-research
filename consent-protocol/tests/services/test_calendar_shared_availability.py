@@ -315,3 +315,22 @@ def test_explicit_free_time_choice_is_preserved_and_denied_consent_cannot_execut
     assert result["status"] == "connection_required"
     assert result["directive"]["payload"]["accessLevel"] == "manage"
     assert not journey.state["mutations"]
+
+
+@pytest.mark.parametrize("invitation_duration", [False, True])
+def test_invitation_availability_uses_same_holiday_selection_as_free_time(
+    journey, invitation_duration
+):
+    result = asyncio.run(
+        journey.schedule.availability(
+            user_id="owner",
+            date="2030-01-17",
+            time_zone="Asia/Kolkata",
+            start_time="00:00",
+            end_time="24:00",
+            duration_minutes=30,
+            invitation_duration=invitation_duration,
+        )
+    )
+    assert result["openings"]
+    assert all("#holiday@" not in item["id"] for item in result["calendars"])

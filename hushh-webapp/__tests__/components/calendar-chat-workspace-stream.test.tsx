@@ -571,7 +571,7 @@ it("interprets a selected Live request in the same existing chat and preserves p
   expect(second.messages.at(-1).content).toContainEqual({ type: "text", text: "Ask for next Friday after 3 PM" });
   expect(await screen.findByLabelText("Alternative date")).toHaveValue("2030-10-18");
   expect(screen.getByLabelText("Alternative start time")).toHaveValue("15:00");
-  expect(screen.getByLabelText("Alternative duration in minutes")).toHaveValue(45);
+  expect(screen.queryByLabelText("Alternative duration in minutes")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Message to organiser" })).toHaveValue("Could we meet Friday after 3 PM?");
   expect(screen.getByText("Earlier conversation")).toBeInTheDocument();
   expect(review).not.toHaveBeenCalled();
@@ -743,4 +743,21 @@ it("does not borrow an active Mail reply workflow for a meeting turn", async () 
   expect(next.threadId).toBe(first.threadId);
   expect(JSON.stringify(next.context)).not.toContain("mail-workflow");
   expect(next.gmailInformationRequestWorkflowId).toBeUndefined();
+});
+
+
+it("reports authorized Calendar/Mail settlement in the existing chat without another model or mutation call", async () => {
+  const { snapshotVaultSessionEpoch } = await import("@/lib/vault/session-epoch");
+  let settle!: (value: { result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }) => void;
+  const outcome = new Promise<{ result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }>(resolve => { settle = resolve; });
+  const stream = vi.spyOn(ApiService, "apiFetchStream");
+  const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance");
+  useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarAttendance: { ownerId: "owner", epoch: snapshotVaultSessionEpoch(), title: "Client Sync", recipient: "organizer@example.com", outcome } });
+  workspace();
+  await screen.findByText(/Declining Client Sync and sending your email/);
+  await act(async () => { settle({ result: { calendar: "declined", email: "sent", calendar_error: null, email_error: null } }); });
+  await screen.findByText(/Your email was sent to the organizer/);
+  expect(stream).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+  expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
 });
