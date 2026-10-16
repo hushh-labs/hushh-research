@@ -7825,7 +7825,6 @@
         "profile.world_model.email",
         "profile.world_model.invite",
         "profile.world_model.open_fact",
-        "profile.world_model.preview",
         "profile.world_model.refresh",
         "profile.world_model.reject",
         "profile.world_model.reject_fact",
@@ -9165,10 +9164,9 @@
         "exemption_reason": null,
         "shell_verification_file": "components/onboarding/initial-contacts-welcome.tsx",
         "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
+          "FullscreenFlowShell",
+          "NativeTestBeacon",
+          "CircleOnboarding"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -10877,5 +10875,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "11269de485c0c4c73970b01190b4e95c653c412cca9ab6bb1e192f141773b033"
+  "content_sha256": "62465f4ea3c05e993f199164172ecc9fd863f692fbb0cb2d702dee9c296d3d6c"
 }

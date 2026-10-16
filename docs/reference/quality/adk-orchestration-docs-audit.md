@@ -79,6 +79,9 @@ review. The bounded repair settles that observation before displaying controls.
 Both delayed-observation negative controls fail original source; 38 affected
 Calendar tests pass with exact confirmation and changed-account refusal intact.
 The original hosted failure is retained; a corrected exact-SHA release is required.
+Committed main sync `194f425fe7` is now integrated in isolation. Authored agent
+contracts are regenerated; four changed AI/deletion descriptions reject prior
+main-revision instructions explicitly. Concurrent root edits remain untouched.
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported
