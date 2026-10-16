@@ -411,12 +411,19 @@ recognition. No new official artwork or network partnership claim is introduced.
   with an ID-1 guide; every stream stops on cancel, hiding or unmount. Android
   uses the system camera through `HushhCardCapture`; iOS uses Capacitor Camera.
   Native system camera UI has its own guide controls; Wallet crop review follows capture.
+  The featured Add scanner also exposes photo selection. Live capture offers
+  the same fallback when permission is denied or a frame cannot be captured;
+  controls wrap on narrow screens. Partial and empty readings keep camera and
+  photo actions available for another attempt without clearing manual edits.
 - `wallet-card-scan.ts` validates headers before decoding, captures owner/session
   authority and supervises an owned worker. The previous worker depended on
   `OffscreenCanvas` and required a unique valid PAN before returning any fields.
   The new pipeline keeps fields independent and uses a portable RGBA/PNG codec.
   iOS Vision remains available; useful Vision fields survive optional artwork
   worker failures, with no partially inspected photo approved.
+  Full-photo Vision reads bypass redundant browser crop preparation. Missing,
+  failed or timed-out Vision recognition falls back to the bundled local OCR;
+  cancellation and owner changes stop both paths, and selected crops still apply.
 - `card-scan-worker.ts`, `card-scan-image.ts`, `card-scan-region.ts` and
   `card-scan-spatial.ts` perform bounded crop detection, a homography, rotations,
   lighting normalization and spatial number grouping locally. Transcript order
@@ -437,8 +444,10 @@ recognition. No new official artwork or network partnership claim is introduced.
 Inputs are JPEG, PNG or WebP, at most 15 MB compressed and 24 megapixels.
 Native acquisition converts compatible library images to a fresh JPEG; unsupported
 browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
-card recognition is bounded to 1600 pixels. There are at most five recognition
-passes plus four masking and four final-inspection passes. The complete scan has
+card recognition is bounded to 1600 pixels. Add requests fields only, with at most
+five recognition passes; it uses the existing automatic catalog artwork on save.
+Explicit photo-artwork callers can additionally use four masking and four
+final-inspection passes. The complete scan has
 a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,
 and acquisition 180. Pixel processing and OCR run in the owned local worker.
 No camera/photo/transcript goes to a cloud vision service. Real-device latency,
@@ -536,11 +545,14 @@ Mastercard, AmEx, RuPay, Discover and Diners layouts; dim/low contrast/shadow,
 dark and embossed-style synthetic print, rotations, skew correction, partial
 fields, competing PANs, worker cancellation
 and language-asset failure. A production-component transport fixture proves
-capture → crop → local OCR → explicit photo approval → backend-shaped metadata
+visible camera/photo selection → crop → local OCR → owner review → backend-shaped metadata
 → **real PKM segmentation and AES encryption** → Cards → reload → lock at
 320/390/1440 px. Fixture authority and encrypted read/write endpoints are
 explicit test seams, not a live-account or production-backend rehearsal.
 Screenshots are generated as Playwright artifacts from synthetic information.
+Mobile-width cases exercise camera-permission rejection and the visible gallery
+fallback before recognition and saving. Native service tests exercise Vision
+failure/timeout recovery, full-photo reads and cancellation; they are not device proof.
 
 Unit/API checks cover private pixels/metadata, owner/epoch changes, final-byte
 approval, code removal, writer value differences, network fallback, stable retry
