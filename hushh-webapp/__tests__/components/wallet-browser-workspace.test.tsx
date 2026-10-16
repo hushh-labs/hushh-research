@@ -290,6 +290,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy name on card" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Test Cardholder"));
     expect(serviceMock.getCard).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy card number" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("4242424242424242"));
     expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
