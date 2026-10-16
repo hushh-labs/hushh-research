@@ -1227,7 +1227,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
@@ -3673,7 +3673,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
