@@ -276,6 +276,22 @@ the original byte-integrity receipt before qualifying recovery. Verify temporary
 Job deletion independently. Native storage recovery alone does not prove direct
 admission or an authenticated image-update handoff.
 
+Compare approved CPU and RAM independently of server-computed scratch storage.
+Azure changes read-only `resources.ephemeralStorage` with the CPU allocation
+([provider contract](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts#ephemeral-storage)).
+Retain the original requested fingerprint, record the exact documented adjustment,
+and require every other carried field to match. Reconcile the accepted revision;
+do not submit another replacement to correct a readback-only mismatch. GCP may
+report one vCPU as `1000m`; preserve the provider value when comparing equivalent
+CPU units.
+
+For rehearsal controllers, a released idle fence cannot authorize replacement.
+Immediately before dispatch,
+re-read authenticated lifecycle status and require the same operation/incarnation,
+zero active work and original durable idle receipt. Clear local replacement
+eligibility after confirmed release. After an uncertain provider write, reconcile
+its recorded revision and identity without replaying the mutation.
+
 Cancelling an Azure update fences further worker writes and joins the actual
 thread before releasing local lifecycle authority. Handoff polling and optional
 image pruning recheck that fence. A completed local thread does not prove a lost

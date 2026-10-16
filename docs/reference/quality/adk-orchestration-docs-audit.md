@@ -100,20 +100,31 @@ boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
 Live disposable cleanup remains a release acceptance requirement.
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 is now published as immutable digest `72b049dfdbc2…842b001b`, with **no supported
-upgrade predecessors**. Mounted hub metadata matches its generation-pinned archive. Isolated exact-image recovery must pass before adding a
-predecessor; publishing never installs it. The documented verified-image reuse
-path can later publish qualified metadata without rebuilding that executable.
+upgrade predecessors** in the serving offer. Mounted metadata matches its
+generation-pinned archive. The local Dev 21 descriptor admits only the qualified
+`fa018342…374d2` predecessor and pins the same executable through the existing
+verified-image reuse path. Its exact-SHA CI and governed publication are pending;
+publishing never installs an owner pod.
 Shared Files owner acceptance remains unperformed.
-An isolated native Azure Job recovered 57 encrypted records from the exact Dev 19
-fixture using its managed identity. Reads were bounded; no keys were exported or
-storage contents changed. The Job was deleted and ARM absence verified. This is
-predecessor recovery evidence, not target-image or owner-update acceptance.
-Dev 20 subsequently passed a native GCP read of the original **4,195,328-byte**
-synthetic Files fixture, byte-exact, with no key export or storage writes. Its
-45-record recovery receipt was reconciled from structured Cloud Logging after a
-logging-read 429; the Job was not rerun and deletion/absence was verified. This
-does not establish direct admission, authenticated update continuity or Azure
-target-image recovery; the predecessor list remains empty.
+**Exact-image qualification, 16 October:** native Dev 20 Jobs recovered the
+original **4,195,328-byte** Files fixtures byte-exact on both clouds, using their
+existing workload identities. GCP replayed 45 encrypted records; Azure replayed
+60. Both Jobs were deleted and provider absence verified. The GCP logging 429 and
+reader failures are retained; completed work was reconciled without rerunning it.
+
+Both disposable services then completed authenticated idle handoff and replacement
+from exact predecessor `fa018342…374d2` to `72b049df…842b001b`. GCP serves revision
+`00008-t7c` with the same service UID, durable key and configuration; renewed app
+admission and status pass. Azure serves `t65c6ef4f62f8`: original encrypted chat,
+Files bytes/metadata and settings survived; fresh admission and a real follow-up
+chat pass (16.172 s first content, 23.595 s completion, one warm sample). Azure's
+approved 1 vCPU / 2 GiB transition also changed its server-computed scratch storage
+from 2 to 4 GiB; every other carried field matched. No second replacement was sent.
+GCP live chat continuity remains unverified. These are isolated qualification
+receipts, not the personal owner's Settings approval. Exact predecessor publication
+and the personal update remain the next release gate. Fresh IAM/route readback
+confirms the direct GCP invoker binding, both native identities, anonymous machine
+404s and unauthenticated app-status 401s on the target revisions.
 
 **Lifecycle correction — hub deployed; owner image not installed:** setup, updates and rebuilds
 retain exact admitted requests and join actual workers before release. Connector

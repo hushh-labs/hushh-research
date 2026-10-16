@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.20",
+  "version": "2026.10-dev.21",
   "channel": "dev",
   "summary": "Cloud-aware AI setup and encrypted Files.",
   "notes": {
@@ -9,12 +9,15 @@
     ],
     "fixes": [
       "Private memory and parallel Drive work recheck current owner authority.",
-      "Hosting choices and native controls remain consistent when returning to the app."
+      "Hosting choices and native controls remain consistent when returning to the app.",
+      "Verified recovery for updates from the previously released private agent."
     ],
     "security": [
       "Existing private agents require qualified compatibility and exact owner approval before installing.",
       "Computer Use and unqualified hosting moves remain unavailable."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:fa018342ab722b0247199b320f3522b0229d97e325c8a2e150aad3d662a374d2"
+  ]
 }
