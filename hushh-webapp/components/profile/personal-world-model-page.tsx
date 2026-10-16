@@ -697,8 +697,12 @@ export function PersonalWorldModelPage({
   ) {
     const owner = ownerAuthority();
     if (!owner) throw new Error("Vault is locked");
+    if (!preferences) throw new Error("Research preferences are unavailable");
     // The confirmed switches stay on screen while research restarts.
-    reload(await WorldModelResearchService.updatePreferences(owner.authority, value));
+    reload(await WorldModelResearchService.updatePreferences(owner.authority, {
+      ...value,
+      research_provider: preferences.research_provider,
+    }));
   }
 
   async function turnOn() {

@@ -641,12 +641,15 @@ export const WorldModelResearchService = {
   },
   async updatePreferences(
     input: PwmAuthority,
-    value: Pick<PwmPreferences, "enabled" | "email_enabled">,
+    value: Pick<PwmPreferences, "enabled" | "email_enabled" | "research_provider">,
   ) {
+    const { research_provider, ...preferences } = value;
     return pwmPreferencesSchema.parse(
       await request(input, "preferences", "PUT", {
-        ...value,
-        consent_version: "pwm-native-v1",
+        ...preferences,
+        consent_version: research_provider === "azure_openai_web_search"
+          ? "pwm-azure-bing-v1"
+          : "pwm-native-v1",
       }),
     );
   },

@@ -52,10 +52,14 @@ def public_preferences(row):
     }
 
 
-async def update_preferences(user_id, token, *, enabled, email_enabled):
+async def update_preferences(
+    user_id, token, *, enabled, email_enabled, consent_version=NATIVE_CONSENT_VERSION
+):
+    consent_marker = _consent_marker()
+    if enabled and consent_version != consent_marker:
+        raise ValueError("Research disclosure version does not match the selected provider")
     if await validate_first_party_owner_token(user_id, token) is None:
         raise PermissionError("Owner session ended")
-    consent_marker = _consent_marker()
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn, conn.transaction():
         await lock_connection_graph_users_async(conn, user_ids=[user_id])

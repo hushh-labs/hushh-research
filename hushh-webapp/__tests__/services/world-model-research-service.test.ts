@@ -190,6 +190,28 @@ describe("PWM service authority and request recovery", () => {
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
+  it.each([
+    ["azure_openai_web_search", "pwm-azure-bing-v1"],
+    ["vertex_google_search", "pwm-native-v1"],
+  ] as const)("sends the %s consent marker for preference updates", async (research_provider, consent_version) => {
+    const response = { enabled: true, email_enabled: false, consent_version: "pwm-native-v1", research_provider };
+    api.mockResolvedValue(response);
+
+    await expect(WorldModelResearchService.updatePreferences(session, {
+      enabled: true,
+      email_enabled: false,
+      research_provider,
+    })).resolves.toEqual(response);
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api.mock.calls[0][0]).toBe("/api/one/world-model/preferences");
+    expect(api.mock.calls[0][1].method).toBe("PUT");
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({
+      enabled: true,
+      email_enabled: false,
+      consent_version,
+    });
+  });
   it("automatically ensures once, then reads the existing job", async () => {
     api
       .mockResolvedValueOnce({

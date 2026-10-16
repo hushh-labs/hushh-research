@@ -432,6 +432,54 @@ def test_azure_public_preferences_do_not_reuse_vertex_default_consent(monkeypatc
     assert preferences.public_preferences(previous)["research_provider"] == "vertex_google_search"
 
 
+@pytest.mark.asyncio
+async def test_azure_preferences_reject_legacy_client_consent_before_database_access(monkeypatch):
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
+    authority = AsyncMock()
+    monkeypatch.setattr(preferences, "validate_first_party_owner_token", authority)
+    with pytest.raises(ValueError, match="disclosure version"):
+        await preferences.update_preferences(
+            "owner",
+            "synthetic-owner-token",  # noqa: S106
+            enabled=True,
+            email_enabled=True,
+            consent_version="pwm-native-v1",
+        )
+    authority.assert_not_awaited()
+
+
+def test_preferences_route_passes_azure_consent_version_and_rejects_mismatch(monkeypatch):
+    client, routes = owner_client(monkeypatch, SimpleNamespace())
+    update = AsyncMock(return_value={"enabled": True})
+    monkeypatch.setattr(routes.preferences, "update_preferences", update)
+    response = client.put(
+        "/api/one/world-model/preferences",
+        json={
+            "enabled": True,
+            "email_enabled": True,
+            "consent_version": "pwm-azure-bing-v1",
+        },
+    )
+    assert response.status_code == 200
+    update.assert_awaited_once_with(
+        "owner",
+        "fixture",
+        enabled=True,
+        email_enabled=True,
+        consent_version="pwm-azure-bing-v1",
+    )
+    update.side_effect = ValueError("disclosure version")
+    response = client.put(
+        "/api/one/world-model/preferences",
+        json={"enabled": True, "email_enabled": True, "consent_version": "pwm-native-v1"},
+    )
+    assert response.status_code == 422
+
+
 def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

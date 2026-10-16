@@ -96,7 +96,7 @@ class ResearchPreferencesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
     email_enabled: bool
-    consent_version: Literal["pwm-native-v1"]
+    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1"]
 
 
 @router.get("/preferences")
@@ -114,10 +114,15 @@ async def set_preferences(
 ):
     try:
         return await preferences.update_preferences(
-            *owner(token), enabled=body.enabled, email_enabled=body.email_enabled
+            *owner(token),
+            enabled=body.enabled,
+            email_enabled=body.email_enabled,
+            consent_version=body.consent_version,
         )
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except ValueError:
+        raise HTTPException(422, "Accept the current research disclosure to continue.") from None
 
 
 # Paid work is bounded in the database (3 new runs an hour, a fixed search and
