@@ -50,6 +50,10 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("x", "POD_CHAT_BUSY")).toMatch(/finishing active work/);
     expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_UPDATING"))
       .toBe("Your private agent is updating. Check Software updates in Settings before trying again.");
+    expect(formatAgentChatErrorMessage("private provider details", "POD_RECEIPT_UPDATE_REQUIRED"))
+      .toBe("Update your private agent in Settings before resuming this receipt request.");
+    expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_CAPABILITIES_INVALID"))
+      .toMatch(/supported features could not be verified/);
     // Negative controls: a marker inside other text, or unknown text, stays generic.
     expect(formatAgentChatErrorMessage("detail POD_ASSIGNMENT_CHANGED at 10.0.0.1")).toBe(GENERIC);
     expect(formatAgentChatErrorMessage("Failed to fetch https://private.example/x")).toBe(GENERIC);

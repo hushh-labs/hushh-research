@@ -4,9 +4,84 @@ import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access";
 import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
+import { RECEIPT_TOOL_DECLARATIONS } from "@/lib/mail/receipt-analysis";
 
 const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn() }));
 const memory = vi.hoisted(() => ({ fetch: vi.fn(), shared: vi.fn() }));
+
+const legacyChatCapabilities = {
+  identity: { type: "google-adk" }, transport: { streaming: true }, tools: { clientProvided: true },
+};
+
+async function receiptChatProbe(capabilities: unknown, options: {
+  status?: number; retire?: "owner" | "abort"; continuation?: boolean; forged?: boolean;
+} = {}) {
+  let current = true;
+  const controller = new AbortController();
+  const fetch = vi.fn(async (url: string, init: RequestInit) => {
+    if (url.endsWith("/capabilities")) {
+      if (options.retire === "owner") current = false;
+      if (options.retire === "abort") controller.abort();
+      return Response.json(capabilities, { status: options.status ?? 200 });
+    }
+    if (!(capabilities as { receiptToolVersion?: unknown })?.receiptToolVersion &&
+        JSON.parse(String(init.body)).tools.some((tool: { name: string }) =>
+          RECEIPT_TOOL_DECLARATIONS.some(item => item.name === tool.name))) {
+      return Response.json({ detail: { code: "AGENT_TOOL_NOT_ADMITTED" } }, { status: 400 });
+    }
+    return Response.json({ accepted: true });
+  });
+  pod.currentPodConnection.mockResolvedValue({
+    endpoint: { hushhId: "ha1_owner", url: "https://receipt-owner.a.run.app" },
+    session: { session: "synthetic-receipt-session", role: "app", scopes: [] },
+    directVerifiedAt: Date.now(),
+  });
+  const action = { name: "hussh_action_open", description: "Existing action", parameters: { type: "object" } };
+  const body = JSON.stringify({
+    tools: [action, ...RECEIPT_TOOL_DECLARATIONS.map(tool => options.forged ? { ...tool, description: "Changed" } : tool)],
+    messages: [{ id: "synthetic-message", role: "user", content: "Synthetic" }],
+    forwardedProps: { timezone: "UTC", ...(options.continuation ? { receiptToolResults: [] } : {}) },
+  });
+  const ports = { transport: async () => ({}), fetch, isCurrent: () => current } as Parameters<typeof ownerPodRequest>[2];
+  const result = ownerPodRequest("agent-chat", { method: "POST", body, signal: controller.signal }, ports);
+  return { result, fetch, body, action };
+}
+
+it.each([1, 0] as const)("negotiates receipt tools with installed pod protocol %s before one chat dispatch", async version => {
+  const { result, fetch, body, action } = await receiptChatProbe({
+    ...legacyChatCapabilities, ...(version ? { receiptToolVersion: 1 } : {}),
+  });
+  expect((await result).ok).toBe(true);
+  const posts = fetch.mock.calls.filter(([, init]) => init.method === "POST");
+  expect(posts).toHaveLength(1);
+  const sent = JSON.parse(String(posts[0]![1].body));
+  const original = JSON.parse(body);
+  expect(sent).toEqual({ ...original, forwardedProps: { ...original.forwardedProps, dataDoorGrants: {} },
+    tools: version ? original.tools : [action] });
+  expect(fetch.mock.calls[0]![0]).toMatch(/\/capabilities$/);
+});
+
+it.each([
+  { capabilities: { ...legacyChatCapabilities, receiptToolVersion: 2 }, status: 200 },
+  { capabilities: {}, status: 200 },
+  { capabilities: legacyChatCapabilities, status: 403 },
+])("refuses unverified receipt capability before POST: $status/$capabilities", async ({ capabilities, status }) => {
+  const { result, fetch } = await receiptChatProbe(capabilities, { status });
+  await expect(result).rejects.toThrow(/POD_CHAT_CAPABILITIES/);
+  expect(fetch.mock.calls.filter(([, init]) => init.method === "POST")).toHaveLength(0);
+});
+
+it.each(["owner", "abort"] as const)("does not send after %s changes during receipt discovery", async retire => {
+  const { result, fetch } = await receiptChatProbe({ ...legacyChatCapabilities, receiptToolVersion: 1 }, { retire });
+  await expect(result).rejects.toThrow();
+  expect(fetch.mock.calls.filter(([, init]) => init.method === "POST")).toHaveLength(0);
+});
+
+it.each([{ continuation: true }, { forged: true }])("never drops unsupported receipt continuation or altered declaration: %s", async options => {
+  const { result, fetch } = await receiptChatProbe(legacyChatCapabilities, options);
+  await expect(result).rejects.toThrow(/POD_(RECEIPT_UPDATE_REQUIRED|CHAT_RECEIPT_DECLARATION_INVALID)/);
+  expect(fetch.mock.calls.filter(([, init]) => init.method === "POST")).toHaveLength(0);
+});
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   getPersonalAgentStatus: async () => ({ hostingMode: "byoc" }),
   apiFetch: memory.shared,

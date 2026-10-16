@@ -1,4 +1,6 @@
 import { AuthService } from "./auth-service";
+import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
+export { forgetAgentAnswers } from "./pod-chat-turn-transport";
 import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
@@ -9,11 +11,8 @@ import type {
   OwnerPodConnection,
 } from "./owner-pod-endpoint";
 import {
-  PodNotReachedError,
-  PodSendUnconfirmedError,
   beforeTurnIsSent,
   isAgentStillWaking,
-  notReachedBeforeSend,
 } from "@/lib/agent/owner-pod-wake";
 type AccessPorts = {
   transport: () => Promise<OwnerPodTransport>;
@@ -263,10 +262,15 @@ export async function ownerPodRequest(
     throw new Error("POD_VAULT_SESSION_CHANGED");
   }
   const response = chatTurn
-    ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt)
+    ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt, session, () => {
+        refuseCancelled();
+        refuseRetiredOwner(ports.isCurrent);
+        if (AuthService.getCurrentUser()?.uid !== uid || !isVaultSessionEpochCurrent(vaultEpoch))
+          throw new Error("POD_OWNER_CHANGED");
+      })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
   if (!isAgentStillWaking(response))
-    agentAnswered.set(endpoint.url, Date.now());
+    markAgentAnswered(endpoint.url);
   if (AuthService.getCurrentUser()?.uid !== uid)
     throw new Error("POD_OWNER_CHANGED");
   if (response.ok && route === "agent-chat")
@@ -300,76 +304,6 @@ function untilCancelled<T>(
       },
     );
   });
-}
-
-/**
- * When each agent address last gave a real answer. An agent that answered this
- * recently is awake, so its next turn goes straight out. Scale-to-zero waits
- * minutes of idle time (Azure Container Apps defaults to 300 s), well past this.
- */
-const agentAnswered = new Map<string, number>();
-const AGENT_AWAKE_MS = 60_000;
-
-/** Forget which agents answered recently. Tests start from a cold agent. */
-export function forgetAgentAnswers(): void {
-  agentAnswered.clear();
-}
-
-function isCancellation(error: unknown, signal?: AbortSignal | null): boolean {
-  return (
-    Boolean(signal?.aborted) ||
-    (error instanceof DOMException && error.name === "AbortError")
-  );
-}
-
-/**
- * Send a chat turn so that a failure is classified honestly. A sleeping agent
- * whose ingress resets the first connection would otherwise fail the turn's own
- * POST, where nothing proves whether it arrived. So an agent not heard from
- * recently is asked a cheap, side-effect-free question first (capabilities): if
- * that gets no answer, or only a gateway page, the turn provably was never sent
- * and can wait for the wake. A failure of the POST itself stays ambiguous.
- */
-async function sendChatTurn(
-  url: string,
-  request: RequestInit,
-  fetch: AccessPorts["fetch"],
-  directVerifiedAt?: number,
-): Promise<Response> {
-  const now = Date.now();
-  const recentlyAdmitted =
-    typeof directVerifiedAt === "number" &&
-    Number.isFinite(directVerifiedAt) &&
-    directVerifiedAt <= now &&
-    now - directVerifiedAt <= AGENT_AWAKE_MS;
-  const answeredAt = agentAnswered.get(url);
-  if (
-    !recentlyAdmitted &&
-    (answeredAt === undefined || now - answeredAt > AGENT_AWAKE_MS)
-  ) {
-    let probe: Response;
-    try {
-      probe = await fetch(`${url}/api/one/pod/agent-chat/capabilities`, {
-        method: "GET",
-        headers: request.headers,
-        credentials: "omit",
-        cache: "no-store",
-        signal: request.signal,
-      });
-    } catch (error) {
-      if (isCancellation(error, request.signal)) throw error;
-      throw notReachedBeforeSend();
-    }
-    void probe.body?.cancel().catch(() => undefined);
-    if (isAgentStillWaking(probe)) throw new PodNotReachedError();
-    agentAnswered.set(url, Date.now());
-  }
-  try {
-    return await fetch(`${url}/api/one/pod/agent-chat`, request);
-  } catch (error) {
-    if (isCancellation(error, request.signal)) throw error;
-    throw new PodSendUnconfirmedError();
-  }
 }
 
 /**

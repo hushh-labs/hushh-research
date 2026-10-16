@@ -80,6 +80,12 @@ enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
 ### Release metadata and compatibility
 
+The web and hub can advance before independently installed owner pods. Negotiate
+new client tools through authenticated pod capabilities before sending them.
+Older pods retain ordinary chat; a continuation requiring unsupported tools asks
+for an update. Never replay an ambiguous turn or reroute private work to Shared
+to mask a compatibility failure.
+
 Managed app announcements and pod installation receipts are separate. The authored
 frontend catalog identifies the built app release, its environment, publication
 date and reviewed public changes. Dev has an announcement; UAT and production

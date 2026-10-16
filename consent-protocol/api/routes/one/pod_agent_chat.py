@@ -76,7 +76,11 @@ async def context(request: Request) -> PodChatContext:
 @router.get("/capabilities")
 async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
-    return {**_authenticated_capabilities, "podCommandCheckpointVersion": 1}
+    return {
+        **_authenticated_capabilities,
+        "podCommandCheckpointVersion": 1,
+        "receiptToolVersion": 1,
+    }
 
 
 def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, PodTurnRequest]:

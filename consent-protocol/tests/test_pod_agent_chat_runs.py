@@ -59,6 +59,15 @@ def _client(owner_id: str = "owner-a", log: FakeLog | None = None) -> TestClient
     return TestClient(app)
 
 
+def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
+    client = _client()
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: _owner()
+    response = client.get("/api/one/pod/agent-chat/capabilities")
+    assert response.status_code == 200
+    assert response.json()["receiptToolVersion"] == 1
+    assert response.json()["podCommandCheckpointVersion"] == 1
+
+
 def test_queue_joins_only_the_session_owners_running_turn(registry):
     registry.open_run("owner-a", "conv-1", "run-1", accepting=True)
     queued = _client("owner-a").post(

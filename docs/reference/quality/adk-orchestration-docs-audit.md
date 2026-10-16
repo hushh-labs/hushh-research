@@ -41,30 +41,23 @@ installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 
 pending and history cleanup 249 remains deferred. No failed ledger row or checksum
 drift was found; no setup worker was running at this observation.
 
-**Candidate — local, not deployed:** frozen ADK `2462c0bc6f`, root
-`194f425fe7` (including main `a8e36651c1`) and the private-pod changes are integrated
-in isolation. Concurrent root/PDF/native work is preserved. The selected-provider
-repair passes 48 setup/settings cases; the Calendar readiness repair passes 38.
-Original-code negative controls fail as required. The local core exposed one
-synthetic placement fixture and imported UI fixture/style defects; these were
-corrected without weakening authority, geometry or timing gates. Backend evidence
-is 20,807 parallel passes plus 1,007 serial passes; the remaining schema-projection
-ordering failure now passes through its owning generator. Unchanged schema fields
-and function multisets are verified. Canonical web (production build, typecheck, lint), package and 396 integration
-checks pass. All 32 setup layout cases pass across the four browser profiles; the
-interrupted dependency-reinstall attempt remains recorded. Exact-SHA hosted PR CI
-must finish before a governed dev deployment.
-Prior hosted run [38875805183](https://github.com/hushh-labs/hushh-research/actions/runs/38875805183)
-remains failed evidence. No newer owner image has been installed.
-Frozen source `f2d65294b5` reached hosted
-[validation 38886336776](https://github.com/hushh-labs/hushh-research/actions/runs/38886336776).
-Its Circle sheet assertions still expected a retired fixed blue. The correction
-checks the actual accent, including gold: 18 cases pass across Chromium, mobile
-Chrome and WebKit; restoring fixed-blue source fails. No layout or timing gate changes.
-New main `87db30c3dd` then required integration to restore PR mergeability.
-Its Wallet/presence changes pass 153 backend, 140 frontend and 472 Back cases;
-generated manifests, typecheck and UI contracts pass. Independent review admits
-only six measured upstream debt spans; architecture budgets remain unchanged.
+**Candidate:** source `54bad3e924` passed complete hosted
+[CI 38890918283](https://github.com/hushh-labs/hushh-research/actions/runs/38890918283)
+(attempt 2; only the failed editor performance job was rerun). The original timing
+failure is retained; no budget changed. Its
+[dev deployment 38894554442](https://github.com/hushh-labs/hushh-research/actions/runs/38894554442)
+was cancelled before traffic changed: new receipt tool declarations were incompatible
+with older installed pods. Fresh serving and migration-ledger readbacks are unchanged.
+The bounded correction negotiates the authenticated receipt capability before sending;
+legacy pods retain ordinary chat, while unsupported receipt continuations refuse
+explicitly. Focused positive and broken-code negative checks pass; this correction
+still requires exact-revision CI and deployment. Concurrent root edits are preserved.
+
+**Cloud chat:** two normal-owner synthetic turns on the installed Azure Dev 19
+image failed with provider HTTP 400, including a fresh conversation (45.242 s).
+Both Azure deployments accept isolated static-tool controls. A separate memory-schema
+400 becomes 200 after normalization, but that does not establish the terminal chat
+failure's cause. Cloud chat remains a failed live acceptance row.
 
 **New Azure signup:** the pod, storage and signed direct access completed in
 20m51s; Azure environment creation accounted for 14m26s. Optional model quota was
@@ -86,23 +79,6 @@ candidate. Bounded cleanup and presentation extractions pass the architecture
 ratchet without a baseline waiver; 174 backend checks plus the corrected 42-case
 boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
 Live disposable cleanup remains a release acceptance requirement.
-Hosted candidate `f8c867fd83` exposed a Calendar approval race while other lanes
-finished: late initial account hydration could replace interactive controls before
-review. The bounded repair settles that observation before displaying controls.
-Both delayed-observation negative controls fail original source; 38 affected
-Calendar tests pass with exact confirmation and changed-account refusal intact.
-The original hosted failure is retained; a corrected exact-SHA release is required.
-Committed main sync `194f425fe7` is now integrated in isolation. Authored agent
-contracts are regenerated; four changed AI/deletion descriptions reject prior
-main-revision instructions explicitly. Concurrent root edits remain untouched.
-The integration's Gemini-only setup check now follows the selected encrypted
-provider: 48 focused setup/settings cases pass, including strict read failure,
-unknown provider and missing-key refusals. Calendar's 38 cases pass separately.
-Imported architecture debt is bounded to 200 reviewed main findings and two
-reviewed compositions; 500/250/80 budgets remain unchanged. Prior hosted Wallet
-arrival misses remain failed evidence; the 400 ms gate is unchanged and the
-next probe records native frame cadence separately from its injected delay.
-
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported
 upgrade predecessors**. Isolated exact-image recovery must pass before adding a
@@ -160,10 +136,10 @@ probes do not establish owner-cloud acceptance.
 | --- | --- | --- |
 | Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
 | Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
-| Combined source | Integration `5df4525405`, root intake `b8fa64b200`, local ADK `2462c0bc6f` | New exact-SHA hosted approval is required; no application main merge |
-| Prior verification | 20,646 backend, 1,346 serial PostgreSQL and 396 PKM cases; build, contracts and authority checks pass for the preceding candidate | Final model/Calendar intake is being validated; preceding coverage is not its exact-SHA completion |
+| Combined source | `54bad3e924` has complete hosted CI; root `f1e6c732ae` has the identical source tree. Local ADK intake remains frozen at `2462c0bc6f` | Receipt capability correction is under final local validation; its new exact SHA needs hosted CI |
+| Verification | Complete hosted CI passed for `54bad3e924`; the corrected candidate has focused transport/authority checks and a passing architecture ratchet | Original failed CI attempts are retained. CI does not prove live owner journeys |
 | Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
-| Recovery fixtures | Existing GCP fixture's original synthetic owner recovered under its runtime identity; temporary Job removed and absence verified. Azure console failed before execution; key-based result readback was correctly refused | No keys exported or policy weakened. Retained Azure fixture remains intact; fresh isolated byte-recovery qualification is separate from background-job acceptance |
+| Recovery fixtures | GCP synthetic owner recovered under its runtime identity. Azure native identity recovered 57 encrypted records and its original 4,195,328-byte Files fixture exactly; temporary Jobs were removed and absence verified | Original failed probes remain recorded. This qualifies predecessor recovery only; the next exact target image still needs continuity verification |
 
 ## Acceptance matrix
 
