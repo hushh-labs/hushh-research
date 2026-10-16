@@ -28,7 +28,7 @@ import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarProviderShortcut, CalendarTimelineRow, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
+import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
@@ -398,7 +398,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const scheduleLoading = view === "today" ? eventsLoading : availabilityLoading;
   const reconnectRequired = [eventsError, availabilityError].some(error => error instanceof GoogleCalendarError && (error.recovery === "reconnect" || error.recovery === "connect"));
 
-  const calendarFooter = <div className="flex flex-col items-center gap-2 pt-1"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className="min-h-11 px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" onClick={onDisconnect}>Disconnect Calendar</button></div>;
+  const calendarFooter = <div className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-2 pt-4"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className="min-h-11 w-full px-3 text-sm text-destructive hover:text-destructive/80 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" onClick={onDisconnect}>Disconnect Calendar</button></div>;
 
   return <AppPageShell width="agent" headerContentSpacing="compact" fitContent className="relative isolate" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: view === "today" ? eventsLoading ? "loading" : eventsError ? "error" : events?.length ? "loaded" : "empty-valid" : availabilityLoading ? "loading" : availabilityError ? "error" : availability ? availability.windows.length ? "loaded" : "empty-valid" : "unavailable-valid" }}>
     <div className={`${invitationStyles.calendarTypography} mx-auto w-full space-y-[var(--page-header-section-gap)]`} data-calendar-workspace>
@@ -425,7 +425,6 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
               {timed.length ? timeline(timed) : null}
             </>}
           </>}
-          <CalendarProviderShortcut date={date} email={status.google_email} />
         </section> : <section aria-label="Free time" aria-busy={availabilityLoading} className="space-y-2.5">
           <SurfaceCard className="space-y-3.5 p-[15px] shadow-none sm:space-y-[15px] sm:p-4">
             <div className="flex min-h-[73px] items-center gap-[15px] sm:gap-[22px]"><span aria-hidden className="flex h-16 w-[60px] shrink-0 items-center justify-center rounded-[15px] bg-[color:var(--app-card-surface-compact)] sm:h-[73px] sm:w-[74px]"><CalendarAvailabilityArt /></span><div className="min-w-0"><h2 aria-live="polite" className="text-base font-semibold leading-6 sm:text-lg">{availabilityLoading || availabilityError ? "Free time" : `${availability?.full_count || 0} available slots ${date === today ? "today" : "on this day"}`}</h2><p className="mt-1 text-sm text-muted-foreground">{refreshingAvailability ? "Unconfirmed times" : "Find time for what matters."}</p></div></div>
@@ -442,7 +441,6 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
             {availability.full_count > 3 ? <p className="text-xs text-muted-foreground">Showing 3 of {availability.full_count} available windows.</p> : null}
             <p className="text-xs text-muted-foreground">Availability can change. These times aren't reserved.</p>
           </div> : null}
-          <CalendarProviderShortcut date={date} email={status.google_email} availability />
           <SurfaceCard className="shadow-none bg-[color:var(--app-card-surface-surface)]"><button type="button" onClick={() => onChat(`Help me find a different time on ${date} in ${zone} for a ${duration}-minute meeting. Check the full selected local day.`)} className="flex min-h-[90px] w-full items-start gap-[14px] px-3 py-[14px] text-left sm:gap-[17px] sm:px-4 sm:py-[13px] focus-visible:rounded-[var(--app-card-radius-standard)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"><CalendarHelperIcon /><span><span className="block text-sm font-normal">Need a different time?</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Just ask One to find time, schedule a meeting or reschedule for you.</span></span></button></SurfaceCard>
         </section>}
 

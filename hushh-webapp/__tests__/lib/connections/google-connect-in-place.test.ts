@@ -40,6 +40,7 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
 }));
 
 import {
+  inPlaceConnectCopy,
   connectCalendarInPlace,
   connectGmailInPlace,
 } from "@/lib/connections/google-connect-in-place";
@@ -280,6 +281,9 @@ describe("connectCalendarInPlace", () => {
     expect(mocks.calendarStatus).not.toHaveBeenCalled();
     post(calendarSettlement(attemptId), popup);
     await expect(start.result).resolves.toBe("not_connected");
+    expect(inPlaceConnectCopy("calendar", "not_connected")).toBe(
+      "The requested Google Calendar permission was not enabled.",
+    );
   });
 
   it.each([
