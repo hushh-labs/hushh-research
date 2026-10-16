@@ -8686,10 +8686,9 @@
         "exemption_reason": null,
         "shell_verification_file": "components/onboarding/initial-contacts-welcome.tsx",
         "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
+          "FullscreenFlowShell",
+          "NativeTestBeacon",
+          "CircleOnboarding"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -10398,5 +10397,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2e0de56b5ec15ab68cef6d5789a24d0502a8c15f06bc9d6cce8097ea04f597c1"
+  "content_sha256": "65008a31730b1d5935a2b96568c87b87ad2d0a5ca99c014cb8b006218a75fc81"
 }
