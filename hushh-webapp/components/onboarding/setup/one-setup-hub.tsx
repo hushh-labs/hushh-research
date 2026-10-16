@@ -2,22 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlugZap } from "@/components/icons";
 import { toast } from "sonner";
 
-import {
-  AppPageContentRegion,
-  AppPageHeaderRegion,
-  AppPageShell,
-} from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SetupV10Icon, SetupV10Surface } from "@/components/onboarding/setup/setup-v10-surface";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -30,7 +22,6 @@ import {
   buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
-import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -50,22 +41,20 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
  * the first time someone actually reaches for it, from its real page or from
  * chat. That keeps this hub a single screen instead of an upfront checklist.
  *
- * LAYOUT (Card Depth Model + recompose-by-breakpoint)
- * - Lives inside the normal app shell (`standard` chrome) so a person who has
- *   finished onboarding can still browse here without being trapped in a flow.
- *   The shell itself owns the scroll; the header region stays put.
- * - One owns the voice: "Set up One", plain language, no system nouns.
+ * The setup surface owns its own full-viewport scroll and visual composition;
+ * setup state and completion still use the existing authoritative services.
  */
 export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const initialContacts = useInitialContacts();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const queueEntryWelcome = useOneConversationSession(
     (state) => state.queueEntryWelcome,
   );
   const [dismissing, setDismissing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [finalizationError, setFinalizationError] = useState<string | null>(
     null,
   );
@@ -214,7 +203,11 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      await acknowledgeOneSetupExit({
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      const showContactsWelcome =
+        bootstrap?.initialContactsWelcomeAcknowledged === false ||
+        InitialContacts.getSnapshot().ownerId === user.uid;
+      const completion = acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: false,
         isVaultUnlocked: true,
@@ -223,13 +216,10 @@ export function OneSetupHub() {
       });
       // Queue only a typed, owner-scoped marker after the encrypted setup
       // boundary. The Chat surface derives its summary from the unlocked
-      // in-memory context and consumes this marker once; no private values
-      // enter the route or conversation history.
-      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-      const showContactsWelcome =
-        (bootstrap?.initialContactsWelcomeAcknowledged === false ||
-          InitialContacts.getSnapshot().ownerId === user.uid);
+      // in-memory context and consumes this marker once. Queue before the
+      // completion latch can make the route guard unmount this screen.
       if (!showContactsWelcome) queueEntryWelcome(user.uid);
+      await completion;
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
@@ -370,114 +360,96 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  const summary = hubStateLoading
-    ? "One moment…"
-    : runtimeChoiceComplete
-      ? "Add more any time."
-      : "Choose your AI first.";
-
   return (
-    <AppPageShell
-      as="main"
-      width="reading"
-      fitContent
-      className={`relative isolate max-w-[600px] ${styles.hubPage}`}
-      nativeTest={{
-        routeId: "/one/setup",
-        marker: "native-route-one-setup",
-        authState: "authenticated",
-        dataState: hubStateLoading ? "loading" : "loaded",
+    <SetupV10Surface
+      stage="hub"
+      onMenu={() => {
+        if (!dismissing) setMenuOpen((open) => !open);
       }}
+      menuDisabled={dismissing}
+      menuOpen={menuOpen}
+      menuContent={
+        <button
+          type="button"
+          onClick={() => {
+            if (dismissing) return;
+            setMenuOpen(false);
+            void signOut({ redirectTo: ROUTES.LOGIN, expectedUserId: user?.uid });
+          }}
+        >
+          Sign out
+        </button>
+      }
     >
-      <AppPageHeaderRegion>
-        <PageHeader
-          title={
-            !hubStateLoading && runtimeChoiceComplete
-              ? "You're all set"
-              : "Set up One"
-          }
-          description={summary}
-          accent="neutral"
-          className={styles.setupHeader}
-        />
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion className={styles.setupContent}>
-        {hubStateLoading ? (
-          <SetupHubLoadingState />
-        ) : (
+      <NativeTestBeacon
+        routeId="/one/setup"
+        marker="native-route-one-setup"
+        authState="authenticated"
+        dataState={hubStateLoading ? "loading" : "loaded"}
+      />
+      <div className={styles.hub}>
+        <h1>Set up One</h1>
+        <p className={styles.subtitle}>Choose the AI that works for you.</p>
+        {hubStateLoading ? <SetupHubLoadingState /> : (
           <>
-            <div className={styles.flatChecklist}>
-              <SettingsGroup testId="one-setup-ai-choice" separatorInset>
-                <SetupNavigationTile
-                  id="connections"
-                  title="Choose your AI"
-                  description={
-                    runtimeChoiceComplete
-                      ? "Change this any time."
-                      : "Use ours, or bring your own."
-                  }
-                  href={buildOneSetupConnectionsRoute(returnTo)}
-                  voiceControlId="one_setup_tile_connections"
-                  icon={lucideCapabilityIcon(PlugZap)}
-                  tone="connected"
-                  statusLabel={runtimeChoiceComplete ? "Selected" : "Required"}
-                  statusTone={runtimeChoiceComplete ? "muted" : "required"}
-                  isCurrent={!runtimeChoiceComplete}
-                  isComplete={runtimeChoiceComplete}
-                />
-              </SettingsGroup>
-              {initialContacts.ownerId === user?.uid ? (
-                <SettingsGroup separatorInset>
-                  <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
-                    description={initialContacts.status === "ready"
-                      ? `${initialContacts.result?.autoConnectedCount ?? 0} new connections. Your shared circle will be ready after setup.`
-                      : "Optional. Match people you know and organize a shared Contacts circle."}
-                    trailing={initialContacts.status === "ready" ? "Checked" : ["reading", "matching"].includes(initialContacts.status) ? "Checking…" : "Find people"}
-                    disabled={["reading", "matching", "ready"].includes(initialContacts.status)}
-                    onClick={() => InitialContacts.startSource()} />
-                </SettingsGroup>
-              ) : null}
-              <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
-                <PwmResearchDisclosure className="mb-4" />
-                <Button
-                  type="button"
-                  variant="blue"
-                  effect="fill"
-                  size="prominent"
-                  fullWidth
-                  disabled={!runtimeChoiceComplete}
-                  loading={dismissing}
-                  onClick={() => void handleMasterAck()}
-                  data-testid="one-setup-master-ack"
-                  data-voice-control-id="one-setup-master-ack"
-                  data-voice-action-id="setup.hub_master_ack"
-                  data-voice-label={masterActionLabel}
-                  data-voice-purpose="Finish setup and protect what you save."
-                >
-                  {masterActionLabel}
-                </Button>
-              </div>
+            <div data-testid="one-setup-ai-choice">
+              <button
+                type="button"
+                className={styles.aiOption}
+                disabled={dismissing}
+                onClick={() => router.push(buildOneSetupConnectionsRoute(returnTo))}
+                data-voice-control-id="one_setup_tile_connections"
+              >
+                <span className={styles.optionIcon}><SetupV10Icon name="plug" size={22} /></span>
+                <span className={styles.optionCopy}>
+                  <strong>Choose your AI</strong>
+                  <small>{runtimeChoiceComplete ? "You can change this later." : "Use ours, or bring your own key."}</small>
+                </span>
+                <span className={`${styles.status} ${runtimeChoiceComplete ? styles.selected : ""}`}>
+                  {runtimeChoiceComplete ? "Selected" : "Required"}
+                </span>
+                <SetupV10Icon name="chevron-right" size={17} className={styles.chevron} />
+              </button>
             </div>
+            {initialContacts.ownerId === user?.uid ? (
+              <button
+                type="button"
+                className={styles.contactsAction}
+                disabled={["reading", "matching", "ready"].includes(initialContacts.status)}
+                onClick={() => InitialContacts.startSource()}
+              >
+                {initialContacts.status === "ready"
+                  ? `${initialContacts.result?.autoConnectedCount ?? 0} people found`
+                  : ["reading", "matching"].includes(initialContacts.status)
+                    ? "Finding people…"
+                    : "Find people I know"}
+              </button>
+            ) : null}
+            {runtimeChoiceComplete ? <PwmResearchDisclosure compact className={styles.disclosure} /> : null}
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={!runtimeChoiceComplete || dismissing}
+              onClick={() => void handleMasterAck()}
+              data-testid="one-setup-master-ack"
+              data-voice-control-id="one-setup-master-ack"
+              data-voice-action-id="setup.hub_master_ack"
+              data-voice-label={masterActionLabel}
+              data-voice-purpose="Finish setup and protect what you save."
+            >
+              {dismissing ? "Finishing…" : masterActionLabel}
+              <SetupV10Icon name="arrow-right" size={18} />
+            </button>
+            {!runtimeChoiceComplete ? <p className={styles.underAction}>Choose an AI to continue.</p> : null}
           </>
         )}
         {finalizationError ? (
-          <div
-            role="alert"
-            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-          >
+          <div role="alert" className={styles.error}>
             <span>{finalizationError}</span>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => void handleMasterAck()}
-            >
-              Try again
-            </Button>
+            <button type="button" onClick={() => void handleMasterAck()}>Try again</button>
           </div>
         ) : null}
-      </AppPageContentRegion>
+      </div>
       {user ? (
         <VaultUnlockDialog
           user={user}
@@ -485,12 +457,13 @@ export function OneSetupHub() {
           onOpenChange={setVaultDialogOpen}
           dismissible={false}
           enableGeneratedDefault
+          setupPresentation
           title="Set a lock"
           description="Only you can open what you save. Not even we can read it."
           onSuccess={() => undefined}
         />
       ) : null}
-    </AppPageShell>
+    </SetupV10Surface>
   );
 }
 

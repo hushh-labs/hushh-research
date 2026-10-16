@@ -19,13 +19,9 @@ import {
 import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
 import type { PreVaultOnboardingAnswers } from "@/lib/services/pre-vault-onboarding-service";
 
-// Unresolved-onboarding users land directly on the one mandatory step --
-// choosing an AI -- rather than the `/one/setup` hub around it. The hub has
-// nothing else to show while that's the only remaining item, so routing
-// through it first is a redundant extra screen, not a safety rail: the hub
-// itself is unchanged and stays reachable (e.g. after the AI choice, or via
-// an explicit `/one/setup` deep link) for whatever it still needs to surface.
-const PRE_VAULT_ROUTE = ROUTES.ONE_SETUP_CONNECTIONS;
+// The setup hub is the first screen after phone verification. It introduces
+// the required AI choice before the lock and recovery-key steps.
+const PRE_VAULT_ROUTE = ROUTES.ONE_SETUP;
 // The canonical post-auth landing is the root Chat workspace. `/one` remains
 // an explicit dashboard destination; it must not win over an organic login.
 const DEFAULT_HOME_ROUTE = ROUTES.HOME;
@@ -184,7 +180,7 @@ export class PostAuthRouteService {
       if (remoteState.setupCompleted === false && !setupResolved) {
         if (
           hasExplicitRedirect &&
-          (isSetupHubRedirect || fallbackPathname === PRE_VAULT_ROUTE)
+          (isSetupHubRedirect || fallbackPathname === ROUTES.ONE_SETUP_CONNECTIONS)
         )
           return fallbackRoute;
         return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE

@@ -10,15 +10,22 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { SetupV10Icon, SetupV10Surface } from "@/components/onboarding/setup/setup-v10-surface";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
 import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
+import aiStyles from "./one-setup-ai.module.css";
 import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
+import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
+  buildOneSetupRoute,
+  buildInitialContactsWelcomeRoute,
   resolveOneSetupCompletionTarget,
   resolveOneSetupReturnTo,
   ROUTES,
@@ -55,6 +62,7 @@ export function GeminiRuntimeConfigurationPage({
     null,
   );
   const [canContinue, setCanContinue] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [setupVaultDialogOpen, setSetupVaultDialogOpen] = useState(false);
@@ -190,18 +198,30 @@ export function GeminiRuntimeConfigurationPage({
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      await acknowledgeOneSetupExit({
+      if (activeUserRef.current !== user.uid) return;
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      const showContactsWelcome =
+        bootstrap?.initialContactsWelcomeAcknowledged === false ||
+        InitialContacts.getSnapshot().ownerId === user.uid;
+      const completion = acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: false,
         isVaultUnlocked: true,
         vaultKey,
         vaultOwnerToken,
       });
+      // The completion latch can make the admission guard unmount this screen
+      // before the durable write settles. Queue the owner-scoped greeting in
+      // the same turn as the latch, after the encrypted setup work above.
+      if (!showContactsWelcome) queueEntryWelcome(user.uid);
+      await completion;
       if (activeUserRef.current !== user.uid) return;
-      queueEntryWelcome(user.uid);
       setSetupVaultDialogOpen(false);
-      router.replace(completionTarget);
-      return completionTarget;
+      const next = showContactsWelcome
+        ? buildInitialContactsWelcomeRoute(completionTarget)
+        : completionTarget;
+      router.replace(next);
+      return next;
     })();
     finalizationInFlightRef.current = finalize;
     try {
@@ -312,6 +332,113 @@ export function GeminiRuntimeConfigurationPage({
           ]
         : [],
   });
+
+  const backToSetup = () => {
+    if (finishing) return;
+    setMenuOpen(false);
+    router.replace(buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(
+        new URLSearchParams(window.location.search).get("return_to"),
+      ),
+    }));
+  };
+
+  if (setupMode) {
+    return (
+      <SetupV10Surface
+        stage="ai"
+        onBack={backToSetup}
+        backDisabled={finishing}
+        onMenu={() => {
+          if (!finishing) setMenuOpen((open) => !open);
+        }}
+        menuDisabled={finishing}
+        menuOpen={menuOpen}
+        menuContent={<button type="button" onClick={backToSetup}>Back to setup</button>}
+        contentClassName={aiStyles.content}
+      >
+        <NativeTestBeacon
+          routeId="/one/setup/connections"
+          marker="native-route-one-setup-connections"
+          authState={user ? "authenticated" : "pending"}
+          dataState={authLoading || hasVault === null || hasRuntimeChoice === null ? "loading" : "loaded"}
+        />
+        <h1 className={aiStyles.heading}>Choose your AI</h1>
+        <p className={aiStyles.subtitle}>Use ours, or bring your own key.</p>
+        <div className={aiStyles.available}>
+          <GeminiLogo title="Google Gemini" />
+          <strong>Google Gemini</strong>
+          <span>Available now</span>
+        </div>
+        <div className={aiStyles.runtimeCard}>
+          <GeminiRuntimeSettingsCard
+            userId={user?.uid}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken}
+            needsVaultCreation={needsVaultCreation}
+            needsUnlock={needsUnlock}
+            onRequestVaultCreation={() => setUnlockOpen(true)}
+            onRequestVaultUnlock={() => setUnlockOpen(true)}
+            requiresExplicitSelection
+            initiallyConfigured={hasRuntimeChoice === true && (
+              setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+              Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
+            )}
+            onCanContinueChange={setCanContinue}
+            initialSetupChoice={setupChoice}
+            onSelectionReadyChange={user?.uid
+              ? async (choice) => {
+                  const state = await PreVaultUserStateService.markOneRuntimeChoice(user.uid, choice);
+                  setSetupChoice(state.oneRuntimeSetupChoice);
+                  setHasRuntimeChoice(true);
+                }
+              : undefined}
+            onPreVaultDraftStaged={user?.uid
+              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+              : undefined}
+            onPreVaultDraftCleared={user?.uid
+              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
+              : undefined}
+          />
+        </div>
+        <div className={aiStyles.footer}>
+          {canContinue ? <PwmResearchDisclosure compact className={aiStyles.disclosure} /> : null}
+          <Button
+            type="button"
+            variant="blue"
+            effect="fill"
+            size="prominent"
+            fullWidth
+            className={aiStyles.continue}
+            onClick={() => void finishConnections()}
+            loading={finishing}
+            disabled={!canContinue || finishing}
+            data-testid="one-setup-connections-terminal"
+            data-voice-control-id="one-setup-connections-terminal"
+            data-voice-action-id="setup.finish_connections"
+            data-voice-label="Continue"
+            data-voice-purpose="Record the selected Gemini runtime and finish setup."
+          >
+            Continue <SetupV10Icon name="arrow-right" size={18} />
+          </Button>
+        </div>
+        {finalizationError ? <p role="alert" className={aiStyles.error}>{finalizationError}</p> : null}
+        {user ? (
+          <VaultUnlockDialog
+            user={user}
+            open={setupVaultDialogOpen}
+            onOpenChange={setSetupVaultDialogOpen}
+            dismissible={false}
+            enableGeneratedDefault
+            setupPresentation
+            title="Set a lock"
+            description="Only you can open what you save. Not even we can read it."
+            onSuccess={() => undefined}
+          />
+        ) : null}
+      </SetupV10Surface>
+    );
+  }
 
   const content = (
     <AppPageShell

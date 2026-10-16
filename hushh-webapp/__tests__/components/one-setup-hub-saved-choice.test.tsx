@@ -51,7 +51,7 @@ beforeEach(() => {
   state.listener = null;
   state.unsubscribe.mockClear();
   state.replace.mockClear();
-  state.queueEntryWelcome.mockClear();
+  state.queueEntryWelcome.mockReset();
   state.updatePreferences.mockReset().mockImplementation(async () => {
     state.completionOrder.push("pwm-preferences");
   });
@@ -77,7 +77,7 @@ describe("Setup saved AI choice", () => {
     expect(finish).toBeDisabled();
     act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));
     await waitFor(() => expect(finish).toBeEnabled());
-    expect(screen.getByRole("button", { name: "Choose your AI: Selected" })).toBeVisible();
+    expect(screen.getByTestId("one-setup-ai-choice")).toHaveTextContent("Selected");
     fireEvent.click(finish);
     await screen.findByRole("dialog");
     view.unmount();
@@ -92,7 +92,7 @@ describe("Setup saved AI choice", () => {
 
     // Research is disclosed, not asked: no checkbox and no preferences write.
     expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
-      "Your private agent will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.",
+      "One uses public info for your Personal World Model and emails you when ready. Review before saving; turn either off anytime.",
     );
     expect(screen.queryByRole("checkbox")).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
@@ -102,5 +102,37 @@ describe("Setup saved AI choice", () => {
     expect(state.queueEntryWelcome).not.toHaveBeenCalled();
     expect(state.updatePreferences).not.toHaveBeenCalled();
     expect(state.completionOrder).toEqual(["setup-acknowledgement"]);
+  });
+
+  it("queues the first Chat greeting before setup acknowledgement settles", async () => {
+    state.saved = true;
+    state.unlocked = true;
+    let releaseAcknowledgement: (() => void) | undefined;
+    const acknowledgement = new Promise<void>((resolve) => {
+      releaseAcknowledgement = resolve;
+    });
+    state.acknowledgeSetupExit.mockImplementation(() => {
+      state.completionOrder.push("acknowledgement-started");
+      return acknowledgement;
+    });
+    state.queueEntryWelcome.mockImplementation(() => {
+      state.completionOrder.push("greeting-queued");
+    });
+
+    render(<OneSetupHub />);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(state.queueEntryWelcome).toHaveBeenCalledWith("owner"));
+    expect(state.completionOrder).toEqual([
+      "acknowledgement-started",
+      "greeting-queued",
+    ]);
+    expect(state.replace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseAcknowledgement?.();
+      await acknowledgement;
+    });
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
   });
 });

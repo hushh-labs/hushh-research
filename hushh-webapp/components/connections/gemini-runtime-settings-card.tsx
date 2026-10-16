@@ -559,7 +559,7 @@ export function GeminiRuntimeSettingsCard({
         leading={<GeminiLogo className="h-8 w-8" />}
         title="Use my own key"
         description={
-          requiresExplicitSelection && !vaultReady
+          requiresExplicitSelection
             ? "Add your own Gemini key."
             : "Your key stays locked to you."
         }
