@@ -94,6 +94,11 @@ for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, 
     await composer.fill("Unsaved draft مرحبا");
     await page.getByRole("button", { name: "Open chat history", exact: true }).click();
     const create = page.getByRole("button", { name: entry, exact: true });
+    // Let the drawer finish its initial focus before choosing a keyboard target.
+    await expect(page.getByRole("button", { name: "Open Connectors", exact: true })).toBeFocused();
+    await expect(create).toBeEnabled();
+    await create.focus();
+    await expect(create).toBeFocused();
     const box = await create.boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
     await page.context().setOffline(true);

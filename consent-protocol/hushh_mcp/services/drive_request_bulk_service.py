@@ -288,6 +288,21 @@ class DriveRequestBulkService:
                 return takeover
         if existing is not None and existing["status"] not in {"failed", "limited", "stopped"}:
             return existing
+        if existing is not None and existing["status"] == "failed":
+            # A retry continues the same frozen plan, provider cursor and
+            # result positions. Recreating a search could duplicate or change
+            # progressive batches already bound to those positions.
+            context = await self._context(user_id, request_id, start=True)
+            recovered, changed = await self.search.store.retry_failed_request(
+                user_id=user_id,
+                request_id=request_id,
+                request_revision=context["revision"],
+                authority_mode=authority_mode,
+            )
+            if recovered is not None:
+                if changed:
+                    await self.wake("v1" if context.get("v1LiveRequest") else "suggestions")
+                return recovered
         route = None
         if authority_mode == "agent_package" and not context.get("v1LiveRequest"):
             route = await self.search.request_evidence_route(
