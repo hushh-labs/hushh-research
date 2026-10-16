@@ -50,6 +50,38 @@ async function attachPhoto() {
   return file;
 }
 
+it.each([false, true])("keeps the Alerts switch consistent while saving from muted=%s", async (muted) => {
+  api.state.mockResolvedValue({ unreadCount: 1, latestSequence: 1, muted });
+  let finish!: (value: { muted: boolean }) => void;
+  api.mute.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  const toggle = await screen.findByRole("switch", { name: "Chat alerts" });
+  expect(toggle).toHaveAttribute("aria-checked", String(!muted));
+  fireEvent.click(toggle);
+  expect(api.mute).toHaveBeenCalledWith(session, !muted);
+  expect(toggle).toBeDisabled();
+  expect(toggle).toHaveAttribute("aria-checked", String(!muted));
+  fireEvent.click(toggle);
+  expect(api.mute).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ muted: !muted }));
+  expect(toggle).toHaveAttribute("aria-checked", String(muted));
+  expect(toggle).toBeEnabled();
+});
+
+it("preserves Alerts after a failed save and recovers through Reconnect", async () => {
+  api.mute.mockRejectedValueOnce(new ApiError("Unavailable", 500)).mockResolvedValueOnce({ muted: true });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  const toggle = await screen.findByRole("switch", { name: "Chat alerts" });
+  fireEvent.click(toggle);
+  await screen.findByRole("alert");
+  expect(toggle).toHaveAttribute("aria-checked", "true");
+  expect(toggle).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("switch", { name: "Chat alerts" }));
+  await waitFor(() => expect(screen.getByRole("switch", { name: "Chat alerts" })).toHaveAttribute("aria-checked", "false"));
+});
+
 it("shows the photo before preparation, retries identical ciphertext and reconciles a transcript confirmation before POST", async () => {
   const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

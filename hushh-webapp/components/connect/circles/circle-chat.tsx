@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, BellOff, Bell, ArrowDown, Mic, Plus } from "@/components/icons";
+import { MessageCircle, ImageIcon, ArrowDown, Mic, Plus } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -169,11 +170,13 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 text-primary-foreground">{state.unreadCount}</span> : null}
       </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Circle chat</span>
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{state.unreadCount}</span> : null}</div>}
-      {open && state ? <ShellActionSurface variant="icon" className="min-h-11 min-w-11 shrink-0 gap-2 px-3 text-sm" aria-pressed={!state.muted} aria-label={state.muted ? "Unmute notifications" : "Mute notifications"} disabled={muting} onClick={async () => {
+      {open && state ? <label className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground"><span>Alerts</span>
+        <Switch size="ios" aria-label="Chat alerts" checked={!state.muted} disabled={muting} aria-busy={muting}
+          className="motion-reduce:transition-none motion-reduce:[&_[data-slot=switch-thumb]]:transition-none" onCheckedChange={async (enabled) => {
         setMuting(true);
-        try { const next = await CircleChatService.mute(session, !state.muted); setState((old) => old ? { ...old, muted: next.muted } : old); }
+        try { const next = await CircleChatService.mute(session, !enabled); setState((old) => old ? { ...old, muted: next.muted } : old); }
         catch (err) { setError(errorText(err)); } finally { setMuting(false); }
-      }}>{state.muted ? <BellOff className="size-4" aria-hidden="true" /> : <Bell className="size-4" aria-hidden="true" />}<span>{state.muted ? "Muted" : "Alerts on"}</span></ShellActionSurface> : null}
+      }} /></label> : null}
     </div> : null}
     {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}

@@ -13,12 +13,14 @@ const message: OpenChatMessage = {
 };
 beforeEach(() => { api.react.mockReset(); window.localStorage.clear(); });
 
-test("Circle reaction picker saves immediately, toggles a pill, and closes outside", async () => {
+test("Circle smiley opens the reaction picker, saves immediately, toggles a pill, and closes outside", async () => {
   let resolve!: (value: { messageId: string; reactions: NonNullable<OpenChatMessage["reactions"]> }) => void;
   api.react.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   render(<CircleChatMessage message={message} session={session} visible layoutBlocked={false}
     scrollRoot={{ current: null }} onMediaError={() => {}} onViewerChange={() => {}} />);
-  fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+  const trigger = screen.getByRole("button", { name: "React to message" });
+  expect(trigger.textContent).toBe("☺");
+  fireEvent.click(trigger);
   expect(screen.getByRole("dialog", { name: "Emoji picker" })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog", { name: "Emoji picker" })).toBeNull();
@@ -27,6 +29,9 @@ test("Circle reaction picker saves immediately, toggles a pill, and closes outsi
   fireEvent.click(screen.getByRole("button", { name: "Use ❤️", exact: true }));
   expect(screen.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeTruthy();
   expect(api.react).toHaveBeenCalledWith(session, message, "❤️", true);
+  expect(trigger.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(trigger);
+  expect(api.react).toHaveBeenCalledTimes(1);
   await act(async () => resolve({ messageId: message.id, reactions: [{ emoji: "❤️", count: 2, reactedByViewer: true }] }));
   expect(screen.getByRole("button", { name: "❤️, 2 reactions, you reacted" })).toBeTruthy();
   api.react.mockResolvedValueOnce({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: false }] });

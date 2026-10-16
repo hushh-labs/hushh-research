@@ -19,10 +19,11 @@ if (new URLSearchParams(location.search).has("workspace")) {
   );
 }
 let failed = false;
+let muted = false;
 type Reaction = { emoji: string; count: number; reactedByViewer: boolean };
 const reactions = new Map<string, Reaction[]>();
-const fixture = window as unknown as { chatFixture: { failNext: boolean; sends: unknown[]; read: number[]; loseAccess: boolean; prepareDelayMs: number; sendDelayMs: number; imageMessageIds: string[] } };
-fixture.chatFixture = { failNext: false, sends: [], read: [], loseAccess: false, prepareDelayMs: 0, sendDelayMs: 0, imageMessageIds: [] };
+const fixture = window as unknown as { chatFixture: { failNext: boolean; failNextReaction: boolean; failNextMute: boolean; sends: unknown[]; read: number[]; loseAccess: boolean; prepareDelayMs: number; sendDelayMs: number; imageMessageIds: string[] } };
+fixture.chatFixture = { failNext: false, failNextReaction: false, failNextMute: false, sends: [], read: [], loseAccess: false, prepareDelayMs: 0, sendDelayMs: 0, imageMessageIds: [] };
 Object.assign(fixture.chatFixture, { incoming: () => {
   history.push({ id: `incoming-${history.length}`, sequence: history.length + 1, senderUserId: "bob", senderName: "Kushal Trivedi", createdAt: new Date().toISOString(), text: "Incoming while reading history", image: false });
   window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: "alice", circleId: "circle" } }));
@@ -30,7 +31,7 @@ Object.assign(fixture.chatFixture, { incoming: () => {
 export const CircleChatService = {
   initialize: async () => undefined,
   wait: () => new Promise(() => {}),
-  state: async () => ({ unreadCount: 1, latestSequence: history.at(-1)!.sequence, muted: false }),
+  state: async () => ({ unreadCount: 1, latestSequence: history.at(-1)!.sequence, muted }),
   messages: async (_session: unknown, cursor: { before?: number; after?: number } = {}) => {
     if (fixture.chatFixture.loseAccess) throw new ApiError("Circle unavailable", 404, { detail: { code: "CIRCLE_CHAT_UNAVAILABLE" } });
     const rows = history.filter((m) => (!cursor.before || m.sequence < cursor.before) && (!cursor.after || m.sequence > cursor.after));
@@ -54,11 +55,16 @@ export const CircleChatService = {
   },
   read: async (_session: unknown, sequence: number) => { fixture.chatFixture.read.push(sequence); },
   react: async (_session: unknown, message: { id: string }, emoji: string, active: boolean) => {
+    if (fixture.chatFixture.failNextReaction) { fixture.chatFixture.failNextReaction = false; throw new ApiError("Reaction timed out", 504); }
     const current = (reactions.get(message.id) ?? []).filter((item) => item.emoji !== emoji);
     if (active) current.push({ emoji, count: 1, reactedByViewer: true });
     reactions.set(message.id, current);
     return { messageId: message.id, reactions: current };
   },
-  mute: async (_session: unknown, muted: boolean) => ({ muted }),
+  mute: async (_session: unknown, nextMuted: boolean) => {
+    if (fixture.chatFixture.failNextMute) { fixture.chatFixture.failNextMute = false; throw new ApiError("Chat alerts could not be updated.", 503); }
+    muted = nextMuted;
+    return { muted };
+  },
   image: async (_session: unknown, message: { id: string }) => { fixture.chatFixture.imageMessageIds.push(message.id); return new Blob([Uint8Array.from(atob(__CIRCLE_CHAT_FIXTURE_MEDIA__), (c) => c.charCodeAt(0))], { type: "image/webp" }); },
 };

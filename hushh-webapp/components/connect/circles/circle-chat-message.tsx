@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Check, CheckCheck, Plus } from "@/components/icons";
+import { Check, CheckCheck } from "@/components/icons";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
@@ -92,13 +92,13 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 : <span role="status">{message.delivery === "sending" ? "Sending…" : "Delivery unconfirmed"}</span> : null}
             </div>
           </div>
+          {confirmed ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked}
+            triggerClassName={styles.addReaction}
+            dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
         </div>
-        {confirmed ? <div className={styles.pills}>{reactions.map((reaction) => <button key={reaction.emoji} type="button"
+        {confirmed && reactions.length > 0 ? <div className={styles.pills}>{reactions.map((reaction) => <button key={reaction.emoji} type="button"
           className={`${styles.pill} ${reaction.reactedByViewer ? styles.mine : ""}`} aria-label={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByViewer ? ", you reacted" : ""}`}
           disabled={busy || !visible || layoutBlocked} onClick={() => void react(reaction.emoji)}><span className={styles.badge}><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></span></button>)}
-          <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked}
-            triggerClassName={styles.addReaction} triggerIcon={<Plus className="size-4" />}
-            dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} />
         </div> : null}
         {reactionError ? <p role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
       </div>
