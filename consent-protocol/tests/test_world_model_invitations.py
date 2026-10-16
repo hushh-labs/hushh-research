@@ -1,5 +1,6 @@
 """Contact-bound claims and reset share one serialized database authority."""
 
+import json
 import os
 import sys
 from hashlib import sha256
@@ -348,7 +349,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             read_at,dismissed_at,dismissal_token)
             VALUES ('recipient','pwm','pwm_research',$1,$2,NOW(),NOW(),'synthetic-dismissal')""",
             str(draft_id),
-            {"draft_id": str(draft_id), "pwm_outcome": "attention"},
+            json.dumps({"draft_id": str(draft_id), "pwm_outcome": "attention"}),
         )
         state.update(
             status="offered",
