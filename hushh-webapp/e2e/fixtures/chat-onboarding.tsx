@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { CHAT_USER_BUBBLE_CLASSNAME } from "../../components/agent/chat-message-styles";
@@ -10,7 +10,9 @@ import {
   ChatOnboardingDailyTip,
   ChatOnboardingTurns,
 } from "../../components/agent/chat-onboarding/chat-onboarding-transcript";
-import type { ChatOnboardingController } from "../../lib/agent/chat-onboarding/use-chat-onboarding";
+import { useChatOnboarding, type ChatOnboardingController } from "../../lib/agent/chat-onboarding/use-chat-onboarding";
+import { useOneDisplayName } from "../../lib/agent/use-one-display-name";
+import { ApiService } from "@/lib/services/api-service";
 import type { ChatOnboardingTurn } from "../../lib/agent/chat-onboarding/chat-onboarding-machine";
 import {
   CHAT_ONBOARDING_FOCUS_PLAN,
@@ -113,4 +115,48 @@ function Harness() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Harness />);
+function NameJourney() {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const name = useOneDisplayName();
+  const controller = useChatOnboarding({
+    userId: "synthetic-owner", displayName: "Owner", vaultKey: "ab".repeat(32),
+    vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true, startSignal: true,
+    messages: [], conversationId: "synthetic-chat", visiblePrompts: [],
+    onFocusComposer: () => input.current?.focus(),
+  });
+  async function submit() {
+    if (!text.trim() || sending || controller.busy) return;
+    const turn = controller.beginNameTurn?.(() => true);
+    setSending(true);
+    setMessage("");
+    try {
+      const response = await ApiService.apiFetch("/__fixture/one", { method: "POST", body: JSON.stringify({ text, ...turn?.screenState }) });
+      if (!response.ok) throw new Error("Synthetic turn failure");
+      turn?.stage(await response.json(), "name-call");
+      turn?.finish(true);
+      setText("");
+    } catch {
+      turn?.finish(false);
+      setMessage("I couldn't read that reply. Please try again.");
+    } finally { setSending(false); }
+  }
+  return <main className="mx-auto flex max-w-4xl flex-col gap-6 p-4 text-foreground">
+    <div aria-label="Chat profile name" className="text-center">{name}</div>
+    <ChatOnboardingTurns controller={controller} slot={{ kind: "top" }}
+      renderBubble={message => <p>{message.text}</p>} onConnect={() => undefined} />
+    <form onSubmit={event => { event.preventDefault(); void submit(); }} className="flex gap-2">
+      <input ref={input} aria-label="Your reply" placeholder={controller.composerPlaceholder ?? "Message One"}
+        value={text} onChange={event => setText(event.target.value)} disabled={sending || controller.busy}
+        className="min-h-11 min-w-0 flex-1 rounded-full border px-4" />
+      <button disabled={sending || controller.busy || !text.trim()} className="min-h-11 px-4">Send</button>
+    </form>
+    <p role="status">{sending || controller.busy ? "Saving your answer…" : message}</p>
+  </main>;
+}
+
+createRoot(document.getElementById("root")!).render(
+  window.location.search.includes("name-journey") ? <NameJourney /> : <Harness />,
+);

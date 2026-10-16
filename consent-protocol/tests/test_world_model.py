@@ -1,6 +1,7 @@
 """Native SDK evidence and identity regressions; no live provider calls."""
 
 import copy
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -8,7 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.one_adk import world_model as pwm
-from hushh_mcp.one_adk.world_model_contracts import TOPICS, IdentityAssessment, WorldModelReport
+from hushh_mcp.one_adk.world_model_contracts import (
+    TOPICS,
+    IdentityAssessment,
+    WorldModelReport,
+    validated_facts_from_work,
+)
 
 IDENTITY = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
 PLAN = {
@@ -80,7 +86,10 @@ def report():
 
 
 @pytest.mark.asyncio
-async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_receipts(monkeypatch):
+@pytest.mark.parametrize("resume_started", [False, True])
+async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_receipts(
+    monkeypatch, resume_started
+):
     from google.adk.models.base_llm import BaseLlm
     from google.adk.models.llm_response import LlmResponse
     from google.genai import types
@@ -97,8 +106,16 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
             )
         )
 
+    search_plan = {**PLAN, "topics": ["career", "education"]}
+    mistaken_report = report()
+    mistaken_report["coverage"][TOPICS.index("career")]["attempt_ids"] = [2]
+    repaired_coverage = copy.deepcopy(mistaken_report["coverage"])
+    repaired_coverage[TOPICS.index("career")]["attempt_ids"] = [1]
+    repaired_coverage[TOPICS.index("education")].update(
+        status="unavailable", attempt_ids=[1], explanation="No reliable education finding."
+    )
     responses = [
-        call("search_public_web", {"plan_json": json.dumps(PLAN)}),
+        call("search_public_web", {"plan_json": json.dumps(search_plan)}),
         LlmResponse(
             content=types.Content(
                 role="model",
@@ -111,7 +128,27 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
             ),
         ),
         call("assess_identity", {"assessment_json": json.dumps(assessment())}),
-        call("finish_task", report()),
+        call(
+            "record_findings",
+            {
+                "batch_json": json.dumps(
+                    {
+                        "candidate_id": "c1",
+                        "attempt_id": 1,
+                        "topic": "career",
+                        "facts": [
+                            {
+                                "statement": "Builds software.",
+                                "confidence": "supported",
+                                "sources": [{"title": "Bio", "ref": "s1"}],
+                            }
+                        ],
+                    }
+                )
+            },
+        ),
+        call("finish_task", mistaken_report),
+        call("finish_task", {"coverage": repaired_coverage, "gaps": mistaken_report["gaps"]}),
     ]
 
     class FakeModel(BaseLlm):
@@ -120,9 +157,13 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         async def generate_content_async(self, llm_request, stream=False):
             assert responses, "Unexpected model dispatch"
             requests.append(llm_request.model_copy(deep=True))
-            if len(responses) == 3:
-                assert charges == [33, 1, 34]
+            if len(responses) == 5:
+                assert charges == ([33, 34] if resume_started else [33, 1, 34])
                 assert snapshots[-1]["attempts"]["1"]["state"] == "started"
+            if len(responses) == 1:
+                repair_input = json.loads(llm_request.contents[-1].parts[0].text)
+                assert repair_input["selected_candidate_id"] == "c1"
+                assert repair_input["identity_state"] == "owner_linked"
             yield responses.pop(0)
 
     monkeypatch.setattr(
@@ -136,6 +177,31 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         snapshots.append(copy.deepcopy(value))
 
     decisions = {"confirmed": ["Builds software."], "rejected": ["Likes the color blue."]}
+    request = {
+        "exact_owner_fields": {"email": IDENTITY["email"], "full_name": IDENTITY["full_name"]},
+        "evidenced_anchors": [],
+        "research_question": search_plan["question"],
+    }
+    query_key = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+    prior_work = (
+        {
+            "sources": {},
+            "search_suggestions": [],
+            "attempts": {
+                "1": {
+                    "plan": search_plan,
+                    "query_key": query_key,
+                    "observed": False,
+                    "answer": "",
+                    "source_refs": [],
+                    "state": "started",
+                    "at": 1.0,
+                }
+            },
+        }
+        if resume_started
+        else None
+    )
     result = await pwm.run_world_model(
         identity=IDENTITY,
         user_id="owner",
@@ -144,18 +210,36 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         on_attempts_start=charge,
         on_progress=progress,
         owner_decisions=decisions,
+        work=prior_work,
+        attempts_used=(1,) if resume_started else (),
     )
     # Owner decisions reach the model as structured data, not filtered output.
     sent = json.loads(requests[0].contents[-1].parts[0].text)
     assert sent["owner_decisions"] == decisions
+    assert "record_findings" in sent["finding_checkpoint_instruction"]
+    assert "attempt_id" in sent["finding_batch_schema"]["properties"]
     assert result["status"] == "offered"
     assert result["research"]["source_use"] == "google_grounded_display_only"
     assert (
         result["report"]["sections"][0]["facts"][0]["sources"][0]["url"]
         == "https://example.test/alex"
     )
-    assert charges == [33, 1, 34, 35, 36]
+    assert result["research"]["coverage"][TOPICS.index("career")]["attempt_ids"] == [1]
+    assert result["research"]["coverage"][TOPICS.index("education")]["status"] == "unavailable"
+    assert result["research"]["coverage"][TOPICS.index("education")]["attempt_ids"] == [1]
+    assert charges == ([33, 34, 35, 36, 37, 38] if resume_started else [33, 1, 34, 35, 36, 37, 38])
     assert snapshots[1]["attempts"]["1"]["state"] == "received"
+    provisional = validated_facts_from_work(snapshots[-1])
+    assert len(provisional) == 1 and provisional[0]["id"].startswith("p")
+    assert [{key: value for key, value in fact.items() if key != "id"} for fact in provisional] == [
+        {
+            "topic": "career",
+            "statement": "Builds software.",
+            "confidence": "supported",
+            "sources": [{"title": "Bio", "url": "https://example.test/alex"}],
+            "identity_state": "owner_linked",
+        }
+    ]
     assert not responses
 
 

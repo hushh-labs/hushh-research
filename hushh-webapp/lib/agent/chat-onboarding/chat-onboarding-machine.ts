@@ -20,7 +20,6 @@ import {
   focusLabel,
   focusQuestionText,
   nameChips,
-  normalizePreferredName,
   resumeQuestionText,
   toneChips,
   toneQuestionText,
@@ -52,6 +51,8 @@ export type ChatOnboardingProgress = {
 export type ChatOnboardingStep =
   | "name"
   | "name_typing"
+  | "saving_name"
+  | "name_save_failed"
   | "focus"
   | "tone"
   | "confirm"
@@ -99,6 +100,7 @@ export type ChatOnboardingEvent =
     }
   | { type: "chip"; chipId: ChatOnboardingChipId; anchor: string | null; today: string; firstName: string | null }
   | { type: "typed_answer"; text: string; anchor: string | null; today: string }
+  | { type: "name_assessment"; decision: "name" | "skip" | "clarify" | "other"; name?: string; anchor: string | null; today: string }
   | { type: "save_result"; ok: boolean; anchor: string | null; today: string };
 
 export type ChatOnboardingResult = {
@@ -261,41 +263,38 @@ export function reduceChatOnboarding(
   if (!state) return { state: emptyState(newChatOnboardingProgress()), effects: [] };
 
   if (event.type === "typed_answer") {
-    if (state.step !== "name_typing") return { state, effects: [], consumed: false };
-    const name = normalizePreferredName(event.text);
-    if (!name) {
-      // The person left the explicit name entry. Let One answer the ordinary
-      // turn without resuming recommendations or saving a guessed name.
-      const progress = complete({
-        ...state.progress,
-        questions: { name: "skipped", focus: "skipped", tone: "skipped" },
-      }, event.today);
-      return {
-        state: { ...state, progress, step: "done", draft: { name: null, tone: null } },
-        effects: [{ type: "persist_progress", progress }],
-        consumed: false,
-      };
+    // The text goes to One. The host may only apply its bound assessment.
+    return { state, effects: [], consumed: false };
+  }
+
+  if (event.type === "name_assessment") {
+    if (state.step !== "name_typing") return { state, effects: [] };
+    if (event.decision === "skip") {
+      return answerQuestion(state, "name", "skipped", "Skip for now", event.anchor, event.today, null);
     }
-    const answered = answerQuestion(
-      { ...state, draft: { ...state.draft, name } },
-      "name",
-      "answered",
-      name,
-      event.anchor,
-      "",
-      null,
-    );
-    return { ...answered, consumed: true };
+    if (event.decision !== "name" || !event.name) return { state, effects: [] };
+    return {
+      state: pushTurn(
+        { ...state, step: "saving_name", draft: { name: event.name, tone: null } },
+        { role: "assistant", text: "Saving your name…", anchor: event.anchor },
+      ),
+      effects: [{ type: "save_preferences", name: event.name, tone: null }],
+    };
   }
 
   if (event.type === "save_result") {
-    if (state.step !== "saving") return { state, effects: [] };
+    if (state.step !== "saving" && state.step !== "saving_name") return { state, effects: [] };
+    // Replace the temporary saving turn with the outcome, rather than leaving
+    // a stale progress message in the transcript.
+    if (state.step === "saving_name") state = { ...state, turns: state.turns.slice(0, -1) };
     if (!event.ok) {
       const next = pushTurn(
-        { ...state, step: "save_failed" },
+        { ...state, step: state.step === "saving_name" ? "name_save_failed" : "save_failed" },
         {
           role: "assistant",
-          text: SAVE_FAILED_TEXT,
+          text: state.step === "saving_name"
+            ? "I couldn't confirm your name was saved. Try again, or tell me later."
+            : SAVE_FAILED_TEXT,
           anchor: event.anchor,
           chips: [
             { id: "retry_save", label: "Try again" },
@@ -304,6 +303,14 @@ export function reduceChatOnboarding(
         },
       );
       return { state: next, effects: [] };
+    }
+    if (state.step === "saving_name") {
+      const progress = mark(state.progress, "name", "answered");
+      const next = askQuestion(
+        { ...state, progress, draft: { name: null, tone: null } },
+        "focus", focusQuestionText(state.draft.name, false), event.anchor, null,
+      );
+      return { state: next, effects: [{ type: "persist_progress", progress }] };
     }
     const progress = complete(state.progress, event.today);
     const next = pushTurn(
@@ -343,20 +350,14 @@ export function reduceChatOnboarding(
       );
     }
     if (chipId === "name_other") {
-      // Explicitly leave the optional questions. Do not classify the next
-      // message as a name or resume recommendations on another visit.
-      const progress = complete({
-        ...state.progress,
-        questions: { name: "skipped", focus: "skipped", tone: "skipped" },
-      }, today);
       const next = pushTurn(
         pushTurn(
-          { ...state, progress, step: "done", draft: { name: null, tone: null } },
+          { ...state, step: "name_typing", draft: { name: null, tone: null } },
           { role: "user", text: "Something else", anchor },
         ),
-        { role: "assistant", text: "Okay. What would you like help with?", anchor },
+        { role: "assistant", text: "Okay. What should I call you?", anchor, chips: [{ id: "skip", label: "Skip for now" }] },
       );
-      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "focus_composer" }] };
+      return { state: next, effects: [{ type: "focus_composer" }] };
     }
     return { state, effects: [] };
   }
@@ -391,11 +392,16 @@ export function reduceChatOnboarding(
     );
   }
 
-  if ((current === "confirm" && chipId === "save") || (current === "save_failed" && chipId === "retry_save")) {
-    const next = pushTurn(
-      { ...state, step: "saving" },
+  if (current === "name_save_failed" && chipId === "dont_save") {
+    return answerQuestion({ ...state, draft: { name: null, tone: null } }, "name", "skipped", "Not now", anchor, today, firstName);
+  }
+  if ((current === "confirm" && chipId === "save") || ((current === "save_failed" || current === "name_save_failed") && chipId === "retry_save")) {
+    let next = pushTurn(
+      { ...state, step: current === "name_save_failed" ? "saving_name" : "saving" },
       { role: "user", text: chipId === "save" ? "Save to memory" : "Try again", anchor },
     );
+    if (current === "name_save_failed")
+      next = pushTurn(next, { role: "assistant", text: "Saving your name…", anchor });
     return {
       state: next,
       effects: [{ type: "save_preferences", name: state.draft.name, tone: state.draft.tone }],
@@ -419,6 +425,6 @@ export function reduceChatOnboarding(
 export function activeChipTurnId(state: ChatOnboardingState | null): string | null {
   const last = state?.turns.at(-1);
   if (!last || last.role !== "assistant" || !last.chips?.length) return null;
-  if (state?.step === "done" || state?.step === "saving") return null;
+  if (state?.step === "done" || state?.step === "saving" || state?.step === "saving_name") return null;
   return last.id;
 }

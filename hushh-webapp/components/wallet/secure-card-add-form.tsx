@@ -85,6 +85,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const nameCaret = useRef<{ input: HTMLInputElement; start: number; end: number } | null>(null);
+  useLayoutEffect(() => {
+    const pending = nameCaret.current; nameCaret.current = null;
+    if (pending && document.activeElement === pending.input) pending.input.setSelectionRange(pending.start, pending.end);
+  }, [cardholderName]);
   const entryCaret = useRef<{ input: HTMLInputElement; digits: number } | null>(null);
   useLayoutEffect(() => {
     const pending = entryCaret.current;
@@ -236,7 +241,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
         setScanReading(draft);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(formatCardExpiryInput(draft.fields.expiry));
-        if (draft.fields.cardholderName && (!edited.current.cardholderName || !cardholderName.trim())) setCardholderName(draft.fields.cardholderName);
+        if (draft.fields.cardholderName && (!edited.current.cardholderName || !cardholderName.trim())) setCardholderName(draft.fields.cardholderName.toUpperCase());
         setNetwork(""); setErrors([]);
       }} /> : null;
 
@@ -285,7 +290,13 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             <Input
               id={`${id}-holder`}
               value={draftVisible ? cardholderName : ""}
-              onChange={(event) => { edited.current.cardholderName = true; setCardholderName(event.target.value); }}
+              onChange={(event) => {
+                const input = event.currentTarget;
+                nameCaret.current = { input, start: input.value.slice(0, input.selectionStart ?? input.value.length).toUpperCase().length, end: input.value.slice(0, input.selectionEnd ?? input.value.length).toUpperCase().length };
+                edited.current.cardholderName = true; setCardholderName(input.value.toUpperCase());
+              }}
+              autoCapitalize="characters"
+              spellCheck={false}
               autoComplete="off"
               maxLength={80}
               required

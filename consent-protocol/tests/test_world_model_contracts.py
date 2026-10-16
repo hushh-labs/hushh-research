@@ -7,7 +7,13 @@ import pytest
 from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSourceRef
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.one_adk.world_model_confidence import evidence_rating
-from hushh_mcp.one_adk.world_model_contracts import TOPICS, IdentityAssessment, WorldModelReport
+from hushh_mcp.one_adk.world_model_contracts import (
+    TOPICS,
+    FindingBatch,
+    IdentityAssessment,
+    WorldModelReport,
+    validated_facts_from_work,
+)
 
 PLAN = {
     "purpose": "identity",
@@ -105,6 +111,117 @@ def validate(identity):
         .validate_receipts(IdentityAssessment.model_validate(assessment()), attempts, {"s1"})
         .model_dump()
     )
+
+
+def test_coverage_receipts_reconcile_from_recorded_plans_without_changing_findings():
+    value = report(assessment()["identity"])
+    value["coverage"][TOPICS.index("career")]["attempt_ids"] = [2]
+    attempts = {
+        "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]},
+        "2": {
+            "plan": {**copy.deepcopy(PLAN), "topics": ["education"]},
+            "observed": True,
+            "source_refs": [],
+        },
+    }
+    # The second search was for education; its existence is reflected even
+    # though the model forgot that attempt in its education coverage row.
+    value["coverage"][TOPICS.index("education")]["status"] = "checked_no_findings"
+    normalized = WorldModelReport.model_validate(value).validate_receipts(
+        IdentityAssessment.model_validate(assessment()), attempts, {"s1"}
+    )
+    assert normalized.coverage[TOPICS.index("career")].attempt_ids == [1]
+    assert normalized.coverage[TOPICS.index("education")].attempt_ids == [2]
+    assert normalized.sections[0].facts[0].statement == "Builds software."
+
+
+def test_coverage_repair_keeps_candidate_and_observation_gates():
+    value = report(assessment()["identity"])
+    value["coverage"][TOPICS.index("career")]["attempt_ids"] = [2]
+    attempts = {
+        "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]},
+        "2": {
+            "plan": {**copy.deepcopy(PLAN), "candidate_id": "c2"},
+            "observed": True,
+            "source_refs": ["s2"],
+        },
+    }
+    with pytest.raises(ValueError, match="another candidate"):
+        WorldModelReport.model_validate(value).validate_receipts(
+            IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"}
+        )
+    value["coverage"][TOPICS.index("career")]["attempt_ids"] = []
+    attempts["1"]["observed"] = False
+    with pytest.raises(ValueError, match="failed search"):
+        WorldModelReport.model_validate(value).validate_receipts(
+            IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"}
+        )
+
+
+def test_identity_search_cannot_cite_an_unanchored_namesake_source():
+    attempts = {
+        "1": {
+            "plan": copy.deepcopy(PLAN),
+            "observed": True,
+            "source_refs": ["s1", "s2"],
+        }
+    }
+    value = report(assessment()["identity"])
+    value["sections"][0]["facts"][0]["sources"] = [{"title": "Namesake", "ref": "s2"}]
+    with pytest.raises(ValueError, match="unreceived source"):
+        WorldModelReport.model_validate(value).validate_receipts(
+            IdentityAssessment.model_validate(assessment()), attempts, {"s1", "s2"}
+        )
+
+
+def test_provisional_facts_need_selected_candidate_observed_plan_and_received_citation():
+    work = {
+        "assessment": assessment(),
+        "attempts": {
+            "1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1", "s2"]}
+        },
+        "sources": {
+            "s1": {"title": "Bio", "url": "https://example.test/alex"},
+            "s2": {"title": "Namesake", "url": "https://example.test/namesake"},
+        },
+        "finding_batches": [
+            {
+                "candidate_id": "c1",
+                "attempt_id": 1,
+                "topic": "career",
+                "facts": [
+                    {
+                        "statement": "Builds software.",
+                        "confidence": "supported",
+                        "sources": [{"title": "Untrusted model title", "ref": "s1"}],
+                    }
+                ],
+            }
+        ],
+    }
+    facts = validated_facts_from_work(work)
+    assert len(facts) == 1 and facts[0]["sources"] == [work["sources"]["s1"]]
+    assert facts[0]["id"].startswith("p")
+    for defect in ("candidate", "unobserved", "topic", "source", "unanchored_identity"):
+        invalid = copy.deepcopy(work)
+        batch = invalid["finding_batches"][0]
+        if defect == "candidate":
+            batch["candidate_id"] = "c2"
+        elif defect == "unobserved":
+            invalid["attempts"]["1"]["observed"] = False
+        elif defect == "topic":
+            batch["topic"] = "education"
+        elif defect == "source":
+            batch["facts"][0]["sources"][0]["ref"] = "s3"
+        else:
+            batch["facts"][0]["sources"][0]["ref"] = "s2"
+        assert validated_facts_from_work(invalid) == [], defect
+    with pytest.raises(ValueError):
+        FindingBatch.model_validate(work["finding_batches"][0]).validate_receipts(
+            IdentityAssessment.model_validate(work["assessment"]),
+            {"1": {**work["attempts"]["1"], "observed": False}},
+            {"s1"},
+        )
 
 
 def test_deep_draft_keeps_distinct_facts_without_forcing_269():
