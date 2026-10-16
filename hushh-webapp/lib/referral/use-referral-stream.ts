@@ -90,14 +90,14 @@ export function useReferralStream(
           if (done || cancelled) break;
 
           buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const frame = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            if (frame.includes("event: referral_changed")) {
+          let boundary = /\r?\n\r?\n/.exec(buffer);
+          while (boundary) {
+            const frame = buffer.slice(0, boundary.index);
+            buffer = buffer.slice(boundary.index + boundary[0].length);
+            if (frame.split(/\r?\n/).some((line) => line === "event: referral_changed")) {
               onChangeRef.current();
             }
-            boundary = buffer.indexOf("\n\n");
+            boundary = /\r?\n\r?\n/.exec(buffer);
           }
         }
 

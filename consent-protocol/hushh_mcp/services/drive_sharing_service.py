@@ -46,6 +46,9 @@ class DriveSharingService:
         owner_user_id,
         client_request_id,
         purpose,
+        access_days=None,
+        requester_profile=None,
+        reason="",
         request_time_zone=None,
         expected_quote_version=None,
     ):
@@ -54,10 +57,13 @@ class DriveSharingService:
             owner_user_id=owner_user_id,
             client_request_id=client_request_id,
             purpose=purpose,
+            access_days=access_days,
+            requester_profile=requester_profile,
+            reason=reason,
             request_time_zone=request_time_zone,
             expected_quote_version=expected_quote_version,
         )
-        await wake_drive_work_stages("suggestions", "sharing")
+        await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
 
     async def owner_pricing(self, *, user_id):
@@ -72,19 +78,19 @@ class DriveSharingService:
             amount_cents=amount_cents,
             expected_version=expected_version,
         )
-        await wake_drive_work_stages("suggestions", "sharing")
+        await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
 
     async def resume_owner_setup(self, *, user_id):
         """Internal verified account-refresh hook; no user consent is created here."""
         result = await self.store.resume_owner_setup(user_id=user_id)
-        await wake_drive_work_stages("suggestions", "sharing")
+        await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
 
     async def resume_owner_drive(self, *, user_id):
         """Internal verified-Drive hook; no user consent is created here."""
         result = await self.store.resume_owner_drive(user_id=user_id)
-        await wake_drive_work_stages("suggestions", "sharing")
+        await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
 
     async def request_quote(self, *, user_id, owner_user_id):
@@ -208,7 +214,7 @@ class DriveSharingService:
                 else {}
             ),
         )
-        await wake_drive_work("suggestions")
+        await wake_drive_work_stages("v1", "suggestions")
         return result
 
     async def set_request_price(self, *, user_id, request_id, revision, amount_cents):
@@ -216,13 +222,13 @@ class DriveSharingService:
         result = await self.store.set_request_price(
             user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
         )
-        await wake_drive_work_stages("suggestions", "sharing")
+        await wake_drive_work_stages("v1", "suggestions", "sharing")
         return result
 
     async def retry_preparation(self, **kwargs):
         await self._require_owner()
         result = await self.store.retry_preparation(**kwargs)
-        await wake_drive_work("suggestions")
+        await wake_drive_work_stages("v1", "suggestions")
         return result
 
     async def prepare_revocation(self, *, user_id, request_id):

@@ -1,5 +1,46 @@
 # API Contracts
 
+## Circle Wars weekly participation
+
+Migration 358 extends `one_referral_circle_selections` and
+`one_referral_circle_contributions`; it does not introduce another referral or
+coin ledger. `one_referral_circle_teams` holds random public aliases per existing
+reward-round ID. The active program schedule owns the deadline and timezone;
+physical prize activation remains independent of team participation.
+
+All `/api/one/referrals/circle-wars` routes require a `VAULT_OWNER` bearer token
+and return `Cache-Control: private, no-store` through the existing web/native
+`apiJson` transport:
+
+| Method and suffix | Contract |
+| --- | --- |
+| GET (base) | Current persisted round and caller's optional selection. Optional `week` is a historical reward-round UUID. |
+| POST `/participation` | `{circle_id: UUID, consent: true}`; strict consent, no extra fields, active existing Circle membership. Same-team retry is idempotent; switching that week returns 409. |
+| GET `/leaderboard` | `limit` 1–100, nonnegative `offset`, optional historical `week`; global ranks, total and pagination. |
+| GET `/circles/{circle_id}` | Caller-authorized Circle statistics; unauthorized names and IDs remain private. |
+
+Qualification snapshots eligible weekly selection into the existing durable
+scoring job. The existing worker settles one raw team contribution per
+relationship alongside individual awards. Referrals opened before opt-in,
+nonmembers and inherited genealogy never imply consent. Late jobs retain their
+round; revoked relationships stop counting. Existing deletion cascades apply.
+Legacy Firebase-only Circle previews remain closed for older clients; the active
+dashboard uses these owner-authorized endpoints.
+
+The You card and Ranking/Circles pane reuse existing Circle creation and invite
+links. Other teams expose random aliases; authorized members see Circle names.
+Rewards and individual rankings retain their existing behavior. SSE and visible
+polling refresh team standings and rollover. Rollback disables new snapshot and
+notification triggers while preserving bounded history, awards and claims.
+
+The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
+concurrent selection, no retroactive credit, delayed settlement, privacy,
+revocation, history, owner API authority and migration replay. Run with
+`ONE_COMMAND_TEST_DATABASE_URL` pointing to disposable PostgreSQL; CI includes
+this suite. Circle interaction tests and `verify:referral-dashboard` cover the
+frontend. Live browser qualification also needs matching nonproduction Firebase
+and backend configuration, a migrated database and a fresh invitee account.
+
 > Complete endpoint reference, authentication model, and developer integration guide.
 
 ---
@@ -434,7 +475,7 @@ Gated by `WORKOS_SSO_ENABLED` (default off). While off, every sign-in route answ
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | POST | `/api/auth/sso/start` (JSON body `{email}` or `{organization_id}`, optional `origin`) | None | Ask WorkOS which organization has verified the email's domain and has not had SSO switched off, and return `{authorization_url, state, organization}`. Free-mail domains, unknown domains and organizations whose connections are all inactive return `404 sso_not_available`. |
-| POST | `/api/auth/sso/exchange` | None (one-time WorkOS code + signed state) | `{code, state}` returns `{custom_token, user_id, is_new_account, organization}`. The client signs in with the custom token. Refusals: `sso_state_invalid`, `sso_code_invalid`, `sso_org_mismatch`, `sso_org_not_enabled`, `sso_domain_not_verified`, `sso_deprovisioned`, `sso_email_conflict`, `sso_account_conflict`, `sso_account_deleted`. |
+| POST | `/api/auth/sso/exchange` | None (one-time WorkOS code + signed state) | `{code, state}` returns `{custom_token, user_id, is_new_account, organization}`. The client signs in with the custom token. The IdP's name fills the Firebase display name only when the account has none. Refusals: `sso_state_invalid`, `sso_code_invalid`, `sso_org_mismatch`, `sso_org_not_enabled`, `sso_domain_not_verified`, `sso_deprovisioned`, `sso_email_conflict`, `sso_account_conflict`, `sso_account_deleted`. |
 | POST | `/api/webhooks/workos` | `WorkOS-Signature` over the raw body (180 s window) | Directory Sync deprovisioning. `dsync.user.deleted` and `dsync.user.updated` with `state: inactive` or `suspended` mark the person deprovisioned and refuse later sign-in through the organization. An account SSO created is also disabled, its refresh tokens revoked and its consent grants revoked; an existing personal account that SSO only linked has its sessions revoked and is otherwise left alone. Every step is idempotent, so redelivery repeats harmlessly. Other events are acknowledged and ignored. |
 
 The custom token carries exactly `auth_provider=workos` and `workos_org_id`. The browser must compare the returned `state` to the value it stored before redirecting, then pass it back to the exchange.
@@ -1557,7 +1598,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights remains Coming soon. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights shows the live weekly overview and meeting library. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
@@ -1968,7 +2009,7 @@ auth-required response.
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
 | POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
-| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over named, active profiles whose Firebase accounts still exist and are enabled, including people without a verified phone and verified RIAs in the `all` audience. Strangers are listed only when they finished signing up in this environment (a `vault_keys` row with `vault_status = 'active'`); people with no vault row or only a `placeholder` one appear only to a viewer who already has a relationship with them (an active connection, a pending connection request, or an active trusted-connection edge, in either direction). The directory-bounded `context` and `scope-catalog` lookups below apply the same rule. Account, vault and relationship eligibility are resolved before logical pagination; nameless placeholders, strangers without an active vault, and deleted or disabled accounts do not consume result slots. Short cached account checks may take up to 60 seconds to reflect an external auth change; an unavailable auth provider returns a retryable error. Explicit discoverability opt-outs are respected for strangers; email and phone labels stay masked. Distinct accounts with the same name remain separate. The `ria` audience narrows to verified advisers. |
+| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over named, active profiles whose Firebase accounts still exist and are enabled, including people without a verified phone and verified RIAs in the `all` audience. Strangers are listed only when they finished signing up in this environment (a `vault_keys` row with `vault_status = 'active'`); people with no vault row or only a `placeholder` one appear only to a viewer who already has a relationship with them (an active connection, a pending connection request, or an active trusted-connection edge, in either direction). The directory-bounded `context` and `scope-catalog` lookups below apply the same rule. Account, vault and relationship eligibility are resolved before logical pagination; nameless placeholders, strangers without an active vault, and deleted or disabled accounts do not consume result slots. Short cached account checks may take up to 60 seconds to reflect an external auth change; an unavailable auth provider returns a retryable error. A name is listed whatever the marketplace or contact-sync settings say; explicit discoverability opt-outs keep a stranger out of email and phone lookups only; email and phone labels stay masked. Distinct accounts with the same name remain separate. The `ria` audience narrows to verified advisers. |
 | GET    | `/api/one/connections/{counterpart_user_id}/context`       | Firebase-authenticated, directory-bounded person lookup with current connection state and the latest participant-pair request. An accepted historical request does not establish current Location eligibility. This read grants no action or information-sharing authority. |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
 | POST   | `/api/one/connections/requests`                            | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]`                                                                                                             |
@@ -3407,6 +3448,10 @@ or rejoining starts a new history window.
 | GET | `/api/one/circles/{circle}/chat` | Current public-key roster/version, unread count, latest sequence and mute state |
 | GET | `/api/one/circles/{circle}/chat/messages` | Ascending visible messages; exclusive `before` or `after` sequence cursor; 40 default, 50 maximum |
 | POST | `/api/one/circles/{circle}/chat/messages` | Client UUID, roster version, encrypted content/image and exactly one key wrap per current member, including sender |
+| POST | `/api/one/circles/{circle}/chat/messages/resolve` | 1–40 message UUIDs; returns only independently authorized encrypted originals, without attachment bytes or identity photos |
+| POST | `/api/one/circles/{circle}/chat/messages/updates` | 1–600 loaded/quoted message UUIDs; bounded revision, hidden and tombstone metadata plus unavailable IDs; repairs missed mutation doorbells |
+| PATCH | `/api/one/circles/{circle}/chat/messages/{message}` | Original sender only; encrypted content, fresh IV and expected revision; retains original key envelopes, audience and attachment bytes |
+| DELETE | `/api/one/circles/{circle}/chat/messages/{message}` | `scope: me` hides only the caller's copy; `scope: everyone` requires the sender's encrypted tombstone and expected revision |
 | GET | `/api/one/circles/{circle}/chat/messages/{message}/image` | Separately authorized encrypted image bytes; images are omitted from transcript pages |
 | GET | `/api/one/circles/{circle}/chat/wait?after={sequence}` | Twenty-second JSON long poll over the existing PostgreSQL user-state event bus; subscribe before revision read, reauthorize before response, disconnect cleanup, four waits per user per worker; `changed` distinguishes matching doorbells from idle timeouts |
 | GET | `/api/one/circles/{circle}/chat/keys/{key}` | Owner-only vault-encrypted historical key backup, only for an accessible current-generation message; active/rotated keys, never revoked keys |
@@ -3419,6 +3464,30 @@ Transcript pages deduplicate identity photos in `senders` and cap their combined
 UTF-8 size at 2 MB, falling back to initials without dropping messages. The
 optional paired `receiptAfter` / `receiptThrough` range refreshes sender-only
 receipt metadata for the loaded window even when no new messages arrive.
+Messages may carry `replyToMessageId`, authenticated inside encrypted content.
+The server validates that target against the sender's original recipient epoch.
+Pages include one-level `replyTargets` only when each viewer independently has
+access to the original; hidden, erased or inaccessible targets show an unavailable
+preview. No plaintext quote or copy of historical content is sent to new members.
+The UUID reference remains after source erasure so surviving replies still decrypt.
+
+Migration 357 must precede backend/client message-action rollout. Content edits
+use the original v1 key and AAD with a fresh IV; no current-roster resealing occurs.
+Strict mutation bodies cannot replace recipient envelopes, attachments or sender
+identity. Revision comparison rejects concurrent stale edits; an identical sealed
+retry succeeds. Original send fingerprints remain unchanged, and a delayed send
+retry projects the current edited/deleted state. Delete-for-everyone replaces
+content with a client-encrypted tombstone readable by older v1 clients and removes
+attachment bytes, reactions and pending previews. Delete-for-me retains recipient
+epochs and existing read timestamps, without fabricating a read receipt. Both
+delete scopes remove the matching Feed projection and reconcile the specific
+notification/badge without clearing other unread messages. Mutation doorbells
+contain metadata only; clients also reconcile loaded history every five seconds
+and fence delayed responses by revision/visibility. Already downloaded copies
+cannot be recalled. Schema rollback refuses to drop action metadata once used;
+keep migration 357 in place when rolling back application code. Empty feature
+storage can roll back without changing existing ciphertext or recipient envelopes.
+
 Reaction choices use the fully qualified Unicode Emoji 17.0 catalogue in
 `consent-protocol/hushh_mcp/data/emoji-reactions.v1.json`; the frontend projection
 is generated by `consent-protocol/scripts/generate_emoji_reactions.py`. Standalone components,
@@ -3601,13 +3670,25 @@ Firebase authentication derives the owner; client payloads cannot select one.
 - `GET /leaderboard` refreshes shared cumulative Coins snapshots independently
   of weekly prizes, with deterministic ties and off-page viewer lookup.
   `snapshot_id` pins continuation pages.
+  Chosen public aliases retain priority. Otherwise, nullable `display_name`
+  comes from the existing viewer-permitted Connect directory. Hidden, inactive
+  and unresolved people remain anonymous. The viewer may see their own profile
+  name; no peer identifiers or contact details are returned.
 - `POST /app-open` retains its compatibility path but records visible dashboard
   visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
   a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning
   streak, `server_now` and `next_day_at`. `GET /engagement` awards nothing.
-- `GET /challenge` returns Monday/Kolkata start, exclusive cutoff, server time
-  and persisted round metadata. `calendar_active`/legacy `active` are separate
-  from `campaign_active` and `weekly_prizes_enabled`. Reads never enable prizes.
+- `GET /challenge` returns persisted Monday/Kolkata round bounds and fresh server
+  time after database work. `active` and `campaign_active` both mean enabled
+  weekly prizes in an open round; `calendar_active` only describes the schedule.
+  `weekly_prizes_enabled` remains the explicit campaign setting. Reads never
+  enable prizes. A wait across cutoff resolves the next round before responding.
+  `server_processing_ms` lets clients estimate response transit separately from
+  server work, then advance `server_now` using a monotonic receipt anchor. The
+  dashboard shows one weekly-prize countdown with days/hours/minutes/seconds;
+  disabled, unknown or invalid timing never falls back to a device clock.
+  Activation sends the allowlisted global `weekly_prizes_enabled` referral
+  doorbell so open dashboards re-read state; it carries only that reason.
 - `GET /policy` supplies active amounts through compatible `points` keys,
   streak/schedule rules and flash/prize availability. UI calls amounts Coins.
 - `GET /transactions` returns owner-only cursor history; row `coins` aliases
@@ -3695,3 +3776,57 @@ and `/one/calendar` use the same invitation components and attendance routes. Re
 Talk to One's `calendar.invitation.review` handoff forwards the original request (or
 an explicitly selected, current offered event) into the existing conversation. It
 grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.
+
+### Calendar Insights and meeting artifacts
+
+Calendar's existing `/one/calendar` shell has an Insights state and nested meeting
+library/detail states. `POST /api/one/calendar/insights` and `/meetings` accept
+`date` and `time_zone`; first-party Firebase identity plus the live owner-bound
+Calendar grant authorize these read-only calls. The library checks six recent
+candidates per page in a 30-day window (`page`, zero-based; `next_page` in the
+response), and declares incomplete provider coverage. Filters
+use verified Meet artifact kinds, not filename guesses. Calendar attachments
+remain explicitly labelled linked files until a Meet resource verifies their kind.
+
+`POST /api/one/calendar/meetings/detail` accepts `calendar_id`, `event_id` and
+`expected_account_email`. It re-reads that exact Calendar event, uses only its
+provider conference ID/attachment IDs, refuses ambiguous conference matches, and
+rechecks the current Drive subject, generation, policy and each file's access.
+`/meetings/context` additionally requires matching vault-owner authority through
+`X-Hushh-Consent`; it freshly reads source text and references for one existing-chat
+turn. The handoff carries IDs only. The chat turn attaches authorized source text,
+disables automatic PKM capture and refuses `pkm.add` for this context. Retry retains
+meeting provenance and rechecks source access; restored attachments without live
+selection provenance require reopening Calendar. These reads
+perform no ingestion, Memory write, schema change or scheduling action.
+
+Detail availability is per artifact kind: available, processing, not generated
+(only after a successful complete Meet list), permission required, unavailable,
+or provider error. Drive 403 is permission required; 404/410 may mean deleted or
+not shared and never proves that a meeting was not recorded. Supported text is
+read from Drive afresh; explicit Decisions/Follow-ups sections are quoted with
+source links, never invented. Account/generation changes discard read content.
+
+Opening Insights, returning to the tab, window focus, network reconnection and
+manual Refresh fetch fresh provider state. Library/detail polls at one-minute
+intervals, at most five times per entry/resume/manual refresh; hidden/offline
+pages stop and abort pending reads. Refresh clears displayed source content and
+replaces page one, removing stale, revoked or deleted artifacts. Chat unlock
+retries retain owner/conversation identity and await that conversation's restore;
+meeting source attachments cannot enter generic edit/resend or draft recovery.
+
+All responses use `private, no-store`. The existing catch-all One proxy and
+platform-aware `ApiService` own web/native transport. No new native bridge is
+introduced. Back unwinds detail → library → Insights within the Calendar shell.
+
+Live-provider acceptance remains necessary: existing Calendar OAuth does not
+request Meet scopes. Actual bearer scopes are inspected; missing Meet access
+shows permission-required without claiming an ordinary Calendar reconnect fixes
+it. Drive uses the separate existing connector and must have the same verified
+Google subject. Workspace recording/notes availability, per-file sharing,
+`canDownload`/`canAccessViaGenAi`, revoked grants and processing/expired artifacts
+must be exercised on authorized provider accounts. No real provider credentials
+or private meetings are part of the synthetic regression fixtures.
+
+Provider contracts: [Meet conferences](https://developers.google.com/workspace/meet/api/reference/rest/v2/conferenceRecords/list)
+and [Meet artifacts](https://developers.google.com/workspace/meet/api/guides/artifacts).

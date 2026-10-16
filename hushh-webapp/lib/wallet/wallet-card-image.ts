@@ -3,6 +3,8 @@ import { loadWalletCardArtwork, type WalletCardArtworkKind } from "@/lib/service
 
 export type WalletCardImageKind = WalletCardArtworkKind;
 export type WalletCardImageIdentity = {
+  /** A timed recipient sees only the permitted name, never owner identifiers or QR. */
+  presentation?: "shared";
   ownerId?: string;
   displayName: string | null;
   cardPayload?: { username?: string | null; full_name?: string | null } | null;
@@ -27,13 +29,14 @@ export function walletCardImageFields(profile: WalletCardImageIdentity | null | 
   const date = profile?.memberSince ? new Date(profile.memberSince) : null;
   return {
     username,
-    memberSince: date && !Number.isNaN(date.getTime()) ? String(date.getFullYear()) : "—",
-    walletId: profile?.walletId ? profile.walletId.slice(-8).toUpperCase() : "—",
+    memberSince: profile?.presentation === "shared" ? "" : date && !Number.isNaN(date.getTime()) ? String(date.getFullYear()) : "—",
+    walletId: profile?.presentation === "shared" ? "" : profile?.walletId ? profile.walletId.slice(-8).toUpperCase() : "—",
   };
 }
 
 /** Ephemeral render identity, never persisted or used as a cache of personal information. */
 export function walletCardImageKey(kind: WalletCardImageKind, profile: WalletCardImageIdentity | null | undefined): string {
+  if (profile?.presentation === "shared") return JSON.stringify([kind, "shared", walletCardImageFields(profile)]);
   return JSON.stringify([kind, profile?.ownerId, walletCardImageFields(profile), kind === "referral" ? profile?.referralUrl : kind === "profile" ? profile?.shareUrl : null]);
 }
 
@@ -72,6 +75,7 @@ function qrSvg(value: string | null | undefined): string {
 
 function identitySvg(kind: WalletCardImageKind, profile: WalletCardImageIdentity | null | undefined): string {
   const { username, memberSince, walletId } = walletCardImageFields(profile);
+  if (profile?.presentation === "shared") return `<g data-wallet-identity="true" data-wallet-shared="true" font-family="WalletJakarta,system-ui,sans-serif"><text x="100" y="281" fill="#7E7260" font-size="14" letter-spacing="4.48">NAME</text><text x="100" y="337" fill="#C9A96A" font-weight="600" font-size="28"${username.length > 30 ? ' textLength="800" lengthAdjust="spacingAndGlyphs"' : ""}>${escaped(username)}</text></g>`;
   const nws = kind === "nws";
   const label = kind === "referral" ? "#6B5326" : nws ? "#9DBFA9" : "#7E7260";
   const value = kind === "referral" ? "#2E2008" : nws ? "#F2EFE3" : "#C9A96A";
@@ -96,10 +100,13 @@ export async function buildWalletCardSvg({ kind, profile, signal }: WalletCardIm
   checkAbort(signal);
   // Capture the caller's current values before crossing an async boundary.
   const fields = identitySvg(kind, profile);
-  const qr = kind === "nws" ? "" : qrSvg(kind === "referral" ? profile?.referralUrl : profile?.shareUrl);
+  const qr = kind === "nws" || profile?.presentation === "shared" ? "" : qrSvg(kind === "referral" ? profile?.referralUrl : profile?.shareUrl);
   const artwork = await loadWalletCardArtwork(kind);
   checkAbort(signal);
-  return artwork.replace(/<\/svg>\s*$/, `${fields}${qr}</svg>`);
+  const base = profile?.presentation === "shared"
+    ? artwork.replace(/<rect\b[^>]*\bdata-wallet-qr-frame="true"[^>]*\/>/g, "")
+    : artwork;
+  return base.replace(/<\/svg>\s*$/, `${fields}${qr}</svg>`);
 }
 
 /** A local PNG File of exactly the card face, with no network upload or retained personal cache. */

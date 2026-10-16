@@ -267,10 +267,6 @@ jobs:
               # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
               - 'hushh-webapp/app/login/**'
               - 'hushh-webapp/components/onboarding/**'
-              # The post-sign-in capability setup screens. Nothing the XCUITest
-              # renders imports them (asserted by the guard above), and they
-              # alone used to schedule this 13-minute lane.
-              - '!hushh-webapp/components/onboarding/setup/**'
               - 'hushh-webapp/components/auth/**'
               - 'hushh-webapp/components/app-ui/native-*'
               - 'hushh-webapp/components/vault/**'

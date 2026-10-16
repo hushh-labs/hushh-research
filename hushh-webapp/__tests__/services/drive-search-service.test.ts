@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
+const stream = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   apiFetch: api.fetch, getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
 } }));
-import { DriveSearchService, isDriveSearchSelectionReady } from "@/lib/services/drive-search-service";
+vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch: stream.fetch }));
+import { DriveSearchService, DriveSearchStreamUnavailable, isDriveSearchSelectionReady } from "@/lib/services/drive-search-service";
 const jobId = "11111111-1111-4111-8111-111111111111";
 const status = { jobId, status: "running", revision: 1, matched: 1, pagesScanned: 1,
   incompleteSearch: false, canStop: true, createdAt: "2026-09-27T00:00:00Z",
@@ -126,5 +128,83 @@ describe("owner Drive search API boundary", () => {
     await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({
       code: "search_unavailable", message: "Drive search could not finish.",
     });
+  });
+});
+
+describe("owner Drive search progress stream", () => {
+  const frame = (event: string, payload: object) =>
+    `event: ${event}\ndata: ${JSON.stringify({ event, ...payload })}\n\n`;
+  const response = (chunks: string[]) => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  }), { headers: { "content-type": "text/event-stream" } });
+
+  it("uses the owner bearer and refreshes only increasing status revisions", async () => {
+    const body = frame("status", status) + frame("heartbeat", {}) +
+      frame("status", status) +
+      frame("status", { ...status, revision: 2, matched: 2, status: "completed" });
+    stream.fetch.mockResolvedValueOnce(response([body.slice(0, 17), body.slice(17)]));
+    const onStatus = vi.fn();
+    await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, onStatus))
+      .resolves.toBe("complete");
+    expect(onStatus.mock.calls.map(([value]) => [value.revision, value.matched]))
+      .toEqual([[1, 1], [2, 2]]);
+    expect(stream.fetch).toHaveBeenCalledWith(
+      `/api/connectors/google_drive/searches/${jobId}/stream`,
+      expect.objectContaining({ method: "GET", cache: "no-store",
+        headers: { Authorization: "Bearer owner", Accept: "text/event-stream" } }),
+    );
+  });
+
+  it("continues a completed V1 search stream through content evaluation", async () => {
+    const pending = { ...status, status: "completed", revision: 2, matched: 2,
+      evaluation: { status: "running", evaluatedCount: 1, pendingCount: 1, verifiedCount: 1 } };
+    const ready = { ...pending, revision: 3,
+      evaluation: { status: "ready", evaluatedCount: 2, pendingCount: 0, verifiedCount: 1 } };
+    stream.fetch.mockResolvedValueOnce(response([frame("status", pending) + frame("status", ready)]));
+    const onStatus = vi.fn();
+    await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, onStatus))
+      .resolves.toBe("complete");
+    expect(onStatus.mock.calls.map(([value]) => value.evaluation?.status))
+      .toEqual(["running", "ready"]);
+    for (const bad of [
+      { ...pending, evaluation: { ...pending.evaluation, status: "pretend_ready" } },
+      { ...pending, evaluation: { ...pending.evaluation, pendingCount: 2 } },
+      { ...pending, evaluation: { ...pending.evaluation, verifiedCount: 2 } },
+    ]) {
+      api.fetch.mockResolvedValueOnce(Response.json(bad));
+      await expect(DriveSearchService.get("owner", jobId, () => undefined))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("falls back to durable polling when streaming is unsupported or interrupted", async () => {
+    stream.fetch.mockResolvedValueOnce(Response.json({ detail: "Not Found" }, { status: 404 }));
+    await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, vi.fn()))
+      .rejects.toBeInstanceOf(DriveSearchStreamUnavailable);
+    stream.fetch.mockResolvedValueOnce(Response.json({ status: "running" }));
+    await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, vi.fn()))
+      .rejects.toBeInstanceOf(DriveSearchStreamUnavailable);
+    stream.fetch.mockResolvedValueOnce(response([frame("status", status)]));
+    await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, vi.fn()))
+      .resolves.toBe("interrupted");
+  });
+
+  it("rejects mismatched or malformed progress without rendering it", async () => {
+    for (const body of [
+      frame("status", { ...status, jobId: "22222222-2222-4222-8222-222222222222" }),
+      frame("status", { ...status, matched: -1 }),
+      `event: status\ndata: {bad json}\n\n`,
+      `event: status\ndata: ${JSON.stringify({ ...status, event: "file" })}\n\n`,
+    ]) {
+      stream.fetch.mockResolvedValueOnce(response([body]));
+      const onStatus = vi.fn();
+      await expect(DriveSearchService.streamStatus("owner", jobId, () => undefined, onStatus))
+        .rejects.toMatchObject({ code: "invalid_response" });
+      expect(onStatus).not.toHaveBeenCalled();
+    }
   });
 });

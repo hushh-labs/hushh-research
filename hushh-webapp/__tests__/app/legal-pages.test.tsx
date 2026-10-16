@@ -146,6 +146,25 @@ describe("Privacy Policy and Terms of Use pages", () => {
     }
   });
 
+  it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
+    const privacy = LEGAL_DOCUMENTS.privacy;
+    const text = plainText(privacy);
+    expect(privacy.version).toBe("2.5");
+    expect(privacy.lastUpdated).toBe("2026-10-16");
+    expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");
+    expect(text).toContain("GPT-5-mini on Microsoft Azure AI receives your name");
+    expect(text).toContain("Phi-4-mini helps plan searches using only which identity fields are present");
+    expect(text).toContain("Bing web search receives search terms that may include your name");
+    expect(text).toContain("outside Azure's compliance and data residency boundary");
+    expect(text).toContain("You review every suggested detail before it is saved");
+    expect(LEGAL_DOCUMENTS.terms.version).toBe("2.4");
+    expect(LEGAL_DOCUMENTS.terms.lastUpdated).toBe("2026-10-16");
+    render(<TermsOfUsePage />);
+    expect(screen.getByRole("link", { name: "Microsoft Privacy Statement" })).toHaveAttribute(
+      "href", "https://privacy.microsoft.com/en-us/privacystatement",
+    );
+  });
+
   it("does not promise automatic expiry for manually created backups", () => {
     const privacy = plainText(LEGAL_DOCUMENTS.privacy);
     expect(privacy).toContain("Manually created backups may remain until an authorized operator deletes them.");

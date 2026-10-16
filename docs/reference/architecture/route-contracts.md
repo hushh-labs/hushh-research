@@ -130,7 +130,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
-- `/one/todos` — encrypted owner items plus Calendar and owner-confirmed Gmail follow-ups. Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record, and completion or dismissal stays private.
+- `/one/todos` — encrypted owner items plus Calendar, owner-confirmed Gmail follow-ups, and explicit pending-work projections from the existing Feed publishers (including KYC review requests). Source workspaces remain authoritative; historical imports, running work, and safety alerts are not copied. Completion or dismissal stays private and never executes a source action.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`

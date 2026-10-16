@@ -28,7 +28,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -76,7 +76,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
       "nextRoute": "/one",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -136,10 +136,9 @@
     "shellVerification": {
       "file": "components/onboarding/initial-contacts-welcome.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
+        "FullscreenFlowShell",
+        "NativeTestBeacon",
+        "CircleOnboarding"
       ]
     },
     "voicePlaybook": {
@@ -181,10 +180,7 @@
     "shellVerification": {
       "file": "components/onboarding/setup/one-setup-hub.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
+        "SetupV10Surface"
       ]
     },
     "voicePlaybook": {
@@ -1230,7 +1226,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
@@ -1692,7 +1688,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.calendar",
-      "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail.",
+      "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
       "screen": "calendar",
       "entryCue": "Connect Calendar when you want schedule help from One.",
       "proactivity": "ambient",
@@ -1709,7 +1705,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles.",
+      "completionBoundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles. In Insights, Back unwinds meeting detail to the filtered library, then the overview, before the route parent. Recording and notes content requires independent live provider authorization.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2164,9 +2160,18 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/wallet?card_request=11111111-1111-4111-8111-111111111111",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add and Sharing unwind through the previous local tab and selected masked card before the authored Wallet parent; Cancel uses the same reset. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
     }
   },
   {
@@ -3667,7 +3672,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The two-screen Location introduction unwinds optional panels, then Ready to Features, then exits to agents home. Pending contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
@@ -3928,6 +3933,7 @@
     "shellVerification": {
       "file": "components/connections/gemini-runtime-configuration-page.tsx",
       "includes": [
+        "SetupV10Surface",
         "AppPageShell",
         "AppPageHeaderRegion",
         "AppPageContentRegion",
@@ -3964,7 +3970,15 @@
           "href": "/one/setup/connections",
           "expected": {
             "href": "/one/setup",
-            "mode": "push",
+            "mode": "replace",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/setup/connections?return_to=%2Fone%2Fprofile",
+          "expected": {
+            "href": "/one/setup?return_to=%2Fone%2Fprofile",
+            "mode": "replace",
             "transitionMode": "full"
           }
         }
@@ -7378,7 +7392,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.world_model",
-      "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares the model automatically; the owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
+      "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares a review draft when the owner's provider-specific setting allows it; Azure/Bing in UAT requires an explicit opt-in. The owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
       "screen": "profile_world_model",
       "entryCue": "",
       "proactivity": "ambient",

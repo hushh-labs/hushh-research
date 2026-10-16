@@ -70,6 +70,40 @@ def test_readiness_probe_has_cold_response_headroom() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_probe_pacing_preserves_errors_and_stops_on_cancellation(monkeypatch, cancel):
+    spec = importlib.util.spec_from_file_location("paced_probe_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    now = [0.0]
+    starts = []
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def probe(index):
+        starts.append(now[0])
+        now[0] += 2
+        if index == 1:
+            if cancel:
+                raise asyncio.CancelledError
+            raise RuntimeError("synthetic failed probe")
+
+    monkeypatch.setattr(module, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    labelled = [(str(i), lambda i=i: probe(i)) for i in range(3)]
+    if cancel:
+        with pytest.raises(asyncio.CancelledError):
+            await module._run_paced_probes(labelled)
+        assert starts == [0, 30]
+    else:
+        outcomes = await module._run_paced_probes(labelled)
+        assert starts == [0, 30, 60]
+        assert outcomes[0] is None and outcomes[2] is None
+        assert isinstance(outcomes[1], RuntimeError)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("hard_failure", [False, True])
 async def test_stalled_live_preserves_slower_command_verdicts(
     monkeypatch: pytest.MonkeyPatch, hard_failure: bool
@@ -80,6 +114,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     spec = importlib.util.spec_from_file_location("readiness_timeout_test", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "PROBE_START_INTERVAL_SECONDS", 0)
 
     from hushh_mcp.agents.location.command_brain import LocationCommandBrain
     from hushh_mcp.one_voice.config import OneVoiceLiveConfig
@@ -97,6 +132,18 @@ async def test_stalled_live_preserves_slower_command_verdicts(
             )
 
     cancelled = []
+    active = 0
+    max_active = 0
+
+    @asynccontextmanager
+    async def tracked_probe():
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            yield
+        finally:
+            active -= 1
 
     async def stall():
         try:
@@ -105,21 +152,24 @@ async def test_stalled_live_preserves_slower_command_verdicts(
             cancelled.append("live")
 
     async def transcribe(self, *args):
-        await asyncio.sleep(0.06)
-        return "Open the Location screen."
+        async with tracked_probe():
+            await asyncio.sleep(0.06)
+            return "Open the Location screen."
 
     async def assess(self, **kwargs):
         # Command probes own a longer budget than text/Live. A hard fault
         # within that budget must survive the earlier Live timeout.
-        await asyncio.sleep(0.06)
-        if hard_failure:
-            raise AttributeError("Synthetic candidate defect")
-        return SimpleNamespace(unsupported=False)
+        async with tracked_probe():
+            await asyncio.sleep(0.06)
+            if hard_failure:
+                raise AttributeError("Synthetic candidate defect")
+            return SimpleNamespace(unsupported=False)
 
     @asynccontextmanager
     async def connect(**kwargs):
-        await stall()
-        yield None
+        async with tracked_probe():
+            await stall()
+            yield None
 
     monkeypatch.setattr(module, "PROBE_TIMEOUT_SECONDS", 0.03)
     monkeypatch.setattr(module, "_managed_manifest_models", lambda: ("gemini-3.6-flash",))
@@ -182,6 +232,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     assert report["advisory"] is (not hard_failure)
     assert len(report["probes"]) == 6
     assert cancelled == ["live"]
+    assert max_active == 1 and active == 0
 
 
 @pytest.mark.asyncio
@@ -198,6 +249,7 @@ async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
     spec = importlib.util.spec_from_file_location("readiness_first_use_test", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "PROBE_START_INTERVAL_SECONDS", 0)
 
     from hushh_mcp.agents.location.command_brain import LocationCommandBrain
     from hushh_mcp.one_voice.config import OneVoiceLiveConfig
@@ -320,6 +372,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "PROBE_START_INTERVAL_SECONDS", 0)
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "false")
@@ -347,7 +400,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
             self.project = project
 
         async def generate_content_async(self, *_args, **_kwargs):
-            if self.project == "hushh-vertex-personal54" and scenario == "billing_denied":
+            if self.project == "hushh-gemini-bridge" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
             if scenario == "adk_error":
                 yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
@@ -370,7 +423,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     chat_probe = next(p for p in report["probes"] if str(p["probe"]).startswith("one_chat:"))
     chat_available = scenario == "success"
 
-    assert report["one_chat_project"] == "hushh-vertex-personal54"
+    assert report["one_chat_project"] == "hushh-gemini-bridge"
     assert report["one_chat_probe_ok"] is chat_available
     assert chat_probe["ok"] is chat_available
     assert report["ok"] is chat_available
@@ -393,6 +446,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "PROBE_START_INTERVAL_SECONDS", 0)
     monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "scoped")
@@ -409,7 +463,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
         yield None
 
     def build_client(**kwargs):
-        assert kwargs["vertex_project"] == "hushh-vertex-personal54"
+        assert kwargs["vertex_project"] == "hushh-gemini-bridge"
         return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
 
     from unittest.mock import AsyncMock
@@ -419,7 +473,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     monkeypatch.setattr(module, "_probe_adk_response", AsyncMock())
     monkeypatch.setattr(factory, "build_managed_live_client", build_client)
     report = await module.main()
-    assert report["one_voice_project"] == "hushh-vertex-personal54"
+    assert report["one_voice_project"] == "hushh-gemini-bridge"
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"

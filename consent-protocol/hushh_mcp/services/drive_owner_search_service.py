@@ -21,17 +21,28 @@ from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, 
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
+    _legacy_single_query,
     validate_reusable_packet,
+)
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
 )
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    FILE_ID,
+    LIVE_SUPPORTED_TYPES,
+    RESOURCE_KEY,
+    DriveReadError,
+)
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 PAGE_SIZE = 25
-FILE_LIST_PAGE_SIZE = 100
+FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
+V1_FILE_LIST_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
 MAX_REQUEST_FILE_PAGES = 1000
@@ -52,6 +63,7 @@ DOCUMENT_MIMES = frozenset(
         "application/rtf",
     }
 )
+V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES = ("audio/", "video/")
 logger = drive_logger("drive_owner_search")
 _MONTH_WINDOW = re.compile(
     r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
@@ -85,7 +97,35 @@ _TITLE_TIME = re.compile(
 )
 _YESTERDAY = re.compile(r"\byesterday(?:['’]?s)?\b", re.I)
 _NOTE_TITLE = re.compile(r"\b(?:notes?|minutes)\b", re.I)
+_MEETING_SUBJECT = re.compile(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", re.I)
+# A bounded discovery expansion for common meeting-note titles. These are
+# candidates only; extracted content and its event date decide membership.
+_MEETING_NOTE_DISCOVERY = (
+    "meeting",
+    "notes",
+    "standup",
+    "stand up",
+    "stand-up",
+    "sync",
+    "minutes",
+    "huddle",
+)
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
+
+
+def _is_meeting_note_request(text: str) -> bool:
+    return bool(_NOTE_TITLE.search(text) and _MEETING_SUBJECT.search(text))
+
+
+def _v1_meeting_note_plan(plan: dict, purpose: dict, *, v1_live_request: bool) -> dict:
+    """Keep a meeting-notes request on content/event dates, not file activity."""
+    if (
+        not v1_live_request
+        or plan.get("exact_title")
+        or not _is_meeting_note_request(purpose.get("purpose", ""))
+    ):
+        return plan
+    return {**plan, "time_intent": "document_coverage"}
 
 
 def _coordinated_alternatives(terms: list[str], purpose: str) -> bool:
@@ -140,6 +180,22 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
     )
 
 
+def _v1_folder_clue_matches(checkpoint: dict, title: str) -> bool:
+    """A clue can discover a folder; its children still require content evaluation."""
+    if checkpoint.get("v1_live_request") is not True:
+        return False
+    authored = checkpoint.get("authored_plan")
+    clues = authored.get("discovery_clues") if isinstance(authored, dict) else None
+    if not isinstance(clues, list):
+        return False
+    return any(
+        isinstance(clue, str)
+        and 1 <= len(clue) <= 50
+        and bool(_term_pattern(clue.casefold()).search(title))
+        for clue in clues[:12]
+    )
+
+
 def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
     """Require title evidence before granting access without owner review."""
     # A shortcut alias can describe a different file. Its target is what Drive
@@ -173,9 +229,10 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
     if not _filename_candidate(checkpoint, match):
         return False
     owner_review = checkpoint.get("request_owner_review_required") is True
-    if owner_review and not folder_scoped:
+    if owner_review and (not folder_scoped or checkpoint.get("v1_live_request") is True):
         # A provider fullText hit is a candidate for the owner's exact review.
-        # Its filename cannot prove or disprove the document's contents.
+        # V1 folder children also go through content evaluation; their generic
+        # filenames cannot prove or disprove the document's contents.
         return True
     if not checkpoint.get("request_notes"):
         return True
@@ -319,7 +376,12 @@ def compile_plan(plan: dict, timezone: str) -> dict:
 
 
 def compile_request_queries(
-    plan: dict, purpose: dict, timezone: str, *, requested_at: datetime | None = None
+    plan: dict,
+    purpose: dict,
+    timezone: str,
+    *,
+    requested_at: datetime | None = None,
+    v1_live_request: bool = False,
 ) -> tuple[list[dict], dict | None]:
     """Broaden a requested file set before the owner reviews it.
 
@@ -330,6 +392,7 @@ def compile_request_queries(
     from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
     from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, quote_literal
 
+    plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
     parsed = LiveSearchPlan.model_validate(plan)
     if parsed.mode != "find":
         raise DriveReadError("invalid_argument")
@@ -384,11 +447,20 @@ def compile_request_queries(
     direct_originals = (
         parsed.result_limit is not None and not parsed.terms and not parsed.exact_title
     )
+    financial_v1 = v1_live_request and parsed.semantic_intent in {
+        "institutional_statement",
+        "broad_financial_records",
+    }
+    meeting_notes_v1 = v1_live_request and _is_meeting_note_request(purpose.get("purpose", ""))
     kind_clause = (
         _request_kind_clause(parsed.file_kind)
         if direct_originals
         else _request_discovery_clause(parsed.file_kind)
     )
+    if financial_v1 and not direct_originals:
+        # A named clue can surface an unsupported document. Do not hide that
+        # potential match behind the planner's MIME family before checking it.
+        kind_clause = None
     if kind_clause:
         base.append(kind_clause)
     if direct_originals:
@@ -398,6 +470,14 @@ def compile_request_queries(
         base.extend([f"mimeType != '{FOLDER_MIME}'", f"mimeType != '{SHORTCUT_MIME}'"])
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
+    broader_subject = None
+    entity_subject = (
+        "("
+        + " or ".join(compile_search_terms([entity]) for entity in parsed.required_entities)
+        + ")"
+        if parsed.required_entities
+        else None
+    )
     if parsed.exact_title:
         subject = f"name = {quote_literal(parsed.exact_title)}"
     elif parsed.terms:
@@ -427,6 +507,12 @@ def compile_request_queries(
             else " and "
         )
         subject = "(" + joiner.join(groups) + ")"
+        if parsed.time_intent == "document_coverage" and len(groups) > 1 and joiner == " and ":
+            # A Drive full-text index can omit one of several request words
+            # even when the original document is relevant. Exhaust a second,
+            # broader provider query after the precise one. These rows remain
+            # unverified candidates and cannot authorize automatic sharing.
+            broader_subject = "(" + " or ".join(groups) + ")"
     else:
         subject = None
     clauses = [*([subject] if subject else []), *base]
@@ -448,7 +534,103 @@ def compile_request_queries(
         if parsed.result_limit is not None or parsed.time_intent == "file_activity"
         else "modifiedTime"
     )
-    return [{"arguments": {"query": query, "orderBy": f"{order} desc"}}], period
+    queries = [{"arguments": {"query": query, "orderBy": f"{order} desc"}}]
+
+    def append_v1_meeting_note_sweep() -> None:
+        # Native Drive can find a "Team Sync and Standup" document for a
+        # meeting-notes request even when neither word is in the model plan.
+        # Keep the expansion lexical and bounded; content review remains the
+        # only source of a verified match.
+        if not v1_live_request or parsed.exact_title or not meeting_notes_v1:
+            return
+        # A title sweep mirrors the owner's visible Drive result set without
+        # turning every incidental body mention of "sync" into a candidate.
+        # The precise first query still searches fullText, and topical folders
+        # bring their generic-named children into the content evaluator.
+        aliases = (
+            "("
+            + " or ".join(
+                f"name contains {quote_literal(term)}" for term in _MEETING_NOTE_DISCOVERY
+            )
+            + ")"
+        )
+        sweep = " and ".join([*([entity_subject] if entity_subject else []), aliases, *base])
+        if len(sweep) > 1800:
+            raise DriveReadError("invalid_argument")
+        candidate_query = {"arguments": {"query": sweep, "orderBy": f"{order} desc"}}
+        if candidate_query not in queries:
+            queries.append(candidate_query)
+
+    # Put the common title aliases before broad clue pages so a sync or
+    # standup file enters the first evaluation cohort as soon as possible.
+    append_v1_meeting_note_sweep()
+
+    def append_v1_structural_sweep() -> None:
+        # The whole-Drive MIME sweep is reserved for financial statements,
+        # whose exact issuer/period evidence may be absent from Drive text.
+        # Meeting-note requests use lexical aliases plus topical folder
+        # children. Sweeping every document for notes can hit the 10k-row
+        # work limit before any candidate receives content evaluation.
+        if not financial_v1 or parsed.exact_title:
+            return
+        mime_subject = (
+            "("
+            + " or ".join(
+                f"mimeType = '{mime}'" for mime in sorted(LIVE_SUPPORTED_TYPES | {SHORTCUT_MIME})
+            )
+            + ")"
+        )
+        structural_query = " and ".join(
+            [
+                "trashed = false",
+                mime_subject,
+                *(["sharedWithMe = true"] if parsed.shared_with_me else []),
+            ]
+        )
+        if len(structural_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        queries.append({"arguments": {"query": structural_query, "orderBy": f"{order} desc"}})
+
+    if entity_subject:
+        # The explicit-entity sweep already includes every anatomy clue. One
+        # exhaustive sweep avoids N redundant broad searches for account/portfolio.
+        entity_query = {
+            "arguments": {
+                "query": " and ".join([entity_subject, *base]),
+                "orderBy": f"{order} desc",
+            }
+        }
+        if entity_query not in queries:
+            queries.append(entity_query)
+        append_v1_structural_sweep()
+        return queries, period
+    if broader_subject is not None and not meeting_notes_v1:
+        broader_query = " and ".join(
+            [*([entity_subject] if entity_subject else []), broader_subject, *base]
+        )
+        if len(broader_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        queries.append({"arguments": {"query": broader_query, "orderBy": f"{order} desc"}})
+    # Model-authored clues broaden discovery, including content-only issuer,
+    # account and anatomy terms. They never become filename inclusion rules.
+    # Bounded groups keep Drive's literal query budget without dropping clues.
+    clues = getattr(parsed, "discovery_clues", [])
+    for offset in range(0, len(clues), 4):
+        clue_subject = (
+            "("
+            + " or ".join(compile_search_terms([clue]) for clue in clues[offset : offset + 4])
+            + ")"
+        )
+        clue_query = " and ".join(
+            [*([entity_subject] if entity_subject else []), clue_subject, *base]
+        )
+        if len(clue_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        candidate_query = {"arguments": {"query": clue_query, "orderBy": f"{order} desc"}}
+        if candidate_query not in queries:
+            queries.append(candidate_query)
+    append_v1_structural_sweep()
+    return queries, period
 
 
 def _in_requested_period(match: dict, period: dict | None) -> bool:
@@ -530,6 +712,54 @@ def _matches_requested_kind(kind: str, mime: str) -> bool:
     if kind == "pdf":
         return mime == "application/pdf"
     return mime.startswith(kind + "/")
+
+
+def _request_candidate_kind_matches(checkpoint: dict, kind: str, mime: str) -> bool:
+    if _matches_requested_kind(kind, mime):
+        return True
+    # A bank statement may be a spreadsheet or an image of a paper statement.
+    # The model still has to verify the document's contents before review.
+    authored = checkpoint.get("authored_plan")
+    meeting_notes = _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
+    return (
+        checkpoint.get("v1_live_request") is True
+        and kind == "document"
+        and isinstance(authored, dict)
+        and (
+            authored.get("semantic_intent")
+            in {"institutional_statement", "broad_financial_records"}
+            or meeting_notes
+        )
+        and mime in LIVE_SUPPORTED_TYPES
+    )
+
+
+def _v1_unsupported_candidate(
+    checkpoint: dict, kind: str, mime: str, *, mime_verified: bool = True
+) -> bool:
+    authored = checkpoint.get("authored_plan")
+    meeting_notes = _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
+    return (
+        checkpoint.get("v1_live_request") is True
+        and kind in {"any", "document"}
+        and isinstance(authored, dict)
+        and (
+            authored.get("semantic_intent")
+            in {"institutional_statement", "broad_financial_records"}
+            or meeting_notes
+        )
+        and mime not in LIVE_SUPPORTED_TYPES
+        and mime not in {FOLDER_MIME, SHORTCUT_MIME}
+        # A live video or audio file cannot satisfy a document request. Its
+        # incidental fullText hit must not make the whole search incomplete.
+        # A shortcut's targetMimeType is only a snapshot, so keep an
+        # unavailable target unresolved until its current MIME is verified.
+        and not (
+            mime_verified
+            and kind == "document"
+            and mime.startswith(V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES)
+        )
+    )
 
 
 def _token(payload, current, checkpoint):
@@ -838,6 +1068,42 @@ class DriveOwnerSearchService:
             raise DriveReadError("invalid_argument")
         return {"query": query, "timezone": timezone}
 
+    async def replan_legacy_statement_request(
+        self,
+        *,
+        user_id,
+        request_id,
+        context,
+        expected_lease=None,
+    ):
+        """Install the current deterministic plan on an unfrozen legacy job."""
+        # Imported here because request orchestration already imports this
+        # search service. The same planner is used for fresh and saved jobs.
+        from hushh_mcp.services.drive_request_bulk_service import (
+            _deterministic_statement_plan,
+        )
+
+        purpose = context["purpose"]
+        plan = _deterministic_statement_plan(purpose)
+        if plan is None or context.get("agentPackageRequired"):
+            return None, False
+        queries, period = compile_request_queries(
+            plan.model_dump(mode="json"),
+            purpose,
+            context.get("requestTimeZone") or "UTC",
+            requested_at=context.get("requestCreatedAt"),
+        )
+        return await self.store.replan_legacy_statement_request(
+            user_id=user_id,
+            request_id=request_id,
+            request_revision=context["revision"],
+            purpose=purpose,
+            queries=queries,
+            period=period,
+            terms=plan.terms,
+            expected_lease=expected_lease,
+        )
+
     async def existing(self, *, user_id, client_request_id, query, require_current, timezone="UTC"):
         await require_current()
         result = await self.store.existing(
@@ -920,9 +1186,15 @@ class DriveOwnerSearchService:
         requested_at: datetime | None = None,
         after_page=None,
         evidence_route=None,
+        v1_live_request=False,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
-        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
+        if (
+            authority_mode not in {"owner", "trusted_auto", "agent_package"}
+            or type(v1_live_request) is not bool
+        ):
+            raise DriveReadError("invalid_argument")
+        if v1_live_request and authority_mode != "agent_package":
             raise DriveReadError("invalid_argument")
         route = evidence_route or {"kind": "provider"}
         indexed = route["kind"] in {"index", "packet"}
@@ -933,20 +1205,33 @@ class DriveOwnerSearchService:
             raise DriveReadError("date_range_required")
         await require_current()
         query = purpose["purpose"]
+        plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         request = self._request(query, timezone)
-        await self.store.clear_legacy_completed_request(user_id=user_id, request_id=request_id)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
-        if existing is not None:
-            if existing["status"] not in {"failed", "limited", "stopped"}:
-                return existing
-            await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
+        if existing is not None and existing["status"] in {"queued", "running"}:
+            return existing
         if indexed:
             period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
             queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
         else:
             queries, period = compile_request_queries(
-                plan, purpose, timezone, requested_at=requested_at
+                plan,
+                purpose,
+                timezone,
+                requested_at=requested_at,
+                v1_live_request=v1_live_request,
             )
+        from hushh_mcp.services.drive_request_bulk_service import (
+            _deterministic_statement_plan,
+        )
+
+        statement_plan = _deterministic_statement_plan(purpose)
+        v1_statement_search = v1_live_request or (
+            authority_mode in {"owner", "trusted_auto"}
+            and route["kind"] == "provider"
+            and statement_plan is not None
+            and plan == statement_plan.model_dump(mode="json")
+        )
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
@@ -961,6 +1246,9 @@ class DriveOwnerSearchService:
             client_request_id=request_id,
             request=request,
             confirmed=True,
+            v1_statement_search=v1_statement_search,
+            replace_terminal_request=True,
+            replace_legacy_completed_request=True,
             checkpoint={
                 "request": request,
                 "arguments": queries[0]["arguments"],
@@ -987,8 +1275,13 @@ class DriveOwnerSearchService:
                 "packet_offset": 0,
                 "authority_mode": authority_mode,
                 "agent_package_required": authority_mode == "agent_package",
+                "v1_live_request": v1_live_request,
+                **({"authored_plan": plan} if v1_live_request else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
+                "request_coverage_query_version": 1
+                if len(queries) >= 2 and time_intent == "document_coverage"
+                else None,
                 "request_time_intent": time_intent,
                 "request_owner_review_required": owner_review_required,
                 "request_file_kind": plan.get("file_kind", "any"),
@@ -1011,6 +1304,11 @@ class DriveOwnerSearchService:
                         "provider": "google_drive",
                     }[route["kind"]],
                     "retrievalCompleteness": "verified_index" if indexed else "provider_candidates",
+                    **(
+                        {"formatScope": "supported_live_formats_with_named_unsupported_flags"}
+                        if v1_live_request
+                        else {}
+                    ),
                     "fallbackReason": route.get("fallback_reason"),
                     "lastIndexedAt": route.get("index_snapshot", {}).get("last_synced_at"),
                     "fileKind": plan.get("file_kind", "any"),
@@ -1044,18 +1342,19 @@ class DriveOwnerSearchService:
                 "drive_tokens": [],
             },
         )
+        if not created:
+            return state
         await self.store.align_request_expiry(user_id=user_id, request_id=request_id)
-        if created:
-            await self.run_one(
-                user_id=user_id,
-                job_id=state["jobId"],
-                max_pages=1,
-                deadline_seconds=15,
-                **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
-                require_current=require_current,
-                **({"after_page": after_page} if after_page is not None else {}),
-            )
-        await wake_drive_work("suggestions")
+        await self.run_one(
+            user_id=user_id,
+            job_id=state["jobId"],
+            max_pages=1,
+            deadline_seconds=15,
+            **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
+            require_current=require_current,
+            **({"after_page": after_page} if after_page is not None else {}),
+        )
+        await wake_drive_work("v1" if v1_statement_search else "suggestions")
         return await self.status(
             user_id=user_id, job_id=state["jobId"], require_current=require_current
         )
@@ -1072,10 +1371,12 @@ class DriveOwnerSearchService:
         await require_current()
         return result
 
-    async def results(self, *, user_id, job_id, require_current, cursor=None, limit=25):
+    async def results(
+        self, *, user_id, job_id, require_current, cursor=None, limit=25, request_id=None
+    ):
         await require_current()
         result = await self.store.results(
-            user_id=user_id, job_id=job_id, cursor=cursor, limit=limit
+            user_id=user_id, job_id=job_id, cursor=cursor, limit=limit, request_id=request_id
         )
         await require_current()
         return result
@@ -1291,7 +1592,15 @@ class DriveOwnerSearchService:
                         _counter(checkpoint, "unavailableFolderCount")
                         continue
                     target_kind = details.get("targetMimeType")
-                    if target_kind and not _matches_requested_kind(kind, target_kind):
+                    if target_kind and _v1_unsupported_candidate(
+                        checkpoint, kind, target_kind, mime_verified=False
+                    ):
+                        incomplete = True
+                        _counter(checkpoint, "unsupportedCandidateCount")
+                        continue
+                    if target_kind and not _request_candidate_kind_matches(
+                        checkpoint, kind, target_kind
+                    ):
                         _counter(checkpoint, "excludedByKindCount")
                         continue
                     if not _filename_candidate(checkpoint, match):
@@ -1332,9 +1641,13 @@ class DriveOwnerSearchService:
                 if (
                     folder_scoped
                     or _subject_matches(checkpoint, match["name"])
+                    or _v1_folder_clue_matches(checkpoint, match["name"])
                     or (
                         match.get("shortcut_name")
-                        and _subject_matches(checkpoint, match["shortcut_name"])
+                        and (
+                            _subject_matches(checkpoint, match["shortcut_name"])
+                            or _v1_folder_clue_matches(checkpoint, match["shortcut_name"])
+                        )
                     )
                 ):
                     if not _queue_folder(
@@ -1348,7 +1661,11 @@ class DriveOwnerSearchService:
                 else:
                     _counter(checkpoint, "excludedFolderTopicCount")
                 continue
-            if not _matches_requested_kind(kind, match["mime_type"]):
+            if _v1_unsupported_candidate(checkpoint, kind, match["mime_type"]):
+                incomplete = True
+                _counter(checkpoint, "unsupportedCandidateCount")
+                continue
+            if not _request_candidate_kind_matches(checkpoint, kind, match["mime_type"]):
                 _counter(checkpoint, "excludedByKindCount")
                 continue
             if not _filename_candidate(checkpoint, match):
@@ -1360,6 +1677,7 @@ class DriveOwnerSearchService:
             if (
                 folder_scoped
                 and not checkpoint.get("request_notes")
+                and not checkpoint.get("v1_live_request")
                 and not _subject_matches(checkpoint, match["name"])
                 and not _subject_matches(checkpoint, match.get("shortcut_name", ""))
             ):
@@ -1562,6 +1880,10 @@ class DriveOwnerSearchService:
             PAGE_SIZE
             if checkpoint.get("file_page_size") == PAGE_SIZE or page_size_override == PAGE_SIZE
             else FILE_LIST_PAGE_SIZE
+            if checkpoint.get("file_page_size") == FILE_LIST_PAGE_SIZE
+            else V1_FILE_LIST_PAGE_SIZE
+            if checkpoint.get("v1_live_request") is True
+            else FILE_LIST_PAGE_SIZE
         )
         args = {**checkpoint["arguments"], "pageSize": file_page_size}
         if phase == "folder_files":
@@ -1582,22 +1904,20 @@ class DriveOwnerSearchService:
             args["pageToken"] = checkpoint["page_token"]
         if phase == "files":
             args["driveId"] = checkpoint["drives"][checkpoint["drive_index"]]
-        try:
-            result = await listing_read(
-                user_id=job["user_id"], tool_name="search_files", arguments=args
-            )
-        except DriveReadError as error:
-            if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
-                raise
-            # A 100-row response can exceed the unchanged 256 KiB metadata
-            # ceiling when titles or URLs are long. Retry the same token with
-            # 25 rows and persist that size with the next successful page.
-            file_page_size = PAGE_SIZE
-            checkpoint["file_page_size"] = PAGE_SIZE
-            args["pageSize"] = PAGE_SIZE
-            result = await listing_read(
-                user_id=job["user_id"], tool_name="search_files", arguments=args
-            )
+        while True:
+            try:
+                result = await listing_read(
+                    user_id=job["user_id"], tool_name="search_files", arguments=args
+                )
+                break
+            except DriveReadError as error:
+                if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
+                    raise
+                # Retry the exact cursor with less metadata; never advance a
+                # checkpoint from a page that exceeded the response budget.
+                file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
+                checkpoint["file_page_size"] = file_page_size
+                args["pageSize"] = file_page_size
         payload = result.payload
         if not isinstance(payload, dict):
             raise DriveReadError("provider_response_invalid")
@@ -1612,7 +1932,7 @@ class DriveOwnerSearchService:
             or len(candidates) > file_page_size
         ):
             raise DriveReadError("provider_response_invalid")
-        if (
+        while (
             file_page_size > PAGE_SIZE
             and sum(
                 item.get("mimeType") == SHORTCUT_MIME
@@ -1621,12 +1941,12 @@ class DriveOwnerSearchService:
             )
             > 8
         ):
-            # Avoid making a 90-second slice resolve an unbounded fanout of
-            # shortcut targets (six concurrent metadata reads at a time).
-            # No rows or cursor from the large page have been committed.
+            # A shortcut-heavy page could require hundreds of target reads.
+            # Retry the same cursor at a smaller size before committing rows.
             large_page_incomplete = incomplete
-            checkpoint["file_page_size"] = PAGE_SIZE
-            args["pageSize"] = PAGE_SIZE
+            file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
+            checkpoint["file_page_size"] = file_page_size
+            args["pageSize"] = file_page_size
             result = await listing_read(
                 user_id=job["user_id"], tool_name="search_files", arguments=args
             )
@@ -1642,7 +1962,7 @@ class DriveOwnerSearchService:
                 or payload.get("overLimit") is True
                 or type(incomplete) is not bool
                 or not isinstance(candidates, list)
-                or len(candidates) > PAGE_SIZE
+                or len(candidates) > file_page_size
             ):
                 raise DriveReadError("provider_response_invalid")
             incomplete = incomplete or large_page_incomplete
@@ -1767,6 +2087,45 @@ class DriveOwnerSearchService:
             return status
 
         try:
+            checkpoint = job["checkpoint"]
+            saved_request = checkpoint.get("request")
+            from hushh_mcp.services.drive_request_bulk_service import (
+                _deterministic_statement_plan,
+            )
+
+            if (
+                checkpoint.get("request_origin_id")
+                and checkpoint.get("evidence_route", "provider") == "provider"
+                and checkpoint.get("request_coverage_query_version") != 1
+                and _legacy_single_query(checkpoint)
+                and isinstance(saved_request, dict)
+                and _deterministic_statement_plan({"purpose": saved_request.get("query")})
+                is not None
+            ):
+                if require_current:
+                    await require_current()
+                await self.store.require_current(job)
+                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+                sharing = self.sharing or DriveSharingStore(db=self.store.db)
+                from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+                try:
+                    context = await sharing.request_bulk_context(
+                        user_id=user_id, request_id=checkpoint["request_origin_id"]
+                    )
+                except DriveSharingError:
+                    await self.store.release(job, error="connection_changed")
+                    return finish("superseded")
+                _, changed = await self.replan_legacy_statement_request(
+                    user_id=user_id,
+                    request_id=checkpoint["request_origin_id"],
+                    context=context,
+                    expected_lease=job["lease_id"],
+                )
+                if changed:
+                    await wake_drive_work("v1")
+                    return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):

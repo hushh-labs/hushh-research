@@ -11,11 +11,20 @@ import hashlib
 import hmac
 import json
 import re
+from datetime import date
 from uuid import uuid4
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore, _identity
+from hushh_mcp.services.drive_owner_search_service import (
+    _MEETING_SUBJECT,
+    _is_meeting_note_request,
+)
+from hushh_mcp.services.drive_owner_search_store import (
+    MAX_RESULTS,
+    DriveOwnerSearchStore,
+    _identity,
+)
 from hushh_mcp.services.drive_request_package_assessment import (
     BoundDocumentAssessment,
     PackageAssessment,
@@ -25,6 +34,8 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 PACKAGE_KEY = "agent_package"
 PACKAGE_VERSION = 1
 MAX_BATCH = 6
+V1_FIRST_COHORT = 25
+V1_PRIORITY_FIELD = "v1_evaluation_priority"
 MAX_OBSERVATION_BYTES = 16 * 1024
 MAX_PACKAGE_BYTES = 24 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -53,6 +64,51 @@ def document_ref(position: int) -> str:
     return f"p{position}"
 
 
+def _metadata_priority(metadata, *, plan, purpose):
+    """Order reads using cheap hints; no hint excludes or verifies a document."""
+    name = " ".join(str(metadata.get(key) or "") for key in ("name", "shortcutName")).casefold()
+    context = " ".join(
+        str(metadata.get(key) or "") for key in ("folderName", "folderPath")
+    ).casefold()
+    entities = [
+        value.casefold() for value in plan.get("required_entities", []) if isinstance(value, str)
+    ]
+    clues = {
+        value.casefold()
+        for key in ("terms", "discovery_clues")
+        for value in plan.get(key, [])
+        if isinstance(value, str) and len(value) >= 3
+    }
+    anatomy = {
+        word.casefold()
+        for word in re.findall(r"\w{4,}", str(plan.get("expected_document_anatomy") or ""))
+    }
+    years = set()
+    try:
+        start = date.fromisoformat(purpose["periodStart"])
+        end = date.fromisoformat(purpose["periodEnd"])
+        years = {str(year) for year in range(start.year, end.year + 1)}
+    except (KeyError, TypeError, ValueError):
+        pass
+    # The deterministic meeting plan searches these title aliases, but its
+    # generic "notes" term and a year can otherwise outrank a "Team Sync"
+    # title in the first evaluation cohort. This only changes read order.
+    meeting_title_hint = 20 * bool(
+        plan.get("semantic_intent") not in {"institutional_statement", "broad_financial_records"}
+        and _is_meeting_note_request(str(purpose.get("purpose") or ""))
+        and _MEETING_SUBJECT.search(name)
+    )
+    return (
+        40 * sum(value in name for value in entities)
+        + 10 * sum(value in context for value in entities)
+        + 4 * sum(value in name for value in clues)
+        + sum(value in context for value in clues)
+        + min(8, sum(value in name for value in anatomy))
+        + 12 * bool(years.intersection(re.findall(r"(?<!\d)\d{4}(?!\d)", name)))
+        + meeting_title_hint
+    )
+
+
 def _public_package(package=None, *, status="preparing", counts=None):
     package = package or {}
     answer = package.get("assessment", {})
@@ -73,8 +129,32 @@ def _public_package(package=None, *, status="preparing", counts=None):
         "summary": answer.get("coverage_summary", ""),
         "coverageStatus": answer.get("coverage_status", "unknown"),
         "gaps": answer.get("gaps", []),
-        "canAllow": status == "ready" and bool(package.get("selected_positions")),
+        "canAllow": status == "ready"
+        and (
+            package.get("v1_statement_search") is not True
+            or (answer.get("decision") == "ready" and answer.get("coverage_status") == "complete")
+        )
+        and bool(package.get("selected_positions")),
     }
+
+
+def _review_status(row):
+    # A failed discovery cannot reach the content evaluator, whose status
+    # therefore remains pending. Search terminality takes precedence.
+    if row["status"] in {"failed", "limited", "stopped"} or (
+        row["status"] == "completed" and row["incomplete_search"]
+    ):
+        return "unavailable"
+    if row["status"] != "completed":
+        return "preparing"
+    return {
+        "pending": "preparing",
+        "running": "preparing",
+        "ready": "ready",
+        "no_match": "no_match",
+        "failed": "unavailable",
+        "obsolete": "stale",
+    }[row["evaluation_status"]]
 
 
 class DriveRequestPackageStore(DriveOwnerSearchStore):
@@ -172,8 +252,8 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             raise DriveSharingError("package_changed")
         return row, request, checkpoint
 
-    async def due_evaluations(self, limit=2):
-        if type(limit) is not int or not 1 <= limit <= 20:
+    async def due_evaluations(self, limit=2, *, v1_only=False):
+        if type(limit) is not int or not 1 <= limit <= 20 or type(v1_only) is not bool:
             raise ValueError("invalid evaluation limit")
 
         def operation(connection):
@@ -186,6 +266,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                         AND r.user_id=j.user_id
                       WHERE j.status='completed' AND j.incomplete_search=FALSE
                         AND r.agent_package_required=TRUE
+                        AND (:v1_only=FALSE OR j.v1_statement_search=TRUE)
                         AND j.evaluation_status IN ('pending','running')
                         AND j.expires_at>clock_timestamp() AND r.expires_at>clock_timestamp()
                         AND r.status='pending' AND r.access_stop_requested_at IS NULL
@@ -199,7 +280,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                       LIMIT :limit FOR UPDATE OF j SKIP LOCKED)
                     UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
                     FROM due WHERE j.job_id=due.job_id RETURNING j.user_id,j.job_id"""),
-                    {"limit": limit},
+                    {"limit": limit, "v1_only": v1_only},
                 ).mappings()
             ]
             result = []
@@ -220,13 +301,81 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
 
         return await self._transaction(operation)
 
-    async def claim_evaluation(self, *, user_id, job_id, batch_size=MAX_BATCH):
-        if type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH:
+    def _v1_priority(self, connection, row, checkpoint, purpose):
+        if (
+            row["v1_statement_search"] is not True
+            or checkpoint.get("v1_live_request") is not True
+            or checkpoint.get("evidence_route", "provider") != "provider"
+        ):
+            return []
+        saved = checkpoint.get(V1_PRIORITY_FIELD)
+        if saved is None:
+            # One bounded read/decrypt pass per completed discovery, not one
+            # DB round trip per file or a fresh ranking on every worker wake.
+            candidates = list(
+                connection.execute(
+                    text("""SELECT position,metadata_envelope FROM drive_owner_search_results
+                    WHERE user_id=:user AND job_id=:job ORDER BY position LIMIT :limit"""),
+                    {"user": row["user_id"], "job": row["job_id"], "limit": MAX_RESULTS + 1},
+                ).mappings()
+            )
+            if len(candidates) != row["matched"] or len(candidates) > MAX_RESULTS:
+                raise DriveSharingError("package_changed")
+            plan = checkpoint.get("authored_plan") or {}
+            scored = []
+            for candidate in candidates:
+                position = candidate["position"]
+                metadata = self.search_cipher.open(
+                    candidate["metadata_envelope"],
+                    user_id=row["user_id"],
+                    resource_id=f"{row['job_id']}:{position}",
+                    purpose="owner-search-result",
+                )
+                scored.append((_metadata_priority(metadata, plan=plan, purpose=purpose), position))
+            scored.sort(key=lambda item: (-item[0], item[1]))
+            saved = {
+                "version": 1,
+                "candidate_count": row["matched"],
+                "positions": [position for _, position in scored[:V1_FIRST_COHORT]],
+            }
+            checkpoint[V1_PRIORITY_FIELD] = saved
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb)
+                    WHERE user_id=:user AND job_id=:job"""),
+                {
+                    "user": row["user_id"],
+                    "job": row["job_id"],
+                    "envelope": self._seal(
+                        checkpoint, row["user_id"], str(row["job_id"]), "owner-search-checkpoint"
+                    ),
+                },
+            )
+        positions = saved.get("positions") if isinstance(saved, dict) else None
+        if (
+            not isinstance(saved, dict)
+            or saved.get("version") != 1
+            or saved.get("candidate_count") != row["matched"]
+            or not isinstance(positions, list)
+            or len(positions) != min(V1_FIRST_COHORT, row["matched"])
+            or any(type(value) is not int or not 1 <= value <= MAX_RESULTS for value in positions)
+            or len(set(positions)) != len(positions)
+        ):
+            raise DriveSharingError("package_changed")
+        return positions
+
+    async def claim_evaluation(self, *, user_id, job_id, batch_size=MAX_BATCH, v1_only=False):
+        if (
+            type(batch_size) is not int
+            or not 1 <= batch_size <= MAX_BATCH
+            or type(v1_only) is not bool
+        ):
             raise ValueError("invalid evaluation batch size")
         identity = _identity(job_id)
 
         def operation(connection):
             initial = self._owned(connection, user_id, identity)
+            if v1_only and initial["v1_statement_search"] is not True:
+                return None
             request_id = str(initial["client_request_id"])
             self._gate(
                 connection,
@@ -235,6 +384,8 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 generation=initial["connection_generation"],
             )
             row = self._owned(connection, user_id, identity, locked=True)
+            if v1_only and row["v1_statement_search"] is not True:
+                return None
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["evaluation_status"] not in {"pending", "running"}
@@ -244,12 +395,28 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             ):
                 return None
             request, checkpoint = self._request_current(connection, row)
+            purpose = self.sharing._open_request(request)["purpose"]
+            priority = self._v1_priority(connection, row, checkpoint, purpose)
+            counts = (
+                connection.execute(
+                    text("""SELECT count(*) AS remaining,
+                    count(*) FILTER (WHERE position=ANY(CAST(:priority AS integer[]))) AS prioritized
+                    FROM drive_owner_search_results
+                    WHERE user_id=:user AND job_id=:job AND evaluated_at IS NULL"""),
+                    {"user": user_id, "job": identity, "priority": priority},
+                )
+                .mappings()
+                .one()
+            )
+            limit = min(batch_size, counts["prioritized"]) if counts["prioritized"] else batch_size
             candidates = []
             for candidate in connection.execute(
                 text("""SELECT position,file_digest,metadata_envelope
                     FROM drive_owner_search_results WHERE user_id=:user AND job_id=:job
-                    AND evaluated_at IS NULL ORDER BY position LIMIT :limit"""),
-                {"user": user_id, "job": identity, "limit": batch_size},
+                    AND evaluated_at IS NULL
+                    ORDER BY array_position(CAST(:priority AS integer[]),position) NULLS LAST,
+                      position LIMIT :limit"""),
+                {"user": user_id, "job": identity, "limit": limit, "priority": priority},
             ).mappings():
                 position = candidate["position"]
                 candidates.append(
@@ -274,11 +441,6 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                     retained.append(candidate)
                     budget += size
                 candidates = retained
-            remaining = connection.execute(
-                text("""SELECT count(*) FROM drive_owner_search_results
-                    WHERE job_id=:job AND evaluated_at IS NULL"""),
-                {"job": identity},
-            ).scalar_one()
             lease = str(uuid4())
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET evaluation_status='running',
@@ -293,11 +455,12 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 "request_revision": request["revision"],
                 "generation": row["connection_generation"],
                 "lease_id": lease,
-                "purpose": self.sharing._open_request(request)["purpose"],
+                "purpose": purpose,
                 "checkpoint": checkpoint,
                 "candidates": candidates,
-                "remaining": remaining - len(candidates),
+                "remaining": counts["remaining"] - len(candidates),
                 "candidate_count": row["matched"],
+                "v1_statement_search": row["v1_statement_search"] is True,
             }
 
         return await self._transaction(operation)
@@ -371,8 +534,14 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         values = [self._observation(item, expected[item["position"]]) for item in observations]
 
         def operation(connection):
-            self._evaluation_current(connection, job)
+            _, _, checkpoint = self._evaluation_current(connection, job)
             for value in values:
+                if (
+                    job.get("v1_statement_search") is True
+                    and (value.get("assessment") or {}).get("decision") == "include"
+                    and value["assessment"].get("weightage_out_of_10") is None
+                ):
+                    raise DriveSharingError("package_incomplete")
                 if value.get("indexed_evidence"):
                     from hushh_mcp.services.drive_document_facts_store import (
                         DriveDocumentFactsStore,
@@ -408,12 +577,55 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                         ),
                     },
                 )
-            connection.execute(
-                text(
-                    "UPDATE drive_owner_search_jobs SET evaluation_attempts=0,updated_at=clock_timestamp() WHERE job_id=:job"
-                ),
-                {"job": job["job_id"]},
-            )
+            if job.get("v1_statement_search") is True:
+                preview = checkpoint.get("v1_verified_preview", {"files": [], "count": 0})
+                files = list(preview["files"])
+                included = 0
+                for value in values:
+                    assessment = value.get("assessment") or {}
+                    if (
+                        assessment.get("decision") != "include"
+                        or value["unreadable_reason"]
+                        or value["truncated"]
+                    ):
+                        continue
+                    included += 1
+                    files.append(
+                        {
+                            "position": value["position"],
+                            "name": expected[value["position"]]["metadata"]["name"],
+                            "weightageOutOf10": assessment["weightage_out_of_10"],
+                            "confidenceScore": assessment["confidence"],
+                        }
+                    )
+                files.sort(
+                    key=lambda item: (
+                        -item["weightageOutOf10"],
+                        -item["confidenceScore"],
+                        item["position"],
+                    )
+                )
+                checkpoint["v1_verified_preview"] = {
+                    "files": files[:25],
+                    "count": preview["count"] + included,
+                }
+                connection.execute(
+                    text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb),
+                        evaluation_attempts=0,revision=revision+1,updated_at=clock_timestamp() WHERE job_id=:job"""),
+                    {
+                        "job": job["job_id"],
+                        "envelope": self._seal(
+                            checkpoint, job["user_id"], job["job_id"], "owner-search-checkpoint"
+                        ),
+                    },
+                )
+            else:
+                connection.execute(
+                    text(
+                        "UPDATE drive_owner_search_jobs SET evaluation_attempts=0,updated_at=clock_timestamp() WHERE job_id=:job"
+                    ),
+                    {"job": job["job_id"]},
+                )
             return {"committed": len(values)}
 
         return await self._transaction(operation)
@@ -439,6 +651,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                     evaluation_attempts=:attempts,evaluation_error_code=:code,
                     evaluation_next_at=clock_timestamp()+CASE WHEN :code IS NULL THEN INTERVAL '0 seconds'
                       ELSE INTERVAL '30 seconds' END,lease_id=NULL,lease_expires_at=NULL,
+                    revision=revision+CASE WHEN v1_statement_search THEN 1 ELSE 0 END,
                     updated_at=clock_timestamp() WHERE job_id=:job"""),
                 {"job": job["job_id"], "status": status, "attempts": attempts, "code": code},
             )
@@ -526,6 +739,11 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                         or item["unreadable_reason"]
                     ):
                         raise DriveSharingError("package_changed")
+                    if row["v1_statement_search"] is True and (
+                        assessment.get("weightage_out_of_10") is None
+                        or not assessment.get("covered_periods")
+                    ):
+                        raise DriveSharingError("package_incomplete")
                     sources.append(
                         {
                             key: item[key]
@@ -628,22 +846,28 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 "counts": counts,
                 "request_revision": request["revision"],
                 "connection_generation": row["connection_generation"],
+                "v1_statement_search": row["v1_statement_search"] is True,
             }
             package["digest"] = self._digest(row, request, package, sources)
             if len(json.dumps(package, ensure_ascii=False).encode()) > MAX_PACKAGE_BYTES:
                 raise ValueError("package summary exceeds budget")
             checkpoint[PACKAGE_KEY] = package
-            status = (
-                "ready"
-                if positions
-                else "no_match"
-                if answer["decision"] == "no_match"
-                else "failed"
+            genuine_no_match = (
+                answer["decision"] == "no_match"
+                and not positions
+                and (
+                    row["v1_statement_search"] is not True
+                    or (
+                        not any(counts[key] for key in ("unreadable", "truncated", "uncertain"))
+                        and not checkpoint.get("coverage_manifest", {}).get("fallbackReason")
+                    )
+                )
             )
+            status = "ready" if positions else "no_match" if genuine_no_match else "failed"
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb),
                     evaluation_status=:status,evaluation_error_code=NULL,lease_id=NULL,
-                    lease_expires_at=NULL,updated_at=clock_timestamp() WHERE job_id=:job"""),
+                    lease_expires_at=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE job_id=:job"""),
                 {
                     "job": job["job_id"],
                     "status": status,
@@ -652,6 +876,41 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                     ),
                 },
             )
+            if (
+                row["v1_statement_search"] is True
+                and request.get("v1_live_request") is True
+                and answer["decision"] == "ready"
+                and self.sharing._open_request(request).get("trusted_auto") is not True
+            ):
+                self.sharing._activate_v1_manual_review(
+                    connection, request=request, search=row, package=package, sources=sources
+                )
+            # A genuinely empty, fully evaluated V1 request is a terminal
+            # outcome. The owner and buyer need the same Feed result that a
+            # completed zero-file share would produce, with no checkout path.
+            # Extraction failures, uncertainty and provider fallback cannot
+            # establish that no matching document exists.
+            if row["v1_statement_search"] is True and genuine_no_match:
+                updated = self._row(
+                    connection,
+                    """UPDATE drive_share_requests SET status='no_match',updated_at=clock_timestamp()
+                    WHERE request_id=:request AND user_id=:user AND revision=:revision
+                      AND status='pending' AND access_stop_requested_at IS NULL
+                    RETURNING *""",
+                    {
+                        "request": request["request_id"],
+                        "user": request["user_id"],
+                        "revision": request["revision"],
+                    },
+                )
+                if updated is None:
+                    raise DriveSharingError("package_changed")
+                self.sharing._event(
+                    connection, updated, updated["user_id"], "document_share_outcome"
+                )
+                self.sharing._event(
+                    connection, updated, updated["recipient_user_id"], "document_share_outcome"
+                )
             return _public_package(package, status="unavailable" if status == "failed" else status)
 
         return await self._transaction(operation)
@@ -684,6 +943,13 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             or package.get("request_revision") != row["revision"]
             or package.get("connection_generation") != search["connection_generation"]
             or not package.get("selected_positions")
+            or (
+                search["v1_statement_search"] is True
+                and (
+                    package.get("assessment", {}).get("decision") != "ready"
+                    or package.get("assessment", {}).get("coverage_status") != "complete"
+                )
+            )
             or not hmac.compare_digest(str(package.get("digest", "")), package_digest)
         ):
             raise DriveSharingError("package_changed")
@@ -736,14 +1002,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 return _public_package()
             checkpoint = self._checkpoint(row)
             package = checkpoint.get(PACKAGE_KEY)
-            status = {
-                "pending": "preparing",
-                "running": "preparing",
-                "ready": "ready",
-                "no_match": "no_match",
-                "failed": "unavailable",
-                "obsolete": "stale",
-            }[row["evaluation_status"]]
+            status = _review_status(row)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["connection_generation"] != current["connection_generation"]
@@ -758,12 +1017,79 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 and marker.get("package_digest") == package.get("digest")
             ):
                 status = "allowed"
-            if request["status"] != "pending" or request["access_stop_requested_at"] is not None:
+            if (
+                request["status"] != "pending"
+                and not (status == "no_match" and request["status"] == "no_match")
+            ) or request["access_stop_requested_at"] is not None:
                 status = "allowed" if status == "allowed" else "stale"
-            return _public_package(
+            public = _public_package(
                 package,
                 status=status,
                 counts=package.get("counts") if package else self._counts(connection, row),
             )
+            if status == "unavailable" and (
+                row["status"] in {"failed", "limited", "stopped"} or row["incomplete_search"]
+            ):
+                public["searchErrorCode"] = row["error_code"] or (
+                    "search_incomplete" if row["incomplete_search"] else "search_unavailable"
+                )
+            elif status == "unavailable" and row["evaluation_status"] == "failed":
+                public["evaluationErrorCode"] = (
+                    row["evaluation_error_code"] or "evaluation_unavailable"
+                )
+            if row["v1_statement_search"] is True and status in {"preparing", "ready", "allowed"}:
+                preview = checkpoint.get("v1_verified_preview", {"files": [], "count": 0})
+                public["provisionalFiles"] = preview["files"]
+                public["verifiedCount"] = preview["count"]
+                public["pendingCount"] = max(0, public["candidateCount"] - public["evaluatedCount"])
+            if row["v1_statement_search"] is True and package and package.get("selected_positions"):
+                selected = package["selected_positions"]
+                files = []
+                for item in connection.execute(
+                    text("""SELECT position,metadata_envelope,evaluation_envelope
+                        FROM drive_owner_search_results
+                        WHERE user_id=:user AND job_id=:job AND position=ANY(:positions)
+                        ORDER BY position"""),
+                    {"user": user_id, "job": row["job_id"], "positions": selected},
+                ).mappings():
+                    metadata = self.search_cipher.open(
+                        item["metadata_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{row['job_id']}:{item['position']}",
+                        purpose="owner-search-result",
+                    )
+                    evidence = self.search_cipher.open(
+                        item["evaluation_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{row['job_id']}:{item['position']}",
+                        purpose="request-package-evidence",
+                    )
+                    assessment = evidence.get("assessment") or {}
+                    if (
+                        assessment.get("decision") != "include"
+                        or type(assessment.get("confidence")) is not int
+                        or assessment.get("weightage_out_of_10") is None
+                    ):
+                        raise DriveSharingError("package_changed")
+                    files.append(
+                        {
+                            "position": item["position"],
+                            "name": metadata["name"],
+                            "weightageOutOf10": assessment["weightage_out_of_10"],
+                            "confidenceScore": assessment["confidence"],
+                        }
+                    )
+                if len(files) != len(selected):
+                    raise DriveSharingError("package_changed")
+                files.sort(
+                    key=lambda item: (
+                        -item["weightageOutOf10"],
+                        -item["confidenceScore"],
+                        item["position"],
+                    )
+                )
+                public["selectedFiles"] = files[:25]
+                public["selectedFileCount"] = len(package["selected_positions"])
+            return public
 
         return await self._transaction(operation)

@@ -20,7 +20,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_owner_allowed import valid_owner_price_cents
-from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+from hushh_mcp.services.drive_request_package_disclosure import (
+    buyer_package_disclosure,
+    manual_buyer_disclosure,
+)
 from hushh_mcp.services.drive_request_recovery_view import (
     MAX_REVIEW_REQUESTS,
     requester_recovery_view,
@@ -81,7 +84,8 @@ def requester_context(store, connection, *, user_id: str, request_id: str) -> di
     """
     row = store._row(
         connection,
-        """SELECT request_id,user_id,request_envelope,payment_required,created_at,revision,owner_allowed_at
+        """SELECT request_id,user_id,request_envelope,payment_required,created_at,revision,owner_allowed_at,
+              requested_access_days,approved_access_days,access_expires_at
            FROM drive_share_requests WHERE request_id=:id AND recipient_user_id=:user""",
         {"id": str(UUID(request_id)), "user": user_id},
     )
@@ -94,13 +98,23 @@ def requester_context(store, connection, *, user_id: str, request_id: str) -> di
     recipient = private.get("recipient")
     email = recipient.get("email") if isinstance(recipient, dict) else None
     time_zone = private.get("request_time_zone")
-    disclosure = buyer_package_disclosure(
-        private, request_revision=row["revision"], owner_allowed_at=row["owner_allowed_at"]
+    disclosure = (
+        manual_buyer_disclosure(private, request_revision=row["revision"])
+        if private.get("v1_live_request") is True and private.get("agent_package_required") is False
+        else buyer_package_disclosure(
+            private, request_revision=row["revision"], owner_allowed_at=row["owner_allowed_at"]
+        )
     )
     return {
         "requestId": str(row["request_id"]),
         "requestRevision": row["revision"],
         "purpose": purpose.model_dump(),
+        "reason": private.get("reason", ""),
+        "requestedAccessDays": row.get("requested_access_days"),
+        "approvedAccessDays": row.get("approved_access_days"),
+        "accessExpiresAt": row["access_expires_at"].isoformat()
+        if row.get("access_expires_at")
+        else None,
         "recipientEmail": email if isinstance(email, str) else None,
         "requestedAt": row["created_at"].isoformat(),
         "timeZone": time_zone if isinstance(time_zone, str) else None,

@@ -21,6 +21,12 @@ from typing import Any, TypeGuard
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_METADATA_BYTES_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+    valid_file_list_page_size,
+)
 from hushh_mcp.services.drive_telemetry import drive_logger
 
 logger = drive_logger(__name__)
@@ -28,7 +34,9 @@ logger = drive_logger(__name__)
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 METADATA_LIMIT = 256 * 1024
-MAX_FILE_LIST_PAGE_SIZE = 100
+OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
+MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
+MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
@@ -137,7 +145,8 @@ EXPORTS = {
 LIVE_EXPORTS = {
     **EXPORTS,
     "application/vnd.google-apps.document": "text/markdown",
-    "application/vnd.google-apps.spreadsheet": "text/csv",
+    # XLSX contains every worksheet. CSV export contains only the first tab.
+    "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 # Markdown carries each image inline, so a picture-heavy Doc can pass the
 # CONTENT_LIMIT, or Google's 10 MB export limit (a 403), where its plain text
@@ -145,7 +154,7 @@ LIVE_EXPORTS = {
 LIVE_EXPORT_FALLBACKS = {"application/vnd.google-apps.document": "text/plain"}
 _LIVE_EXPORT_FALLBACK_CODES = frozenset({"file_too_large", "source_unavailable"})
 _LIVE_EXPORT_TYPES = frozenset({*LIVE_EXPORTS.values(), *LIVE_EXPORT_FALLBACKS.values()})
-LIVE_PARTIAL_EXPORTS = frozenset({"application/vnd.google-apps.spreadsheet"})
+LIVE_PARTIAL_EXPORTS: frozenset[str] = frozenset()
 BINARY_TYPES = frozenset(
     {
         "text/plain",
@@ -180,6 +189,7 @@ LIVE_EXTRACTABLE_CONTENT_TYPES = frozenset(
         "text/markdown",
         "text/csv",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
 LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
@@ -194,9 +204,10 @@ LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
 class DriveReadError(RuntimeError):
     """Only authored safe codes cross the transport boundary."""
 
-    def __init__(self, code: str, *, retryable: bool = False):
+    def __init__(self, code: str, *, retryable: bool = False, status_code: int | None = None):
         super().__init__(code)
         self.retryable = retryable
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -318,8 +329,11 @@ class GoogleDriveAdapter:
         params: dict[str, str],
         limit: int,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
+        if type(owner_search_page) is not bool:
+            raise DriveReadError("operation_not_allowed")
         # Fixed operation names only. The path can contain a private provider ID
         # and params can contain the owner's search, so neither is logged.
         operation = (
@@ -351,6 +365,7 @@ class GoogleDriveAdapter:
                     access_token=access_token,
                     params=params,
                     limit=limit,
+                    **({"owner_search_page": True} if owner_search_page else {}),
                     **({"resource_keys": resource_keys} if resource_keys else {}),
                 )
             outcome = "ok"
@@ -389,6 +404,7 @@ class GoogleDriveAdapter:
         params: dict[str, str],
         limit: int,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
         if resource_keys and any(
@@ -463,7 +479,10 @@ class GoogleDriveAdapter:
                     and FILE_ID.fullmatch(params.get("driveId", "")) is not None
                 )
                 and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
-                and re.fullmatch(r"[1-9]|[1-9][0-9]|100", params.get("pageSize", "")) is not None
+                and valid_file_list_page_size(
+                    params.get("pageSize"), owner_search_page=owner_search_page
+                )
+                and limit == (OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT)
                 and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
@@ -494,7 +513,16 @@ class GoogleDriveAdapter:
             allowed = False
         if (
             not allowed
-            or limit not in {METADATA_LIMIT, CONTENT_LIMIT, LIVE_COLLECTION_CONTENT_LIMIT}
+            or type(owner_search_page) is not bool
+            or owner_search_page
+            and path != "/files"
+            or limit
+            not in {
+                METADATA_LIMIT,
+                OWNER_SEARCH_METADATA_LIMIT,
+                CONTENT_LIMIT,
+                LIVE_COLLECTION_CONTENT_LIMIT,
+            }
             or (
                 limit == LIVE_COLLECTION_CONTENT_LIMIT
                 and not (params.get("alt") == "media" or path.endswith("/export"))
@@ -543,7 +571,7 @@ class GoogleDriveAdapter:
                     # shortcut target is unavailable. Retry the same durable page.
                     raise DriveReadError("provider_unavailable", retryable=True)
                 if response.status_code in {403, 404, 410}:
-                    raise DriveReadError("source_unavailable")
+                    raise DriveReadError("source_unavailable", status_code=response.status_code)
                 if response.status_code == 429 or response.status_code >= 500:
                     # No URL, query, token, file ID or provider body reaches logs.
                     logger.warning(
@@ -831,12 +859,16 @@ class GoogleDriveAdapter:
         order_by: str | None = None,
         drive_id: str | None = None,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> dict[str, Any]:
         """One bounded Drive REST search page (the GA API the picker lane already uses)."""
         if (
             not isinstance(page_size, int)
             or isinstance(page_size, bool)
-            or not 1 <= page_size <= MAX_FILE_LIST_PAGE_SIZE
+            or type(owner_search_page) is not bool
+            or not 1
+            <= page_size
+            <= (MAX_OWNER_SEARCH_PAGE_SIZE if owner_search_page else MAX_FILE_LIST_PAGE_SIZE)
         ):
             raise DriveReadError("invalid_argument")
         if drive_id is not None and (
@@ -855,7 +887,11 @@ class GoogleDriveAdapter:
                 "/files",
                 access_token=access_token,
                 params=params,
-                limit=METADATA_LIMIT,
+                # Only the fenced durable owner scanner may ask for a large
+                # metadata page. A 1000-row response is bounded to 2 MiB;
+                # oversize pages retry at 100 and then 25 without losing a token.
+                limit=OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT,
+                **({"owner_search_page": True} if owner_search_page else {}),
                 **({"resource_keys": resource_keys} if resource_keys is not None else {}),
             )
         )

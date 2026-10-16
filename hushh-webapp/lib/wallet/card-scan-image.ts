@@ -2,6 +2,16 @@ export interface CardPoint { x: number; y: number }
 export type CardCorners = [CardPoint, CardPoint, CardPoint, CardPoint];
 export interface CardImageBox { x0: number; y0: number; x1: number; y1: number }
 export const FULL_CARD: CardCorners = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+export function isFullCard(corners: CardCorners): boolean {
+  return corners.every((point, index) => point.x === FULL_CARD[index]!.x && point.y === FULL_CARD[index]!.y);
+}
+
+/** Match the centered object-cover preview and its 8% inset camera guide. */
+export function cardCameraCaptureBox(width: number, height: number, viewWidth: number, viewHeight: number) {
+  const scale = Math.max(viewWidth / width, viewHeight / height);
+  const visibleWidth = viewWidth / scale, visibleHeight = viewHeight / scale;
+  return { x: (width - visibleWidth) / 2 + visibleWidth * .08, y: (height - visibleHeight) / 2 + visibleHeight * .08, width: visibleWidth * .84, height: visibleHeight * .84 };
+}
 
 /** Read dimensions before decoding: compressed byte limits alone are insufficient. */
 export async function validateCardImage(file: Blob): Promise<void> {

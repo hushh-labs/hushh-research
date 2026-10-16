@@ -1,4 +1,5 @@
 "use client";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "@/components/wallet/wallet-demo-cards";
 
 /**
  * Public Wallet Profile card — the surface a stranger sees after scanning the
@@ -490,9 +491,11 @@ export function publicProfileQrUrl(value?: string | null): string | null {
   } catch { return null; }
 }
 
-export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
+export function PublicWalletCardView({ card, embedded = false, profileUrl, visualCard = false }: {
   card: PublicWalletCard;
   embedded?: boolean;
+  /** Timed sharing uses the actual face with only its permitted name. */
+  visualCard?: boolean;
   /** Existing authorized share link; never derived from private account fields. */
   profileUrl?: string | null;
 }) {
@@ -504,7 +507,11 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
 
   return (
     <article className={styles.card} data-embedded={embedded || undefined} data-testid="visitor-profile-card">
-      <header className={styles.identity}>
+      {visualCard ? <div className="mx-auto w-full max-w-[420px]" data-testid="shared-profile-card-face">
+        <h1 className="sr-only">{card.fullName || "Shared profile"}</h1>
+        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={{ presentation: "shared", displayName: card.fullName, shareUrl: null }} />
+        {card.headline ? <p className={styles.headline}>{card.headline}</p> : null}
+      </div> : <header className={styles.identity}>
         <Avatar className={styles.photo}>
           {card.avatarUrl ? (
             <AvatarImage src={card.avatarUrl} alt="" className="object-cover" />
@@ -538,7 +545,7 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
         ) : null}
 
         </div>
-      </header>
+      </header>}
 
         {hasMeta ? (
           <p className={styles.meta}>

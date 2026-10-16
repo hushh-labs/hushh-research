@@ -1,0 +1,277 @@
+.setupDialog {
+  --vault-v10-ink: #1d1d1f;
+  --vault-v10-muted: #6e6e73;
+  --vault-v10-field: #f8f9fb;
+  --vault-v10-line: #e1e4ea;
+  --vault-v10-blue: #0071e3;
+  color: var(--vault-v10-ink);
+  font-family: var(--font-family-product, "Plus Jakarta Sans", system-ui, sans-serif);
+}
+
+:global(.dark) .setupDialog {
+  --vault-v10-ink: #f5f5f7;
+  --vault-v10-muted: #a8abb6;
+  --vault-v10-field: #202126;
+  --vault-v10-line: #3a3c46;
+}
+
+.setupDialog :global([data-vault-flow-content]) {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.setupDialog :global([data-vault-flow-header]) {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.setupDialog :global([data-vault-flow-step="create"] [data-vault-flow-header]) {
+  margin-bottom: 12px;
+}
+
+.setupDialog :global([data-vault-flow-step="create"] [data-vault-flow-icon]),
+.setupDialog :global([data-vault-flow-step="recovery"] [data-vault-recovery-key] [data-vault-flow-icon]) {
+  display: none;
+}
+
+.setupDialog :global([data-vault-flow-header] [role="heading"]) {
+  color: var(--vault-v10-ink);
+  font-family: var(--font-family-product, "Plus Jakarta Sans", system-ui, sans-serif);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -0.04em;
+}
+
+.setupDialog :global([data-vault-flow-header] > p) {
+  margin-top: 9px;
+  color: var(--vault-v10-muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.setupDialog :global([data-vault-account-identity]) {
+  margin-top: 17px;
+  color: var(--vault-v10-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.setupDialog :global([data-vault-recovery-key] [data-vault-account-identity]) {
+  display: none;
+}
+
+.setupDialog :global([data-vault-create-form]) {
+  width: 100%;
+}
+
+.setupDialog :global([data-vault-create-form] > div > label) {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--vault-v10-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.setupDialog :global([data-vault-password-field]),
+.setupDialog :global([data-vault-confirm-field]) {
+  height: 52px;
+  border: 1px solid var(--vault-v10-line);
+  border-radius: 15px;
+  background: var(--vault-v10-field);
+  color: var(--vault-v10-muted);
+}
+
+.setupDialog :global([data-vault-password-field]:is(:hover, :focus-within)),
+.setupDialog :global([data-vault-confirm-field]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border);
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--vault-v10-field));
+}
+
+.setupDialog :global([data-vault-password-field]:focus-within),
+.setupDialog :global([data-vault-confirm-field]:focus-within) {
+  box-shadow: 0 0 0 2px var(--app-focus-ring);
+}
+
+.setupDialog :global([data-vault-password-field] input),
+.setupDialog :global([data-vault-confirm-field] input) {
+  color: var(--vault-v10-ink);
+  /* The global input rule otherwise computes to 17px on phone viewports. */
+  font-size: 16px !important;
+}
+
+.setupDialog :global([data-vault-create-hint]) {
+  color: var(--vault-v10-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.setupDialog :global([data-vault-quick-unlock-option]) {
+  min-height: 69px;
+  border: 1px solid #bddbff;
+  border-radius: 16px;
+  background: #edf5ff;
+}
+
+:global(.dark) .setupDialog :global([data-vault-quick-unlock-option]) {
+  border-color: #27507a;
+  background: #18283d;
+}
+
+.setupDialog :global([data-vault-create-cta]),
+.setupDialog :global([data-vault-recovery-cta]) {
+  min-height: 52px;
+  border-radius: 999px;
+  background: var(--vault-v10-blue) !important;
+  color: #fff !important;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.setupDialog :global([data-vault-create-cta]) {
+  margin-top: 3px;
+}
+
+.setupDialog :global([data-vault-recovery-cta]) {
+  margin-top: 22px;
+}
+
+.setupDialog :global([data-vault-recovery-key] > p) {
+  margin-top: 10px;
+}
+
+.setupDialog :global([data-vault-create-cta]:disabled),
+.setupDialog :global([data-vault-recovery-cta]:disabled) {
+  background: #cadff7 !important;
+  color: #7d9abb !important;
+}
+
+.setupDialog :global([data-vault-recovery-warning]) {
+  margin-top: 20px;
+  border: 1px solid #f4cc91;
+  border-radius: 13px;
+  background: #fff2dd;
+  color: #8c470c;
+  font-size: 13px;
+  line-height: 19px;
+}
+
+:global(.dark) .setupDialog :global([data-vault-recovery-warning]) {
+  border-color: #754419;
+  background: #332315;
+  color: #fbc489;
+}
+
+.setupDialog :global([data-vault-recovery-code]) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 13px;
+  padding: 19px 16px;
+  border: 1px dashed #93bffc;
+  border-radius: 15px;
+  background: #eaf3fe;
+}
+
+.setupDialog :global([data-vault-recovery-code]::before) {
+  content: "RECOVERY KEY";
+  color: #617b9a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 14px;
+}
+
+:global(.dark) .setupDialog :global([data-vault-recovery-code]) {
+  background: #182d48;
+}
+
+.setupDialog :global([data-vault-recovery-code] code) {
+  max-width: 100%;
+  color: var(--vault-v10-ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.setupDialog :global([data-vault-recovery-actions]) {
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.setupDialog :global([data-vault-recovery-actions] button) {
+  min-height: 46px;
+  border: 1px solid #bbd6fa;
+  border-radius: 999px;
+  background: #eaf3fe !important;
+  color: var(--vault-v10-blue) !important;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+:global(.dark) .setupDialog :global([data-vault-recovery-actions] button) {
+  border-color: #244971;
+  background: #182d48 !important;
+}
+
+@media (min-width: 900px) {
+  .setupDialog :global([data-vault-flow-header]) {
+    text-align: left;
+  }
+
+  .setupDialog :global([data-vault-flow-header] [role="heading"]) {
+    font-size: clamp(34px, 3.4vw, 43px);
+    line-height: 1.1;
+    letter-spacing: -0.045em;
+  }
+
+  .setupDialog :global([data-vault-flow-header] > p) {
+    margin-top: 12px;
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .setupDialog :global([data-vault-account-identity]) {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 360px), (max-height: 700px) and (max-width: 899px) {
+  .setupDialog :global([data-vault-flow-header] [role="heading"]) {
+    font-size: 27px;
+    line-height: 33px;
+  }
+}
+
+@media (max-height: 700px) and (max-width: 899px) {
+  .setupDialog :global([data-vault-flow-step="create"] [data-vault-flow-header]) {
+    margin-bottom: 0;
+  }
+
+  .setupDialog :global([data-vault-flow-step="recovery"] [data-vault-flow-header]) {
+    margin-bottom: 9px;
+  }
+
+  .setupDialog :global([data-vault-recovery-warning]) {
+    margin-top: 9px;
+  }
+
+  .setupDialog :global([data-vault-recovery-code]) {
+    gap: 5px;
+    margin-top: 9px;
+    padding: 14px 12px;
+  }
+
+  .setupDialog :global([data-vault-recovery-code] code) {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+}

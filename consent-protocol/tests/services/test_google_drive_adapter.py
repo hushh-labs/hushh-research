@@ -36,6 +36,107 @@ def adapter():
 
 
 @pytest.mark.asyncio
+async def test_only_owner_search_opt_in_can_request_a_thousand_file_metadata_page(adapter):
+    adapter._get = AsyncMock(return_value=b'{"files":[],"nextPageToken":"next"}')
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token", query="trashed = false", page_size=1000
+        )
+    page = await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=1000,
+        owner_search_page=True,
+    )
+    assert page["nextPageToken"] == "next"
+    assert adapter._get.await_args.kwargs["params"]["pageSize"] == "1000"
+    assert adapter._get.await_args.kwargs["limit"] == drive.OWNER_SEARCH_METADATA_LIMIT
+    assert adapter._get.await_args.kwargs["owner_search_page"] is True
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="trashed = false",
+            page_size=1001,
+            owner_search_page=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_owner_search_large_page_is_scoped_at_private_rest_boundary(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        payload = json.dumps({"files": [], "nextPageToken": "more"}).encode()
+        return httpx.Response(200, stream=httpx.ByteStream(payload))
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    page = await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=1000,
+        page_token="next-25",
+        owner_search_page=True,
+    )
+    assert page["nextPageToken"] == "more"
+    assert len(seen) == 1
+    assert seen[0].url.params["pageSize"] == "1000"
+    assert seen[0].url.params["pageToken"] == "next-25"
+
+    # The same operation cannot become a generic large-page transport.
+    params = {**drive.LIST_FIXED, "q": "trashed = false", "pageSize": "1000"}
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files", access_token="synthetic-token", params=params, limit=drive.METADATA_LIMIT
+        )
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files",
+            access_token="synthetic-token",
+            params=params,
+            limit=drive.METADATA_LIMIT,
+            owner_search_page=True,
+        )
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files",
+            access_token="synthetic-token",
+            params={**params, "pageSize": "1001"},
+            limit=drive.OWNER_SEARCH_METADATA_LIMIT,
+            owner_search_page=True,
+        )
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_search_large_metadata_response_stops_at_two_mib(adapter, monkeypatch):
+    original = httpx.AsyncClient
+
+    def handler(_request):
+        return httpx.Response(
+            200, stream=httpx.ByteStream(b"x" * (drive.OWNER_SEARCH_METADATA_LIMIT + 1))
+        )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(drive.DriveReadError, match="file_too_large"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="trashed = false",
+            page_size=1000,
+            owner_search_page=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_search_sessions_reuse_connections_without_cross_task_credentials(
     adapter, monkeypatch, caplog
 ):

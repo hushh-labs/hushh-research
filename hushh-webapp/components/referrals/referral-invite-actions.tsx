@@ -67,15 +67,13 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
             variant="pill"
             className="referral-share-toggle"
             contentClassName="referral-share-content"
-            aria-label={open ? "Close share options" : "Invite & earn $"}
+            aria-label={open ? "Close share options" : "Invite"}
             aria-expanded={open}
             rippleEffect="fill"
           >
-            <span className="referral-share-label">
-              Invite &amp; earn <span className="referral-share-currency">$</span>
-            </span>
+            <span className="referral-share-label">Invite</span>
             <span className="referral-share-arrow-surface" aria-hidden="true">
-              <ArrowRightIcon size={16} weight="bold" />
+              <ArrowRightIcon size={14} weight="bold" className={open ? "rotate-90" : undefined} />
             </span>
           </ShellActionSurface>
         </CollapsibleTrigger>

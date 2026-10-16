@@ -217,7 +217,8 @@ class CacheService {
         key.startsWith(`connected_systems_${userId}_`) ||
         key.startsWith(`connections_first_page_${userId}_`) ||
         key.startsWith(`connect_directory_first_page_${userId}_`) ||
-        key.startsWith(`google_connection_${userId}_`)
+        key.startsWith(`google_connection_${userId}_`) ||
+        key.startsWith(`calendar_invitations_${userId}_`)
         || key.startsWith(`referral_dashboard_${userId}_`)
       ) {
         keysToDelete.add(key);

@@ -44,7 +44,6 @@ import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
 import { toast } from "sonner";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
-import { resolveAppEnvironment } from "@/lib/app-env";
 import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
 
 export type GoogleSignInOptions = {
@@ -489,9 +488,13 @@ export class AuthService {
     return "";
   }
 
-  /** Public signup must stay usable until Contacts OAuth verification completes. */
+  /**
+   * Sign-in never asks for Google Contacts. The sensitive scope on the login
+   * consent screen made Google flag the sign-in as unverified; contacts are
+   * requested later, on demand, through the separate contacts token.
+   */
   static canRequestInitialGoogleContacts(): boolean {
-    return resolveAppEnvironment() !== "production";
+    return false;
   }
 
   /**

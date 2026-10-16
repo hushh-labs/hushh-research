@@ -84,6 +84,8 @@ vi.mock("@/lib/agent/agent-pkm-capture-runtime", async (importOriginal) => ({
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
 import { WorldModelProvider } from "@/components/profile/world-model-provider";
+import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
+import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 import {
   WorldModelDecisionService,
   pwmClaimKey,
@@ -107,6 +109,7 @@ const preferences = {
   enabled: true,
   email_enabled: true,
   consent_version: "pwm-native-v1",
+  research_provider: "vertex_google_search",
 };
 /** Two sections, three statements; one with doubtful evidence. */
 const offered = {
@@ -301,6 +304,35 @@ afterEach(() => {
 });
 
 describe("Personal World Model owner journey", () => {
+  it("creates a contact-bound invitation without asking for a public source URL", async () => {
+    vi.spyOn(WorldModelInvitationsService, "list").mockResolvedValue([]);
+    const create = vi.spyOn(WorldModelInvitationsService, "create").mockResolvedValue({
+      id: DRAFT_ID,
+      token: "a".repeat(43),
+      expires_at: "2026-10-23T00:00:00Z",
+      url: "https://example.test/world-model/invite#claim=synthetic",
+    });
+    render(
+      <WorldModelInvitations
+        ownerId="owner-a"
+        vaultKey={vault.vaultKey}
+        vaultOwnerToken={vault.vaultOwnerToken}
+      />,
+    );
+    expect(screen.queryByLabelText("Public profile link")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Their name"), { target: { value: "Sam Example" } });
+    fireEvent.change(screen.getByLabelText("Their email"), { target: { value: "sam@example.test" } });
+    fireEvent.change(screen.getByLabelText("Their phone with country code"), {
+      target: { value: "+14155550111" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    await waitFor(() => expect(create).toHaveBeenCalledWith(
+      { vaultKey: vault.vaultKey, vaultOwnerToken: vault.vaultOwnerToken },
+      "sam@example.test",
+      { subject_name: "Sam Example", secondary_contact: "+14155550111" },
+    ));
+  });
+
   it("streams every step while research runs, then lets the owner review the draft", async () => {
     const live = new LiveStream();
     const calls = mockNetwork({ stream: () => live.response(), jobs: () => pending });

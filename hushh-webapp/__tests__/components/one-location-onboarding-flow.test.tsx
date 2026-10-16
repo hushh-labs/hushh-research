@@ -76,13 +76,16 @@ async function renderReady(
   return result;
 }
 
-describe("OneLocationOnboardingFlow two-screen introduction", () => {
+describe("OneLocationOnboardingFlow introduction", () => {
   it("hides app chrome while mounted and starts at Features", () => {
     const { unmount } = renderFlow();
     expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(true);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(screen.getByText("1 of 2")).toBeTruthy();
+    expect(screen.getByText("1 of 3")).toBeTruthy();
     expect(screen.queryByTestId("one-location-onboarding-welcome")).toBeNull();
+    expect(screen.queryByText("Your location stays private until you share.")).toBeNull();
+    expect(screen.queryByText("Location is ready. Your next tap opens the place picker.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
     unmount();
     expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
   });
@@ -96,7 +99,7 @@ describe("OneLocationOnboardingFlow two-screen introduction", () => {
     const { unmount } = render(<ControlledFlow />);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
-    expect(screen.getByText("2 of 2")).toBeTruthy();
+    expect(screen.getByText("3 of 3")).toBeTruthy();
     act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(props.onBack).not.toHaveBeenCalled();
@@ -104,6 +107,67 @@ describe("OneLocationOnboardingFlow two-screen introduction", () => {
     expect(props.onBack).toHaveBeenCalledTimes(1);
     unmount();
     expect(unwindBackLayer(routeId)).toBe(false);
+  });
+
+  describe("Save a place step", () => {
+    function ControlledFlow(
+      props: React.ComponentProps<typeof OneLocationOnboardingFlow>,
+    ) {
+      const [activeScreen, setScreen] = useState<
+        "features" | "place" | "ready"
+      >("features");
+      return (
+        <OneLocationOnboardingFlow
+          {...props}
+          activeScreen={activeScreen}
+          onScreenChange={setScreen}
+        />
+      );
+    }
+
+    it("hands Features to the hosted place surface once it has opened", async () => {
+      const onPreparePlace = vi.fn().mockResolvedValue(true);
+      render(<ControlledFlow {...createProps({ onPreparePlace })} />);
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
+      );
+      expect(onPreparePlace).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([false, "rejects"] as const)(
+      "reaches Ready instead of trapping the person when the place cannot open (%s)",
+      async (outcome) => {
+        const onPreparePlace =
+          outcome === "rejects"
+            ? vi.fn().mockRejectedValue(new Error("denied"))
+            : vi.fn().mockResolvedValue(false);
+        render(<ControlledFlow {...createProps({ onPreparePlace })} />);
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+        await waitFor(() =>
+          expect(
+            screen.getByTestId("one-location-onboarding-ready"),
+          ).toBeTruthy(),
+        );
+      },
+    );
+
+    it("unwinds the place step to Features", async () => {
+      const routeId = "/one/location";
+      render(
+        <ControlledFlow
+          {...createProps({ onPreparePlace: vi.fn().mockResolvedValue(true) })}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
+      );
+      act(() => {
+        expect(unwindBackLayer(routeId)).toBe(true);
+      });
+      expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    });
   });
 
   it("keeps Skip independent of Back", () => {
@@ -116,7 +180,7 @@ describe("OneLocationOnboardingFlow two-screen introduction", () => {
   it.each(["welcome", "permissions"] as const)("maps legacy %s entries to Features", (startAt) => {
     renderFlow({ startAt });
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(screen.getByText("1 of 2")).toBeTruthy();
+    expect(screen.getByText("1 of 3")).toBeTruthy();
   });
 });
 

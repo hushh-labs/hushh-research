@@ -12,17 +12,20 @@ export type ChatMemberKey = { userId: string; name: string; keyId: string | null
 export type ChatAttachment = { kind: "photo" | "video" | "document"; type: string; name: string; thumbnail?: ChatImageThumbnail };
 export type ChatContent = {
   text: string;
+  replyToMessageId?: string;
   /** Legacy image messages remain readable after the attachment expansion. */
   image?: { type: string; name: string; thumbnail?: ChatImageThumbnail } | null;
   attachment?: ChatAttachment | null;
 };
 export type SealedChatMessage = {
+  replyToMessageId?: string;
   clientMessageId: string; rosterVersion: string; ciphertext: string; iv: string;
   imageCiphertext: string | null; imageIv: string | null;
   recipients: { userId: string; envelope: RecipientPayloadEnvelope }[];
   notificationPreviews?: Record<string, string>;
 };
 export type ChatMessage = {
+  revision?: number; replyToMessageId?: string | null; editedAt?: string | null; deletedForEveryoneAt?: string | null;
   id: string; sequence: number; clientMessageId: string; senderUserId: string;
   senderName: string; createdAt: string; ciphertext: string; iv: string;
   hasImage: boolean; envelope: RecipientPayloadEnvelope;
@@ -94,7 +97,7 @@ export function validateChatAttachmentBytes(bytes: Uint8Array, type: string): Ch
 
 export async function sealChatMessage(params: {
   circleId: string; userId: string; rosterVersion: string; members: ChatMemberKey[];
-  text: string; file?: File | null; clientMessageId?: string; thumbnail?: ChatImageThumbnail;
+  text: string; file?: File | null; clientMessageId?: string; thumbnail?: ChatImageThumbnail; replyToMessageId?: string;
 }): Promise<SealedChatMessage> {
   const text = params.text.trim();
   if ((!text && !params.file) || text.length > MAX_CHAT_TEXT) throw new Error("Write a message up to 4,000 characters or choose a file.");
@@ -124,7 +127,7 @@ export async function sealChatMessage(params: {
       };
       image = await seal(bytes, "image");
     }
-    const content: ChatContent = { text, attachment };
+    const content: ChatContent = { text, attachment, ...(params.replyToMessageId ? { replyToMessageId: params.replyToMessageId } : {}) };
     if (attachment?.kind === "photo" && params.thumbnail) {
       try {
         chatThumbnailBlob(params.thumbnail);
@@ -144,14 +147,15 @@ export async function sealChatMessage(params: {
         recipientKeyId: member.keyId!, recipientPublicKeyJwk: member.publicKeyJwk! }),
     })));
     return { clientMessageId: id, rosterVersion: params.rosterVersion, ...sealed,
+      ...(params.replyToMessageId ? { replyToMessageId: params.replyToMessageId } : {}),
       imageCiphertext: image?.ciphertext ?? null, imageIv: image?.iv ?? null, recipients };
   } finally { rawKey.fill(0); }
 }
 
-async function messageKey(circle: string, user: string, message: ChatMessage, recovery?: ChatKeyRecovery): Promise<CryptoKey> {
+async function messageKey(circle: string, user: string, message: ChatMessage, recovery?: ChatKeyRecovery, usage: KeyUsage = "decrypt"): Promise<CryptoKey> {
   const raw = await openRecipientPayload({ userId: user, envelope: message.envelope,
     context: chatContext(circle, message.clientMessageId, message.senderUserId, `key:${user}`), recovery });
-  try { return await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]); }
+  try { return await crypto.subtle.importKey("raw", raw, "AES-GCM", false, [usage]); }
   finally { new Uint8Array(raw).fill(0); }
 }
 
@@ -161,6 +165,7 @@ export async function openChatContent(circle: string, user: string, message: Cha
     additionalData: new TextEncoder().encode(chatContext(circle, message.clientMessageId, message.senderUserId, "content")) },
     key, decode(message.ciphertext));
   const content = JSON.parse(new TextDecoder().decode(bytes)) as ChatContent;
+  if ((content.replyToMessageId ?? null) !== (message.replyToMessageId ?? null)) throw new Error("The reply reference could not be verified.");
   const attachment = content.attachment ?? content.image;
   if (typeof content.text !== "string" || content.text.length > MAX_CHAT_TEXT
       || Boolean(attachment) !== message.hasImage || Boolean(content.attachment && content.image)
@@ -177,6 +182,19 @@ export async function openChatContent(circle: string, user: string, message: Cha
     } catch { delete attachment.thumbnail; }
   }
   return content;
+}
+
+/** Reuse the original sender envelope/AAD and attachment key; never reseal for today's roster. */
+export async function sealChatMutation(circle: string, user: string, message: ChatMessage, content: ChatContent, recovery?: ChatKeyRecovery) {
+  if (message.senderUserId !== user || message.deletedForEveryoneAt) throw new Error("This message cannot be changed.");
+  if (!content.text.trim() || content.text.length > MAX_CHAT_TEXT) throw new Error("Write a message up to 4,000 characters.");
+  const bytes = new TextEncoder().encode(JSON.stringify(content));
+  if (bytes.length > MAX_CHAT_CONTENT_BYTES) throw new Error("This message is too large. Shorten it and try again.");
+  const key = await messageKey(circle, user, message, recovery, "encrypt");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv,
+    additionalData: new TextEncoder().encode(chatContext(circle, message.clientMessageId, message.senderUserId, "content")) }, key, bytes);
+  return { ciphertext: encode(new Uint8Array(ciphertext)), iv: encode(iv), expectedRevision: message.revision ?? 0 };
 }
 
 export async function openChatImage(circle: string, user: string, message: ChatMessage,

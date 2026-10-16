@@ -315,7 +315,15 @@
     "347_one_referral_dashboard_lifecycle.sql",
     "348_one_referral_confirmed_memory_reward.sql",
     "349_one_referral_dashboard_truth.sql",
-    "350_circle_chat_full_emoji_reactions.sql"
+    "350_circle_chat_full_emoji_reactions.sql",
+    "351_wallet_card_requests.sql",
+    "352_pwm_invitation_secondary_contact.sql",
+    "353_drive_v1_statement_search.sql",
+    "354_drive_v1_bulk_removals.sql",
+    "355_drive_v1_live_request.sql",
+    "356_drive_v1_access_period.sql",
+    "357_circle_chat_message_actions.sql",
+    "358_circle_wars_weekly_opt_in.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -668,6 +676,14 @@
     "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql",
     "348_one_referral_confirmed_memory_reward.sql": "rollback/348_one_referral_confirmed_memory_reward.rollback.sql",
     "349_one_referral_dashboard_truth.sql": "rollback/349_one_referral_dashboard_truth.rollback.sql",
-    "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql"
+    "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql",
+    "351_wallet_card_requests.sql": "rollback/351_wallet_card_requests.rollback.sql",
+    "352_pwm_invitation_secondary_contact.sql": "rollback/352_pwm_invitation_secondary_contact.rollback.sql",
+    "353_drive_v1_statement_search.sql": "rollback/353_drive_v1_statement_search.rollback.sql",
+    "354_drive_v1_bulk_removals.sql": "rollback/354_drive_v1_bulk_removals.rollback.sql",
+    "355_drive_v1_live_request.sql": "rollback/355_drive_v1_live_request.rollback.sql",
+    "356_drive_v1_access_period.sql": "rollback/356_drive_v1_access_period.rollback.sql",
+    "357_circle_chat_message_actions.sql": "rollback/357_circle_chat_message_actions.rollback.sql",
+    "358_circle_wars_weekly_opt_in.sql": "rollback/358_circle_wars_weekly_opt_in.rollback.sql"
   }
 }

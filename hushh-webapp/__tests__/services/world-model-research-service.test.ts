@@ -22,6 +22,7 @@ vi.mock("@/lib/vault/one-chat-key", () => ({
 import { ApiError } from "@/lib/services/api-client";
 import {
   WorldModelResearchService,
+  pwmReportSchema,
   pwmResultSchema,
   type PwmProgress,
 } from "@/lib/services/world-model-research-service";
@@ -30,6 +31,115 @@ vi.mock("@/lib/share/app-origin", () => ({
   resolveShareableAppOrigin: () => "https://example.test",
 }));
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
+
+it("accepts only matching display-only research provenance", () => {
+  const result = {
+    status: "offered",
+    pkm_written: false,
+    draft_id: "00000000-0000-4000-8000-000000000001",
+    report: {
+      match_status: "no_match",
+      name: "Alex Example",
+      summary: "No supported match was found.",
+      sections: [],
+    },
+    grounded_answers: [],
+    search_suggestions: [],
+    research: {
+      identity: {
+        state: "no_match",
+        reason: "No public contact match.",
+        probability: null,
+        selected_candidate_id: null,
+        supporting_anchor_ids: [],
+        next_step: "finish",
+      },
+      coverage: [
+        "business", "career", "education", "personal", "projects", "publications",
+        "achievements", "community", "interests", "preferences", "dislikes", "style",
+        "food", "travel", "entertainment", "shopping", "communication",
+        "digital_presence", "public_records", "security",
+      ].map((topic) => ({
+        topic,
+        status: "not_attempted",
+        attempt_ids: [],
+        explanation: "No search for this topic.",
+      })),
+      gaps: [],
+      checked_topics: [],
+      searches_used: 0,
+      candidates: [],
+      source_use: "google_grounded_display_only",
+      provider: "vertex_google_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(result).success).toBe(true);
+  const azure = {
+    ...result,
+    research: {
+      ...result.research,
+      source_use: "azure_web_grounded_display_only",
+      provider: "azure_openai_web_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(azure).success).toBe(true);
+  const answer = "Alex 🧭 appears on a public page.";
+  const citation = {
+    start_index: answer.indexOf("public page"),
+    end_index: answer.indexOf("public page") + "public page".length,
+    title: "Original Bing citation",
+    url: "https://example.test/source?ref=bing",
+  };
+  const citedAzure = {
+    ...azure,
+    grounded_answers: [{ answer, sources: [], citations: [citation], search_suggestions: [] }],
+  };
+  expect(pwmResultSchema.safeParse(citedAzure).success).toBe(true);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [{ ...citation, url: "javascript:alert(1)" }], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [citation, citation], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...azure,
+    research: { ...azure.research, provider: "vertex_google_search" },
+  }).success).toBe(false);
+});
+
+it("accepts a deep PWM draft with scored evidence but rejects padded duplicates", () => {
+  const sections = [
+    "business", "career", "education", "projects", "publications", "achievements", "community",
+  ].map((kind, group) => ({
+    kind,
+    facts: Array.from({ length: group === 6 ? 29 : 40 }, (_, index) => ({
+      statement: `Supported detail ${group}-${index}.`,
+      confidence: "supported",
+      sources: [{ title: "Source", url: "https://example.test/source" }],
+      evidence_score: 6,
+      evidence_reason: "One cited public page; awaiting your review.",
+    })),
+  }));
+  const report = {
+    match_status: "matched",
+    name: "Alex Example",
+    summary: "Cited public details.",
+    sections,
+  };
+  expect(pwmReportSchema.safeParse(report).success).toBe(true);
+  expect(pwmReportSchema.safeParse({
+    ...report,
+    sections: sections.map((section, index) => index === 6
+      ? { ...section, facts: [...section.facts, section.facts[0]] }
+      : section),
+  }).success).toBe(false);
+});
 const session = {
   vaultKey: "synthetic-key",
   vaultOwnerToken: "synthetic-token",
@@ -49,6 +159,14 @@ const progress = (searches: number): PwmProgress => ({
   last_activity_at: "2026-10-15T00:01:00Z",
   slice: 1,
 });
+const validatedFact = {
+  id: "candidate-a:career:fact-1",
+  topic: "career",
+  statement: "Works at Acme Corp",
+  confidence: "supported",
+  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
+  identity_state: "owner_linked",
+};
 const frame = (event: string, data: unknown) =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 /** A live response whose frames arrive in the given pieces. */
@@ -72,6 +190,28 @@ describe("PWM service authority and request recovery", () => {
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
+  it.each([
+    ["azure_openai_web_search", "pwm-azure-bing-v1"],
+    ["vertex_google_search", "pwm-native-v1"],
+  ] as const)("sends the %s consent marker for preference updates", async (research_provider, consent_version) => {
+    const response = { enabled: true, email_enabled: false, consent_version: "pwm-native-v1", research_provider };
+    api.mockResolvedValue(response);
+
+    await expect(WorldModelResearchService.updatePreferences(session, {
+      enabled: true,
+      email_enabled: false,
+      research_provider,
+    })).resolves.toEqual(response);
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api.mock.calls[0][0]).toBe("/api/one/world-model/preferences");
+    expect(api.mock.calls[0][1].method).toBe("PUT");
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({
+      enabled: true,
+      email_enabled: false,
+      consent_version,
+    });
+  });
   it("automatically ensures once, then reads the existing job", async () => {
     api
       .mockResolvedValueOnce({
@@ -229,6 +369,35 @@ describe("PWM service authority and request recovery", () => {
       }).success,
     ).toBe(false);
   });
+  it("accepts cited provisional facts and a terminal checkpoint, but rejects uncited facts", () => {
+    expect(pwmResultSchema.safeParse({
+      status: "pending", pkm_written: false, restart_required: false,
+      validated_facts: [validatedFact],
+    }).success).toBe(true);
+    expect(pwmResultSchema.safeParse({
+      status: "unavailable", pkm_written: false,
+      progress: progress(9), validated_facts: [validatedFact],
+    }).success).toBe(true);
+    expect(pwmResultSchema.safeParse({
+      status: "pending", pkm_written: false, restart_required: false,
+      validated_facts: [{ ...validatedFact, sources: [] }],
+    }).success).toBe(false);
+  });
+  it("forwards provisional facts from a polled unavailable result", async () => {
+    api.mockResolvedValueOnce({
+      status: "unavailable", pkm_written: false,
+      progress: progress(9), validated_facts: [validatedFact],
+    });
+    const onPartial = vi.fn();
+    const onProgress = vi.fn();
+    await WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult: vi.fn(), onPartial, onProgress,
+    });
+    expect(onPartial).toHaveBeenCalledWith([validatedFact]);
+    expect(onProgress).toHaveBeenCalledWith(progress(9));
+  });
   it("delivers an unavailable result with a reason and retry window, then stops", async () => {
     api.mockResolvedValueOnce({
       status: "unavailable",
@@ -376,6 +545,46 @@ describe("PWM research driver never storms the server", () => {
     await expect(run).rejects.toThrow();
   });
 
+  it("does not end a rate-limited retry on the previous run's unavailable status", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      const call = record(path, init);
+      if (call.method === "POST" && posts().length === 1)
+        throw new ApiError("Too many requests", 429);
+      return call.method === "POST"
+        ? { status: "saved", pkm_written: false }
+        : { status: "unavailable", pkm_written: false, reason: "provider_unavailable" };
+    });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
+    expect(posts()).toHaveLength(1);
+    expect(calls.some((call) => call.method === "GET")).toBe(true);
+    expect(onResult).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await run;
+    expect(posts()).toHaveLength(2);
+    expect(onResult).toHaveBeenCalledWith({ status: "saved", pkm_written: false });
+  });
+
+  it("accepts a completed run from another tab while the rate-limited POST waits", async () => {
+    api.mockRejectedValueOnce(new ApiError("Too many requests", 429))
+      .mockResolvedValueOnce({ status: "saved", pkm_written: false });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await run;
+    expect(api.mock.calls.map(([, init]) => init.method)).toEqual(["POST", "GET"]);
+    expect(onResult).toHaveBeenCalledWith({ status: "saved", pkm_written: false });
+  });
+
   it("posts at most once a minute while the server keeps asking to restart", async () => {
     api.mockImplementation(async (path: string, init: RequestInit) => {
       record(path, init);
@@ -475,6 +684,8 @@ describe("PWM live progress", () => {
     const frames =
       frame("progress", progress(3)) +
       frame("ping", {}) +
+      frame("partial", { validated_facts: [validatedFact] }) +
+      frame("partial", { validated_facts: [] }) +
       frame("progress", progress(4)) +
       frame("result", saved);
     // Frames split mid-line, as a network delivers them.
@@ -482,11 +693,13 @@ describe("PWM live progress", () => {
       eventStream(frames.slice(0, 40), frames.slice(40, 300), frames.slice(300)),
     );
     const onProgress = vi.fn();
+    const onPartial = vi.fn();
     const onResult = vi.fn();
     await WorldModelResearchService.stream({
       ...session,
       signal: new AbortController().signal,
       onProgress,
+      onPartial,
       onResult,
     });
     const [path, init] = streamFetch.mock.calls[0];
@@ -499,6 +712,7 @@ describe("PWM live progress", () => {
     expect(onProgress.mock.calls.map(([value]) => value.searches_used)).toEqual(
       [3, 4],
     );
+    expect(onPartial.mock.calls.map(([facts]) => facts)).toEqual([[validatedFact], []]);
     expect(onResult).toHaveBeenCalledWith(saved);
     streamFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: "down" }), { status: 503 }),

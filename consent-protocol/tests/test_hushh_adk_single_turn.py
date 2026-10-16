@@ -206,9 +206,14 @@ async def test_single_turn_genes_fail_over_across_configured_vertex_locations(mo
 
     from google.genai import errors as genai_errors
 
+    from hushh_mcp import constants
     from hushh_mcp.runtime_providers import factory
     from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
 
+    # Exercise a measured multi-region release; the 3.8 default is global-only.
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.7-flash")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "local")
     for name, value in {
         "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
         "GOOGLE_GENAI_USE_VERTEXAI": "true",

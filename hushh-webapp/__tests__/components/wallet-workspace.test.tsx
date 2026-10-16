@@ -1,3 +1,4 @@
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -64,6 +65,7 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
 
 const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
+  recoverCardArtworks: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
   addCard: vi.fn(),
@@ -90,7 +92,14 @@ vi.mock("@/lib/services/wallet-service", async () => {
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
       resolveCardArtwork: vi.fn().mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] }),
-      listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
+      listCardPresentations: async (...args: unknown[]) => {
+        const rows = (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" }));
+        if ((args[1] as { recoverArtwork?: boolean } | undefined)?.recoverArtwork) {
+          const recovered = await serviceMock.recoverCardArtworks(...args);
+          return recovered.length ? recovered : rows;
+        }
+        return rows;
+      },
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
@@ -162,7 +171,8 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByText("Late owner A")).toBeNull();
   });
 
-  it("hides cached catalog artwork while approval is unknown on resume and retains the card after revocation", async () => {
+  it.each([0, 60_001])("keeps a current display approval during resume, expires it fail-closed, and applies revocation (elapsed %d)", async elapsed => {
+    let now = 1000; vi.spyOn(Date, "now").mockImplementation(() => now);
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     const row: WalletCardPresentation = { summary: { ...makeCards(1)[0]!, brand: "visa" }, cardholderName: "Synthetic Owner", artwork: { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } };
@@ -171,9 +181,19 @@ describe("WalletWorkspace at scale", () => {
     const load = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValue(pending);
     const view = render(<WalletWorkspace />);
     await waitFor(() => expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull());
-    fireEvent.focus(window);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenNthCalledWith(1, expect.any(Object), { recoverArtwork: true });
+    now += elapsed; fireEvent.focus(window);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-    expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    expect(Boolean(view.container.querySelector('[data-card-artwork="catalog"]'))).toBe(elapsed < 60_000);
+    expect(Boolean(view.container.querySelector('[data-card-artwork="pending"]'))).toBe(elapsed >= 60_000);
+    expect(view.container.querySelector('[data-card-artwork="neutral"]')).toBeNull();
+    if (elapsed === 0) {
+      // The displayed cleaned target has a different digest from its persisted
+      // source. A source denial must hide it before another image settles.
+      await act(async () => { load.mock.calls[1]![1]!.onArtworkRejected?.([{ cardId: row.summary.cardId, assetId: "legacy-source", digest: "b".repeat(64) }]); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    }
     await act(async () => { finish([{ ...row, artwork: { source: "neutral", version: 1 } }]); });
     expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Card 0", exact: true })).toBeVisible();
@@ -190,6 +210,58 @@ describe("WalletWorkspace at scale", () => {
     view.rerender(<WalletWorkspace />);
     await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole("tab", { name: "Add", exact: true })).toBeEnabled());
+  });
+  it("expires artwork even after a card is added while the focus recheck is stalled", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      const row: WalletCardPresentation = { summary: makeCards(1)[0]!, cardholderName: "Synthetic Owner", artwork: { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } };
+      let finish!: (rows: WalletCardPresentation[]) => void;
+      const pending = new Promise<WalletCardPresentation[]>(resolve => { finish = resolve; });
+      vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValue(pending);
+      serviceMock.addCard.mockResolvedValueOnce({ cardId: "saved", summary: { ...makeCards(1)[0]!, cardId: "saved", nickname: "New card" }, cardholderName: "NEW CARD", artwork: row.artwork });
+      const view = render(<WalletWorkspace />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull();
+      fireEvent.focus(window);
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      fireEvent.click(screen.getByTestId("secure-card-save"));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(screen.getByRole("button", { name: "Open New card, ending 1000" })).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+      await act(async () => { finish([row]); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+  it("gives a new save fresh artwork after expiry without reviving expired cards", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      const artwork = { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } as const;
+      const row: WalletCardPresentation = { summary: makeCards(1)[0]!, cardholderName: "Synthetic Owner", artwork };
+      let finish!: (rows: WalletCardPresentation[]) => void;
+      const pending = new Promise<WalletCardPresentation[]>(resolve => { finish = resolve; });
+      vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValueOnce(pending).mockReturnValue(new Promise(() => {}));
+      serviceMock.addCard.mockResolvedValueOnce({ cardId: "saved", summary: { ...row.summary, cardId: "saved", nickname: "New card" }, cardholderName: "NEW CARD", artwork: { ...artwork, assetId: "fresh", digest: "b".repeat(64) } });
+      const view = render(<WalletWorkspace />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      fireEvent.click(screen.getByTestId("secure-card-save"));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(view.container.querySelector('[data-artwork-asset-id="fresh"]')).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+      await act(async () => { finish([row]); });
+      fireEvent.click(screen.getByRole("button", { name: "Open New card, ending 1000" }));
+      expect(view.container.querySelector('[data-artwork-asset-id="fresh"]')).not.toBeNull();
+    } finally { vi.useRealTimers(); }
   });
   it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
     const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
@@ -216,7 +288,7 @@ describe("WalletWorkspace at scale", () => {
     // Exercise the real cohesive SVG renderer; only public asset I/O and the
     // browser object-URL boundary are replaced in JSDOM.
     vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
-      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v2.svg`), "utf8"));
+      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v3.svg`), "utf8"));
     const images = new Map<string, Blob>();
     vi.stubGlobal("URL", class extends URL {
       static createObjectURL = vi.fn((blob: Blob) => {
@@ -337,7 +409,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
-    fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
+    fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
   };
 
   it("saves a card without collecting security codes", async () => {
@@ -376,12 +448,37 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
     expect(screen.getByRole("button", { name: "Copy card number" })).toBeEnabled();
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
-    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(2);
+    expect(serviceMock.recoverCardArtworks).toHaveBeenCalled();
     // Await the user interactions so the save-to-Cards lifecycle commits
     // before returning to the deck; its complete storage order stays asserted.
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Back", exact: true })); });
     await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
-    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["Card 0", "Agent One Profile"])("Back restores %s after Add and Sharing without leaving Wallet", async (name) => {
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(1));
+    const workspace = render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByTestId("wallet-add-collection");
+    fireEvent.click(screen.getByRole("button", { name, exact: true }));
+    await screen.findByTestId("wallet-selected-card");
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Unsaved draft" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Sharing", exact: true }));
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("UNSAVED DRAFT");
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+    await screen.findByTestId("wallet-selected-card");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("");
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.getByTestId("wallet-add-collection")).toBeVisible();
+    expect(unwindBackLayer("/one/wallet")).toBe(false);
+    workspace.unmount();
   });
 
   it("returns to the overview after leaving a saved card and switching tabs", async () => {
@@ -416,10 +513,13 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(serviceMock.addCard).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
-    expect(screen.getByLabelText("Name on card")).toHaveValue("New card");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("NEW CARD");
     let finish!: (value: unknown) => void;
     serviceMock.addCard.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     fireEvent.click(screen.getByTestId("secure-card-save"));
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("NEW CARD");
     vaultMock.locked = true;
     workspace.rerender(<WalletWorkspace />);
     await screen.findByTestId("one-wallet-locked");
@@ -483,8 +583,8 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
-    expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("TRAVEL");
+    expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
     expect(screen.queryByLabelText("CVV")).toBeNull();
     vaultMock.locked = true;
     workspace.rerender(<WalletWorkspace />);
@@ -544,6 +644,7 @@ describe("WalletWorkspace at scale", () => {
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(4));
+    serviceMock.recoverCardArtworks.mockReset().mockResolvedValue([]);
     serviceMock.deleteCard.mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });

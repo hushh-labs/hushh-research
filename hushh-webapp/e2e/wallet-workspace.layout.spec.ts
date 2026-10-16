@@ -35,6 +35,7 @@ const BOUNDARY_MODULES = [
   "@/lib/services/wallet-service",
   "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
+  "@/lib/cache/cache-sync-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",
@@ -127,7 +128,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -217,7 +218,7 @@ async function open(
   await page.route(`${origin}/**`, async (route) => {
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
-    if (assetPath === "/wallet/apple-wallet-icon.png") {
+    if (assetPath === "/wallet/apple-wallet-transparent-v1.png") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/png" });
       return;
     }
@@ -225,11 +226,11 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/card-scan-agent-one-emerging.webp") {
+    if (assetPath === "/wallet/card-scan-agent-one-slim-v1.webp") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
-    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[12]\.svg$/.test(assetPath)) {
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[123]\.svg$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
       return;
     }
@@ -261,10 +262,14 @@ async function mount(page: Page, enter = true) {
 for (const width of [390, 1024]) {
   test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    // Measure the authored spring on every animation frame. Shared runners can
+    // otherwise delay both paint and observation past the unchanged 400ms limit.
+    await page.clock.install();
     const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
     await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
     await mount(page, false);
     await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     const add = page.getByRole("tab", { name: "Add", exact: true });
     await add.evaluate((tab) => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
@@ -285,6 +290,7 @@ for (const width of [390, 1024]) {
       });
     });
     await add.click();
+    await page.clock.runFor(816);
     const frames = await page.evaluate(() => (window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> }).__walletTabMotion);
     const rendering = await add.evaluate(tab => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
@@ -300,6 +306,7 @@ for (const width of [390, 1024]) {
     expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
     expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
     expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
+    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `motion must include intermediate positions: ${diagnostics}`).toBe(true);
     expect(errors).toEqual([]);
   });
 }
@@ -473,7 +480,7 @@ test("Wallet tabs preserve a draft and cancel to the Cards collection", async ({
   await expect(page.getByTestId("wallet-add-layer-4242")).toBeVisible();
   await expect(page.locator("#top-shell-wallet-panel-add")).toHaveAttribute("inert", "");
   await page.getByRole("tab", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Travel");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("TRAVEL");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("wallet-add-collection")).toBeVisible();
@@ -635,9 +642,9 @@ for (const width of [320, 393, 1440]) {
     const form = page.getByTestId("secure-card-add-form");
     const scan = page.getByRole("button", { name: "Scan card", exact: true });
     await expect(scan).toBeVisible();
-    await expect(scan.getByText("Scan here to add card", { exact: true })).toBeVisible();
+    await expect(scan.getByText("Scan to add card", { exact: true })).toBeVisible();
     const artwork = scan.locator("img");
-    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-emerging.webp");
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-slim-v1.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
     if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
       await scan.click();
@@ -681,8 +688,7 @@ for (const width of [320, 393, 1440]) {
       expect(networkBounds.x).toBeGreaterThanOrEqual(box.x + box.width);
       expect(networkBounds.y).toBeGreaterThanOrEqual(bounds[1]!.y + bounds[1]!.height);
     }
-    await page.getByText("Additional details", { exact: true }).click();
-    for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
+    for (const label of ["Name on card", "Card network", "Expiry (MM/YY)", "Issuing region"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
     const save = form.getByTestId("secure-card-save");
@@ -711,19 +717,72 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
-test("typing replaces the card-number placeholder instead of appending to Xs", async ({ page }) => {
+test("profile swipe details keep a compact header gap and a full close target", async ({ page }) => {
+  await open(page, 393, "light", {}, { shell: true });
+  await mount(page);
+  const card = page.getByTestId("wallet-add-collection").getByRole("button", { name: "Agent One Profile", exact: true });
+  await card.press("ArrowLeft");
+  const close = page.getByRole("button", { name: "Back to card", exact: true });
+  await expect(close).toBeVisible();
+  const geometry = await close.evaluate(button => {
+    const header = button.parentElement!;
+    const box = header.parentElement!.querySelector('[data-slot="settings-group-shell"]')!;
+    return { gap: box.getBoundingClientRect().top - header.getBoundingClientRect().bottom, textGap: box.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect().top - header.querySelector("p")!.getBoundingClientRect().bottom, target: button.getBoundingClientRect().height };
+  });
+  expect(geometry.gap).toBeCloseTo(3, 0);
+  expect(geometry.textGap).toBeLessThanOrEqual(12);
+  expect(geometry.target).toBeCloseTo(44, 1);
+  await page.screenshot({ path: test.info().outputPath("wallet-profile-compact-header.png") });
+});
+
+test("typing groups card numbers and inserts expiry separators while allowing middle edits", async ({ page }) => {
   await open(page, 393, "light", {}, { shell: true });
   await mount(page);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   const input = page.getByTestId("secure-card-pan-input");
-  await input.click();
-  await input.pressSequentially("4242");
-  await expect(input).toHaveValue("4242");
-  expect(await input.evaluate((node) => node.matches(":placeholder-shown"))).toBe(false);
-  await input.fill("5555 5555 5555 4444");
-  await expect(input).toHaveValue("5555555555554444");
+  await input.pressSequentially("42424242");
+  await expect(input).toHaveValue("4242 4242");
+  await input.evaluate((node: HTMLInputElement) => { node.focus(); node.setSelectionRange(5, 5); });
+  await input.press("Backspace");
+  await expect(input).toHaveValue("4244 242");
+  expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(3);
+  await input.press("9");
+  await expect(input).toHaveValue("4249 4242");
+  for (const [digits, grouped] of [["911111111116", "9111 1111 1116"], ["378282246310005", "3782 8224 6310 005"], ["4242424242424242", "4242 4242 4242 4242"]]) {
+    await input.fill("");
+    await input.pressSequentially(digits);
+    await expect(input).toHaveValue(grouped);
+  }
+  const expiry = page.getByLabel("Expiry (MM/YY)", { exact: true });
+  await expiry.pressSequentially("12");
+  await expect(expiry).toHaveValue("12/");
+  await expiry.press("Backspace");
+  await expect(expiry).toHaveValue("1");
+  await expiry.pressSequentially("230");
+  await expect(expiry).toHaveValue("12/30");
+  await expiry.fill("08/2032");
+  await expect(expiry).toHaveValue("08/2032");
   await input.fill("");
   expect(await input.evaluate((node) => node.matches(":placeholder-shown"))).toBe(true);
+});
+
+test("Back unwinds Add and Sharing to the previous selected Wallet card", async ({ page }) => {
+  await open(page, 393, "light", {}, { shell: true });
+  await mount(page);
+  await page.getByRole("button", { name: "Everyday", exact: true }).click();
+  await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  await page.getByLabel("Name on card", { exact: true }).fill("Draft Owner");
+  await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { __walletBack: () => boolean }).__walletBack())).toBe(true);
+  await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("DRAFT OWNER");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Everyday, ending 4242" })).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => window.__walletEvents ?? [])).not.toContain("reveal:card_a");
+  await page.screenshot({ path: test.info().outputPath("wallet-back-restored-card.png") });
 });
 
 test("Add saves typed card details, keeps optional fields empty, and preserves its finish after remount", async ({ page }) => {
@@ -733,8 +792,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   const form = page.getByTestId("secure-card-add-form");
   await form.getByLabel("Card number", { exact: true }).fill("5555 5555 5555 4444");
   await form.getByLabel("Name on card", { exact: true }).fill("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
-  await form.getByText("Additional details", { exact: true }).click();
-  await form.getByLabel("Card network (optional)", { exact: true }).click();
+  await form.getByLabel("Card network", { exact: true }).click();
   await page.getByRole("option", { name: "Mastercard", exact: true }).click();
   await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
   await form.getByRole("button", { name: "Add to Wallet", exact: true }).click();
@@ -1184,6 +1242,26 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
   await expect(sharing.getByRole("region", { name: "Received card history", exact: true })).toBeInViewport();
 });
 
+for (const width of [320, 1024]) {
+  test(`timed shared profile displays the real card artwork at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light");
+    await page.addScriptTag({ content: 'window.__visitorPreview={photo:"",shared:true};' });
+    await mount(page, false);
+    const face = page.getByTestId("shared-profile-card-face");
+    await expect(face.locator('[data-agent-card="profile"]')).toHaveAttribute("data-artwork-ready", "true");
+    await expect(face.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+    const rendered = await face.locator("img").evaluate(async (img: HTMLImageElement) => ({ width: img.getBoundingClientRect().width, height: img.getBoundingClientRect().height, svg: await (await fetch(img.src)).text() }));
+    expect(rendered.width / rendered.height).toBeCloseTo(ISO_RATIO, 2);
+    expect(rendered.svg).toContain("Alex Morgan");
+    expect(rendered.svg).not.toContain("data-wallet-qr");
+    expect(rendered.svg).not.toContain("MEMBER SINCE");
+    expect(rendered.svg).not.toContain("WALLET ID");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath("wallet-shared-profile-card.png"), fullPage: true });
+  });
+}
+
 for (const width of [320, 393, 1024]) {
   test(`Visitor preview keeps photo, details and QR readable at ${width}px`, async ({ page }, testInfo) => {
     const consoleErrors: string[] = [];
@@ -1349,4 +1427,48 @@ test("a failed default QR revoke retains the existing link and scans", async ({ 
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
   expect(await qr.evaluate(el => el.innerHTML)).toBe(originalQr);
+});
+
+for (const width of [320, 390, 714, 1440]) {
+  test(`Wallet Add footer has balanced insets and separate left/right actions at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 1 });
+    await mount(page);
+    await page.getByRole("tab", { name: "Add", exact: true }).click();
+    const add = page.getByRole("button", { name: "Add to Wallet", exact: true });
+    const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+    await expect(add).toBeVisible(); await expect(cancel).toBeVisible();
+    // Capture all geometry in one frame; the tab's entering motion translates
+    // the whole form and cannot change the footer's relative alignment.
+    const geometry = await add.evaluate(el => {
+      const form = el.closest("form")!;
+      const f = form.getBoundingClientRect(), a = el.getBoundingClientRect();
+      const c = form.querySelector('[data-action-priority="secondary"] button')!.getBoundingClientRect();
+      return { left: c.left - f.left, right: f.right - a.right, gap: a.left - c.right, y: a.top - c.top };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(19);
+    expect(geometry.right).toBeGreaterThanOrEqual(19);
+    expect(geometry.gap).toBeGreaterThanOrEqual(11);
+    expect(Math.abs(geometry.y)).toBeLessThan(1);
+    expect(Math.abs(geometry.left - geometry.right)).toBeLessThan(2);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("Card request review selects a card, sends only to the requester, and clears its route on dismissal", async ({ page }) => {
+  const errors = await open(page, 390, "light", { cards: 2, cardRequest: true });
+  await mount(page);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Choose a card to share" })).toBeVisible();
+  const send = dialog.getByRole("button", { name: "Share card", exact: true });
+  await expect(send).toBeDisabled();
+  await dialog.getByRole("radio", { name: /Everyday/ }).check();
+  await send.click();
+  await expect(dialog.getByText("Card sent", { exact: true })).toBeVisible();
+  const sent = await page.evaluate(() => window.__walletEvents?.filter(e => e.startsWith("request-response:")) ?? []);
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(sent[0].slice("request-response:".length))).toMatchObject({ cardRequestId: "33333333-3333-4333-8333-333333333333", recipientPersonRefs: ["11111111-1111-4111-8111-111111111111"], durationMinutes: 15 });
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.evaluate(() => window.__walletEvents?.includes("navigate:/one/wallet"))).toBe(true);
+  await expect(dialog).not.toBeVisible();
+  expect(errors).toEqual([]);
 });

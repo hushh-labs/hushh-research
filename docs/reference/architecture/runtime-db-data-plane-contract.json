@@ -636,6 +636,7 @@
         "one_referral_attributions",
         "one_referral_circle_contributions",
         "one_referral_circle_selections",
+        "one_referral_circle_teams",
         "one_referral_codes",
         "one_referral_display_handles",
         "one_referral_events",
@@ -825,7 +826,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00e2\u2020\u2019inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -1634,10 +1635,10 @@
         "circle_chat_recipients",
         "circle_chat_preferences"
       ],
-      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases.",
+      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases. Sender-only encrypted edits and global tombstones retain original envelopes; bounded metadata reconciliation and independently authorized reply resolution repair loaded history.",
       "retention_policy": "Messages retained for the lifetime of the ordinary Circle; client images bounded to 5 MB, text to 4000 characters, pages to 50 and rendered windows to 300. No automatic expiry of conversation history. Pushes stop after five attempts.",
-      "deletion_behavior": "Circle soft/hard deletion erases messages, images, envelopes and preferences and removes associated Feed rows. Reset/full account erasure deletes authored messages and recipient-owned envelopes/preferences. Actor-profile cascades provide an additional deletion boundary. Leave/rejoin suppresses old pushes and Feed unread rows; prior-generation envelopes remain inaccessible.",
-      "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
+      "deletion_behavior": "Circle soft/hard deletion erases messages, images, envelopes and preferences and removes associated Feed rows. Reset/full account erasure deletes authored messages and recipient-owned envelopes/preferences. Actor-profile cascades provide an additional deletion boundary. Leave/rejoin suppresses old pushes and Feed unread rows; prior-generation envelopes remain inaccessible. Message actions retain original recipient epochs; viewer deletion hides only that copy; sender deletion replaces content with a client-encrypted tombstone, clears encrypted attachments and previews, suppresses pushes and removes Feed projections. Deleted content is never restored by rollback.",
+      "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext. Reply UUID references and monotonic revisions are metadata, not history access grants. Replies are independently authorized for each recipient; edits never reseal old content for the current roster.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
     },
@@ -1906,6 +1907,21 @@
       "trust_boundary": "Flags, UUIDs, closed outcomes and delivery timestamps only. No names, contacts, findings, queries, plaintext keys or tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one_preference_per_owner_and_one_event_per_research_draft"
+    },
+    {
+      "id": "wallet_incoming_card_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "wallet_card_requests"
+      ],
+      "primary_access_path": "A connected requester explicitly sends a metadata-only ask. The target opens its recipient-bound Feed notification and chooses a card and duration; the existing grant transaction atomically sends the encrypted response and fulfills the request. A marker or request never authorizes card access.",
+      "retention_policy": "Requests expire seven days after creation. Expiry ends response eligibility, not storage. Request, client retry and decision metadata remain until either participant resets or deletes their account; no scheduled history purge is claimed.",
+      "deletion_behavior": "Account reset and erasure delete rows for either participant before grants and Messages. Foreign keys cascade participant deletion. Grant or source-message deletion clears only the historical reference and cannot reactivate a terminal request.",
+      "trust_boundary": "Authenticated same-user vault owner, participant-bound reads, active unblocked connections and target-only response. Recipient and card selection remain server-bound; no PAN, CVV, PIN, vault keys, card inventory or card values are stored in requests. Request metadata remains outside Live Memory.",
+      "plaintext_posture": "opaque_participant_request_and_decision_metadata",
+      "expected_row_growth": "at_most_one_pending_request_per_directed_connection_pair_with_idempotent_retries"
     }
   ]
 }

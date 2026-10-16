@@ -25,6 +25,7 @@ test.beforeAll(async () => {
   for (const angle of [90, 180, 270]) photos.set(`rotated${angle}`, await sharp(syntheticCard).rotate(angle).png().toBuffer());
   photos.set("perspective", await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="950"><rect width="1400" height="950" fill="#334155"/><image href="data:image/png;base64,${syntheticCard.toString("base64")}" width="1200" height="750" transform="matrix(1 .08 .1 1 60 30)"/></svg>`)).png().toBuffer());
   photos.set("glare", await sharp(syntheticCard).composite([{ input: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><rect x="520" width="170" height="750" fill="white" opacity=".28"/></svg>') }]).png().toBuffer());
+  photos.set("full-photo", await sharp({ create: { width: 1600, height: 1200, channels: 3, background: "#bbb7b1" } }).composite([{ input: await sharp(syntheticCard).resize(1000).toBuffer(), left: 300, top: 280 }]).png().toBuffer());
   photos.set("partial", await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><rect width="1200" height="750" fill="white"/><g font-family="Arial" font-size="56"><text x="80" y="480">EXPIRY 12/30</text><text x="80" y="620">ALEX SAMPLE</text></g></svg>')).png().toBuffer());
   photos.set("ambiguous", await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><rect width="1200" height="750" fill="white"/><g font-family="Arial" font-size="52"><text x="80" y="180">4242 4242 4242 4242</text><text x="80" y="330">5555 5555 5555 4444</text><text x="80" y="480">EXPIRY 12/30</text><text x="80" y="620">ALEX SAMPLE</text></g></svg>')).png().toBuffer());
   execFileSync(process.execPath, [path.join(root, "scripts/prepare-wallet-ocr.mjs")]);
@@ -60,6 +61,13 @@ test("reads a synthetic card with bundled OCR and no off-device requests", async
   expect(result).toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" });
   const unexpected = requests.filter(({ url, method, body }) => !(method === "GET" && body === null && (url.startsWith("blob:" + origin + "/") || url === origin + "/" || url === origin + "/scan.js" || url === origin + "/synthetic-card.png" || url === origin + "/wallet/card-scan-worker.js" || url.startsWith(origin + "/vendor/wallet-ocr/"))));
   expect(unexpected.map(({ url, method, body }) => ({ url: url.slice(0, 100), method, hasBody: body !== null }))).toEqual([]);
+});
+
+test("reads an uncropped 4:3 camera photo without forcing it into card proportions", async ({ page }) => {
+  test.setTimeout(120000); await page.goto(origin);
+  const result = await page.evaluate(async () => (window as any).scanWalletCardForReview(await (await fetch("/full-photo.png")).blob(), new AbortController().signal, { corners: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] }));
+  expect(result.fields).toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" });
+  await expect.poll(() => page.workers().length).toBe(0);
 });
 
 for (const condition of ["dim", "low-contrast", "shadow", "dark", "embossed-style", "rotated90", "rotated180", "rotated270", "glare"]) {

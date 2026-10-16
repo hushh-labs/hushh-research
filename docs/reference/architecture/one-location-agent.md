@@ -51,10 +51,16 @@ Opening a contact source always requires the user's contact-check action.
 
 ## Onboarding Resume
 
-The introduction has two screens: Features, then the existing Circle invite,
-copy/share, Join and Find contacts finale. Device location permission and position
-capture are deferred to explicit workspace actions. Finishing or skipping this
-introduction does not require a location grant.
+The introduction has three steps: Features, an optional Save a place step, then the
+existing Circle invite, copy/share, Join and Find contacts finale. Continue on
+Features asks for device location and a position once, only to centre the pin;
+it does not turn Location on. The step reuses the Now banner's pin and address
+modal. Skipping it, or a refused permission or failed position, moves straight to
+Ready, so finishing or skipping the introduction never requires a location grant.
+Saving a place does turn the owner's preview on. In root setup, which has no vault
+yet, the place is staged in process memory until Finish setup. One place is
+offered per journey, and the Now banner remains the fallback for anyone who
+skipped it.
 
 
 Location onboarding checkpoints the current screen in tab-scoped session storage,
@@ -65,7 +71,8 @@ restarting at Features. Admission refreshes do not reset an active journey.
 
 The checkpoint contains only a screen name. Contacts, invite codes, coordinates,
 saved-place drafts and vault material are not stored there. Legacy Welcome and
-Place checkpoints return to Features. Restoring Ready
+Place checkpoints return to Features, because the place draft is memory-only and
+must capture a fresh position. Restoring Ready
 does not automatically resync contacts or request location permission. Successful
 completion or skip clears the checkpoint; failed settlement retains it for retry.
 

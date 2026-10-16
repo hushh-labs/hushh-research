@@ -31,7 +31,7 @@ try {
     const url = new URL(route.request().url());
     if (url.protocol === "blob:" && url.origin === "http://wallet-image.test") {
       await route.continue();
-    } else if (url.origin === "http://wallet-image.test" && /^\/wallet\/artwork\/(profile|referral|nws)-v2\.svg$/.test(url.pathname)) {
+    } else if (url.origin === "http://wallet-image.test" && /^\/wallet\/artwork\/(profile|referral|nws)-v3\.svg$/.test(url.pathname)) {
       await route.fulfill({ contentType: "image/svg+xml", body: await readFile(path.join(root, "public", url.pathname)) });
     } else if (url.href === "http://wallet-image.test/") {
       await route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Wallet image export verification</title>" });

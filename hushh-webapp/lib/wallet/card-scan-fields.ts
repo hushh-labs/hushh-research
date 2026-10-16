@@ -21,7 +21,7 @@ export function parseCardScanReading(text: string): CardScanReading {
     const numeric = value.replace(DATE, "/");
     for (const match of numeric.matchAll(/\d(?:[ \t\u00a0-]*\d)*/g)) {
       const pan = match[0].replace(/\D/g, "");
-      if (pan.length < 13 || pan.length > 19) continue;
+      if (pan.length < 12 || pan.length > 19) continue;
       numberSeen = true;
       if (/[\p{L}\p{N}]/u.test(numeric[match.index - 1] ?? "") || /[\p{L}\p{N}]/u.test(numeric[match.index + match[0].length] ?? "")) continue;
       if (/^(\d)\1+$/.test(pan)) continue;

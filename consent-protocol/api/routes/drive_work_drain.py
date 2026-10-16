@@ -44,6 +44,7 @@ _PRODUCTION_SCHEDULER_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gs
 _PRODUCTION_SCHEDULER_AUDIENCES = frozenset({"https://api.hushh.ai"})
 _DRAIN_DEADLINE_SECONDS = 205
 _DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing"})
+_V1_DRAIN_STAGE = "v1"
 _MAX_DRAIN_BODY_BYTES = 64
 
 
@@ -196,11 +197,16 @@ async def drain_drive_work(
         # The previous scheduler sends {}. Keep that one legacy shape mapped
         # to documents, so rollback to its exact prior target remains safe.
         stage = "documents" if payload == {} else payload["stage"]
+        allowed_stages = (
+            frozenset({_V1_DRAIN_STAGE})
+            if str(os.getenv("DRIVE_WORKER_V1_ONLY") or "").strip().lower() == "true"
+            else _DRAIN_STAGES
+        )
         if (
             not isinstance(payload, dict)
             or (payload and set(payload) != {"stage"})
             or type(stage) is not str
-            or stage not in _DRAIN_STAGES
+            or stage not in allowed_stages
             or len(raw) > _MAX_DRAIN_BODY_BYTES
         ):
             raise ValueError("invalid stage")

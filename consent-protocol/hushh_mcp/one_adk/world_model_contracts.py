@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSourceRef
+from hushh_mcp.one_adk.profile_research import (
+    ProfileFact,
+    ProfileSection,
+    ProfileSource,
+    ProfileSourceRef,
+)
 
 Topic = Literal[
     "business",
@@ -32,6 +38,8 @@ Topic = Literal[
     "security",
 ]
 TOPICS = list(get_args(Topic))
+MAX_WORLD_MODEL_FACTS = 269
+MAX_WORLD_MODEL_FACTS_PER_TOPIC = 40
 ShortText = Annotated[str, Field(min_length=1, max_length=600)]
 Reference = Annotated[str, Field(pattern=r"^[acs][1-9][0-9]{0,3}$")]
 Seed = Literal["full_name", "email", "phone_number"]
@@ -148,13 +156,153 @@ class TopicCoverage(Contract):
     explanation: ShortText
 
 
-class WorldModelReport(ProfileReport[ProfileSourceRef]):
+class CoverageCoherenceError(ValueError):
+    """A model's topic judgment conflicts with recorded execution or findings."""
+
+
+class CoverageRepair(Contract):
+    """One bounded model retry for semantic coverage rows, never new findings."""
+
+    coverage: list[TopicCoverage] = Field(min_length=20, max_length=20)
+    gaps: list[ShortText] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def complete_topics(self):
+        if {row.topic for row in self.coverage} != set(TOPICS):
+            raise ValueError("Repair must report every topic")
+        return self
+
+
+class FindingBatch(Contract):
+    """A provisional model-authored batch tied to one observed search."""
+
+    candidate_id: Reference
+    attempt_id: Annotated[int, Field(ge=1, le=32)]
+    topic: Topic
+    facts: list[ProfileFact[ProfileSourceRef]] = Field(min_length=1, max_length=8)
+
+    def validate_receipts(
+        self, assessment: IdentityAssessment, attempts: dict, refs: set[str]
+    ) -> FindingBatch:
+        pivot = assessment.identity
+        if pivot.state not in {"owner_linked", "candidate_for_review"}:
+            raise ValueError("A provisional finding needs an assessed candidate")
+        if self.candidate_id != pivot.selected_candidate_id:
+            raise ValueError("Provisional finding belongs to another candidate")
+        row = attempts.get(str(self.attempt_id))
+        if not isinstance(row, dict) or row.get("observed") is not True:
+            raise ValueError("Provisional finding needs an observed search")
+        try:
+            plan = QueryPlan.model_validate(row.get("plan"))
+        except (TypeError, ValueError) as error:
+            raise ValueError("Invalid recorded search receipt") from error
+        if self.topic not in plan.topics or plan.candidate_id not in {None, self.candidate_id}:
+            raise ValueError("Provisional finding has no matching search receipt")
+        received = row.get("source_refs")
+        if not isinstance(received, list) or not set(received) <= refs:
+            raise ValueError("Provisional finding has an unreceived source")
+        if plan.purpose == "identity":
+            linked = {
+                ref
+                for anchor in assessment.anchors
+                if anchor.candidate_id == self.candidate_id
+                for ref in anchor.source_refs
+            }
+            received = [ref for ref in received if ref in linked]
+        if any(not {source.ref for source in fact.sources} <= set(received) for fact in self.facts):
+            raise ValueError("Provisional finding cites an unreceived candidate source")
+        return self
+
+
+def finding_id(candidate_id: str, topic: str, statement: str) -> str:
+    """Stable within a research generation, without putting owner text in the id."""
+    normalized = " ".join(statement.casefold().split())
+    return (
+        "p"
+        + hashlib.sha256(
+            json.dumps([candidate_id, topic, normalized], ensure_ascii=False).encode()
+        ).hexdigest()[:24]
+    )
+
+
+def validated_facts_from_work(work: dict) -> list[dict]:
+    """Project only candidate-bound, cited batches from a sealed checkpoint."""
+    if not isinstance(work, dict):
+        return []
+    try:
+        assessment = IdentityAssessment.model_validate(work.get("assessment"))
+        attempts = work.get("attempts")
+        sources = work.get("sources")
+        batches = work.get("finding_batches")
+        if (
+            not isinstance(attempts, dict)
+            or not isinstance(sources, dict)
+            or not isinstance(batches, list)
+        ):
+            return []
+        receipts = {
+            ref: ProfileSource.model_validate(value)
+            for ref, value in sources.items()
+            if isinstance(ref, str)
+        }
+        if len(receipts) != len(sources):
+            return []
+    except (TypeError, ValueError):
+        return []
+    result: list[dict] = []
+    seen: set[str] = set()
+    for raw in batches[:MAX_WORLD_MODEL_FACTS]:
+        try:
+            batch = FindingBatch.model_validate(raw).validate_receipts(
+                assessment, attempts, set(receipts)
+            )
+        except (TypeError, ValueError):
+            continue
+        for fact in batch.facts:
+            identifier = finding_id(batch.candidate_id, batch.topic, fact.statement)
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+            result.append(
+                {
+                    "id": identifier,
+                    "topic": batch.topic,
+                    "statement": fact.statement,
+                    "confidence": fact.confidence,
+                    "sources": [receipts[source.ref].model_dump() for source in fact.sources],
+                    "identity_state": assessment.identity.state,
+                }
+            )
+            if len(result) >= MAX_WORLD_MODEL_FACTS:
+                return result
+    return result
+
+
+class WorldModelSection(ProfileSection[ProfileSourceRef]):
+    """PWM can show a deep cited draft without widening other profile contracts."""
+
+    facts: list[ProfileFact[ProfileSourceRef]] = Field(
+        min_length=1, max_length=MAX_WORLD_MODEL_FACTS_PER_TOPIC
+    )
+
+
+class WorldModelReport(Contract):
+    """A PWM-specific deep report without changing other profile report bounds."""
+
+    match_status: Literal["matched", "uncertain", "no_match"]
+    name: str = Field(min_length=1, max_length=160)
+    summary: str = Field(min_length=1, max_length=500)
+    sections: list[WorldModelSection] = Field(max_length=20)
     identity: IdentityPivot
     coverage: list[TopicCoverage] = Field(min_length=20, max_length=20)
     gaps: list[ShortText] = Field(max_length=20)
 
     @model_validator(mode="after")
     def identity_contract(self):
+        if len({section.kind for section in self.sections}) != len(self.sections):
+            raise ValueError("Duplicate sections")
+        if (self.match_status == "no_match") != (len(self.sections) == 0):
+            raise ValueError("A report needs findings or an explicit no-match result")
         expected = {
             "owner_linked": "matched",
             "candidate_for_review": "uncertain",
@@ -165,6 +313,15 @@ class WorldModelReport(ProfileReport[ProfileSourceRef]):
             raise ValueError("Identity and report decisions disagree")
         if {row.topic for row in self.coverage} != set(TOPICS):
             raise ValueError("Report every topic, including unavailable and unattempted topics")
+        statements = [
+            " ".join(fact.statement.casefold().split())
+            for section in self.sections
+            for fact in section.facts
+        ]
+        if len(statements) > MAX_WORLD_MODEL_FACTS:
+            raise ValueError("PWM draft exceeds the reviewed fact limit")
+        if len(statements) != len(set(statements)):
+            raise ValueError("PWM draft repeats a finding")
         return self
 
     def validate_receipts(self, assessment: IdentityAssessment, attempts: dict, refs: set[str]):
@@ -185,32 +342,53 @@ class WorldModelReport(ProfileReport[ProfileSourceRef]):
             if anchor.candidate_id == candidate_id
             for ref in anchor.source_refs
         }
+        # Attempt numbers are execution receipts, not model judgements. Rebuild
+        # their topic mapping from the sealed search plans so a report with a
+        # mistaken number can still be offered without inventing evidence.
+        recorded: dict[int, dict] = {}
+        for key, row in attempts.items():
+            try:
+                index = int(key)
+                if str(index) != key or not 1 <= index <= 32 or not isinstance(row, dict):
+                    raise ValueError
+                plan = QueryPlan.model_validate(row.get("plan"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("Invalid recorded search receipt") from error
+            recorded[index] = {**row, "plan": plan}
         topic_sources = {}
         for topic in self.coverage:
-            if len(topic.attempt_ids) != len(set(topic.attempt_ids)):
-                raise ValueError("Repeated attempt receipt")
-            rows: list[dict] = []
+            # An explicit reference to another candidate remains a hard error.
             for index in topic.attempt_ids:
-                row = attempts.get(str(index))
-                if not isinstance(row, dict) or topic.topic not in row["plan"]["topics"]:
-                    raise ValueError("Coverage has no matching search receipt")
-                rows.append(row)
-            if any(row["plan"]["candidate_id"] not in {None, candidate_id} for row in rows):
-                raise ValueError("Coverage belongs to another candidate")
+                row = recorded.get(index)
+                if (
+                    row is not None
+                    and topic.topic in row["plan"].topics
+                    and row["plan"].candidate_id not in {None, candidate_id}
+                ):
+                    raise ValueError("Coverage belongs to another candidate")
+            topic.attempt_ids = sorted(
+                index
+                for index, row in recorded.items()
+                if topic.topic in row["plan"].topics
+                and row["plan"].candidate_id in {None, candidate_id}
+            )
+            rows = [recorded[index] for index in topic.attempt_ids]
             topic_sources[topic.topic] = selected_sources | {
                 ref
                 for row in rows
-                if row["plan"]["candidate_id"] == candidate_id and candidate_id is not None
+                if row["plan"].purpose == "coverage"
+                and row["plan"].candidate_id == candidate_id
+                and candidate_id is not None
                 for ref in row["source_refs"]
             }
             if topic.status in {"findings", "checked_no_findings"} and (
                 not rows or not any(row["observed"] for row in rows)
             ):
-                raise ValueError("A failed search cannot establish absence")
+                raise CoverageCoherenceError("A failed search cannot establish absence")
             if topic.status == "not_attempted" and rows:
-                raise ValueError("Unattempted topic has attempts")
+                raise CoverageCoherenceError("Unattempted topic has attempts")
             if (topic.status == "findings") != (topic.topic in findings):
-                raise ValueError("Coverage and findings disagree")
+                raise CoverageCoherenceError("Coverage and findings disagree")
         for section in self.sections:
             for fact in section.facts:
                 if not {source.ref for source in fact.sources} <= (

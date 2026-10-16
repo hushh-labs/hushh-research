@@ -4,13 +4,9 @@ The deployment environment names a *default*, never the only possibility. Anythi
 needs to know which models exist asks here, so adding a generation is one registry row
 plus one line in ``FLEET_TEXT_MODEL_CHOICES`` -- not a redeploy of every lane.
 
-Founder directive 2026-09-02: the text fleet runs Flash. Founder rule 2026-09-14: the
-catalog lists exactly two Gemini releases, never a third. Founder decision 2026-09-25:
-the pair is chosen by measured chat latency (3.8 Flash retired). Founder decision
-2026-09-27: gemini-3.7-flash was timing out in chat, so One runs gemini-3.6-flash and
-offers no model choice. The registry still serves both releases for explicit pins; this
-catalog offers one, which hides the chat model picker (it renders only for two or more
-choices) and moves any stored 3.7 choice back to the lane default.
+The provider registry supports two text releases. Owner decision 2026-10-15
+selects Gemini 3.8 Flash after bounded runtime and quality checks. The catalog
+continues to offer one model, preserving the existing no-picker experience.
 """
 
 from __future__ import annotations
@@ -23,10 +19,10 @@ from hushh_mcp.runtime_providers.registry import resolve_model_entry
 # once the registry knows it AND at least one lane's Vertex allowed-models policy admits
 # it; the catalog reports availability per entry rather than hiding a model the lane
 # cannot serve.
-FLEET_TEXT_MODEL_CHOICES: tuple[str, ...] = ("gemini-3.6-flash",)
+FLEET_TEXT_MODEL_CHOICES: tuple[str, ...] = ("gemini-3.8-flash",)
 
 _LABELS: dict[str, str] = {
-    "gemini-3.6-flash": "Gemini 3.6 Flash",
+    "gemini-3.8-flash": "Gemini 3.8 Flash",
 }
 
 

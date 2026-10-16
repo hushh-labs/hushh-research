@@ -243,7 +243,22 @@ export function KeyboardInsetManager() {
         const onViewport = () => {
           const overlap = window.innerHeight - vv.height - vv.offsetTop;
           if (overlap <= KB_MIN_SHRINK_PX) cancelScroll();
-          setKeyboardHeight(overlap > KB_MIN_SHRINK_PX ? overlap : 0);
+          const keyboardOpen = overlap > KB_MIN_SHRINK_PX;
+          setKeyboardHeight(keyboardOpen ? overlap : 0);
+          // A fixed setup screen must fit the visual viewport on iPhone web.
+          // This measured height avoids subtracting the keyboard twice in
+          // browsers where CSS viewport units already shrink with it.
+          if (keyboardOpen) {
+            document.documentElement.style.setProperty(
+              "--kb-visible-height", `${Math.round(vv.height)}px`,
+            );
+            document.documentElement.style.setProperty(
+              "--kb-visible-top", `${Math.round(vv.offsetTop)}px`,
+            );
+          } else {
+            document.documentElement.style.removeProperty("--kb-visible-height");
+            document.documentElement.style.removeProperty("--kb-visible-top");
+          }
         };
         vv.addEventListener("resize", onViewport);
         vv.addEventListener("scroll", onViewport);
@@ -251,6 +266,8 @@ export function KeyboardInsetManager() {
         cleanups.push(() => {
           vv.removeEventListener("resize", onViewport);
           vv.removeEventListener("scroll", onViewport);
+          document.documentElement.style.removeProperty("--kb-visible-height");
+          document.documentElement.style.removeProperty("--kb-visible-top");
         });
       }
     }

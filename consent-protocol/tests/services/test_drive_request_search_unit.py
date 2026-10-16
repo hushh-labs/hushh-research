@@ -16,7 +16,12 @@ from hushh_mcp.services.drive_owner_search_service import (
     compile_request_queries,
 )
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_statement_plan,
+)
+from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
+from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     FACT_FIELDS,
@@ -25,6 +30,111 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+
+
+@pytest.mark.asyncio
+async def test_failed_v1_request_resumes_same_search_without_replanning_or_new_job():
+    context = {
+        "purpose": {
+            "purpose": "3 months of meeting notes",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        "revision": 7,
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value={"status": "failed", "jobId": "same-job"}),
+        retry_failed_request=AsyncMock(
+            return_value=({"status": "queued", "jobId": "same-job"}, True)
+        ),
+    )
+    search = SimpleNamespace(
+        store=store,
+        create_for_request=AsyncMock(side_effect=AssertionError("new search created")),
+    )
+    sharing = SimpleNamespace(
+        request_bulk_context=AsyncMock(return_value=context),
+        package_preparation_authority=AsyncMock(),
+    )
+    planner = AsyncMock(side_effect=AssertionError("request replanned"))
+    wake = AsyncMock()
+    service = DriveRequestBulkService(
+        sharing=sharing,
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=wake,
+    )
+
+    state = await service.start_search(user_id="owner", request_id="same-request")
+
+    assert state == {"status": "queued", "jobId": "same-job"}
+    store.retry_failed_request.assert_awaited_once_with(
+        user_id="owner",
+        request_id="same-request",
+        request_revision=7,
+        authority_mode="agent_package",
+    )
+    wake.assert_awaited_once_with("v1")
+    planner.assert_not_awaited()
+    search.create_for_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint(
+    monkeypatch,
+):
+    store = DriveOwnerSearchStore(db=SimpleNamespace())
+    updated = []
+    connection = SimpleNamespace(execute=lambda _statement, params: updated.append(params))
+    monkeypatch.setattr(store, "_lock", lambda *_args: None)
+    monkeypatch.setattr(
+        store,
+        "_owned",
+        lambda *_args, **_kwargs: {
+            "status": "running",
+            "lease_id": "lease",
+            "retry_count": 0,
+            "job_id": "job",
+        },
+    )
+    monkeypatch.setattr(
+        store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
+    )
+    detail = {"page_token": "saved-page"}
+    monkeypatch.setattr(store, "_checkpoint", lambda _row: detail)
+    monkeypatch.setattr(store, "_seal", lambda *_args: "sealed-checkpoint")
+    state = await store.release(
+        {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
+        error="operation_not_allowed",
+    )
+    assert state == "failed"
+    assert updated[0]["code"] == "provider_unavailable"
+    assert updated[0]["checkpoint"] == "sealed-checkpoint"
+    assert detail == {
+        "page_token": "saved-page",
+        "last_search_failure_cause": "operation_not_allowed",
+    }
+
+
+@pytest.mark.parametrize(
+    ("search_status", "incomplete"),
+    [("failed", False), ("limited", True), ("stopped", False), ("completed", True)],
+)
+def test_terminal_search_overrides_pending_evaluation_without_allowing_payment(
+    search_status, incomplete
+):
+    status = _review_status(
+        {
+            "status": search_status,
+            "incomplete_search": incomplete,
+            "evaluation_status": "pending",
+        }
+    )
+    assert status == "unavailable"
+    assert _public_package({"selected_positions": [1]}, status=status)["canAllow"] is False
 
 
 @pytest.mark.asyncio
@@ -97,6 +207,527 @@ def test_request_plan_keeps_all_candidate_file_dates_and_shortcut_mime():
     assert "video/" not in query and "audio/" not in query
     assert "modifiedTime" not in query
     assert period == {"start": start, "end": end, "timezone": "UTC"}
+
+
+def test_statement_coverage_search_retries_with_broad_terms_without_a_timestamp_cut():
+    plan = {
+        "mode": "find",
+        "terms": ["Schwab", "brokerage", "statement"],
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+    purpose = {
+        "purpose": "All Schwab brokerage statements from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    queries, period = compile_request_queries(plan, purpose, "America/New_York")
+
+    assert len(queries) == 2
+    precise, broad = (entry["arguments"]["query"] for entry in queries)
+    assert precise.count(" and ") > broad.count(" and ")
+    assert " or " in broad
+    assert all(term in precise and term in broad for term in plan["terms"])
+    assert "modifiedTime >= " not in broad and "createdTime >= " not in broad
+    assert period == {
+        "start": "2026-09-01",
+        "end": "2026-10-09",
+        "timezone": "America/New_York",
+    }
+
+    # Explicit file-activity requests retain the precise query: those may
+    # enter the existing automatic-share lane and need its title/date gates.
+    activity, _ = compile_request_queries(
+        {**plan, "time_intent": "file_activity"}, purpose, "America/New_York"
+    )
+    assert len(activity) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "expected_terms"),
+    [
+        ("Last months brokerage statements", ["brokerage", "statement"]),
+        (
+            "I need all brokerage statements that contains Schwab from 2026",
+            ["Schwab", "brokerage", "statement"],
+        ),
+    ],
+)
+async def test_statement_request_uses_deterministic_coverage_plan_without_model(
+    request_text, expected_terms
+):
+    purpose = {
+        "purpose": request_text,
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 2,
+        "requestTimeZone": "Asia/Kolkata",
+        "requestCreatedAt": datetime(2026, 10, 13, tzinfo=UTC),
+    }
+    planner = AsyncMock(side_effect=AssertionError("statement route must not call Gemini"))
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "job", "status": "queued"}),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request", authority_mode="trusted_auto")
+
+    planner.assert_not_awaited()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["terms"] == expected_terms
+    assert frozen["plan"]["time_intent"] == "document_coverage"
+    assert frozen["plan"]["file_kind"] == "document"
+    assert frozen["purpose"] == purpose
+    queries, period = compile_request_queries(
+        frozen["plan"], purpose, "Asia/Kolkata", requested_at=context["requestCreatedAt"]
+    )
+    assert len(queries) == 2
+    assert all("modifiedTime >= " not in row["arguments"]["query"] for row in queries)
+    assert period == {
+        "start": "2026-09-01",
+        "end": "2026-10-09",
+        "timezone": "Asia/Kolkata",
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(monkeypatch):
+    request_id = "12345678-1234-1234-1234-123456789012"
+    purpose = {
+        "purpose": "Schwab brokerage statements from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    plan = _deterministic_statement_plan(purpose)
+    queries, period = compile_request_queries(plan.model_dump(mode="json"), purpose, "UTC")
+    old_query = {"arguments": {"query": "name contains 'Schwab'", "orderBy": "modifiedTime desc"}}
+    checkpoint = {
+        "request_origin_id": request_id,
+        "request_revision": 2,
+        "evidence_route": "provider",
+        "authority_mode": "trusted_auto",
+        "request": {"query": purpose["purpose"], "timezone": "UTC"},
+        "queries": [old_query],
+        "arguments": old_query["arguments"],
+        "phase": "files",
+        "page_token": "old-provider-token",
+    }
+    now = datetime.now(UTC)
+    row = {
+        "job_id": "87654321-4321-4321-4321-210987654321",
+        "status": "completed",
+        "connection_generation": 7,
+        "checkpoint": checkpoint,
+        "lease_id": None,
+        "v1_statement_search": False,
+    }
+    request = {
+        "status": "pending",
+        "revision": 2,
+        "bulk_search_started_at": now,
+        "access_stop_requested_at": None,
+        "expires_at": now + timedelta(days=1),
+        "request_envelope": {},
+    }
+    original_positions = {1: "file-a", 2: "file-b"}
+    writes = []
+
+    class Connection:
+        def execute(self, statement, parameters=None):
+            assert "clock_timestamp()" in str(statement)
+            return SimpleNamespace(scalar_one=lambda: now)
+
+    def find_row(connection, statement, parameters):
+        if "FROM drive_share_requests" in statement:
+            return request
+        if "FROM drive_owner_search_jobs" in statement and "client_request_id" in statement:
+            return row
+        if "FROM drive_bulk_shares" in statement or "job_id<>:job" in statement:
+            return None
+        if "UPDATE drive_owner_search_jobs" in statement:
+            writes.append(parameters)
+            row["checkpoint"] = parameters["checkpoint"]
+            row["status"] = "queued"
+            row["v1_statement_search"] = True
+            return row
+        raise AssertionError(statement)
+
+    store = DriveOwnerSearchStore(
+        db=SimpleNamespace(),
+        cipher=SimpleNamespace(open=lambda *args, **kwargs: {"purpose": purpose}),
+    )
+    monkeypatch.setattr(store, "_lock", lambda *args: None)
+    monkeypatch.setattr(store, "_access", lambda *args: {"connection_generation": 7})
+    monkeypatch.setattr(store, "_row", find_row)
+    monkeypatch.setattr(store, "_checkpoint", lambda current: current["checkpoint"])
+    monkeypatch.setattr(store, "_seal", lambda value, *args: value)
+    monkeypatch.setattr(
+        store, "_view", lambda current: {"jobId": current["job_id"], "status": current["status"]}
+    )
+
+    async def transaction(operation):
+        return operation(Connection())
+
+    monkeypatch.setattr(store, "_transaction", transaction)
+    kwargs = dict(
+        user_id="owner",
+        request_id=request_id,
+        request_revision=2,
+        purpose=purpose,
+        queries=queries,
+        period=period,
+        terms=plan.terms,
+    )
+    state, changed = await store.replan_legacy_statement_request(**kwargs)
+    assert changed and state == {"jobId": row["job_id"], "status": "queued"}
+    assert len(writes) == 1
+    assert row["checkpoint"]["queries"] == queries
+    assert row["checkpoint"]["phase"] == "user"
+    assert row["checkpoint"]["page_token"] is None
+    assert row["checkpoint"]["request_owner_review_required"] is True
+    assert row["checkpoint"]["coverage_manifest"]["contentPeriodVerified"] is False
+    assert original_positions == {1: "file-a", 2: "file-b"}
+
+    state, changed = await store.replan_legacy_statement_request(**kwargs)
+    assert not changed and state["jobId"] == row["job_id"]
+    assert len(writes) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_statement_replan_does_not_touch_frozen_history(monkeypatch):
+    request_id = "12345678-1234-1234-1234-123456789012"
+    purpose = {
+        "purpose": "Schwab brokerage statements from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    plan = _deterministic_statement_plan(purpose)
+    queries, period = compile_request_queries(plan.model_dump(mode="json"), purpose, "UTC")
+    now = datetime.now(UTC)
+    checkpoint = {
+        "request_origin_id": request_id,
+        "request_revision": 2,
+        "evidence_route": "provider",
+        "queries": [{"arguments": {"query": "old"}}],
+    }
+    row = {
+        "job_id": "87654321-4321-4321-4321-210987654321",
+        "status": "completed",
+        "connection_generation": 7,
+        "checkpoint": checkpoint,
+    }
+    request = {
+        "status": "pending",
+        "revision": 2,
+        "bulk_search_started_at": now,
+        "access_stop_requested_at": None,
+        "expires_at": now + timedelta(days=1),
+        "request_envelope": {},
+    }
+    writes = []
+
+    class Connection:
+        def execute(self, statement, parameters=None):
+            return SimpleNamespace(scalar_one=lambda: now)
+
+    def find_row(connection, statement, parameters):
+        if "FROM drive_share_requests" in statement:
+            return request
+        if "FROM drive_owner_search_jobs" in statement and "client_request_id" in statement:
+            return row
+        if "FROM drive_bulk_shares" in statement:
+            return {"share_id": "frozen-paid-or-approved-batch"}
+        if "UPDATE drive_owner_search_jobs" in statement:
+            writes.append(parameters)
+            return row
+        raise AssertionError(statement)
+
+    store = DriveOwnerSearchStore(
+        db=SimpleNamespace(),
+        cipher=SimpleNamespace(open=lambda *args, **kwargs: {"purpose": purpose}),
+    )
+    monkeypatch.setattr(store, "_lock", lambda *args: None)
+    monkeypatch.setattr(store, "_access", lambda *args: {"connection_generation": 7})
+    monkeypatch.setattr(store, "_row", find_row)
+    monkeypatch.setattr(store, "_checkpoint", lambda current: current["checkpoint"])
+    monkeypatch.setattr(
+        store, "_view", lambda current: {"jobId": current["job_id"], "status": current["status"]}
+    )
+
+    async def transaction(operation):
+        return operation(Connection())
+
+    monkeypatch.setattr(store, "_transaction", transaction)
+    state, changed = await store.replan_legacy_statement_request(
+        user_id="owner",
+        request_id=request_id,
+        request_revision=2,
+        purpose=purpose,
+        queries=queries,
+        period=period,
+        terms=plan.terms,
+    )
+    assert state == {"jobId": row["job_id"], "status": "completed"}
+    assert not changed and not writes
+    assert row["checkpoint"] is checkpoint
+    assert checkpoint["queries"] == [{"arguments": {"query": "old"}}]
+
+
+@pytest.mark.asyncio
+async def test_active_legacy_statement_replans_before_provider_read(monkeypatch):
+    request_id = "12345678-1234-1234-1234-123456789012"
+    checkpoint = {
+        "request_origin_id": request_id,
+        "request_revision": 2,
+        "evidence_route": "provider",
+        "request": {"query": "Schwab brokerage statements from 2026"},
+        "queries": [{"arguments": {"query": "old"}}],
+    }
+    job = {"checkpoint": checkpoint, "lease_id": "lease-1"}
+    context = {"purpose": {"purpose": checkpoint["request"]["query"]}, "revision": 2}
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        require_current=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(
+        store=store,
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        transport=SimpleNamespace(read_tool=AsyncMock(side_effect=AssertionError("provider read"))),
+    )
+    service.replan_legacy_statement_request = AsyncMock(return_value=({"status": "queued"}, True))
+    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
+    outcome = await service.run_one(user_id="owner", job_id="job", require_current=AsyncMock())
+    assert outcome == "queued"
+    service.replan_legacy_statement_request.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, context=context, expected_lease="lease-1"
+    )
+    service.transport.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_saved_statement_marker_cannot_enter_trusted_auto_share_path():
+    sharing = SimpleNamespace(
+        trusted_request_authority=AsyncMock(return_value={}),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "purpose": {
+                    "purpose": "Schwab brokerage statements from 2026",
+                    "periodStart": "2026-09-01",
+                    "periodEnd": "2026-10-09",
+                }
+            }
+        ),
+        request_owner_review_required=AsyncMock(return_value=False),
+    )
+    bulk = SimpleNamespace(pending_request_reviews=AsyncMock())
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=bulk, payment=object(), wake=AsyncMock()
+    )
+    assert await service.share_available(user_id="owner", request_id="request") == 0
+    sharing.request_owner_review_required.assert_not_awaited()
+    bulk.pending_request_reviews.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "expected_terms", "required_entities"),
+    [
+        (
+            "All Charles Schwab brokerage statements from 2026",
+            ["Schwab", "brokerage", "statement"],
+            ["Schwab"],
+        ),
+        ("Bank statements", ["bank", "statement"], []),
+    ],
+)
+async def test_v1_statement_request_starts_with_deterministic_structural_search(
+    request_text, expected_terms, required_entities
+):
+    purpose = {
+        "purpose": request_text,
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 1,
+        "requestTimeZone": "UTC",
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"status": "queued", "jobId": "v1-job"}),
+        request_evidence_route=AsyncMock(),
+    )
+    planner = AsyncMock(side_effect=AssertionError("V1 statement discovery must not call Gemini"))
+    sharing = SimpleNamespace(
+        request_bulk_context=AsyncMock(return_value=context),
+        package_preparation_authority=AsyncMock(),
+    )
+    service = DriveRequestBulkService(
+        sharing=sharing, search=search, planner=planner, require_owner=AsyncMock()
+    )
+
+    result = await service.start_search(user_id="owner", request_id="request-id")
+
+    assert result == {"status": "queued", "jobId": "v1-job"}
+    planner.assert_not_awaited()
+    search.request_evidence_route.assert_not_awaited()
+    sharing.package_preparation_authority.assert_awaited_once()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["authority_mode"] == "agent_package"
+    assert frozen["v1_live_request"] is True
+    assert frozen["plan"]["terms"] == expected_terms
+    assert frozen["plan"]["required_entities"] == required_entities
+    assert frozen["plan"]["semantic_intent"] == "institutional_statement"
+    queries, _ = compile_request_queries(frozen["plan"], purpose, "UTC", v1_live_request=True)
+    assert "fullText" not in queries[-1]["arguments"]["query"]
+    assert "mimeType" in queries[-1]["arguments"]["query"]
+
+
+@pytest.mark.asyncio
+async def test_v1_named_bank_statement_keeps_issuer_in_semantic_plan():
+    purpose = {
+        "purpose": "Chase bank statements",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 1,
+        "requestTimeZone": "UTC",
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"status": "queued", "jobId": "v1-job"}),
+    )
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "terms": ["Chase", "bank", "statement"],
+            "required_entities": ["Chase"],
+            "semantic_intent": "institutional_statement",
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        }
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(
+            request_bulk_context=AsyncMock(return_value=context),
+            package_preparation_authority=AsyncMock(),
+        ),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request-id")
+
+    planner.assert_awaited_once()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["required_entities"] == ["Chase"]
+    assert frozen["v1_live_request"] is True
+
+
+@pytest.mark.asyncio
+async def test_existing_completed_statement_retries_same_job_without_model():
+    request_id = "12345678-1234-1234-1234-123456789012"
+    context = {
+        "purpose": {
+            "purpose": "Schwab brokerage statements from 2026",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "revision": 2,
+        "requestTimeZone": "UTC",
+    }
+    retried = {"jobId": "same-job", "status": "queued"}
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value={"jobId": "same-job", "status": "completed"}),
+    )
+    search = SimpleNamespace(
+        store=store,
+        replan_legacy_statement_request=AsyncMock(return_value=(retried, True)),
+        create_for_request=AsyncMock(),
+    )
+    planner = AsyncMock(side_effect=AssertionError("statement route must not call Gemini"))
+    wake = AsyncMock()
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=wake,
+    )
+    state = await service.start_search(
+        user_id="owner", request_id=request_id, authority_mode="trusted_auto"
+    )
+    assert state is retried
+    search.replan_legacy_statement_request.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, context=context
+    )
+    store.by_client.assert_awaited_once()
+    search.create_for_request.assert_not_awaited()
+    planner.assert_not_awaited()
+    wake.assert_awaited_once_with("v1")
+
+
+@pytest.mark.asyncio
+async def test_owner_review_retries_completed_unfrozen_statement_without_manual_restart():
+    request_id = "12345678-1234-1234-1234-123456789012"
+    context = {
+        "searchStarted": True,
+        "purpose": {
+            "purpose": "Schwab brokerage statements from 2026",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "revision": 2,
+        "requestTimeZone": "UTC",
+    }
+    old = {"jobId": "same-job", "status": "completed"}
+    retried = {"jobId": "same-job", "status": "queued"}
+    lookup = AsyncMock(side_effect=[old, retried])
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=lookup),
+        replan_legacy_statement_request=AsyncMock(return_value=(retried, True)),
+    )
+    bulk = SimpleNamespace(
+        refresh_request=AsyncMock(),
+        batches_by_request=AsyncMock(return_value={"batches": [], "batchCount": 0}),
+    )
+    planner = AsyncMock(side_effect=AssertionError("review must not call Gemini"))
+    wake = AsyncMock()
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        bulk=bulk,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=wake,
+    )
+    first = await service.review_context(user_id="owner", request_id=request_id)
+    second = await service.review_context(user_id="owner", request_id=request_id)
+    assert first["search"] == second["search"] == retried
+    search.replan_legacy_statement_request.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, context=context
+    )
+    wake.assert_awaited_once_with("v1")
+    bulk.refresh_request.assert_not_awaited()
+    planner.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -1147,6 +1778,47 @@ async def test_request_folder_children_need_topic_and_search_carries_shareabilit
         drive_id=None,
     )
     assert [item["id"] for item in direct] == ["full-text-hit"]
+
+
+@pytest.mark.asyncio
+async def test_broad_statement_hit_remains_unverified_when_title_and_modified_date_mislead():
+    checkpoint = _checkpoint()
+    checkpoint.update(
+        authority_mode="trusted_auto",
+        request_owner_review_required=True,
+        request_subject_terms=["Schwab", "brokerage", "statement"],
+        request_notes=False,
+        requested_period={
+            "start": "2026-09-01",
+            "end": "2026-10-09",
+            "timezone": "America/New_York",
+        },
+    )
+    candidate = _request_candidate(
+        "generic-title",
+        "Account record.pdf",
+        "application/pdf",
+        createdTime="2017-03-14T00:00:00Z",
+        modifiedTime="2026-10-01T00:00:00Z",
+    )
+    service = DriveOwnerSearchService()
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, [candidate], folder_scoped=False, drive_id=None
+    )
+    assert not incomplete
+    assert [item["id"] for item in files] == ["generic-title"]
+    assert files[0]["requestEvidence"] == {
+        "version": 1,
+        "assessment": "unverified",
+        "basis": "provider_search",
+    }
+
+    # The same broad hit cannot enter the metadata-only trusted-auto path.
+    checkpoint["request_owner_review_required"] = False
+    automatic, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, [candidate], folder_scoped=False, drive_id=None
+    )
+    assert automatic == []
 
 
 async def test_matching_folder_shortcut_pages_generic_gemini_notes_and_nested_folders(monkeypatch):

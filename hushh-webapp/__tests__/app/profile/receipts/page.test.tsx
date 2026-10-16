@@ -1101,7 +1101,7 @@ describe("ProfileReceiptsPage", () => {
 
     expect(
       await screen.findByText(
-        "Set up or open your private vault to view synced receipts.",
+        "Set up or open your vault to view synced receipts.",
       ),
     ).toBeTruthy();
     expect(vi.mocked(GmailReceiptsService.listReceipts)).not.toHaveBeenCalled();
@@ -1499,7 +1499,7 @@ describe("ProfileReceiptsPage", () => {
     });
 
     await screen.findByText(
-      /Set up or open your private vault to view synced receipts/i,
+      /Set up or open your vault to view synced receipts/i,
     );
     await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
   });
@@ -1854,11 +1854,11 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
-      screen.getByRole("heading", { name: /mail not connected/i }),
+      screen.getByRole("heading", { name: /connect your mail/i }),
     ).toBeTruthy();
     expect(
       within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
-        /syncs receipts to build your private shopping memory/i,
+        /emails and receipts, together/i,
       ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
@@ -2123,7 +2123,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage forceWorkspace="kyc" />);
     expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("KYC requests")).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "Mail not connected" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connect your Mail" })).toBeNull();
   });
 
   it("lands a disconnected KYC deep link on the shared Mail status card", async () => {
@@ -2132,7 +2132,7 @@ describe("ProfileReceiptsPage", () => {
 
     expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
     const panel = screen.getByRole("tabpanel", { name: "KYC" });
-    expect(within(panel).getByRole("heading", { name: "Mail not connected" })).toBeVisible();
+    expect(within(panel).getByRole("heading", { name: "Connect your Mail" })).toBeVisible();
     // One accessible connection action, despite the retained inactive panes.
     expect(screen.queryByText("KYC requests")).toBeNull();
     expect(screen.getAllByRole("button", { name: /connect (g)?mail/i })).toHaveLength(1);

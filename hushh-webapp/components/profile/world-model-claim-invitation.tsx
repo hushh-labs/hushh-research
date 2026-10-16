@@ -8,7 +8,6 @@ import { HelperText, RowDescription } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useWorldModelResearch } from "./world-model-provider";
 import { useWorldModelOwnerAction } from "./world-model-invitations";
-import type { ProfileReport } from "@/lib/services/profile-research-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -34,15 +33,17 @@ export function WorldModelClaimInvitation({
   const query = useSearchParams();
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
-  const [receivedPreview, setReceivedPreview] = useState<{
-    report: ProfileReport;
-    introduction: string;
-  } | null>(null);
+  const [receivedPreview, setReceivedPreview] = useState<
+    Awaited<ReturnType<typeof WorldModelInvitationsService.preview>> | null
+  >(null);
   const [researchConsent, setResearchConsent] = useState(false);
   const { reload: reloadResearch, preferences } = useWorldModelResearch();
-  // Research is on by default, so the choice only exists for a recipient who
-  // turned it off; anyone else claims without a research request.
-  const offerResearch = preferences?.enabled === false;
+  // The invitation checkbox belongs only to the existing Google research
+  // choice. Azure/Bing needs its own disclosure in Personal World Model settings.
+  const offerResearch = preferences?.enabled === false &&
+    preferences.research_provider === "vertex_google_search";
+  const azureResearchOff = preferences?.enabled === false &&
+    preferences.research_provider === "azure_openai_web_search";
   const { busy, message, setMessage, guard, run } = useWorldModelOwnerAction({
     ownerId,
     vaultKey,
@@ -75,7 +76,7 @@ export function WorldModelClaimInvitation({
     if (claimToken)
       void WorldModelInvitationsService.preview(claimToken)
         .then((row) => {
-          if (active && "report" in row) setReceivedPreview(row);
+          if (active) setReceivedPreview(row);
         })
         .catch(() => {});
     return () => {
@@ -102,10 +103,14 @@ export function WorldModelClaimInvitation({
         {claimToken && (
           <div className="space-y-2">
             <RowDescription className="break-words [overflow-wrap:anywhere]">
-              Someone prepared a Personal World Model for you. Claim it to
-              review it here, or decline. Nothing is shared back with them.
+              Someone invited you to prepare your Personal World Model. Claim
+              it to review your own research here, or decline. Nothing is shared
+              back with them.
             </RowDescription>
-            {receivedPreview && (
+            {receivedPreview && "subject_name" in receivedPreview && receivedPreview.subject_name ? (
+              <RowDescription>Invitation for {receivedPreview.subject_name}</RowDescription>
+            ) : null}
+            {receivedPreview && "report" in receivedPreview && (
               <div className="space-y-2 break-words [overflow-wrap:anywhere]">
                 <RowDescription>{receivedPreview.introduction}</RowDescription>
                 <RowDescription>Prepared by the person who invited you</RowDescription>
@@ -144,6 +149,11 @@ export function WorldModelClaimInvitation({
                 </RowDescription>
               </label>
             ) : null}
+            {azureResearchOff ? (
+              <RowDescription>
+                Azure public research stays off after claiming. Open Research and email in your Personal World Model to review Bing search use before turning it on.
+              </RowDescription>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 data-voice-control-id="pwm_claim"
@@ -152,7 +162,7 @@ export function WorldModelClaimInvitation({
                 onClick={() =>
                   void run(async () => {
                     const capture = guard();
-                    await WorldModelInvitationsService.claim(
+                    const claimed = await WorldModelInvitationsService.claim(
                       session,
                       claimToken,
                       // Only a shown, checked box is a research request.
@@ -161,7 +171,13 @@ export function WorldModelClaimInvitation({
                     await capture.assertCurrent();
                     clearWorldModelInvitationHandoffsForToken(claimToken);
                     setMessage(
-                      "Claimed. Review your model below. Nothing was shared back.",
+                      claimed.research_started || claimed.draft_id
+                        ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
+                        : azureResearchOff
+                          ? "Claimed. Azure public research remains off. Open Research and email in your model to review Bing search use and turn it on. Nothing was shared back."
+                        : offerResearch && !researchConsent
+                          ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
+                          : "Claimed. Open your model to check its research status. Nothing was shared back.",
                     );
                     setClaimToken(null);
                     reloadResearch();

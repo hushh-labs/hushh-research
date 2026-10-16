@@ -4,50 +4,42 @@
     "local": {
       "project": "hushh-pda-uat",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
       "embedding_model": "gemini-embedding-001"
     },
     "dev": {
-      "project": "hushh-pda-uat",
+      "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
       "embedding_model": "gemini-embedding-001"
     },
     "uat": {
-      "project": "hushh-vertex-personal54",
+      "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
       "embedding_model": "gemini-embedding-001"
     },
     "production": {
-      "project": "hushh-vertex-personal54",
+      "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
@@ -70,6 +62,32 @@
       "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
       "job": "pwm-notifications-uat",
       "location": "us-central1"
+    }
+  },
+  "pwm_research_uat": {
+    "provider": "azure_openai_web_search",
+    "owner_source_provider": "vertex_url_context",
+    "search_invocations": 8,
+    "model_calls": 16,
+    "slice_seconds": 240,
+    "job_seconds": 270,
+    "lease_seconds": 300,
+    "preview_source_limit": 3,
+    "preview_fact_limit": 8,
+    "notification_scheduler": {
+      "project": "hushh-pda-uat",
+      "audience": "https://api.uat.hushh.ai",
+      "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
+      "job": "pwm-notifications-uat",
+      "location": "us-central1"
+    },
+    "azure": {
+      "tenant_id": "21cfeec0-6294-4c61-9ed4-f895165053f7",
+      "client_id": "3290830b-a60a-4230-91af-2f15336ccdf0",
+      "primary_endpoint": "https://oai-hussh-eee5f876655f1602.openai.azure.com/openai/v1/",
+      "primary_deployment": "pwm-gpt-5-mini-eval",
+      "phi_endpoint": "https://ankitkumarsingh97593-4165-resour.services.ai.azure.com/openai/v1/",
+      "phi_deployment": "pwm-phi-4-mini-eval"
     }
   }
 }

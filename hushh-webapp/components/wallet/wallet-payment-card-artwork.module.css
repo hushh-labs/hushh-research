@@ -1,4 +1,4 @@
-/* Neutral card layout; approved raster artwork is rendered without invented overlays. */
+/* Neutral layout and permission-gated owner details over approved bank artwork. */
 .container {
   container-type: inline-size;
   width: 100%;
@@ -133,4 +133,77 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Match the contained image, so portrait artwork never puts details on its side margins. */
+.artworkPlane {
+  container-type: inline-size;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.artworkDetails {
+  position: absolute;
+  z-index: 1;
+  left: 5.5%;
+  bottom: 7%;
+  width: 64%;
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 85%), 0 -1px 0 rgb(255 255 255 / 18%);
+  pointer-events: none;
+}
+
+.artworkNumber {
+  margin: 0;
+  font-size: clamp(9px, 4.4cqw, 32px);
+  column-gap: 1.6cqw;
+  letter-spacing: 0.035em;
+}
+
+.artworkBottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 3cqw;
+  margin-top: 2.5cqw;
+}
+
+.artworkDetails .caption {
+  font-size: clamp(6px, 2.1cqw, 15px);
+  margin-bottom: 0.8cqw;
+}
+
+.artworkDetails .value {
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: clamp(9px, 3.5cqw, 25px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.pendingFace {
+  background: var(--muted, #eeeef0);
+}
+
+/* Reserve the supplied NHL shield/Discover wordmark and the Power footer. */
+.face[data-artwork-asset-id^="atlas-085"] .artworkDetails {
+  width: 44%;
+  bottom: 28%;
+}
+
+.face[data-artwork-asset-id^="atlas-085"] .artworkNumber {
+  font-size: 3.3cqw;
+  column-gap: 1.3cqw;
+  letter-spacing: 0.035em;
+}
+
+.face[data-artwork-asset-id^="atlas-056"] .artworkDetails,
+.face[data-artwork-asset-id^="atlas-057"] .artworkDetails {
+  bottom: 15%;
+}
+
+.face[data-artwork-ready="false"] .artworkDetails {
+  color: var(--muted-foreground, #606066);
+  text-shadow: none;
 }

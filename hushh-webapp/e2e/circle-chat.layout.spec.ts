@@ -58,6 +58,89 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
+  await mount(page, false, true);
+  const own = page.locator('[data-chat-message="reply"]');
+  await own.getByRole("button", { name: "Message options" }).click();
+  for (const name of ["Reply", "Edit", "Delete for me", "Delete for everyone"]) {
+    await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  }
+  await page.screenshot({ path: test.info().outputPath("circle-message-options.png") });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.locator('[data-chat-message="hello"]').getByRole("button", { name: "Message options" }).click();
+  await expect(page.getByRole("menuitem", { name: "Reply", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete for me", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Delete for everyone", exact: true })).toHaveCount(0);
+});
+
+test("Circle reply, edit and both deletion scopes complete without disturbing adjacent messages", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await mount(page, false, true);
+  const peer = page.locator('[data-chat-message="hello"]');
+  const own = page.locator('[data-chat-message="reply"]');
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
+  await expect(page.getByLabel("Replying to message")).toContainText("Kushal Trivedi");
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await editor.fill("Thanks! 👩🏽‍💻 مرحبا");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByLabel("Replying to message")).toHaveCount(0);
+  const quote = page.getByRole("button", { name: "View original message from Kushal Trivedi" });
+  await expect(quote).toContainText("Hey everyone!");
+  await quote.click();
+  await expect(peer).toBeFocused();
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Edit message text" }).fill("Updated meetup plan");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(own).toContainText("Updated meetup plan");
+  await expect(own).toContainText("Edited");
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(peer).toBeVisible();
+  await peer.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
+  await page.getByRole("button", { name: "Delete message", exact: true }).click();
+  await expect(peer).toHaveCount(0);
+  await expect(quote).toHaveCount(0);
+  await expect(page.getByText("Original message unavailable", { exact: true })).toBeVisible();
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
+  await page.getByRole("button", { name: "Delete message", exact: true }).click();
+  await expect(own).toContainText("This message was deleted.");
+  await expect(own.getByRole("button", { name: "React to message" })).toHaveCount(0);
+  await expect(page.getByText("Our next meetup spot 📍", { exact: true })).toBeVisible();
+  await expect(editor).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("Circle edit failure keeps the draft and retries the identical sealed change", async ({ page }) => {
+  await mount(page, false, true);
+  await page.evaluate(() => { (window as unknown as { chatFixture: { failNextMutation: boolean } }).chatFixture.failNextMutation = true; });
+  const own = page.locator('[data-chat-message="reply"]');
+  await own.getByRole("button", { name: "Message options" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  const input = page.getByRole("textbox", { name: "Edit message text" });
+  await input.fill("   ");
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  await input.fill("Keep this draft 👋");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("alert")).toContainText("Check your connection and try again.");
+  await expect(input).toHaveValue("Keep this draft 👋");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(input).toHaveCount(0);
+  await expect(own).toContainText("Keep this draft 👋");
+  const attempts = await page.evaluate(() => (window as unknown as { chatFixture: { mutations: unknown[] } }).chatFixture.mutations);
+  expect(attempts).toHaveLength(2);
+  expect(attempts[0]).toEqual(attempts[1]);
+});
+
 for (const width of [320, 1440]) {
   for (const dark of [false, true]) {
     test(`Circle Messages uses the shared dock without a second field surface at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
@@ -103,9 +186,30 @@ for (const width of [320, 393, 1440]) {
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: 844 });
     await mount(page, false, true);
-    for (const id of ["hello", "reply"]) {
+    for (const id of ["hello", "reply", "photo"]) {
       const message = page.locator(`[data-chat-message="${id}"]`);
       const trigger = message.getByRole("button", { name: "React to message" });
+      await expect(trigger).toHaveText("☺");
+      const hitArea = await trigger.boundingBox();
+      expect(hitArea!.width).toBeGreaterThanOrEqual(44);
+      expect(hitArea!.height).toBeGreaterThanOrEqual(44);
+      const alignment = await trigger.evaluate(el => {
+        const action = el.getBoundingClientRect();
+        const bubble = el.parentElement!.firstElementChild!.getBoundingClientRect();
+        return { topGap: Math.abs(action.top - bubble.top), beside: action.right <= bubble.left || action.left >= bubble.right,
+          left: action.left, right: action.right };
+      });
+      expect(alignment.topGap).toBeLessThanOrEqual(1);
+      expect(alignment.beside).toBe(true);
+      expect(alignment.left).toBeGreaterThanOrEqual(0);
+      expect(alignment.right).toBeLessThanOrEqual(width);
+      const menu = message.getByRole("button", { name: "Message options" });
+      const menuBox = await menu.boundingBox();
+      expect(menuBox!.width).toBeGreaterThanOrEqual(44);
+      expect(menuBox!.height).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(menuBox!.y - hitArea!.y)).toBeLessThanOrEqual(1);
+      expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+      expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
       await trigger.click();
       const picker = page.getByRole("dialog", { name: "Emoji picker" });
       await expect(picker).toBeVisible();
@@ -133,13 +237,89 @@ for (const width of [320, 393, 1440]) {
       await expect(picker).not.toBeVisible();
       await trigger.click();
       await expect(picker).toBeVisible();
-      await page.getByRole("textbox", { name: "Message", exact: true }).click();
+      // The picker can cover either header or composer; its collision gutter is outside it.
+      await page.locator("body").click({ position: { x: 1, y: 1 } });
       await expect(picker).not.toBeVisible();
     }
     expect(errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
   });
 }
+
+for (const width of [320, 768, 1440]) {
+  test(`Circle Alerts uses an iOS switch with save recovery at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mount(page, width === 768, true);
+    const toggle = page.getByRole("switch", { name: "Chat alerts" });
+    await expect(toggle).toBeChecked();
+    const bounds = await toggle.evaluate(el => {
+      const label = el.closest("label")!.getBoundingClientRect();
+      const track = el.getBoundingClientRect();
+      return { width: label.width, height: label.height, trackWidth: track.width, trackHeight: track.height,
+        transition: getComputedStyle(el).transitionProperty, thumbTransition: getComputedStyle(el.firstElementChild!).transitionProperty };
+    });
+    expect(bounds.width).toBeGreaterThanOrEqual(44);
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.trackWidth).toBe(51);
+    expect(bounds.trackHeight).toBe(31);
+    expect(bounds.transition).toBe("none");
+    expect(bounds.thumbTransition).toBe("none");
+    await page.getByText("Alerts", { exact: true }).click();
+    await expect(toggle).not.toBeChecked();
+    await toggle.focus();
+    await page.keyboard.press("Space");
+    await expect(toggle).toBeChecked();
+    await page.evaluate(() => { (window as unknown as { chatFixture: { failNextMute: boolean } }).chatFixture.failNextMute = true; });
+    await toggle.click();
+    await expect(page.getByRole("alert")).toContainText("Chat alerts could not be updated.");
+    await expect(toggle).toBeChecked();
+    await expect(toggle).toBeEnabled();
+    // The existing online listener refreshes state and clears a transient save error.
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.getByRole("switch", { name: "Chat alerts" }).click();
+    await expect(page.getByRole("switch", { name: "Chat alerts" })).not.toBeChecked();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath(`circle-alerts-${width}.png`) });
+  });
+}
+
+test("Circle smiley supports keyboard selection and reaction failure recovery", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 393, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mount(page, true, true);
+  const message = page.locator('[data-chat-message="reply"]');
+  const trigger = message.getByRole("button", { name: "React to message" });
+  await expect(trigger).toHaveText("☺");
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  const picker = page.getByRole("dialog", { name: "Emoji picker" });
+  const search = picker.getByPlaceholder("Search emoji");
+  await search.fill("no-matching-emoji-12345");
+  await expect(picker.getByText(/No emojis match/)).toBeVisible();
+  await search.fill("🇮🇳");
+  await page.evaluate(() => { (window as unknown as { chatFixture: { failNextReaction: boolean } }).chatFixture.failNextReaction = true; });
+  await picker.getByRole("button", { name: "Use 🇮🇳", exact: true }).click();
+  const badge = message.getByRole("button", { name: "🇮🇳, 1 reactions, you reacted" });
+  await expect(badge).toHaveCount(0);
+  await expect(message.getByRole("alert")).toContainText("Reaction could not be saved. Try again.");
+  await trigger.click();
+  await picker.getByPlaceholder("Search emoji").fill("🇮🇳");
+  await picker.getByRole("button", { name: "Use 🇮🇳", exact: true }).click();
+  await expect(badge).toBeVisible();
+  await expect(message.getByRole("alert")).toHaveCount(0);
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(picker).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  expect(errors).toEqual([]);
+});
 
 for (const width of [320, 393, 430, 768, 1440]) {
   test(`fits long messages and a bounded keyboard composer at ${width}px`, async ({ page }) => {

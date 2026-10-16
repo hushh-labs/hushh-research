@@ -12,18 +12,24 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from contextlib import asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+)
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
+    LIVE_COLLECTION_CONTENT_LIMIT,
     LIVE_POLICY_HASH,
     RESOURCE_KEY,
     DriveReadError,
@@ -355,8 +361,20 @@ class GoogleDriveRestTransport:
                 "file": await self.adapter.get_file_facts(file_id=file_id, access_token=token),
             }
         mime_type, content = await self.adapter.read_live_bytes(
-            file_id=file_id, mime_type=metadata.mime_type, access_token=token
+            file_id=file_id,
+            mime_type=metadata.mime_type,
+            access_token=token,
+            **(
+                {"max_bytes": LIVE_COLLECTION_CONTENT_LIMIT}
+                if metadata.mime_type
+                in {
+                    "application/vnd.google-apps.spreadsheet",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }
+                else {}
+            ),
         )
+        parse_started = time.perf_counter()
         try:
             parsed = await IsolatedDocumentParser().parse(
                 content=content, mime_type=mime_type, live=True
@@ -364,9 +382,23 @@ class GoogleDriveRestTransport:
             text = "\n\n".join(parsed.pages)
         except DriveReadError as error:
             code = str(error)
+            logger.info(
+                "drive_live_content_read source_bytes=%d parse_ms=%d status=%s",
+                len(content),
+                round((time.perf_counter() - parse_started) * 1000),
+                code if code in PARSE_REASONS else "unavailable",
+            )
             if code in PARSE_REASONS:
                 return {"textFormattingNotSupported": True, "reason": code}
             return {"textFormattingNotSupported": True}
+        logger.info(
+            "drive_live_content_read source_bytes=%d extracted_text_bytes=%d "
+            "parse_ms=%d truncated=%d status=extracted",
+            len(content),
+            len(text.encode("utf-8")),
+            round((time.perf_counter() - parse_started) * 1000),
+            int(parsed.truncated),
+        )
         return {
             "fileContent": text,
             **({"contentTruncated": True} if parsed.truncated else {}),
@@ -440,13 +472,16 @@ class GoogleDriveRestTransport:
             page_size=page_size,
             page_token=page_token,
             order_by=None if full_text else order,
+            **({"owner_search_page": True} if page_size > FILE_LIST_PAGE_SIZE_MAX else {}),
             **({"drive_id": drive_id} if drive_id is not None else {}),
             **({"resource_keys": {folder: key}} if key is not None else {}),
         )
         return _project_page(page, _page_files(page, max_files=page_size))
 
     async def _owner_search_files(self, arguments: dict[str, Any], token: str) -> dict:
-        return await self._search_files(arguments, token, page_size_limit=100)
+        return await self._search_files(
+            arguments, token, page_size_limit=OWNER_SEARCH_PAGE_SIZE_MAX
+        )
 
     async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
         _only(arguments, {"pageSize", "pageToken"})

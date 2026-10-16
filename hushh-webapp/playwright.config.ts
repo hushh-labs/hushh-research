@@ -143,7 +143,11 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /one-location-duration-dialog\.layout\.spec\.ts/,
+        /agent-new-chat\.layout\.spec\.ts/,
+        /todo-agent-feed\.spec\.ts/,
         /initial-contacts-welcome\.layout\.spec\.ts/,
+        /circle-invite-picker\.layout\.spec\.ts/,
         /one-location-checkin-card\.layout\.spec\.ts/,
         /person-profile-actions\.layout\.spec\.ts/,
         /sms-flow\.layout\.spec\.ts/,
@@ -205,6 +209,7 @@ export default defineConfig({
         /shortcut-icons\.motion\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,
         /setup-hub\.layout\.spec\.ts/,
+        /setup-v10-vault\.layout\.spec\.ts/,
         /phone-entry\.layout\.spec\.ts/,
         /circle-discovery\.layout\.spec\.ts/,
         /guest-preview\.layout\.spec\.ts/,

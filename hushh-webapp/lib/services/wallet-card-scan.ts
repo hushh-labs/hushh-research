@@ -6,7 +6,7 @@ import { nativeCardScanner, nativeCardCapture } from "@/lib/capacitor/card-scann
 import { mergeCardScanReadings, parseCardScanReading, type CardScanReading, type ScannedCardFields } from "@/lib/wallet/card-scan-fields";
 import type { CardRaster } from "@/lib/wallet/card-scan-raster";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
-import { validateCardImage, type CardCorners, type CardImageBox } from "@/lib/wallet/card-scan-image";
+import { isFullCard, validCardCorners, validateCardImage, type CardCorners, type CardImageBox } from "@/lib/wallet/card-scan-image";
 
 export class CardScanError extends Error {}
 export interface CardScanDraft extends CardScanReading { sanitized?: Blob; candidate?: Blob }
@@ -66,18 +66,21 @@ export async function scanWalletCardForReview(file: Blob, signal: AbortSignal, o
   const epoch = snapshotVaultSessionEpoch(), owner = snapshotValidatedAuthSessionOwner();
   await validateCardImage(file).catch(error => { throw new CardScanError(error.message); });
   assertScanCurrent(signal, epoch, owner);
+  if (options.corners && !validCardCorners(options.corners)) throw new CardScanError("Card crop unavailable.");
   let nativeReading: CardScanReading | undefined;
-  if (Capacitor.getPlatform() === "ios" && !options.sanitizeOnly) {
-    if (!Capacitor.isPluginAvailable("HushhCardScanner")) throw new CardScanError("Update the app to scan, or enter your card details.");
-    const prepared = options.corners ? (await prepareCardLocally(file, signal, { corners: options.corners, prepareOnly: true })).prepared : file;
-    if (!prepared) throw new CardScanError("Card crop unavailable.");
-    const bytes = new Uint8Array(await prepared.arrayBuffer());
-    assertScanCurrent(signal, epoch, owner);
-    let binary = "";
-    for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  if (Capacitor.getPlatform() === "ios" && !options.sanitizeOnly && Capacitor.isPluginAvailable("HushhCardScanner")) {
     const requestId = walletOperationId();
     let timer: ReturnType<typeof setTimeout> | undefined, abort = () => {}, releaseEpoch = () => {};
     try {
+      // Full-photo selection needs no browser crop before on-device Vision.
+      // A selected quadrilateral must still be applied before recognition.
+      const cropped = options.corners && !isFullCard(options.corners);
+      const prepared = cropped ? (await prepareCardLocally(file, signal, { corners: options.corners, prepareOnly: true })).prepared : file;
+      if (!prepared) throw new CardScanError("Card crop unavailable.");
+      const bytes = new Uint8Array(await prepared.arrayBuffer());
+      assertScanCurrent(signal, epoch, owner);
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
       const result = await Promise.race([
         nativeCardScanner.recognize({ image: btoa(binary), requestId }),
         new Promise<never>((_, reject) => {
@@ -90,7 +93,12 @@ export async function scanWalletCardForReview(file: Blob, signal: AbortSignal, o
       ]);
       assertScanCurrent(signal, epoch, owner);
       nativeReading = parseCardScanReading(result.cardText);
-      if (!options.artwork && !options.corners) return nativeReading;
+      if (!options.artwork && (!options.corners || (nativeReading.states.pan === "recognized" && nativeReading.fields.expiry && nativeReading.fields.cardholderName))) return nativeReading;
+    } catch (error) {
+      assertScanCurrent(signal, epoch, owner);
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      // Native OCR is an optimization. Its failure can retry the same local,
+      // owner-bound pixels through the bundled browser recognizer.
     } finally {
       void nativeCardScanner.cancel({ requestId }).catch(() => {});
       releaseEpoch(); clearTimeout(timer); signal.removeEventListener("abort", abort);
@@ -101,9 +109,15 @@ export async function scanWalletCardForReview(file: Blob, signal: AbortSignal, o
   assertScanCurrent(signal, epoch, owner);
   const worker = new Worker(new URL("/wallet/card-scan-worker.js", window.location.href));
   let timer: ReturnType<typeof setTimeout> | undefined, abort = () => {}, releaseEpoch = () => {};
+  let partial: CardScanReading | undefined;
   try {
     return await new Promise<CardScanDraft>((resolve, reject) => {
-      const fail = () => reject(new CardScanError("Card scanning is unavailable. Enter your details or try again."));
+      const fail = () => {
+        try { assertScanCurrent(signal, epoch, owner); } catch (error) { reject(error); return; }
+        if (partial && Object.keys(partial.fields).length && !options.artwork && !options.sanitizeOnly) {
+          resolve(nativeReading ? mergeCardScanReadings([nativeReading, partial]) : partial);
+        } else reject(new CardScanError("Card scanning is unavailable. Enter your details or try again."));
+      };
       abort = () => reject(new DOMException("Scan cancelled", "AbortError"));
       signal.addEventListener("abort", abort, { once: true });
           releaseEpoch = subscribeVaultSessionEpoch(() => { if (!isVaultSessionEpochCurrent(epoch)) abort(); });
@@ -114,6 +128,7 @@ export async function scanWalletCardForReview(file: Blob, signal: AbortSignal, o
         const value = event.data;
         if (!value?.reading?.fields || !value?.reading?.states || value.error) { fail(); return; }
         try { assertScanCurrent(signal, epoch, owner); } catch (error) { reject(error); return; }
+        if (value.progress === true) { partial = value.reading; return; }
         if (value.sanitized instanceof Blob && owner) registerInspectedWalletPhoto(value.sanitized, owner.userId, epoch);
         resolve({ ...(nativeReading ? mergeCardScanReadings([nativeReading, value.reading]) : value.reading), ...(value.sanitized instanceof Blob ? { sanitized: value.sanitized } : {}), ...(value.candidate instanceof Blob ? { candidate: value.candidate } : {}) });
       };

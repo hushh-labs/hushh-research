@@ -6,11 +6,13 @@ this boundary. Period limitations are computed from selected cited evidence.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from hushh_mcp.services.drive_owner_allowed import package_allow_marker
+from hushh_mcp.services.drive_owner_allowed import package_allow_marker, trusted_selection_marker
 
 
 class DisclosurePeriod(BaseModel):
@@ -122,9 +124,14 @@ def build_package_disclosure(*, package, purpose, observations):
 
 
 def buyer_package_disclosure(private, *, request_revision, owner_allowed_at):
-    """A sealed current owner Allow is required, including for read projection."""
+    """Project only sealed exact membership; checkout separately checks live authority."""
     marker = package_allow_marker(private)
-    if marker is None or owner_allowed_at is None or marker["request_revision"] != request_revision:
+    if (
+        marker is None
+        or owner_allowed_at is None
+        and trusted_selection_marker(private) is None
+        or marker["request_revision"] != request_revision
+    ):
         return None
     try:
         value = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump()
@@ -137,3 +144,52 @@ def buyer_package_disclosure(private, *, request_revision, owner_allowed_at):
     ):
         return None
     return value
+
+
+def manual_buyer_disclosure(private, *, request_revision):
+    """Disclose the exact owner-approved V1 subset without claiming unproved coverage.
+
+    The sealed manual marker is written only after the owner approves the
+    immutable bulk share. Checkout separately rechecks that share against the
+    current request, so this requester-safe summary grants no access itself.
+    """
+    from hushh_mcp.services.drive_v1_manual_review import manual_selection_marker
+
+    marker = manual_selection_marker(private)
+    if (
+        marker is None
+        or marker.get("request_revision") != request_revision
+        or marker.get("approved_share_id") is None
+        or not marker.get("approved_positions")
+    ):
+        return None
+    try:
+        full = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump()
+    except (ValidationError, ValueError, TypeError):
+        return None
+    if (
+        full["packageDigest"] != marker["package_digest"]
+        or full["packageRevision"] != marker["package_revision"]
+        or full["selectedCount"] != marker["package_selected_count"]
+    ):
+        return None
+    approved = marker["approved_positions"]
+    if approved == marker["selected_positions"]:
+        return full
+    binding = json.dumps(
+        [marker["package_digest"], marker["approved_share_id"], approved],
+        separators=(",", ":"),
+    ).encode()
+    return PackageDisclosure.model_validate(
+        {
+            "schemaVersion": 1,
+            "packageDigest": hashlib.sha256(binding).hexdigest(),
+            "packageRevision": marker["package_revision"],
+            "selectedCount": len(approved),
+            "coverageStatus": "unknown",
+            "periods": [],
+            "limitations": [
+                "The owner approved a subset of verified documents. Coverage of this exact selection has not been verified."
+            ],
+        }
+    ).model_dump()

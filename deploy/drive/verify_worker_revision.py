@@ -24,6 +24,7 @@ def verify_revision(
     app_image: str,
     scanner_index_digest: str,
     scanner_amd64_digest: str,
+    drain_enabled: str | None = None,
 ) -> None:
     """Accept only the reviewed app and either pinned ClamAV manifest form.
 
@@ -49,6 +50,15 @@ def verify_revision(
     }:
         raise ValueError("Drive worker container set mismatch")
     images = {item["name"]: item.get("image") for item in containers}
+    if drain_enabled is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        flags = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "DRIVE_WORK_DRAIN_ENABLED"
+        ]
+        if drain_enabled not in {"true", "false"} or flags != [drain_enabled]:
+            raise ValueError("Drive worker background processing state mismatch")
     if images["drive-worker"] != app_image:
         raise ValueError("Drive worker app image mismatch")
     if _digest(images["clamav"]) not in {
@@ -67,6 +77,7 @@ def main() -> int:
             app_image=os.environ["EXPECTED_APP_IMAGE"],
             scanner_index_digest=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
             scanner_amd64_digest=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
+            drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED"),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"Drive worker candidate provenance failed: {exc}", file=sys.stderr)

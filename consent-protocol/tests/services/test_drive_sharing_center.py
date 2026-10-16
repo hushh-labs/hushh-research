@@ -70,6 +70,65 @@ def test_trusted_auto_attention_follows_linked_search_state(search_state, attent
     assert entry(row)["metadata"]["owner_attention_required"] is attention_required
 
 
+@pytest.mark.parametrize(
+    "direction,bucket", [("incoming", "incoming_requests"), ("outgoing", "outgoing_requests")]
+)
+def test_v1_checking_is_passive_until_payment(direction, bucket):
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": bucket,
+        "status": "pending",
+        "issued_at": 0,
+        "direction": direction,
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": "trusted_auto_queued",
+        "owner_search_state": "completed",
+        "owner_evaluation_state": "running",
+        "trusted_authority_ready": True,
+        "trusted_batch_seen": False,
+        "trusted_work_active": True,
+        "trusted_recovery_needed": False,
+        "agent_package": True,
+        "v1_live_request": True,
+        "owner_allowed": False,
+        "payment_status": None,
+        "payment_amount_cents": 50,
+        "payment_currency": "usd",
+        "payment_reconciliation_required": False,
+        "payment_link_expired": False,
+        "checkout_expires_at": None,
+    }
+    metadata = entry(row)["metadata"]
+    assert metadata["automatic_progress_active"] is True
+    assert metadata["automatic_progress_stage"] == "checking"
+    assert metadata["owner_attention_required"] is False
+    assert metadata["v1_live_request"] is True
+    row["owner_evaluation_state"] = "failed"
+    failed = entry(row)["metadata"]
+    assert failed["automatic_progress_active"] is False
+    assert failed["v1_evaluation_unavailable"] is True
+    assert failed["owner_attention_required"] is False
+    row["owner_evaluation_state"] = "running"
+    row["payment_status"] = "awaiting_payment"
+    assert entry(row)["metadata"]["automatic_progress_active"] is False
+    row["payment_status"] = None
+    row["trusted_authority_ready"] = False
+    row["preparation_error_code"] = None
+    non_trusted = entry(row)["metadata"]
+    assert non_trusted["automatic_progress_active"] is True
+    assert non_trusted["automatic_progress_stage"] == "checking"
+    assert non_trusted["owner_attention_required"] is False
+    row["owner_search_state"] = "failed"
+    row["owner_evaluation_state"] = "pending"
+    failed_search = entry(row)["metadata"]
+    assert failed_search["automatic_progress_active"] is False
+    assert failed_search["v1_evaluation_unavailable"] is True
+    assert failed_search["owner_attention_required"] is False
+
+
 def test_consent_projects_locked_quote_and_owner_setup_without_an_order():
     row = {
         "source": "share",

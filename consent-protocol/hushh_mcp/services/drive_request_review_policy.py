@@ -9,7 +9,11 @@ from collections.abc import Mapping
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_owner_allowed import package_allow_marker
+from hushh_mcp.services.drive_owner_allowed import (
+    automatic_recipient_current,
+    package_allow_marker,
+    trusted_selection_marker,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 
 
@@ -52,7 +56,7 @@ def request_requires_owner_review(
     if checkpoint.get("agent_package_required") is True:
         request = (
             connection.execute(
-                text("""SELECT request_envelope,owner_allowed_at,
+                text("""SELECT request_envelope,owner_allowed_at,recipient_user_id,
             revision,access_stop_requested_at FROM drive_share_requests
             WHERE request_id=:request AND user_id=:user"""),
                 {"request": str(request_id), "user": user_id},
@@ -60,11 +64,7 @@ def request_requires_owner_review(
             .mappings()
             .first()
         )
-        if (
-            request is None
-            or request["owner_allowed_at"] is None
-            or request["access_stop_requested_at"] is not None
-        ):
+        if request is None or request["access_stop_requested_at"] is not None:
             return True
         private = (cipher or DriveSharingCipher()).open(
             request["request_envelope"],
@@ -73,6 +73,17 @@ def request_requires_owner_review(
             purpose="request",
         )
         marker = package_allow_marker(private)
+        if trusted_selection_marker(private) is not None:
+            if not automatic_recipient_current(
+                connection,
+                user_id,
+                request["recipient_user_id"],
+                private,
+                request_id=request_id,
+            ):
+                return True
+        elif request["owner_allowed_at"] is None:
+            return True
         package = checkpoint.get("agent_package", {})
         return not (
             marker

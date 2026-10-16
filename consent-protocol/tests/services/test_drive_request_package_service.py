@@ -106,6 +106,49 @@ async def test_read_and_final_model_use_separate_leases_and_persist_no_body():
     wake.assert_awaited_once_with("suggestions")
 
 
+async def test_v1_evaluation_uses_marked_claim_and_v1_wake():
+    work = job()
+    work["v1_statement_search"] = True
+    work["purpose"] = {
+        "purpose": "Schwab brokerage statements",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    service, store, reader, assessor, _, wake = setup_work(work)
+    body = "Charles Schwab Account Statement. Period: 2026-09-01 to 2026-10-09."
+    reader.read_compilation_match.return_value = (SimpleNamespace(version="7"), body, False)
+    assessor.return_value = BoundDocumentBatchAssessment(
+        documents=[
+            BoundDocumentAssessment(
+                document_ref="p1",
+                decision="include",
+                confidence=92,
+                weightage_out_of_10=9.0,
+                record_type_claim="brokerage statement",
+                entity_claim="Charles Schwab",
+                period_role="statement_coverage",
+                reason="Verified statement.",
+                citations=[{"source_ref": "p1:content", "quote": body}],
+                covered_periods=[
+                    {
+                        "period_start": "2026-09-01",
+                        "period_end": "2026-10-09",
+                        "source_refs": ["p1:content"],
+                    }
+                ],
+                source_version="7",
+            )
+        ]
+    )
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    assert store.claim_evaluation.call_args.kwargs["v1_only"] is True
+    assert (
+        store.commit_evaluations.call_args.kwargs["observations"][0]["assessment"]["decision"]
+        == "include"
+    )
+    wake.assert_awaited_once_with("v1")
+
+
 async def test_revocation_after_provider_read_prevents_model_and_commit():
     service, store, reader, assessor, final, wake = setup_work(job())
     store.require_evaluation_current.side_effect = [
@@ -141,6 +184,167 @@ async def test_truncated_document_cannot_hide_context_loss():
     assert await service.run_one(user_id="owner", job_id="job") == "queued"
     assert assessor.call_args.kwargs["retrieved"]["truncated"] is True
     assert store.commit_evaluations.call_args.kwargs["observations"][0]["truncated"] is True
+
+
+async def test_v1_long_document_preserves_late_content_without_false_truncation():
+    work = job()
+    work["v1_statement_search"] = True
+    work["purpose"] = {"periodStart": "2026-09-01", "periodEnd": "2026-09-30"}
+    service, store, reader, assessor, _, _ = setup_work(work)
+    late = "Charles Schwab statement period September 1 - September 30, 2026"
+    reader.read_compilation_match.return_value = (
+        SimpleNamespace(version="7"),
+        "account activity\n" * 2100 + late,
+        False,
+    )
+    assessor.return_value = BoundDocumentBatchAssessment(documents=[document(decision="exclude")])
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    retrieved = assessor.call_args.kwargs["retrieved"]
+    assert late in "".join(item["text"] for item in retrieved["untrusted_external_content"])
+    assert retrieved["truncated"] is False
+    observed = store.commit_evaluations.call_args.kwargs["observations"][0]
+    assert observed["truncated"] is False
+    assert observed["assessment"]["decision"] == "exclude"
+
+
+async def test_v1_docx_omitted_image_signal_stays_incomplete_after_text_assessment():
+    work = job()
+    work["v1_statement_search"] = True
+    work["candidates"][0]["metadata"]["mimeType"] = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    service, store, reader, assessor, _, _ = setup_work(work)
+    reader.read_compilation_match.return_value = (
+        SimpleNamespace(version="7"),
+        "Charles Schwab Account Statement. September 1 to September 30, 2026.",
+        True,
+    )
+    assessor.return_value = BoundDocumentBatchAssessment(documents=[document(decision="exclude")])
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    observed = store.commit_evaluations.call_args.kwargs["observations"][0]
+    assert observed["truncated"] is True
+    assert assessor.call_args.kwargs["retrieved"]["truncated"] is True
+
+
+async def test_v1_pdf_page_evidence_binds_late_period_to_original_source():
+    work = job()
+    work["v1_statement_search"] = True
+    work["purpose"] = {
+        "purpose": "Schwab brokerage statements",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-09-30",
+    }
+    service, store, reader, assessor, _, _ = setup_work(work)
+    late = "Charles Schwab brokerage statement. September 1, 2026 to September 30, 2026."
+    reader.read_request_visual_pages = AsyncMock(
+        return_value=(
+            SimpleNamespace(version="7"),
+            [
+                SimpleNamespace(page_number=1, text="account activity " * 2000),
+                SimpleNamespace(page_number=2, text=late),
+            ],
+            False,
+            "a" * 64,
+        )
+    )
+    assessor.return_value = BoundDocumentBatchAssessment(
+        documents=[
+            BoundDocumentAssessment(
+                document_ref="p1",
+                decision="include",
+                confidence=94,
+                weightage_out_of_10=8.5,
+                record_type_claim="brokerage statement",
+                entity_claim="Charles Schwab",
+                period_role="statement_coverage",
+                reason="Source verifies the requested statement.",
+                citations=[{"source_ref": "p1:page:2", "quote": late}],
+                covered_periods=[
+                    {
+                        "period_start": "2026-09-01",
+                        "period_end": "2026-09-30",
+                        "source_refs": ["p1:page:2"],
+                    }
+                ],
+                source_version="7",
+            )
+        ]
+    )
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    reader.read_compilation_match.assert_not_awaited()
+    observation = store.commit_evaluations.call_args.kwargs["observations"][0]
+    assert observation["truncated"] is False
+    assert observation["content_fingerprint"] == "a" * 64
+    assert observation["assessment"]["decision"] == "include"
+    assert observation["assessment"]["citations"][0]["source_ref"] == "p1:page:2"
+
+
+async def test_v1_pdf_cursor_or_ocr_gap_never_becomes_complete():
+    work = job()
+    work["v1_statement_search"] = True
+    work["purpose"] = {"periodStart": "2026-09-01", "periodEnd": "2026-09-30"}
+    service, store, reader, assessor, _, _ = setup_work(work)
+    reader.read_request_visual_pages = AsyncMock(
+        return_value=(
+            SimpleNamespace(version="7"),
+            [SimpleNamespace(page_number=1, text="partial OCR September 2026")],
+            True,
+            "b" * 64,
+        )
+    )
+    assessor.return_value = BoundDocumentBatchAssessment(documents=[document(decision="exclude")])
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    observed = store.commit_evaluations.call_args.kwargs["observations"][0]
+    assert observed["truncated"] is True
+    assert assessor.call_args.kwargs["retrieved"]["truncated"] is True
+
+
+async def test_v1_original_image_routes_through_page_ocr_and_keeps_gap():
+    work = job()
+    work["v1_statement_search"] = True
+    work["candidates"][0]["metadata"]["mimeType"] = "image/png"
+    service, store, reader, assessor, _, _ = setup_work(work)
+    reader.read_request_visual_pages = AsyncMock(
+        return_value=(
+            SimpleNamespace(version="7"),
+            [SimpleNamespace(page_number=1, text="partial OCR September 2026")],
+            True,
+            "c" * 64,
+        )
+    )
+    assessor.return_value = BoundDocumentBatchAssessment(documents=[document(decision="exclude")])
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    reader.read_compilation_match.assert_not_awaited()
+    reader.read_request_visual_pages.assert_awaited_once()
+    observed = store.commit_evaluations.call_args.kwargs["observations"][0]
+    assert observed["truncated"] is True
+    assert observed["content_fingerprint"] == "c" * 64
+
+
+async def test_v1_large_batch_splits_whole_documents_across_bounded_model_calls():
+    work = job(2)
+    work["v1_statement_search"] = True
+    work["purpose"] = {"periodStart": "2026-09-01", "periodEnd": "2026-09-30"}
+    service, store, reader, assessor, _, _ = setup_work(work)
+    reader.read_compilation_match.return_value = (
+        SimpleNamespace(version="7"),
+        "irrelevant rows\n" * 6500,
+        False,
+    )
+
+    async def exclude_group(*, retrieved, **_):
+        refs = {source["document_ref"] for source in retrieved["untrusted_external_content"]}
+        assert len(refs) == 1
+        return BoundDocumentBatchAssessment(
+            documents=[document(ref=ref, decision="exclude") for ref in refs]
+        )
+
+    assessor.side_effect = exclude_group
+    assert await service.run_one(user_id="owner", job_id="job", v1_only=True) == "queued"
+    assert assessor.await_count == 2
+    observed = store.commit_evaluations.call_args.kwargs["observations"]
+    assert all(not item["truncated"] for item in observed)
+    assert all(item["assessment"]["decision"] == "exclude" for item in observed)
 
 
 async def test_final_assembly_accounts_for_all_pages_and_exclusions():

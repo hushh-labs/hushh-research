@@ -68,7 +68,8 @@ _SUPPORT_DDL = (
       stripe_mode TEXT,reconciliation_required BOOLEAN DEFAULT FALSE,
       stripe_payment_intent_id TEXT,erased_at TIMESTAMPTZ,
       delivery_confirmed_at_erasure BOOLEAN DEFAULT FALSE,
-      delivery_unsettled_at_erasure BOOLEAN DEFAULT FALSE)""",
+      delivery_unsettled_at_erasure BOOLEAN DEFAULT FALSE,
+      v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE)""",
     """CREATE TABLE drive_request_payment_refunds(request_id UUID PRIMARY KEY,status TEXT,
       stripe_refund_id TEXT)""",
     "CREATE TABLE drive_bulk_shares(share_id UUID PRIMARY KEY,origin_request_id UUID)",
@@ -133,6 +134,12 @@ def world(connector_postgres_url, monkeypatch):
         _apply(c, "292_drive_request_owner_payouts.sql")
         c.exec_driver_sql(
             "ALTER TABLE drive_request_owner_payouts ADD COLUMN stripe_mode TEXT DEFAULT 'legacy'"
+        )
+        # Compact read-model fixtures include the durable V1 provenance field
+        # read by record_order; existing payout histories remain unmarked.
+        c.exec_driver_sql(
+            "ALTER TABLE drive_request_owner_payouts ADD COLUMN "
+            "v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE"
         )
         for name in (
             "299_hashcoin_wallet.sql",

@@ -19,6 +19,9 @@ const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
   developmentFloorMs: 75_000,
   overrideEnvKey: "HUSHH_ONE_EMAIL_DRAFT_TIMEOUT_MS",
 });
+// A Location proposal can require more than one model turn to resolve a
+// person or circle. Keep this above the command brain's bounded assessment.
+const ONE_LOCATION_PROPOSAL_TIMEOUT_MS = 140_000;
 // A KYC Inbox scan can classify up to 30 messages and safely replay a
 // side-effect-free model turn after a transient provider failure. It must be
 // allowed to return its persisted partial/full result instead of being cut off
@@ -63,6 +66,7 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
   if (path === "world-model/source-reviews") return 170_000;
+  if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
   if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;

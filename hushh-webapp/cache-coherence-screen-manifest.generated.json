@@ -1529,7 +1529,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -1541,9 +1541,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/career",
@@ -5260,7 +5258,7 @@
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
-        "native_beacon": false
+        "native_beacon": true
       },
       "findings": []
     },
@@ -5754,7 +5752,7 @@
         "api_service": false,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": false
+        "native_beacon": true
       },
       "findings": [
         "no local cache primitive detected in page/contract source",
@@ -6929,5 +6927,5 @@
       ]
     }
   ],
-  "content_sha256": "016d22b38c3bb5681e5dcd99826a3753ea5a31fc85965f654f9f50f5844d660b"
+  "content_sha256": "6adc17f977b11caf946386c2a16d16c8813f55024a56d2c2ef47153e48edf485"
 }

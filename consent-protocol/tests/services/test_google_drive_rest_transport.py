@@ -4,9 +4,11 @@ Google's Drive MCP server refused every tool call for this project ("The caller
 does not have permission", 2026-09-24), so no live grant on UAT ever verified.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from hushh_mcp.services import google_drive_adapter as adapter_module
@@ -98,7 +100,7 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
-async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read(monkeypatch):
+async def test_owner_scanner_keeps_rest_rows_without_widening_agent_read(monkeypatch):
     listing = AsyncMock(
         return_value={
             "files": [
@@ -120,6 +122,16 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
     assert result.payload["nextPageToken"] == "next-100"
     assert result.payload["overLimit"] is False
     assert listing.await_args.kwargs["page_size"] == 100
+    large = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 1000},
+    )
+    # Google may return fewer rows than requested, leaving a continuation.
+    assert len(large.payload["files"]) == 100
+    assert large.payload["nextPageToken"] == "next-100"
+    assert listing.await_args.kwargs["page_size"] == 1000
+    assert listing.await_args.kwargs["owner_search_page"] is True
     with pytest.raises(DriveOAuthError, match="invalid_argument"):
         await drive.read_tool(
             user_id="owner",
@@ -130,8 +142,51 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
         await drive.read_owner_search_page(
             user_id="owner",
             tool_name="search_files",
-            arguments={"query": "title contains 'file'", "pageSize": 101},
+            arguments={"query": "title contains 'file'", "pageSize": 1001},
         )
+
+
+async def test_owner_search_continuation_reaches_real_rest_adapter_at_page_size_1000(monkeypatch):
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.params.get("pageToken") == "next-25":
+            files = [
+                _file(f"file-{index}", modified="2026-09-20T10:00:00Z") for index in range(25, 50)
+            ]
+            return httpx.Response(
+                200, stream=httpx.ByteStream(json.dumps({"files": files}).encode())
+            )
+        files = [_file(f"file-{index}", modified="2026-09-20T10:00:00Z") for index in range(25)]
+        return httpx.Response(
+            200,
+            stream=httpx.ByteStream(
+                json.dumps({"files": files, "nextPageToken": "next-25"}).encode()
+            ),
+        )
+
+    monkeypatch.setattr(
+        adapter_module.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    drive = transport(adapter=adapter_module.GoogleDriveAdapter(), monkeypatch=monkeypatch)
+    first = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 25},
+    )
+    second = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 1000, "pageToken": "next-25"},
+    )
+    assert len(first.payload["files"]) == len(second.payload["files"]) == 25
+    assert first.payload["nextPageToken"] == "next-25"
+    assert [request.url.params["pageSize"] for request in requests] == ["25", "1000"]
+    assert requests[1].url.params["pageToken"] == "next-25"
 
 
 def _file(file_id, *, modified, created="2026-09-01T00:00:00Z"):

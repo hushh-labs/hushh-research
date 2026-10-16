@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import math
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -48,6 +49,17 @@ def _bounded_selection(checkpoint):
     ):
         raise DriveReadError("invalid_argument")
     return limit, field
+
+
+def _legacy_single_query(checkpoint):
+    queries = checkpoint.get("queries")
+    return (
+        isinstance(queries, list)
+        and len(queries) == 1
+        and isinstance(queries[0], dict)
+        or "queries" not in checkpoint
+        and isinstance(checkpoint.get("arguments"), dict)
+    )
 
 
 def _selection_ready(row, checkpoint):
@@ -128,6 +140,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     def _view(self, row):
         result = view(row)
         checkpoint = self._checkpoint(row)
+        if checkpoint.get("v1_live_request") is True:
+            preview = checkpoint.get("v1_verified_preview", {})
+            evaluated = min(row["matched"], preview.get("evaluated", 0))
+            result["evaluation"] = {
+                "status": row.get("evaluation_status", "pending"),
+                "evaluatedCount": evaluated,
+                "pendingCount": max(0, row["matched"] - evaluated),
+                "verifiedCount": min(evaluated, preview.get("count", 0)),
+            }
         manifest = checkpoint.get("coverage_manifest")
         if isinstance(manifest, dict):
             # Scope and aggregate exclusion evidence are owner-only. Neither
@@ -147,6 +168,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "folderDiscovery",
                         "retrievalSource",
                         "retrievalCompleteness",
+                        "formatScope",
                         "fallbackReason",
                         "lastIndexedAt",
                     )
@@ -169,6 +191,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "resolvedShortcutCount",
                         "unavailableFolderCount",
                         "invalidMetadataCount",
+                        "unsupportedCandidateCount",
                         "matchingFoldersDiscovered",
                         "matchingFoldersExhausted",
                     )
@@ -236,9 +259,29 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         await self._transaction(operation)
 
-    async def create(self, *, user_id, client_request_id, request, checkpoint, confirmed):
+    async def create(
+        self,
+        *,
+        user_id,
+        client_request_id,
+        request,
+        checkpoint,
+        confirmed,
+        v1_statement_search=False,
+        replace_terminal_request=False,
+        replace_legacy_completed_request=False,
+    ):
         if confirmed is not True:
             raise DriveReadError("confirmation_required")
+        if any(
+            type(value) is not bool
+            for value in (
+                v1_statement_search,
+                replace_terminal_request,
+                replace_legacy_completed_request,
+            )
+        ):
+            raise DriveReadError("invalid_argument")
         _bounded_selection(checkpoint)
         client = _identity(client_request_id)
         digest = self.search_cipher.digest("owner-search-request", [user_id, request])
@@ -254,15 +297,35 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             )
             existing = self._row(
                 connection,
-                "SELECT * FROM drive_owner_search_jobs WHERE user_id=:user AND client_request_id=:client",
+                "SELECT * FROM drive_owner_search_jobs WHERE user_id=:user AND client_request_id=:client FOR UPDATE",
                 {"user": user_id, "client": client},
             )
+            replace = False
             if existing:
-                if existing["request_digest"] != digest:
-                    raise DriveReadError("invalid_argument")
-                if existing["connection_generation"] != current["connection_generation"]:
-                    raise DriveReadError("connection_changed")
-                return self._view(existing), False
+                if replace_terminal_request and existing["status"] in {
+                    "failed",
+                    "limited",
+                    "stopped",
+                }:
+                    if self._row(
+                        connection,
+                        "SELECT share_id FROM drive_bulk_shares WHERE search_job_id=:job",
+                        {"job": existing["job_id"]},
+                    ):
+                        raise DriveReadError("search_in_progress")
+                    replace = True
+                elif replace_legacy_completed_request and existing["status"] == "completed":
+                    replace = self._legacy_completed_replaceable(
+                        connection, row=existing, current=current, user_id=user_id, client=client
+                    )
+                    if not replace:
+                        return self._view(existing), False
+                if not replace:
+                    if existing["request_digest"] != digest:
+                        raise DriveReadError("invalid_argument")
+                    if existing["connection_generation"] != current["connection_generation"]:
+                        raise DriveReadError("connection_changed")
+                    return self._view(existing), False
             # A newly connected account never resumes the old account's job.
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET status='failed',
@@ -278,12 +341,19 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 {"user": user_id},
             ):
                 raise DriveReadError("search_in_progress")
+            if replace:
+                # Delete and insert share one transaction. A competing active
+                # job, sealing failure, or INSERT failure rolls this back.
+                connection.execute(
+                    text("DELETE FROM drive_owner_search_jobs WHERE job_id=:job"),
+                    {"job": existing["job_id"]},
+                )
             row = self._row(
                 connection,
                 """
                 INSERT INTO drive_owner_search_jobs(job_id,user_id,client_request_id,request_digest,
-                  connection_generation,consent_version,checkpoint_envelope)
-                VALUES(:job,:user,:client,:digest,:generation,:consent,CAST(:envelope AS jsonb)) RETURNING *
+                  connection_generation,consent_version,checkpoint_envelope,v1_statement_search)
+                VALUES(:job,:user,:client,:digest,:generation,:consent,CAST(:envelope AS jsonb),:v1_statement_search) RETURNING *
             """,
                 {
                     "job": identity,
@@ -292,6 +362,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "digest": digest,
                     "generation": current["connection_generation"],
                     "consent": CONSENT_VERSION,
+                    "v1_statement_search": v1_statement_search,
                     "envelope": self._seal(
                         checkpoint, user_id, identity, "owner-search-checkpoint"
                     ),
@@ -355,6 +426,181 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
             return self._view(row)
+
+        return await self._transaction(operation)
+
+    async def replan_legacy_statement_request(
+        self,
+        *,
+        user_id,
+        request_id,
+        request_revision,
+        purpose,
+        queries,
+        period,
+        terms,
+        expected_lease=None,
+    ):
+        """Retry an unfrozen one-query statement job without changing result positions.
+
+        The connector lock serializes this with a concurrent page commit or
+        progressive batch freeze. Revoking the lease fences any provider read
+        already in flight; preserving rows keeps issued result cursors bound to
+        the same file at every position.
+        """
+        client = _identity(request_id)
+        if len(queries) != 2 or not period:
+            raise DriveReadError("invalid_argument")
+
+        def operation(connection):
+            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            current = self._access(connection, user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests WHERE request_id=:request
+                  AND user_id=:user FOR UPDATE""",
+                {"request": client, "user": user_id},
+            )
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs
+                  WHERE user_id=:user AND client_request_id=:request
+                    AND expires_at>clock_timestamp() FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            if row is None:
+                return None, False
+            if row["connection_generation"] != current["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            checkpoint = self._checkpoint(row)
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["revision"] != request_revision
+                or request["bulk_search_started_at"] is None
+                or request["access_stop_requested_at"] is not None
+                or request["expires_at"]
+                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+                or checkpoint.get("request_origin_id") != client
+                or checkpoint.get("request_revision") != request_revision
+                or checkpoint.get("evidence_route", "provider") != "provider"
+                or checkpoint.get("agent_package_required") is True
+                or row["status"] not in {"queued", "running", "completed"}
+                or expected_lease is not None
+                and str(row["lease_id"]) != expected_lease
+            ):
+                return self._view(row), False
+            private = self.search_cipher.open(
+                request["request_envelope"],
+                user_id=user_id,
+                resource_id=client,
+                purpose="request",
+            )
+            if private.get("purpose") != purpose or private.get("agent_package_required") is True:
+                return self._view(row), False
+            if self._row(
+                connection,
+                """SELECT share_id FROM drive_bulk_shares
+                  WHERE origin_request_id=:request OR search_job_id=:job LIMIT 1""",
+                {"request": client, "job": row["job_id"]},
+            ):
+                # Frozen selections, approvals and paid receipts are immutable.
+                return self._view(row), False
+            if checkpoint.get("request_coverage_query_version") == 1:
+                # A job created before this migration may already have the
+                # deterministic two-query plan. Mark it without clearing its
+                # page progress or changing stable result positions.
+                if (
+                    row["v1_statement_search"]
+                    or checkpoint.get("queries") != queries
+                    or checkpoint.get("requested_period") != period
+                    or checkpoint.get("request_subject_terms") != terms
+                    or checkpoint.get("request_time_intent") != "document_coverage"
+                    or checkpoint.get("request_owner_review_required") is not True
+                ):
+                    return self._view(row), False
+                updated = self._row(
+                    connection,
+                    """UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE,
+                       updated_at=clock_timestamp() WHERE job_id=:job RETURNING *""",
+                    {"job": row["job_id"]},
+                )
+                return self._view(updated), True
+            if not _legacy_single_query(checkpoint):
+                return self._view(row), False
+            if self._row(
+                connection,
+                """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+                  AND job_id<>:job AND status IN ('queued','running') LIMIT 1""",
+                {"user": user_id, "job": row["job_id"]},
+            ):
+                raise DriveReadError("search_in_progress")
+            checkpoint.update(
+                arguments=queries[0]["arguments"],
+                queries=queries,
+                query_index=0,
+                request_coverage_query_version=1,
+                request_shareability_version=1,
+                request_selection_version=2,
+                request_time_intent="document_coverage",
+                request_owner_review_required=True,
+                request_file_kind="document",
+                request_subject_terms=terms,
+                request_exact_title=None,
+                request_result_limit=None,
+                request_order_field="modifiedTime",
+                request_direct_originals=False,
+                requested_period=period,
+                coverage_manifest={
+                    "corpora": ["user", "member_shared_drives"],
+                    "retrievalSource": "google_drive",
+                    "retrievalCompleteness": "provider_candidates",
+                    "fileKind": "document",
+                    "requestedPeriod": period,
+                    "timeIntent": "document_coverage",
+                    "ownerReviewRequired": True,
+                    "dateBasis": "content_period_unverified",
+                    "contentPeriodVerified": False,
+                    "folderDiscovery": "matching_topic_folders_and_descendants",
+                    "shortcutDiscovery": "resolve_targets",
+                    "resultLimit": None,
+                    "orderBy": "modifiedTime desc",
+                },
+                coverage_counts={},
+                folder_queue=[],
+                folder_digests=[],
+                phase="user",
+                page_token=None,
+                drive_page_token=None,
+                drives=[],
+                drive_index=0,
+                seen_tokens=[],
+                drive_tokens=[],
+            )
+            for stale in (
+                "request_rank_pruned",
+                "request_results_finalized",
+                "request_candidate_count",
+                "request_candidate_pool_pruned",
+            ):
+                checkpoint.pop(stale, None)
+            updated = self._row(
+                connection,
+                """UPDATE drive_owner_search_jobs SET
+                  checkpoint_envelope=CAST(:checkpoint AS jsonb),status='queued',
+                  v1_statement_search=TRUE,
+                  incomplete_search=FALSE,lease_id=NULL,lease_expires_at=NULL,
+                  error_code=NULL,retry_count=0,next_at=clock_timestamp(),
+                  revision=revision+1,updated_at=clock_timestamp()
+                  WHERE job_id=:job RETURNING *""",
+                {
+                    "job": row["job_id"],
+                    "checkpoint": self._seal(
+                        checkpoint, user_id, str(row["job_id"]), "owner-search-checkpoint"
+                    ),
+                },
+            )
+            return self._view(updated), True
 
         return await self._transaction(operation)
 
@@ -440,45 +686,145 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def clear_terminal_request(self, *, user_id, request_id):
-        client = _identity(request_id)
+    async def retry_failed_request(self, *, user_id, request_id, request_revision, authority_mode):
+        """Resume a failed request at its committed cursor and stable result positions.
 
-        def operation(connection):
-            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
-            row = self._row(
-                connection,
-                """SELECT * FROM drive_owner_search_jobs
-                WHERE user_id=:user AND client_request_id=:client FOR UPDATE""",
-                {"user": user_id, "client": client},
-            )
-            if row is None:
-                return
-            if row["status"] not in {"failed", "limited", "stopped"}:
-                raise DriveReadError("search_in_progress")
-            if self._row(
-                connection,
-                "SELECT share_id FROM drive_bulk_shares WHERE search_job_id=:job",
-                {"job": row["job_id"]},
-            ):
-                raise DriveReadError("search_in_progress")
-            connection.execute(
-                text("DELETE FROM drive_owner_search_jobs WHERE job_id=:job"),
-                {"job": row["job_id"]},
-            )
-
-        await self._transaction(operation)
-
-    async def clear_legacy_completed_request(self, *, user_id, request_id):
-        """Replace an old request search lacking current selection evidence.
-
-        A completed search may be discarded only while its origin request is
-        pending and no review has frozen its results. The job row lock orders
-        this operation before a concurrent review's source FOR SHARE lock.
+        This is an explicit request action, not a scheduler loop. Retaining the
+        job ID and result rows also retains any progressive batch bindings.
         """
         client = _identity(request_id)
+        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
+            raise DriveReadError("invalid_argument")
 
         def operation(connection):
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            current = self._access(connection, user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests WHERE user_id=:user
+                   AND request_id=:request FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs WHERE user_id=:user
+                   AND client_request_id=:request AND expires_at>clock_timestamp()
+                   FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            if row is None:
+                return None, False
+            if row["status"] != "failed":
+                return self._view(row), False
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            checkpoint = self._checkpoint(row)
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["access_stop_requested_at"] is not None
+                or request["expires_at"] <= now
+                or request["bulk_search_started_at"] is None
+                or request["revision"] != request_revision
+                or row["connection_generation"] != current["connection_generation"]
+                or checkpoint.get("request_origin_id") != client
+                or checkpoint.get("request_revision") != request_revision
+                or checkpoint.get("authority_mode") != authority_mode
+                or (request["agent_package_required"] is True)
+                != (authority_mode == "agent_package")
+                or authority_mode == "agent_package"
+                and row["evaluation_status"] != "pending"
+            ):
+                raise DriveReadError("search_superseded")
+            if authority_mode != "owner":
+                self.background_current(
+                    connection,
+                    user_id=user_id,
+                    generation=current["connection_generation"],
+                )
+            if self._row(
+                connection,
+                """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+                   AND job_id<>:job AND status IN ('queued','running') LIMIT 1""",
+                {"user": user_id, "job": row["job_id"]},
+            ):
+                raise DriveReadError("search_in_progress")
+            if authority_mode == "agent_package" and (
+                self._row(
+                    connection,
+                    """SELECT share_id FROM drive_bulk_shares WHERE user_id=:user
+                       AND (origin_request_id=:request OR search_job_id=:job) LIMIT 1""",
+                    {"user": user_id, "request": client, "job": row["job_id"]},
+                )
+                or self._row(
+                    connection,
+                    "SELECT request_id FROM drive_request_payment_orders WHERE request_id=:request LIMIT 1",
+                    {"request": client},
+                )
+            ):
+                raise DriveReadError("search_superseded")
+            checkpoint["last_recovered_error_code"] = row["error_code"]
+            updated = self._row(
+                connection,
+                """UPDATE drive_owner_search_jobs SET status='queued',error_code=NULL,
+                   retry_count=0,lease_id=NULL,lease_expires_at=NULL,
+                   next_at=clock_timestamp(),revision=revision+1,
+                   checkpoint_envelope=CAST(:checkpoint AS jsonb),updated_at=clock_timestamp()
+                   WHERE job_id=:job RETURNING *""",
+                {
+                    "job": row["job_id"],
+                    "checkpoint": self._seal(
+                        checkpoint, user_id, str(row["job_id"]), "owner-search-checkpoint"
+                    ),
+                },
+            )
+            return self._view(updated), True
+
+        return await self._transaction(operation)
+
+    def _legacy_completed_replaceable(self, connection, *, row, current, user_id, client):
+        """A legacy completed job can be refreshed only before review freezes it."""
+        if row["connection_generation"] != current["connection_generation"]:
+            raise DriveReadError("connection_changed")
+        checkpoint = self._checkpoint(row)
+        current_selection = (
+            checkpoint.get("request_selection_version") == 2
+            and checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
+            and checkpoint.get("request_owner_review_required")
+            is (checkpoint.get("request_time_intent") == "document_coverage")
+        )
+        if (
+            checkpoint.get("request_origin_id") != client
+            or checkpoint.get("request_shareability_version") == 1
+            and current_selection
+        ):
+            return False
+        request = self._row(
+            connection,
+            """SELECT status,revision,expires_at,bulk_search_started_at
+            FROM drive_share_requests WHERE request_id=:request AND user_id=:user""",
+            {"request": client, "user": user_id},
+        )
+        if (
+            request is None
+            or request["status"] != "pending"
+            or request["revision"] != checkpoint.get("request_revision")
+            or request["bulk_search_started_at"] is None
+            or request["expires_at"]
+            <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        ):
+            return False
+        return not self._row(
+            connection,
+            """SELECT share_id FROM drive_bulk_shares
+            WHERE origin_request_id=:request OR search_job_id=:job LIMIT 1""",
+            {"request": client, "job": row["job_id"]},
+        )
+
+    async def clear_legacy_completed_request(self, *, user_id, request_id):
+        """Discard an unfrozen legacy result (prefer atomic create for replacement)."""
+        client = _identity(request_id)
+
+        def operation(connection):
             current = self._access(connection, user_id)
             row = self._row(
                 connection,
@@ -489,41 +835,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             )
             if row is None or row["status"] != "completed":
                 return False
-            if row["connection_generation"] != current["connection_generation"]:
-                raise DriveReadError("connection_changed")
-            checkpoint = self._checkpoint(row)
-            current_selection = (
-                checkpoint.get("request_selection_version") == 2
-                and checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
-                and checkpoint.get("request_owner_review_required")
-                is (checkpoint.get("request_time_intent") == "document_coverage")
-            )
-            if (
-                checkpoint.get("request_origin_id") != client
-                or checkpoint.get("request_shareability_version") == 1
-                and current_selection
-            ):
-                return False
-            request = self._row(
-                connection,
-                """SELECT status,revision,expires_at,bulk_search_started_at
-                FROM drive_share_requests WHERE request_id=:request AND user_id=:user""",
-                {"request": client, "user": user_id},
-            )
-            if (
-                request is None
-                or request["status"] != "pending"
-                or request["revision"] != checkpoint.get("request_revision")
-                or request["bulk_search_started_at"] is None
-                or request["expires_at"]
-                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-            ):
-                return False
-            if self._row(
-                connection,
-                """SELECT share_id FROM drive_bulk_shares
-                WHERE origin_request_id=:request OR search_job_id=:job LIMIT 1""",
-                {"request": client, "job": row["job_id"]},
+            if not self._legacy_completed_replaceable(
+                connection, row=row, current=current, user_id=user_id, client=client
             ):
                 return False
             connection.execute(
@@ -586,8 +899,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         except (ValueError, UnicodeError):
             raise DriveReadError("invalid_argument") from None
 
-    async def results(self, *, user_id, job_id, cursor=None, limit=25):
+    async def results(self, *, user_id, job_id, cursor=None, limit=25, request_id=None):
         identity = _identity(job_id)
+        request_identity = _identity(request_id) if request_id is not None else None
         if type(limit) is not int or not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
         after = self._after(user_id, identity, cursor)
@@ -597,6 +911,23 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             row = self._owned(connection, user_id, identity)
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
+            manual = None
+            if request_identity is not None:
+                request = self._row(
+                    connection,
+                    "SELECT * FROM drive_share_requests WHERE request_id=:request AND user_id=:user",
+                    {"request": request_identity, "user": user_id},
+                )
+                if request is None or str(row["client_request_id"]) != request_identity:
+                    raise DriveReadError("search_not_found")
+                from hushh_mcp.services.drive_v1_manual_review import require_manual_selection
+
+                manual = require_manual_selection(
+                    connection,
+                    request=request,
+                    search=row,
+                    cipher=self.search_cipher,
+                )
             if not _selection_ready(row, self._checkpoint(row)):
                 return {
                     "jobId": identity,
@@ -608,27 +939,68 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             rows = list(
                 connection.execute(
                     text(
-                        "SELECT * FROM drive_owner_search_results WHERE job_id=:job AND user_id=:user AND position>:after ORDER BY position LIMIT :limit"
+                        "SELECT * FROM drive_owner_search_results WHERE job_id=:job AND user_id=:user "
+                        "AND position>:after AND (:all_positions OR position=ANY(CAST(:positions AS integer[]))) "
+                        "ORDER BY position LIMIT :limit"
                     ),
-                    {"job": identity, "user": user_id, "after": after, "limit": limit + 1},
+                    {
+                        "job": identity,
+                        "user": user_id,
+                        "after": after,
+                        "limit": limit + 1,
+                        "all_positions": manual is None,
+                        "positions": (
+                            manual.get("approved_positions") or manual["selected_positions"]
+                        )
+                        if manual
+                        else [],
+                    },
                 ).mappings()
             )
-            files = [
-                {
-                    **{
-                        key: value
-                        for key, value in self.search_cipher.open(
-                            item["metadata_envelope"],
-                            user_id=user_id,
-                            resource_id=f"{identity}:{item['position']}",
-                            purpose="owner-search-result",
-                        ).items()
-                        if key != "resourceKey"
-                    },
+            files = []
+            for item in rows[:limit]:
+                metadata = self.search_cipher.open(
+                    item["metadata_envelope"],
+                    user_id=user_id,
+                    resource_id=f"{identity}:{item['position']}",
+                    purpose="owner-search-result",
+                )
+                file = {
+                    **{key: value for key, value in metadata.items() if key != "resourceKey"},
                     "position": item["position"],
                 }
-                for item in rows[:limit]
-            ]
+                if manual is not None:
+                    if item["evaluation_envelope"] is None:
+                        raise DriveReadError("search_not_found")
+                    evidence = self.search_cipher.open(
+                        item["evaluation_envelope"],
+                        user_id=user_id,
+                        resource_id=f"{identity}:{item['position']}",
+                        purpose="request-package-evidence",
+                    )
+                    assessment = evidence.get("assessment") if isinstance(evidence, dict) else None
+                    confidence = (
+                        assessment.get("confidence") if isinstance(assessment, dict) else None
+                    )
+                    weightage = (
+                        assessment.get("weightage_out_of_10")
+                        if isinstance(assessment, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(assessment, dict)
+                        or assessment.get("decision") != "include"
+                        or type(confidence) is not int
+                        or confidence < 80
+                        or confidence > 100
+                        or type(weightage) not in {float, int}
+                        or not math.isfinite(weightage)
+                        or not 1 <= weightage <= 10
+                    ):
+                        raise DriveReadError("search_not_found")
+                    file["confidenceScore"] = confidence
+                    file["weightageOutOf10"] = weightage
+                files.append(file)
             return {
                 "jobId": identity,
                 "revision": row["revision"],
@@ -700,7 +1072,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def due(self, limit=1):
+    async def due(self, limit=1, *, v1_only=False):
+        if type(v1_only) is not bool:
+            raise ValueError("invalid search worker mode")
         await self.purge()
 
         def operation(connection):
@@ -712,11 +1086,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                   WHERE status IN ('queued','running') AND expires_at>clock_timestamp()
                     AND next_at<=clock_timestamp()
                     AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+                    AND (:v1_only = FALSE OR v1_statement_search=TRUE)
                   ORDER BY inspected_at,created_at,job_id LIMIT :limit FOR UPDATE SKIP LOCKED)
                 UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
                   FROM due WHERE j.job_id=due.job_id RETURNING j.job_id,j.user_id
             """),
-                    {"limit": min(max(limit, 1), 20)},
+                    {"limit": min(max(limit, 1), 20), "v1_only": v1_only},
                 ).mappings()
             ]
 
@@ -973,57 +1348,117 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         return len(selected), sum(item.get("shareable") is False for _, _, _, item in selected)
 
     async def commit_page(self, job, *, checkpoint, files, incomplete=False, done=False):
-        # Provider collection pages may contain 100 metadata rows. The
+        # Only a marked V1 request may commit a 1000-row provider page. The
         # person-facing result cursor remains a separate 25-file boundary.
-        if not isinstance(files, list) or len(files) > 100:
+        v1_large_page = checkpoint.get("v1_live_request") is True
+        if not isinstance(files, list) or len(files) > (1000 if v1_large_page else 100):
             raise DriveReadError("invalid_argument")
 
         def operation(connection):
             row = self._current(connection, job)
-            selection = _bounded_selection(self._checkpoint(row))
+            saved_checkpoint = self._checkpoint(row)
+            if v1_large_page and saved_checkpoint.get("v1_live_request") is not True:
+                raise DriveReadError("search_superseded")
+            selection = _bounded_selection(saved_checkpoint)
             if _bounded_selection(checkpoint) != selection:
                 raise DriveReadError("search_superseded")
             count = row["matched"]
             unshareable = row.get("unshareable_count", 0)
             limited = False
             invalid_ranking = False
-            for item in files:
-                digest = self.search_cipher.digest("owner-search-file", [job["job_id"], item["id"]])
-                if self._row(
-                    connection,
-                    "SELECT position FROM drive_owner_search_results WHERE job_id=:job AND file_digest=:digest",
-                    {"job": job["job_id"], "digest": digest},
-                ):
-                    if checkpoint.get("coverage_manifest"):
-                        counts = checkpoint.setdefault("coverage_counts", {})
-                        counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
-                    continue
-                if count == MAX_RESULTS:
-                    if selection is None or selection[0] >= MAX_RESULTS:
-                        limited = True
-                        break
-                    retained = self._retain_latest_candidates(connection, job, selection)
-                    if retained is None:
-                        limited = invalid_ranking = True
-                        break
-                    count, unshareable = retained
-                    checkpoint["request_candidate_pool_pruned"] = True
-                count += 1
-                unshareable += int(item.get("shareable") is False)
-                connection.execute(
-                    text(
-                        "INSERT INTO drive_owner_search_results(job_id,user_id,position,file_digest,metadata_envelope) VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"
-                    ),
-                    {
-                        "job": job["job_id"],
-                        "user": job["user_id"],
-                        "position": count,
-                        "digest": digest,
-                        "envelope": self._seal(
-                            item, job["user_id"], f"{job['job_id']}:{count}", "owner-search-result"
-                        ),
-                    },
+            if len(files) > 100 and count + len(files) <= MAX_RESULTS:
+                # One membership query and one batch insert replace up to 2000
+                # SQL round trips on a 1000-row V1 page. Keep the existing
+                # per-row boundary path when reaching the storage ceiling,
+                # where latest-N compaction can change membership mid-page.
+                digested = [
+                    (
+                        item,
+                        self.search_cipher.digest("owner-search-file", [job["job_id"], item["id"]]),
+                    )
+                    for item in files
+                ]
+                existing = set(
+                    connection.execute(
+                        text("""SELECT file_digest FROM drive_owner_search_results
+                        WHERE job_id=:job AND file_digest = ANY(CAST(:digests AS text[]))"""),
+                        {"job": job["job_id"], "digests": list({d for _, d in digested})},
+                    ).scalars()
                 )
+                pending = []
+                for item, digest in digested:
+                    if digest in existing:
+                        if checkpoint.get("coverage_manifest"):
+                            counts = checkpoint.setdefault("coverage_counts", {})
+                            counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
+                        continue
+                    existing.add(digest)
+                    count += 1
+                    unshareable += int(item.get("shareable") is False)
+                    pending.append(
+                        {
+                            "job": job["job_id"],
+                            "user": job["user_id"],
+                            "position": count,
+                            "digest": digest,
+                            "envelope": self._seal(
+                                item,
+                                job["user_id"],
+                                f"{job['job_id']}:{count}",
+                                "owner-search-result",
+                            ),
+                        }
+                    )
+                if pending:
+                    connection.execute(
+                        text("""INSERT INTO drive_owner_search_results
+                        (job_id,user_id,position,file_digest,metadata_envelope)
+                        VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"""),
+                        pending,
+                    )
+            else:
+                for item in files:
+                    digest = self.search_cipher.digest(
+                        "owner-search-file", [job["job_id"], item["id"]]
+                    )
+                    if self._row(
+                        connection,
+                        "SELECT position FROM drive_owner_search_results WHERE job_id=:job AND file_digest=:digest",
+                        {"job": job["job_id"], "digest": digest},
+                    ):
+                        if checkpoint.get("coverage_manifest"):
+                            counts = checkpoint.setdefault("coverage_counts", {})
+                            counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
+                        continue
+                    if count == MAX_RESULTS:
+                        if selection is None or selection[0] >= MAX_RESULTS:
+                            limited = True
+                            break
+                        retained = self._retain_latest_candidates(connection, job, selection)
+                        if retained is None:
+                            limited = invalid_ranking = True
+                            break
+                        count, unshareable = retained
+                        checkpoint["request_candidate_pool_pruned"] = True
+                    count += 1
+                    unshareable += int(item.get("shareable") is False)
+                    connection.execute(
+                        text(
+                            "INSERT INTO drive_owner_search_results(job_id,user_id,position,file_digest,metadata_envelope) VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"
+                        ),
+                        {
+                            "job": job["job_id"],
+                            "user": job["user_id"],
+                            "position": count,
+                            "digest": digest,
+                            "envelope": self._seal(
+                                item,
+                                job["user_id"],
+                                f"{job['job_id']}:{count}",
+                                "owner-search-result",
+                            ),
+                        },
+                    )
             limited = limited or selection is None and count == MAX_RESULTS and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
             if selection is not None:
@@ -1094,6 +1529,16 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             retries = row["retry_count"] + int(error is not None)
             retry = retryable and retries < 3
             state = "queued" if error is None or retry else "failed"
+            # The table's public error-code constraint predates this local
+            # adapter failure. Keep its precise cause only in the encrypted
+            # checkpoint, while persisting a schema-compatible public code.
+            checkpoint = None
+            if error == "operation_not_allowed":
+                detail = self._checkpoint(row)
+                detail["last_search_failure_cause"] = error
+                checkpoint = self._seal(
+                    detail, job["user_id"], str(row["job_id"]), "owner-search-checkpoint"
+                )
             code = (
                 error
                 if error
@@ -1110,12 +1555,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET status=:state,error_code=:code,
                 retry_count=:retries,lease_id=NULL,lease_expires_at=NULL,
+                checkpoint_envelope=COALESCE(CAST(:checkpoint AS jsonb),checkpoint_envelope),
                 next_at=clock_timestamp()+(:delay * INTERVAL '1 second'),revision=revision+1,
                 updated_at=clock_timestamp() WHERE job_id=:job"""),
                 {
                     "job": job["job_id"],
                     "state": state,
                     "code": code,
+                    "checkpoint": checkpoint,
                     "retries": min(retries, 3),
                     "delay": 5 * 2 ** (retries - 1) if retry else 0,
                 },

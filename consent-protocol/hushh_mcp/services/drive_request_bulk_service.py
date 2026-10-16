@@ -9,11 +9,15 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_owner_search_service import (
+    DriveOwnerSearchService,
+    _is_meeting_note_request,
+)
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_service import (
+    LiveSearchPlan,
     interpret_live_search,
     plan_live_search,
 )
@@ -83,6 +87,78 @@ _GENERIC_TOPIC = frozenset(
     }
 )
 
+_STATEMENT_NOUN = re.compile(r"\bstatements?\b", re.I)
+_BROKERAGE_NOUN = re.compile(r"\b(?:brokerage|broker)\b", re.I)
+_GENERIC_BANK_STATEMENT = re.compile(r"^\s*bank\s+statements?\s*$", re.I)
+_SCHWAB_ISSUER = re.compile(r"\b(?:charles\s+)?schwab\b", re.I)
+
+
+def _deterministic_statement_plan(
+    purpose: dict, *, include_bank: bool = False
+) -> LiveSearchPlan | None:
+    """Plan supported brokerage and V1 bank-statement requests without a model call.
+
+    The selected period belongs to the document contents. It is deliberately
+    absent from Drive metadata filters, and provider matches remain candidates
+    until the request evidence/approval path verifies them.
+    """
+    query = purpose.get("purpose", "")
+    if not isinstance(query, str) or not _STATEMENT_NOUN.search(query):
+        return None
+    brokerage = bool(_BROKERAGE_NOUN.search(query))
+    schwab = bool(_SCHWAB_ISSUER.search(query))
+    # A named bank must remain a semantic plan so its issuer becomes an
+    # explicit evidence requirement; this generic path has no issuer to bind.
+    bank = include_bank and bool(_GENERIC_BANK_STATEMENT.fullmatch(query))
+    if not (brokerage or schwab or bank):
+        return None
+    terms = []
+    groups = []
+    if schwab:
+        terms.append("Schwab")
+        groups.append(["Schwab", "Charles Schwab"])
+    if brokerage:
+        terms.append("brokerage")
+        groups.append(["brokerage", "broker"])
+    if bank:
+        terms.append("bank")
+        groups.append(["bank", "banking"])
+    terms.append("statement")
+    groups.append(["statement", "statements"])
+    return LiveSearchPlan(
+        mode="find",
+        terms=terms,
+        term_groups=groups,
+        semantic_intent="institutional_statement",
+        required_entities=["Schwab"] if schwab else [],
+        subject_scope="specific_records",
+        subject_complete=True,
+        file_kind="document",
+        time_intent="document_coverage",
+    )
+
+
+def _deterministic_meeting_note_plan(purpose: dict) -> LiveSearchPlan | None:
+    """Keep a clear meeting-notes request on document and event-date evidence.
+
+    The date fields in the request remain the authority for the window. Drive
+    metadata and the filename are only discovery hints; the content assessor
+    still decides whether each document is an actual note in that window.
+    """
+    query = purpose.get("purpose", "")
+    if not isinstance(query, str) or not _is_meeting_note_request(query):
+        return None
+    return LiveSearchPlan(
+        mode="find",
+        terms=["meeting", "notes"],
+        term_groups=[["meeting", "standup", "sync", "huddle"], ["notes", "minutes"]],
+        subject_scope="specific_records",
+        subject_complete=True,
+        file_kind="document",
+        time_intent="document_coverage",
+        expected_document_anatomy="Dated meeting notes with attendees, discussion or decisions.",
+    )
+
 
 class DriveRequestBulkService:
     def __init__(
@@ -147,6 +223,7 @@ class DriveRequestBulkService:
                     raise DriveReadError("invalid_argument")
                 mismatch = (
                     documents_only
+                    and plan.semantic_intent != "broad_financial_records"
                     and plan.file_kind != "document"
                     or any(_GENERIC_SEARCH_TERM.search(term) for term in plan.terms)
                     or bool(
@@ -195,7 +272,22 @@ class DriveRequestBulkService:
         # or an owner in a different timezone can reinterpret it.
         timezone = context.get("requestTimeZone") or timezone
         requested_at = context.get("requestCreatedAt")
+        statement_plan = (
+            _deterministic_statement_plan(purpose, include_bank=bool(context.get("v1LiveRequest")))
+            if authority_mode != "agent_package" or context.get("v1LiveRequest")
+            else None
+        )
+        if statement_plan is None and context.get("v1LiveRequest"):
+            statement_plan = _deterministic_meeting_note_plan(purpose)
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        if existing is not None and statement_plan is not None and not context.get("v1LiveRequest"):
+            replanned, changed = await self.search.replan_legacy_statement_request(
+                user_id=user_id, request_id=request_id, context=context
+            )
+            if replanned is not None:
+                existing = replanned
+            if changed:
+                await self.wake("v1")
         if (
             existing is not None
             and existing["status"] == "completed"
@@ -223,8 +315,23 @@ class DriveRequestBulkService:
                 return takeover
         if existing is not None and existing["status"] not in {"failed", "limited", "stopped"}:
             return existing
+        if existing is not None and existing["status"] == "failed":
+            # A retry continues the same frozen plan, provider cursor and
+            # result positions. Recreating a search could duplicate or change
+            # progressive batches already bound to those positions.
+            context = await self._context(user_id, request_id, start=True)
+            recovered, changed = await self.search.store.retry_failed_request(
+                user_id=user_id,
+                request_id=request_id,
+                request_revision=context["revision"],
+                authority_mode=authority_mode,
+            )
+            if recovered is not None:
+                if changed:
+                    await self.wake("v1" if context.get("v1LiveRequest") else "suggestions")
+                return recovered
         route = None
-        if authority_mode == "agent_package":
+        if authority_mode == "agent_package" and not context.get("v1LiveRequest"):
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
             )
@@ -239,7 +346,9 @@ class DriveRequestBulkService:
             }
         else:
             plan = (
-                await self._plan(
+                statement_plan
+                if statement_plan is not None
+                else await self._plan(
                     user_id=user_id,
                     purpose=context["purpose"],
                     timezone=timezone,
@@ -258,6 +367,7 @@ class DriveRequestBulkService:
             requested_at=requested_at,
             require_current=self.require_owner,
             authority_mode=authority_mode,
+            **({"v1_live_request": True} if context.get("v1LiveRequest") else {}),
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
         )
@@ -274,6 +384,7 @@ class DriveRequestBulkService:
             user_id=user_id,
             job_id=state["jobId"],
             cursor=cursor,
+            request_id=request_id,
             require_current=self.require_owner,
         )
 
@@ -284,6 +395,19 @@ class DriveRequestBulkService:
             # rejects them without one, so a new request would never load.
             return {"search": None, "bulkShare": None}
         search = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        if (
+            search is not None
+            and search["status"] == "completed"
+            and not context.get("agentPackageRequired")
+            and _deterministic_statement_plan(context["purpose"]) is not None
+        ):
+            replanned, changed = await self.search.replan_legacy_statement_request(
+                user_id=user_id, request_id=request_id, context=context
+            )
+            if replanned is not None:
+                search = replanned
+            if changed:
+                await self.wake("v1")
         if search is not None and search["status"] == "completed":
             await self.bulk.refresh_request(user_id=user_id, request_id=request_id)
         batches = await self.bulk.batches_by_request(user_id=user_id, request_id=request_id)

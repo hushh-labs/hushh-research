@@ -120,6 +120,18 @@ describe("useReferralStream", () => {
     await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
   });
 
+  it("reads backend CRLF frames even when CR and LF arrive separately", async () => {
+    vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(streamOf(
+      "event: ready\r", "\ndata: {}\r\n\r", "\n",
+      "event: referral_changed\r", '\ndata: {"reason":"circle_wars_changed"}\r', "\n\r", "\n",
+      'event: heartbeat\r\ndata: {"text":"event: referral_changed"}\r\n\r\n',
+      'event: referral_changed\r\ndata: {"reason":"qualified"}\r\n\r\n',
+    ));
+    const onChange = vi.fn();
+    renderHook(() => useReferralStream(fakeUser, onChange));
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(3));
+  });
+
   it("opens nothing when nobody is signed in", async () => {
     const spy = vi.spyOn(ApiService, "apiFetchStream");
     renderHook(() => useReferralStream(null, vi.fn()));

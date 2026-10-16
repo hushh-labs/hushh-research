@@ -74,13 +74,14 @@ flowchart TB
 ## Canonical 3-environment contract
 
 Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local
-path to a reviewed, versioned catalog and its approved raster assets. The empty
-default makes no external provider requests and enables no licensed artwork.
-The contributor backend template documents this optional path. Enabling it in
-production requires a pipeline maintainer to configure a read-only mount after
-rights and asset approval. It is not an API key. Private photo and neutral
-artwork work without it. See [Wallet artwork](../one/wallet.md) for the catalog
-contract.
+path to a reviewed, versioned catalog and its approved raster assets. An unset
+path uses the bundled, reviewed card atlas without external provider requests.
+A configured path replaces the bundle; an invalid or empty override fails
+closed and must not restore withdrawn bundled approvals. The contributor
+backend template documents this optional path. A private override requires a
+pipeline maintainer to configure a read-only mount after rights and asset
+approval. It is not an API key. See [Wallet artwork](../one/wallet.md) for the
+catalog and owner-only display recovery contracts.
 
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
@@ -237,19 +238,19 @@ It checks that:
 
 ### Fleet text model switch (2026-09-02)
 
-`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
-every text agent to one Gemini generation at once: agent manifests say
-`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
-default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
-Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
-Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
-3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
-lane may flip it only after its project's `constraints/vertexai.allowedModels`
-policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
-2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
-and production's Gemini project is `hushh-vertex-personal54` (`_GENAI_PROJECT_ID` in
-`deploy-uat.yml` / `deploy-production.yml`); UAT runs `gemini-3.8-flash` and
-production pins `gemini-3.7-flash` until an org-policy admin admits 3.8 there.
+Hosted text, Live Voice, research and embedding targets come from
+`consent-protocol/config/managed-ai-runtime.json`. Dev, UAT and production select
+`hushh-gemini-bridge`; their Cloud Run, SQL, identity and secret projects
+remain separate. The checked-in text model is `gemini-3.8-flash`. Hosted clients
+ignore local model and project overrides; local mode retains explicit overrides.
+
+The deploy compiler validates the same profile and hash used by the packaged
+runtime. Each hosted release must exercise its actual runtime identity against
+the destination before serving traffic. Administrative API access does not prove
+model availability, quota or successful inference. The 2026-10-15 switch also advances the text model to 3.8 Flash on global.
+Document facts policy includes the model id, so previously processed facts may
+require reprocessing when background work is resumed. Preserve the incident pause
+until that resumption is explicitly authorized.
 
 One Live Voice adds three names on every lane: `ONE_VOICE_LIVE_ENABLED` (kill switch,
 `false` in production until UAT sign-off), `VERTEX_LIVE_MODEL_ID` (an exact Live model

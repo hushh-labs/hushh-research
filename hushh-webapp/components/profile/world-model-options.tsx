@@ -7,7 +7,6 @@ import {
   SettingsRow,
 } from "@/components/profile/settings-ui";
 import {
-  ProfilePaneGlobeIcon,
   ProfilePaneInviteIcon,
   ProfilePaneSearchIcon,
 } from "@/components/profile/profile-pane-icons";
@@ -62,6 +61,7 @@ export function WorldModelOptions({
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const azureResearch = preferences?.research_provider === "azure_openai_web_search";
   const open = sheet !== null && (sheet !== "invite" || usable);
   const close = useCallback(() => {
     setSheet(null);
@@ -104,14 +104,6 @@ export function WorldModelOptions({
             onClick={() => setSheet("invite")}
           />
         ) : null}
-        <SettingsRow
-          icon={ProfilePaneGlobeIcon}
-          iconTone="capability"
-          title="Add a public source"
-          chevron
-          voiceControlId="pwm_sources_open"
-          onClick={() => setSheet("sources")}
-        />
         {preferences || failed ? (
           <SettingsRow
             icon={ProfilePaneSearchIcon}
@@ -162,7 +154,9 @@ export function WorldModelOptions({
           <SettingsGroup density="compact">
             <SettingsRow
               title="Research public pages"
-              description="Uses your name and verified email or phone to find pages about you."
+              description={azureResearch
+                ? "Turning this on lets GPT-5-mini on Microsoft Azure AI check public pages. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. Phi-4-mini plans searches without your raw contacts. You review findings before saving."
+                : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."}
               trailing={
                 <span className="inline-flex h-11 items-center">
                   <Switch

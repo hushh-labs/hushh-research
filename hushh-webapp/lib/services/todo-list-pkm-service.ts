@@ -15,12 +15,33 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
+import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
 export type TodoType = "automatic" | "manual";
 export type TodoStatus = "pending" | "done" | "deleted";
-export type TodoSourceAgent = "calendar" | "gmail" | null;
+export const TODO_SOURCE_LABELS = {
+  calendar: "Calendar",
+  gmail: "Gmail",
+  drive: "Drive",
+  kai: "Finance",
+  kyc: "KYC",
+  location: "Location",
+  connections: "Connections",
+  consent: "Consent",
+  agent: "Private agent",
+} as const;
+export type TodoSourceAgent = keyof typeof TODO_SOURCE_LABELS | null;
+
+/** Explicit follow-up metadata supplied by a live agent/domain publisher. */
+export type AgentTodo = {
+  /** A publisher may distinguish a new run or a newly required follow-up. */
+  key?: string;
+  source: Exclude<TodoSourceAgent, null>;
+  title: string;
+  href: string;
+};
 
 /**
  * The private task model. `userId` is intentionally not duplicated in the
@@ -107,9 +128,11 @@ function normalizeTime(value: unknown): string | null {
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : null;
 }
 
-function normalizeLink(value: unknown): string | null {
+function normalizeLink(value: unknown, allowInternal = false): string | null {
   const candidate = text(value, 1_500);
   if (!candidate) return null;
+  const internal = allowInternal ? normalizeInternalRouteHref(candidate) : null;
+  if (internal) return internal;
   try {
     const url = new URL(candidate);
     return url.protocol === "https:" ? url.toString() : null;
@@ -133,8 +156,12 @@ function normalizeStatus(
 }
 
 function normalizeSource(value: unknown, type: TodoType): TodoSourceAgent {
-  if (value === "calendar" || value === "gmail") return value;
-  return type === "automatic" ? "calendar" : null;
+  if (typeof value === "string" && Object.hasOwn(TODO_SOURCE_LABELS, value)) {
+    return value as Exclude<TodoSourceAgent, null>;
+  }
+  // Original automatic records omitted their Calendar source. Keep that
+  // compatibility without mislabelling an unknown, explicitly named agent.
+  return type === "automatic" ? (value ? "agent" : "calendar") : null;
 }
 
 function privateTodoData(
@@ -155,6 +182,7 @@ function normalizeItem(value: unknown): TodoItem | null {
   const completedAt = text(value.completedAt, 64) || null;
   const deletedAt = text(value.deletedAt, 64) || null;
   const type = normalizeType(value.type);
+  const sourceId = text(value.sourceId ?? value.calendarEventId, 240) || null;
 
   return {
     id,
@@ -164,8 +192,8 @@ function normalizeItem(value: unknown): TodoItem | null {
     time: normalizeTime(value.time),
     status: normalizeStatus(value.status, completedAt, deletedAt),
     sourceAgent: normalizeSource(value.sourceAgent ?? value.source, type),
-    sourceId: text(value.sourceId ?? value.calendarEventId, 240) || null,
-    link: normalizeLink(value.link),
+    sourceId,
+    link: normalizeLink(value.link, id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:"))),
     notes: value.notes ? String(value.notes) : null,
     revision:
       Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
@@ -212,12 +240,7 @@ export function buildTodo(
 ): TodoItem {
   const type = input.type === "automatic" ? "automatic" : "manual";
   const sourceId = text(input.sourceId, 240) || null;
-  const source =
-    input.source === "calendar" || input.source === "gmail"
-      ? input.source
-      : type === "automatic"
-        ? "calendar"
-        : null;
+  const source = normalizeSource(input.source, type);
   const id =
     text(input.id, 240) ||
     (type === "automatic" && sourceId && source
@@ -233,7 +256,7 @@ export function buildTodo(
     status: "pending",
     sourceAgent: source,
     sourceId,
-    link: normalizeLink(input.link),
+    link: normalizeLink(input.link, id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:"))),
     notes: text(input.notes, 1_200) || null,
     createdAt: now,
     updatedAt: now,
@@ -311,6 +334,28 @@ export function gmailTodoInput(event: GmailTodoEvent): CreateTodoInput | null {
     source: "gmail",
     sourceId,
   };
+}
+
+/** Live Feed tasks are projections; only owner completion/dismissal is saved. */
+export function agentTodoInput(id: string, item: AgentTodo): CreateTodoInput | null {
+  if (typeof id !== "string" || !item || typeof item.title !== "string") return null;
+  const sourceId = typeof item.key === "string" ? item.key.trim() : id.trim();
+  const title = text(item.title, 240);
+  const link = normalizeInternalRouteHref(item.href);
+  if (!sourceId || sourceId.length > 220 || !title || !link ||
+      !Object.hasOwn(TODO_SOURCE_LABELS, item.source)) return null;
+  return {
+    id: `feed_${sourceId}`,
+    sourceId: `feed:${sourceId}`,
+    title,
+    type: "automatic",
+    source: item.source,
+    link,
+  };
+}
+
+export function isLiveAgentTodo(task: TodoItem): boolean {
+  return task.id.startsWith("feed_") && Boolean(task.sourceId?.startsWith("feed:"));
 }
 
 /** Active rows are pending tasks. Completed and dismissed rows stay private. */

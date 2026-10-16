@@ -20551,7 +20551,7 @@
     },
     {
       "aliases": [
-        "Add a public source"
+        "Review a claimed source"
       ],
       "authorization": {
         "guard_ids": [
@@ -20590,7 +20590,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Read independently supplied permitted public URLs for owner review.",
+      "description": "Review a professional source attached to a legacy invitation claim.",
       "execution": {
         "binding_ref": "render:profile.world_model.sources",
         "executor": {
@@ -20623,164 +20623,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Add a public source",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Prepare invitation preview"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_owner_token"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "profile.world_model.preview",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Read a supplied professional source and review selected preview facts.",
-      "execution": {
-        "binding_ref": "render:profile.world_model.preview",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.profile.world_model.preview",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Prepare invitation preview",
+      "label": "Review a claimed source",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20904,7 +20747,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
+      "description": "Create an invitation from a name and email or phone. Either supplied verified contact can claim; the recipient's own model starts after claim. Explicit sharing uses the share sheet.",
       "execution": {
         "binding_ref": "render:profile.world_model.invite",
         "executor": {
@@ -21061,7 +20904,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "description": "Claim the invitation using a matching verified contact; owner preparation starts according to the recipient's research setting and grants no sharing.",
       "execution": {
         "binding_ref": "render:profile.world_model.claim",
         "executor": {
@@ -26294,6 +26137,161 @@
         "coverage",
         "price",
         "browse"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Request cards",
+        "request a card",
+        "ask them to share a card"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.request_card",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens a card request review for this connected person. Sending requires explicit confirmation. The owner chooses a card and duration before sharing; requesting grants no access.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.request_card",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.request_card"
+        }
+      },
+      "goal_id": "goal.people.profile.request_card",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Request cards",
+      "navigation": {
+        "fallback": "people.profile.request_card",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "card",
+        "wallet",
+        "request",
+        "share"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -42110,7 +42108,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "cab5cd3c00e00f7c85aeff3e4de2efaa115444741262c7d5ff1066538b341b23",
+      "projection_digest": "544ca0a84969d3c0022f47298d15fce92d6474ad4e9e065dfe569cbb4f5c2dd7",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42120,7 +42118,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+        "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
@@ -42129,7 +42127,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "85499847624cc916",
+      "source_revision": "e9620aafd44c12ae",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43647,7 +43645,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "85499847624cc916",
+    "source_revision": "e9620aafd44c12ae",
     "web": {
       "actions": [
         {
@@ -43690,7 +43688,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "a316bb1d0781f9736f237e2d9c0265d13b734d393ba5ddb95c44e50e0de5639f",
+      "projection_digest": "582c6694502f4c204cf64a1a1366179a8ac21187dbc41e2307a840e5c2786cfc",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43700,7 +43698,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+        "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
@@ -43709,7 +43707,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "85499847624cc916",
+      "source_revision": "e9620aafd44c12ae",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45266,7 +45264,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "85499847624cc916",
+  "revision": "e9620aafd44c12ae",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46862,6 +46860,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_card",
         "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
@@ -47139,7 +47138,7 @@
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "a7faf3fd04605e90",
+    "from_revision": "ecca156af65fac1f",
     "migrated": [],
     "removed": []
   },
@@ -49371,21 +49370,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
+    "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "ffaac2627ca9d2e1984ffec5bd25e87fefddb390d7d9f61c43b46d76c2864f24",
+    "kai_action_gateway": "03fd2ea83ef71de7625a9d5cfcb0d0438c6e3f005e947c4c79a5ca2c54567034",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "1ad6cdf5e07bc7bd9410c288d616ab3a773ab5d627b3e801fc6ee363dbe86b3e",
-    "route_orchestration_index": "3f316a65f78eb81375b00fda5fe4dae3a66e86896b96afb043e897a653f44915",
+    "product_agent_registry": "39c37fae48c11dbbf52920d04204c8abd910152cda6f57bdbfdf92a83bf8af67",
+    "route_orchestration_index": "19612a36e008f965520cca4623710e2ad971be410102add29e9b51e270d2c1ba",
     "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
   },
-  "source_revision": "85499847624cc916",
+  "source_revision": "e9620aafd44c12ae",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "85499847624cc916",
+    "current_graph_revision": "e9620aafd44c12ae",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49393,6 +49392,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -49421,6 +49421,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -49517,6 +49518,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -49524,6 +49526,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -49570,7 +49574,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -49578,6 +49584,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",
@@ -49597,6 +49604,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -49625,6 +49633,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -49721,6 +49730,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -49728,6 +49738,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -49774,7 +49786,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -49782,6 +49796,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",
@@ -49799,6 +49814,7 @@
       {
         "compatible_graph_revisions": [
           "00e49f65025341a1",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0f847cb897c39c4a",
           "12bc858aab243003",
@@ -49818,6 +49834,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
@@ -49884,10 +49901,13 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bec5fd5f0ffddc6c",
@@ -49914,11 +49934,14 @@
           "e64a0a56bd563562",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0dd083b1d2493ac",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f7445aa56d82a9cf",
           "fac4fe10478339eb",
           "fe7124ad349b7300"
@@ -50005,6 +50028,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -50033,6 +50057,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50129,6 +50154,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -50136,6 +50162,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -50182,7 +50210,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50190,6 +50220,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",
@@ -50209,6 +50240,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -50237,6 +50269,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50333,6 +50366,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -50340,6 +50374,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -50386,7 +50422,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50394,6 +50432,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",
@@ -50413,6 +50452,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -50441,6 +50481,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50537,6 +50578,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -50544,6 +50586,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -50590,7 +50634,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50598,6 +50644,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",
@@ -50617,6 +50664,7 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "087fe0af56da1339",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
@@ -50645,6 +50693,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50741,6 +50790,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
@@ -50748,6 +50798,8 @@
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b514b1fb5e99b5bf",
+          "b81f3be586a45c6a",
           "b9a36b2860d0022c",
           "b9a924f682184910",
           "bda0bffda4ed0335",
@@ -50794,7 +50846,9 @@
           "ea183f0f5321f862",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
+          "ecca156af65fac1f",
           "edaa00dc65d3cb12",
+          "edf0ef85a69b4938",
           "ef88720ce177a379",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
@@ -50802,6 +50856,7 @@
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
+          "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
           "f91ecbcca5e10b42",

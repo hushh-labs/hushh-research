@@ -10,6 +10,7 @@ import {
   type Ref,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import Link from "next/link";
 
 import {
   Calendar,
@@ -70,13 +71,18 @@ import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   TodoListPkmService,
+  TODO_SOURCE_LABELS,
+  agentTodoInput,
   buildTodo,
   calendarTodoInput,
   completedTodoItems,
   createTodo,
   openTodoItems,
+  isLiveAgentTodo,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
+import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -198,7 +204,7 @@ function mergeAutomaticTasks(
 ): TodoItem[] {
   const savedAutomatic = new Map(
     saved
-      .filter((task) => task.type === "automatic")
+      .filter((task) => task.type === "automatic" && !isLiveAgentTodo(task))
       .map((task) => [task.sourceId ?? task.id, task]),
   );
   const seen = new Set<string>();
@@ -393,10 +399,12 @@ function TodoRow({
               <CaptionText className="inline-flex items-center gap-1.5 !text-[color:var(--app-secondary-label)]">
                 {source === "calendar" ? (
                   <Calendar className="size-3.5" aria-hidden="true" />
-                ) : (
+                ) : source === "gmail" ? (
                   <Mail className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ClipboardCheck className="size-3.5" aria-hidden="true" />
                 )}
-                {source === "calendar" ? "Calendar" : "Gmail"}
+                {TODO_SOURCE_LABELS[source]}
               </CaptionText>
             ) : null}
             {task.link ? (
@@ -407,15 +415,24 @@ function TodoRow({
                 size="compact"
                 className="ml-auto !px-2 !text-[color:var(--app-accent)]"
               >
-                <a
-                  href={task.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`${source === "gmail" ? "Open" : "Join"} ${task.title}`}
-                >
-                  {source === "gmail" ? "Open" : "Join"}
-                  <ExternalLink className="ml-1 size-3.5" aria-hidden="true" />
-                </a>
+                {task.link.startsWith("/") ? (
+                  <Link href={task.link} aria-label={`Open ${task.title}`}>
+                    Open
+                  </Link>
+                ) : (
+                  <a
+                    href={task.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`${source === "calendar" ? "Join" : "Open"} ${task.title}`}
+                  >
+                    {source === "calendar" ? "Join" : "Open"}
+                    <ExternalLink
+                      className="ml-1 size-3.5"
+                      aria-hidden="true"
+                    />
+                  </a>
+                )}
               </Button>
             ) : null}
           </div>
@@ -662,6 +679,15 @@ export function TodoListPage() {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
+  const agentFeed = useFeedActionables({ enabled: writeReady });
+  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({
+    enabled: writeReady,
+    includeCalendar: false,
+    includeNudges: false,
+  });
+  const agentLoadError = agentFeed.error || agentFeed.progressError || kycError;
+  const agentLoading =
+    agentFeed.loading || agentFeed.progressLoading || kycLoading;
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -707,14 +733,38 @@ export function TodoListPage() {
     void loadItems();
   }, [loadItems]);
 
-  const pending = useMemo(
-    () =>
-      [
-        ...mergeAutomaticTasks(upcoming.events, tasks),
-        ...openTodoItems(tasks).filter((task) => task.type === "manual"),
-      ].sort(taskSort),
-    [upcoming.events, tasks],
-  );
+  const pending = useMemo(() => {
+    const saved = new Map(tasks.map((task) => [task.id, task]));
+    const live = new Map<string, TodoItem>();
+    for (const item of agentFeed.actionables) {
+      if (!item.todo) continue;
+      const input = agentTodoInput(item.id, item.todo);
+      if (!input) continue;
+      const task = buildTodo(input);
+      const status = saved.get(task.id)?.status;
+      if (status !== "done" && status !== "deleted") live.set(task.id, task);
+    }
+    if (pendingKyc) {
+      const input = agentTodoInput(`kyc:${pendingKyc.workflowId}`, {
+        source: "kyc",
+        title:
+          pendingKyc.count > 1
+            ? `Review ${pendingKyc.count} information requests`
+            : "Review information request",
+        href: "/one/gmail?workspace=kyc",
+      });
+      if (input) {
+        const task = buildTodo(input);
+        const status = saved.get(task.id)?.status;
+        if (status !== "done" && status !== "deleted") live.set(task.id, task);
+      }
+    }
+    return [
+      ...mergeAutomaticTasks(upcoming.events, tasks),
+      ...live.values(),
+      ...openTodoItems(tasks).filter((task) => task.type === "manual"),
+    ].sort(taskSort);
+  }, [agentFeed.actionables, pendingKyc, upcoming.events, tasks]);
   const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
   const today = localDateKey(new Date());
   const doneToday = completed.filter((task) => task.date === today).length;
@@ -838,6 +888,14 @@ export function TodoListPage() {
     setEditorOpen(true);
   };
 
+  const reportedAgentError = useRef(false);
+  useEffect(() => {
+    if (writeReady && agentLoadError && !reportedAgentError.current) {
+      morphyToast.error("Some tasks couldn’t refresh. Try again.");
+    }
+    reportedAgentError.current = writeReady && Boolean(agentLoadError);
+  }, [writeReady, agentLoadError]);
+
   const requestDelete = (task: TodoItem, trigger?: HTMLButtonElement) => {
     deleteTriggerRef.current =
       trigger ??
@@ -875,6 +933,8 @@ export function TodoListPage() {
             day: "numeric",
           }).format(new Date())}
           title="Your tasks"
+          titleRole="agent"
+          className="[--foundation-title1-size:var(--type-agent-title-size)] [--foundation-title1-line:var(--type-agent-title-line)] [--foundation-title1-weight:var(--type-agent-title-weight)] [--foundation-title1-tracking:var(--type-agent-title-tracking)]"
           actionsInlineMobile
           actions={
             <AddItemButton
@@ -908,6 +968,22 @@ export function TodoListPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
+        {writeReady && agentLoadError ? (
+          <Button
+            variant="none"
+            effect="fade"
+            size="compact"
+            aria-label="Retry agent tasks"
+            disabled={agentLoading}
+            onClick={() =>
+              void Promise.all([agentFeed.retry(), retryKyc()]).catch(() => {
+                morphyToast.error("Agent tasks couldn’t refresh. Try again.");
+              })
+            }
+          >
+            Retry
+          </Button>
+        ) : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -920,7 +996,7 @@ export function TodoListPage() {
               </HelperText>
             </div>
           </SurfaceCard>
-        ) : itemsLoading ? (
+        ) : itemsLoading || (agentLoading && pending.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -935,6 +1011,10 @@ export function TodoListPage() {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
+        ) : agentLoadError ? (
+          <HelperText as="p" role="status">
+            Your tasks couldn’t load. Choose Retry to try again.
+          </HelperText>
         ) : (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <ClipboardCheck
@@ -943,12 +1023,24 @@ export function TodoListPage() {
             />
             <MediumRowLabel as="h2">All clear</MediumRowLabel>
             <HelperText as="p">
-              {calendar.connected
-                ? "Your next meeting will appear here."
-                : "Add something for your day."}
+              Tasks that need you will appear here, or you can add an item.
             </HelperText>
           </div>
         )}
+        {writeReady &&
+        agentFeed.actionables.some((item) => item.id === "consent:overflow") ? (
+          <Button asChild variant="none" effect="fade" size="compact">
+            <Link
+              href={
+                agentFeed.actionables.find(
+                  (item) => item.id === "consent:overflow",
+                )!.href || "/one/feed"
+              }
+            >
+              View all pending requests
+            </Link>
+          </Button>
+        ) : null}
 
         {writeReady && !itemsLoading && completed.length > 0 ? (
           <section aria-labelledby="completed-heading">

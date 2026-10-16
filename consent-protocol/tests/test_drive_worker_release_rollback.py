@@ -85,12 +85,17 @@ elif args[:3] == ["run", "revisions", "describe"]:
     print(json.dumps({
         "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]}},
         "spec": {"containers": [
-            {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"]},
+            {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"],
+             "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
+                      "value": state.get("deployed_drain_enabled", "true")}]},
             {"name": "clamav", "image": os.environ["MOCK_CLAMAV_IMAGE"]},
         ]},
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))
-elif args[:2] == ["run", "deploy"] or args[:3] in (
+elif args[:2] == ["run", "deploy"]:
+    state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
+    save()
+elif args[:3] in (
     ["run", "services", "add-iam-policy-binding"],
     ["run", "services", "update-traffic"],
 ):
@@ -109,6 +114,8 @@ elif args[:3] == ["scheduler", "jobs", "describe"]:
     job = jobs[name]
     if "--format=json" in args:
         print(json.dumps(job))
+    elif "--format=value(state)" in args:
+        print(job["state"])
     elif any(item.startswith("--format=value(state,schedule,") for item in args):
         target = job["httpTarget"]
         print("\\t".join((job["state"], job["schedule"], target["uri"],
@@ -358,10 +365,23 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
-@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
+@pytest.mark.parametrize(
+    ("processing_enabled", "log_failure", "all_jobs_present"),
+    [
+        (True, "none", False),
+        (True, "wrong_url", False),
+        (True, "missing", False),
+        (False, "none", False),
+        (False, "none", True),
+    ],
+)
 @pytest.mark.parametrize("wrong_scanner_child", [False, True])
 def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
+    tmp_path: Path,
+    processing_enabled: bool,
+    log_failure: str,
+    all_jobs_present: bool,
+    wrong_scanner_child: bool,
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -378,9 +398,21 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     fake_seq.write_text("#!/bin/sh\nprintf '1\\n2\\n'\n", encoding="utf-8")
     fake_seq.chmod(0o755)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
+    initial_jobs = {"drive-work-drain-uat": original_document}
+    if all_jobs_present:
+        initial_jobs.update(
+            {
+                "drive-work-suggestions-uat": _job(
+                    "drive-work-suggestions-uat", "suggestions", "* * * * *", "240s"
+                ),
+                "drive-work-sharing-uat": _job(
+                    "drive-work-sharing-uat", "sharing", "* * * * *", "240s"
+                ),
+            }
+        )
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
-        json.dumps({"jobs": {"drive-work-drain-uat": original_document}, "mutations": 0}),
+        json.dumps({"jobs": initial_jobs, "mutations": 0}),
         encoding="utf-8",
     )
     setup_count = tmp_path / "setup-count"
@@ -404,6 +436,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             ),
             "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
             "RELEASE_RUN_ID": "12345",
+            "DRIVE_WORK_DRAIN_ENABLED": str(processing_enabled).lower(),
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
@@ -421,7 +454,16 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         assert result.returncode != 0
         assert "scanner image digest mismatch" in output
         assert not setup_count.exists(), output
-        assert state["jobs"] == {"drive-work-drain-uat": original_document}
+        assert state["jobs"] == initial_jobs
+        return
+    assert state["deployed_drain_enabled"] == str(processing_enabled).lower()
+    if not processing_enabled:
+        assert result.returncode == 0, output
+        assert not setup_count.exists()
+        assert not state.get("triggered")
+        assert set(state["jobs"]) == set(initial_jobs)
+        assert all(job["state"] == "PAUSED" for job in state["jobs"].values())
+        assert "background processing paused" in output
         return
     assert setup_count.read_text(encoding="utf-8") == "3", output
     assert state["triggered"] == [

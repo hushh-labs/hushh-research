@@ -22,6 +22,16 @@ on:
         required: false
         default: false
         type: boolean
+      preserve_paused_drive_worker:
+        description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
+        required: false
+        default: false
+        type: boolean
+      skip_managed_vertex_probe_once:
+        description: "One-time UAT Vertex probe exception for a8e36651; verify runtime after release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -109,6 +119,23 @@ jobs:
             exit 0
           fi
           node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
+
+      - name: Validate one-time Vertex probe exception
+        if: inputs.skip_managed_vertex_probe_once
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
+        run: |
+          set -euo pipefail
+          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
+                "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
+                "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
+                "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
+            echo "One-time Vertex exception is limited to the approved UAT release." >&2
+            exit 1
+          fi
 
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
@@ -251,6 +278,10 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
+          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp deploy/backend.cloudbuild.yaml \
+              "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          fi
 
       - name: Checkout deployment SHA
         shell: bash
@@ -268,6 +299,10 @@ jobs:
             config/runtime-capacity.json
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
             scripts/ops/verify_passkey_domain_associations.py
+          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
+              deploy/backend.cloudbuild.yaml
+          fi
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -389,9 +424,14 @@ jobs:
             exit 1
           fi
           if [ "$DEPLOY_BACKEND" = true ]; then
+            candidate_services=(--candidate-service consent-protocol)
+            if [ "${{ inputs.preserve_paused_drive_worker }}" = true ]; then
+              candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
+            else
+              candidate_services+=(--candidate-service consent-protocol-drive-worker)
+            fi
             timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
-              --candidate-service consent-protocol \
-              --candidate-service consent-protocol-drive-worker
+              "${candidate_services[@]}"
           elif [ "$DEPLOY_FRONTEND" = true ]; then
             timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
           else
@@ -400,7 +440,7 @@ jobs:
           fi
 
       - name: Verify prompt UAT Drive worker wake grant
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && vars.DRIVE_WORK_DRAIN_UAT_ENABLED != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -417,6 +457,31 @@ jobs:
                      for binding in policy.get("bindings", [])):
               raise SystemExit("Drive work wake Cloud Scheduler run grant is missing")
           '
+
+      # A manually paused Drive queue is an operator maintenance state. Capture
+      # it before any release mutation; the opt-in path never deploys the worker,
+      # retargets the jobs, or calls jobs run. The final gate checks exact drift.
+      - name: Capture paused Drive maintenance baseline
+        id: capture-paused-drive-maintenance
+        if: inputs.preserve_paused_drive_worker == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            echo "Preserving paused Drive jobs requires a backend release" >&2
+            exit 1
+          fi
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-pre-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-pre-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py capture \
+            --scheduler-snapshot /tmp/uat-paused-drive-pre-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-pre-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve rollback targets from predeploy traffic
         id: rollback-targets
@@ -621,7 +686,7 @@ jobs:
         # through the environment (not inline expressions in shell) keeps an
         # opaque Firebase UID cohort from becoming executable shell text.
         env:
-          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'false' }}
           UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
           UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
           UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
@@ -1162,7 +1227,7 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED}##_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}##_STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}##_STRIPE_CONNECT_SECRET_KEY_SECRET=${STRIPE_UAT_CONNECT_KEY_SECRET}##_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=${{ vars.DRIVE_WORK_DRAIN_UAT_ENABLED || 'true' }}##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           # The serving two-worker runtime held 86.9–87.85% of 4Gi during the
           # 2026-10-13 read-only 5 RPS stage. Keep CPU/pools/instances unchanged;
           # 6Gi gives that measured steady working set its required headroom.
@@ -1179,6 +1244,7 @@ jobs:
             verify_managed_vertex_runtime=true
           fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
@@ -2710,7 +2776,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+          ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'false' }}
         run: |
           set -euo pipefail
           bash deploy/pwm/setup_notification_scheduler.sh | tee /tmp/uat-pwm-notifications-setup.log
@@ -2739,7 +2805,7 @@ jobs:
 
       - name: Capture Drive scheduler before worker rollout
         id: capture-drive-worker-scheduler
-        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -2757,7 +2823,7 @@ jobs:
 
       - name: Deploy and attest private Drive worker
         id: deploy-drive-worker
-        if: always() && !cancelled() && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
@@ -2765,6 +2831,7 @@ jobs:
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
           CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
           RELEASE_RUN_ID: ${{ github.run_id }}
+          DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_WORK_DRAIN_UAT_ENABLED || 'true' }}
           DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
           DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
@@ -2780,9 +2847,98 @@ jobs:
           exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1
           exec bash deploy/drive/deploy_worker_service.sh
 
+      - name: Verify paused Drive maintenance unchanged
+        id: verify-paused-drive-maintenance
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.capture-paused-drive-maintenance.outcome }}" != "success" ]; then
+            echo "No validated paused Drive baseline; refusing release" >&2
+            exit 1
+          fi
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-post-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-post-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py verify \
+            --scheduler-snapshot /tmp/uat-paused-drive-post-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-post-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
+        id: deploy-drive-v1-worker
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          SNAPSHOT_PATH: /tmp/uat-drive-v1-before.json
+          PREVIOUS_REVISION_PATH: /tmp/uat-drive-v1-previous-revision.txt
+          DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          exec > >(tee /tmp/uat-drive-v1-worker-release.log) 2>&1
+          bash deploy/drive/deploy_v1_worker_service.sh
+          revision="$(gcloud run services describe consent-protocol-drive-v1-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 -c 'import json,sys; t=(json.load(sys.stdin).get("status") or {}).get("traffic") or []; r=[x.get("revisionName") for x in t if x.get("percent")==100]; print(r[0] if len(r)==1 else "")')"
+          if [[ ! "${revision}" =~ ^consent-protocol-drive-v1-worker-[a-z0-9-]+$ ]]; then
+            echo "V1 serving revision is ambiguous" >&2
+            exit 1
+          fi
+          revision_sha="$(gcloud run revisions describe "${revision}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(metadata.labels.deploy-sha)')"
+          if [ "${revision_sha}" != "${DEPLOY_SHA}" ]; then
+            echo "V1 serving revision SHA does not match the release" >&2
+            exit 1
+          fi
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "sha=${revision_sha}" >> "$GITHUB_OUTPUT"
+          echo "scheduler_http_200=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify legacy paused Drive state after V1 rollout
+        id: verify-paused-drive-after-v1
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-after-v1-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-after-v1-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py verify \
+            --scheduler-snapshot /tmp/uat-paused-drive-after-v1-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-after-v1-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore V1 lane if paired paused-state gate failed
+        id: restore-drive-v1-after-postgate
+        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success' && steps.verify-paused-drive-after-v1.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_revision="$(cat /tmp/uat-drive-v1-previous-revision.txt)"
+          bash deploy/drive/restore_v1_worker.sh /tmp/uat-drive-v1-before.json "${previous_revision}"
+
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -2791,9 +2947,22 @@ jobs:
           bash deploy/drive/rollback_after_worker_failure.sh \
             "${{ env.BACKEND_SERVICE }}" "${{ steps.rollback-targets.outputs.backend_revision }}"
 
+      - name: Verify isolated V1 lane rollback after failed rollout
+        id: verify-drive-v1-worker-rollback
+        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/uat-drive-v1-before.json ] || [ ! -f /tmp/uat-drive-v1-previous-revision.txt ]; then
+            echo "V1 candidate failed before scheduler capture; no V1 scheduler was changed"
+            exit 0
+          fi
+          previous_revision="$(cat /tmp/uat-drive-v1-previous-revision.txt)"
+          bash deploy/drive/restore_v1_worker.sh /tmp/uat-drive-v1-before.json "${previous_revision}"
+
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -2804,7 +2973,7 @@ jobs:
 
       - name: Verify Drive scheduler after worker failure
         id: verify-drive-worker-scheduler-rollback
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && inputs.preserve_paused_drive_worker != true && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -2889,13 +3058,36 @@ jobs:
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
           DRIVE_WORKER_ROLLBACK_COMPLETE=true
+          DRIVE_WORKER_GATE_SUCCESS=false
+
+          if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
+             && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          elif [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=true
+          elif [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ]; then
+            if [ "${{ steps.capture-paused-drive-maintenance.outcome }}" = "success" ] \
+               && [ "${{ steps.capture-paused-drive-maintenance.outputs.paused_drive_baseline_captured }}" = "true" ] \
+               && [ "${{ steps.verify-paused-drive-maintenance.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-maintenance.outputs.paused_drive_unchanged }}" = "true" ] \
+               && [ "${{ steps.deploy-drive-v1-worker.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-after-v1.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-after-v1.outputs.paused_drive_unchanged }}" = "true" ] \
+               && [ "${{ steps.deploy-drive-v1-worker.outputs.sha }}" = "${{ steps.resolve-sha.outputs.sha }}" ] \
+               && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "true" ]; then
+              DRIVE_WORKER_GATE_SUCCESS=true
+            fi
+          elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=true
+          fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
-             && [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; then
+             && [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; then
             # A skipped/cancelled worker is not a completed rollback. Only
             # independent scheduler and serving-revision evidence can prove it.
             DRIVE_WORKER_ROLLBACK_COMPLETE=false
-            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
+            if [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+               && [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
                && [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" = "true" ] \
                && [ "${{ steps.rollback-targets.outputs.backend_revision }}" != "" ] \
                && [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" = "success" ] \
@@ -2909,12 +3101,15 @@ jobs:
             fi
           fi
 
-          if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+          if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
+             && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            STATUS="blocked"
+          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
-                 || [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; }; then
+                 || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
               STATUS="blocked"
             else
               STATUS="healthy"
@@ -2940,7 +3135,7 @@ jobs:
             fi
           fi
 
-          export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE
+          export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE DRIVE_WORKER_GATE_SUCCESS
           python3 - <<'PY'
           import json
           import os
@@ -2997,6 +3192,17 @@ jobs:
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
+                  "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
+                  "drive_v1_worker_revision": "${{ steps.deploy-drive-v1-worker.outputs.revision }}",
+                  "drive_v1_worker_sha": "${{ steps.deploy-drive-v1-worker.outputs.sha }}",
+                  "drive_v1_scheduler_http_200": "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" == "true",
+                  "drive_v1_worker_rollback": "${{ steps.verify-drive-v1-worker-rollback.outcome }}",
+                  "drive_processing_enabled": "${{ vars.DRIVE_WORK_DRAIN_UAT_ENABLED || 'true' }}",
+                  "drive_worker_gate_success": os.environ["DRIVE_WORKER_GATE_SUCCESS"] == "true",
+                  "paused_drive_maintenance_requested": "${{ inputs.preserve_paused_drive_worker }}" == "true",
+                  "paused_drive_baseline": "${{ steps.capture-paused-drive-maintenance.outcome }}",
+                  "paused_drive_unchanged": "${{ steps.verify-paused-drive-maintenance.outcome }}",
+                  "paused_drive_after_v1": "${{ steps.verify-paused-drive-after-v1.outcome }}",
                   "drive_worker_backend_rollback": "${{ steps.rollback-backend-after-drive-worker.outcome }}",
                   "drive_worker_frontend_rollback": "${{ steps.rollback-frontend-after-drive-worker.outcome }}",
                   "drive_worker_scheduler_rollback": "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}",
@@ -3076,6 +3282,7 @@ jobs:
             /tmp/uat-account-deletion-revision-retirement.json
             /tmp/uat-account-deletion-fence-removal.log
             /tmp/uat-drive-worker-release.log
+            /tmp/uat-drive-v1-worker-release.log
             /tmp/cloud-sql-proxy-uat.log
             /tmp/cloud-sql-proxy-uat-migrate.log
             /tmp/cloud-sql-proxy-uat-activation.log
@@ -3149,6 +3356,10 @@ jobs:
             echo "- Frontend rollback: \`${{ steps.rollback-frontend.outcome }}\`"
             echo "- Drive worker failure backend rollback: \`${{ steps.rollback-backend-after-drive-worker.outcome }}\`"
             echo "- Drive worker failure frontend rollback: \`${{ steps.rollback-frontend-after-drive-worker.outcome }}\`"
+            echo "- Isolated V1 worker: \`${{ steps.deploy-drive-v1-worker.outcome }}\`"
+            echo "- V1 serving revision: \`${{ steps.deploy-drive-v1-worker.outputs.revision || 'not_deployed' }}\`"
+            echo "- V1 serving SHA: \`${{ steps.deploy-drive-v1-worker.outputs.sha || 'not_deployed' }}\`"
+            echo "- V1 Scheduler fresh 200: \`${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 || 'false' }}\`"
             echo ""
             echo "### Deploy Timing"
             echo ""
@@ -3218,8 +3429,10 @@ jobs:
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
             --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
-            --apply --healthy --tags-only
+          if [ "${{ inputs.preserve_paused_drive_worker }}" != true ]; then
+            bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
+              --apply --healthy --tags-only
+          fi
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()

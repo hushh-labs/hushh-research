@@ -359,6 +359,50 @@
       "state_exposure": [
         "relationship state"
       ]
+    },
+    {
+      "action_id": "people.profile.request_card",
+      "label": "Request cards",
+      "meaning": "Opens a card request review for this connected person. Sending requires explicit confirmation. The owner chooses a card and duration before sharing; requesting grants no access.",
+      "aliases": [
+        "request a card",
+        "ask them to share a card"
+      ],
+      "search_keywords": [
+        "card",
+        "wallet",
+        "request",
+        "share"
+      ],
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An active connection with this person."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.request_card"
+      },
+      "control_ids": [
+        "person-profile-request-card"
+      ],
+      "state_exposure": [
+        "connection status"
+      ]
     }
   ],
   "search": {}

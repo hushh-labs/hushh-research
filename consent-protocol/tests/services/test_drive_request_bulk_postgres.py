@@ -17,9 +17,16 @@ from sqlalchemy import text
 from hushh_mcp.runtime_settings import clear_runtime_settings_caches
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_owner_search_service import (
+    DriveOwnerSearchService,
+    compile_request_queries,
+)
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_statement_plan,
+)
 from hushh_mcp.services.drive_request_payment_refunds import _claim_refunds
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_request_recovery_view import (
@@ -146,7 +153,7 @@ def request_bulk(sharing, monkeypatch):
     clear_runtime_settings_caches()
 
 
-async def _request(sharing):
+async def _request(sharing, *, purpose_text="Standup notes from last 3 months"):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
@@ -156,7 +163,7 @@ async def _request(sharing):
         client_request_id=str(uuid4()),
         expected_quote_version=1,
         purpose=ShareRequestPurpose(
-            purpose="Standup notes from last 3 months",
+            purpose=purpose_text,
             periodStart=(today - timedelta(days=90)).isoformat(),
             periodEnd=today.isoformat(),
         ),
@@ -167,7 +174,7 @@ async def _request(sharing):
 @pytest.mark.parametrize("authority", ["nontrusted", "owner_allowed", "trusted"])
 @pytest.mark.parametrize("selection_intent", ["document_coverage", "legacy"])
 async def test_unverified_candidates_payment_starts_only_after_exact_owner_approval(
-    request_bulk, sharing, authority, selection_intent
+    request_bulk, sharing, authority, selection_intent, monkeypatch
 ):
     if authority == "trusted":
         with sharing.db.engine.begin() as connection:
@@ -277,6 +284,18 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
             position=1,
             recipient_user_id="recipient",
         )
+
+    async def absent_buyer_acl(self, *, user_id, request_id, require_current, files=None):
+        # Only replace the unavailable live Drive ACL read. Exact approved
+        # source selection and current request authority still run in SQL.
+        assert files and len({file["id"] for file in files}) == len(files)
+        assert all(file["name"] and file["modifiedTime"] and file["generation"] for file in files)
+        await require_current()
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        await require_current()
+        return SimpleNamespace(status="none", request_revision=context["revision"])
+
+    monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", absent_buyer_acl)
     assert (await payment.checkout(requester_user_id="recipient", request_id=request_id))[
         "checkoutUrl"
     ] == "https://checkout.stripe.com/c/pay/cs_test_owner_approved"
@@ -326,6 +345,72 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
     await request_bulk.require_current(claim)
 
 
+@pytest.mark.asyncio
+async def test_v1_owner_selected_statement_is_checkout_source_with_unrelated_drive_candidate(
+    request_bulk, sharing
+):
+    created = await _request(sharing, purpose_text="Schwab brokerage statements from 2026")
+    request_id = created["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=2,
+        names={1: "Schwab brokerage statement September 2026", 2: "Unrelated standup notes"},
+        selection={
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        },
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+
+    sources = await request_bulk.legacy_manual_checkout_sources(
+        user_id="owner", request_id=request_id
+    )
+    assert [item["id"] for item in sources] == ["standup-file-1"]
+    assert [item["name"] for item in sources] == ["Schwab brokerage statement September 2026"]
+
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET incomplete_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await request_bulk.legacy_manual_checkout_sources(user_id="owner", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET incomplete_search=FALSE WHERE job_id=:job"),
+            {"job": search},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_bulk_shares SET approval_source='trusted_auto' WHERE share_id=:share"
+            ),
+            {"share": review["shareId"]},
+        )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await request_bulk.legacy_manual_checkout_sources(user_id="owner", request_id=request_id)
+
+
 FILE_ACTIVITY_SELECTION = {
     "request_selection_version": 2,
     "request_time_intent": "file_activity",
@@ -340,6 +425,7 @@ def _search(
     count=525,
     incomplete=False,
     shareability=None,
+    names=None,
     verified=True,
     selection=None,
 ):
@@ -349,7 +435,9 @@ def _search(
         file_id = f"standup-file-{position}"
         metadata = {
             "id": file_id,
-            "name": f"Standup notes 2026-09-{(position % 28) + 1:02d} #{position}",
+            "name": (names or {}).get(
+                position, f"Standup notes 2026-09-{(position % 28) + 1:02d} #{position}"
+            ),
             "mimeType": "application/vnd.google-apps.document",
             "modifiedTime": "2026-09-27T00:00:00Z",
             "openUrl": f"https://drive.google.com/open?id={file_id}",
@@ -2172,6 +2260,76 @@ async def test_request_start_replans_only_unfrozen_pending_legacy_search(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("history", ["legacy", "current", "frozen"])
+async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
+    request_bulk, sharing, history
+):
+    request = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "trusted-member",
+            "subject-trusted-member",
+            "trusted@example.invalid",
+            datetime.now(UTC),
+            "verified_email",
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        expected_quote_version=1,
+        purpose=ShareRequestPurpose(
+            purpose="I need Manish's Schwab brokerage statements from 2026",
+            periodStart="2026-09-01",
+            periodEnd="2026-10-09",
+        ),
+    )
+    request_id = request["requestId"]
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
+    # A real legacy checkpoint contains its original provider query. Omitting
+    # arguments altogether describes a malformed job, which must not replan.
+    selection = {"arguments": {"query": "name contains 'statement'"}}
+    if history == "current":
+        plan = _deterministic_statement_plan(context["purpose"])
+        queries, period = compile_request_queries(
+            plan.model_dump(mode="json"),
+            context["purpose"],
+            context.get("requestTimeZone") or "UTC",
+            requested_at=context["requestCreatedAt"],
+        )
+        selection = {
+            "request_coverage_query_version": 1,
+            "queries": queries,
+            "requested_period": period,
+            "request_subject_terms": plan.terms,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        }
+    old_job = _search(request_bulk, request_id=request_id, count=1, selection=selection)
+    if history == "frozen":
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=old_job,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("trusted-member", "trusted@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            selected_positions=[1],
+        )
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    _, changed = await DriveOwnerSearchService(store=store).replan_legacy_statement_request(
+        user_id="owner", request_id=request_id, context=context
+    )
+    assert changed is (history != "frozen")
+    with sharing.db.engine.begin() as connection:
+        marked = connection.execute(
+            text("SELECT v1_statement_search FROM drive_owner_search_jobs WHERE job_id=:job"),
+            {"job": old_job},
+        ).scalar_one()
+    assert marked is (history != "frozen")
+    due = await store.due(v1_only=True)
+    assert [str(row["job_id"]) for row in due] == ([old_job] if history == "legacy" else [])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("verified", [False, True])
 async def test_legacy_request_search_refresh_is_idempotent_and_preserves_review(
     request_bulk, sharing, verified
@@ -2260,6 +2418,125 @@ async def test_legacy_request_search_refresh_is_idempotent_and_preserves_review(
     )
     assert approved_status["jobId"] == approved_job
     assert approved_status["coverage"]["shareabilityVerified"] is False
+
+
+@pytest.mark.asyncio
+async def test_failed_request_replan_keeps_prior_terminal_job(request_bulk, sharing, monkeypatch):
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    prior_job = _search(request_bulk, request_id=request_id, count=1, incomplete=True)
+    store = DriveOwnerSearchStore(db=request_bulk.db)
+
+    def fail_compile(*_args, **_kwargs):
+        raise DriveReadError("invalid_argument")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_owner_search_service.compile_request_queries",
+        fail_compile,
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.create_for_request(
+            user_id="owner",
+            request_id=request_id,
+            request_revision=request["revision"],
+            purpose={
+                "purpose": "Standup notes from last 3 months",
+                "periodStart": "2026-07-01",
+                "periodEnd": "2026-10-01",
+            },
+            plan={},
+            require_current=AsyncMock(),
+        )
+
+    saved = await store.by_client(user_id="owner", client_request_id=request_id)
+    assert saved["jobId"] == prior_job and saved["status"] == "limited"
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_competing_active_job_cannot_erase_terminal_request(
+    request_bulk, sharing, monkeypatch
+):
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    prior_job = _search(request_bulk, request_id=request_id, count=1, incomplete=True)
+    store = DriveOwnerSearchStore(db=request_bulk.db)
+    checkpoint = {"arguments": {"orderBy": "modifiedTime desc"}}
+    competing, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Other active search"},
+        checkpoint=checkpoint,
+        confirmed=True,
+    )
+
+    with pytest.raises(DriveReadError, match="search_in_progress"):
+        await store.create(
+            user_id="owner",
+            client_request_id=request_id,
+            request={"query": "Standup notes from last 3 months"},
+            checkpoint=checkpoint,
+            confirmed=True,
+            replace_terminal_request=True,
+        )
+
+    saved = await store.by_client(user_id="owner", client_request_id=request_id)
+    assert saved["jobId"] == prior_job and saved["status"] == "limited"
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 1
+        )
+
+    await store.stop(user_id="owner", job_id=competing["jobId"])
+    original_seal = store._seal
+
+    def fail_seal(*_args, **_kwargs):
+        raise DriveReadError("invalid_argument")
+
+    monkeypatch.setattr(store, "_seal", fail_seal)
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await store.create(
+            user_id="owner",
+            client_request_id=request_id,
+            request={"query": "Standup notes from last 3 months"},
+            checkpoint=checkpoint,
+            confirmed=True,
+            replace_terminal_request=True,
+        )
+    monkeypatch.setattr(store, "_seal", original_seal)
+    assert (await store.by_client(user_id="owner", client_request_id=request_id))[
+        "jobId"
+    ] == prior_job
+
+    replacement, created = await store.create(
+        user_id="owner",
+        client_request_id=request_id,
+        request={"query": "Standup notes from last 3 months"},
+        checkpoint=checkpoint,
+        confirmed=True,
+        replace_terminal_request=True,
+    )
+    assert created is True and replacement["jobId"] != prior_job
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 0
+        )
 
 
 @pytest.mark.asyncio
@@ -2575,7 +2852,7 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
         )
         connection.execute(
             text("""UPDATE drive_bulk_share_effects
-            SET state='succeeded' WHERE share_id=:share AND position=1"""),
+            SET state='succeeded' WHERE share_id=:share"""),
             {"share": first["shareId"]},
         )
         request_bulk._finalize(connection, first["shareId"])
@@ -2588,6 +2865,20 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
             ).scalar_one()
             == 1
         )
+    delivery = DriveSharingService(
+        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
+        store=DriveSuggestionStore(db=sharing.db),
+        verify_recipient=AsyncMock(),
+    )
+    pending_delivery = await delivery.delivery(user_id="recipient", request_id=request_id)
+    assert pending_delivery["status"] == "pending"
+    assert pending_delivery["batchCount"] == 1
+    assert pending_delivery["fileCount"] == pending_delivery["sharedCount"] == 25
+    pending_page = await delivery.delivery_files(user_id="recipient", request_id=request_id)
+    assert pending_page["nextCursor"] is None
+    assert {file["openUrl"] for file in pending_page["files"]} == {
+        f"https://drive.google.com/file/d/standup-file-{position}/view" for position in range(1, 26)
+    }
     with request_bulk.db.engine.begin() as connection:
         first_row = request_bulk._row(
             connection,
@@ -2657,11 +2948,6 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
     assert (await sharing.request_status(user_id="owner", request_id=request_id))[
         "status"
     ] == "completed"
-    delivery = DriveSharingService(
-        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
-        store=DriveSuggestionStore(db=sharing.db),
-        verify_recipient=AsyncMock(),
-    )
     summary = await delivery.delivery(user_id="recipient", request_id=request_id)
     assert summary["fileCount"] == summary["sharedCount"] == 50
     first_page = await delivery.delivery_files(user_id="recipient", request_id=request_id)

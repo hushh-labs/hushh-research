@@ -134,6 +134,50 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
 
 
 @pytest.mark.asyncio
+async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_finance():
+    workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
+    search = _worker({"outcomes": {"completed": 1}})
+    bulk = _worker({"outcomes": {"succeeded": 1}})
+    removal = _worker({"outcomes": {"materialized": 0}})
+    checkout = _worker({"outcomes": {"ready": 1}})
+    refund = _worker({"outcomes": {"disabled": 1}})
+    payout = _worker({"outcomes": {"disabled": 1}})
+
+    result = await _drain(
+        workers,
+        search_worker=search,
+        bulk_share_worker=bulk,
+        bulk_removal_worker=removal,
+        checkout_worker=checkout,
+        refund_worker=refund,
+        owner_payout_worker=payout,
+    ).run(stage="v1")
+
+    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90, v1_only=True)
+    bulk.run.assert_awaited_once_with(max_jobs=400, deadline_seconds=80, v1_only=True)
+    removal.run.assert_awaited_once_with(max_jobs=20, deadline_seconds=45, v1_only=True)
+    checkout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
+    refund.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
+    payout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=40, v1_only=True)
+    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175, v1_only=True)
+    for index in (0, 2, 3):
+        workers[index].run.assert_not_awaited()
+    assert result["workers"] == {
+        "documents": {"deferred": 1},
+        "suggestions": {"not_claimed": 1},
+        "searches": {"completed": 1},
+        "permissions": {"deferred": 1},
+        "bulk_shares": {"succeeded": 1},
+        "bulk_removals": {"materialized": 0},
+        "checkouts": {"ready": 1},
+        "notifications": {"deferred": 1},
+        "refunds": {"disabled": 1},
+        "owner_payouts": {"disabled": 1},
+        "packet_orders": {"deferred": 1},
+    }
+
+
+@pytest.mark.asyncio
 async def test_sharing_stage_continues_notification_after_permission_failure():
     workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
     workers[2].run.side_effect = RuntimeError("private file and recipient")

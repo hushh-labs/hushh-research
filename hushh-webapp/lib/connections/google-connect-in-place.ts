@@ -368,7 +368,7 @@ export function inPlaceConnectCopy(
     },
     calendar: {
       connected: "Google Calendar connected. Ask One again to continue.",
-      not_connected: "Google Calendar was not connected.",
+      not_connected: "The requested Google Calendar permission was not enabled.",
       failed: "Unable to request Google Calendar permission.",
     },
   };

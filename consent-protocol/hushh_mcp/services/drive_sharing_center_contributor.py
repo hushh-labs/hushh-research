@@ -44,6 +44,7 @@ WITH participants AS (
       ELSE drive_share_requests.status END AS state,
     drive_share_requests.preparation_error_code,
     {owner_search_state} AS owner_search_state,
+    {owner_evaluation_state} AS owner_evaluation_state,
     {trusted_authority_ready} AS trusted_authority_ready,
     {trusted_batch_seen} AS trusted_batch_seen,
     {trusted_work_active} AS trusted_work_active,
@@ -70,16 +71,17 @@ WITH participants AS (
     {payment_owner_payout_ready} AS payment_owner_payout_ready,
     {estimate_known} AS estimate_known,
     {estimate_cents} AS estimate_cents,
-    {agent_package} AS agent_package
+    {agent_package} AS agent_package,
+    {v1_live_request} AS v1_live_request
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
     OR drive_share_requests.recipient_user_id=:user
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -144,14 +146,20 @@ _QUERIES = """
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
   SELECT CASE WHEN j.expires_at<=clock_timestamp() THEN 'expired' ELSE j.status END
   FROM drive_owner_search_jobs j
+  WHERE j.user_id=drive_share_requests.user_id
+    AND j.client_request_id=drive_share_requests.request_id
+)"""
+
+_OWNER_EVALUATION_STATE = """(
+  SELECT j.evaluation_status FROM drive_owner_search_jobs j
   WHERE j.user_id=drive_share_requests.user_id
     AND j.client_request_id=drive_share_requests.request_id
 )"""
@@ -347,6 +355,8 @@ def _projection(
     payout_projection: bool = False,
     estimate: bool = False,
     packages: bool = False,
+    v1_live: bool = False,
+    evaluations: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -356,7 +366,11 @@ def _projection(
     )
     for name, expression in {
         "agent_package": "drive_share_requests.agent_package_required" if packages else "FALSE",
+        "v1_live_request": "drive_share_requests.v1_live_request" if v1_live else "FALSE",
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
+        "owner_evaluation_state": _OWNER_EVALUATION_STATE
+        if owner_search and evaluations
+        else "NULL::text",
         "trusted_authority_ready": _trusted_authority_ready(owner_allowed)
         if background
         else "FALSE",
@@ -481,6 +495,7 @@ def entry(row: Any) -> dict[str, Any]:
         return _query_entry(row)
     preparation_code = row.get("preparation_error_code")
     search_state = row.get("owner_search_state")
+    evaluation_state = row.get("owner_evaluation_state")
     # Once the first Google grant succeeds, the same still-running request
     # moves to active_grants for access management. Keep its progress metadata.
     request_open = (
@@ -531,7 +546,37 @@ def entry(row: Any) -> dict[str, Any]:
     live_search = search_state in {"queued", "running"} or (
         search_state == "completed" and row.get("trusted_work_active") is True
     )
-    automatic_progressing = bool(
+    # V1 checks content before payment for both Trusted and owner-reviewed
+    # requests. A running search/evaluation is not yet an owner decision.
+    # This is presentation state, never sharing authority.
+    v1_checking = bool(
+        request_open
+        and row.get("v1_live_request") is True
+        and row.get("agent_package") is True
+        and row.get("owner_allowed") is not True
+        and row.get("payment_status")
+        not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        and row.get("payment_reconciliation_required") is not True
+        and row.get("trusted_recovery_needed") is not True
+        and (
+            search_state in {"queued", "running"}
+            or search_state == "completed"
+            and evaluation_state in {"pending", "running"}
+        )
+    )
+    v1_unavailable = bool(
+        request_open
+        and row.get("v1_live_request") is True
+        and row.get("agent_package") is True
+        and row.get("owner_allowed") is not True
+        and row.get("payment_status") is None
+        and (
+            search_state in {"failed", "limited", "stopped", "expired"}
+            or search_state == "completed"
+            and evaluation_state in {"failed", "obsolete"}
+        )
+    )
+    legacy_progressing = bool(
         request_open
         and row.get("payment_status")
         not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
@@ -546,17 +591,18 @@ def entry(row: Any) -> dict[str, Any]:
             and live_search
         )
     )
-    automatic_stage = (
-        (
-            "sharing"
+    automatic_progressing = v1_checking or legacy_progressing
+    automatic_stage = None
+    if automatic_progressing:
+        automatic_stage = (
+            "checking"
+            if v1_checking
+            else "sharing"
             if row.get("trusted_batch_seen") is True
             else "finding"
             if search_state in {"queued", "running", "completed"}
             else "preparing"
         )
-        if automatic_progressing
-        else None
-    )
     # Allow/Deny belongs only to the owner's own open request task.
     owner_decision_available = bool(
         row["direction"] == "incoming"
@@ -616,6 +662,7 @@ def entry(row: Any) -> dict[str, Any]:
                 and row["bucket"] == "incoming_requests"
                 and not row.get("access_stopped")
                 and not automatic_progressing
+                and not v1_unavailable
                 and (not owner_payment_blocked or payout_setup_required or setup_waiting)
             ),
             "owner_decision_available": owner_decision_available,
@@ -629,6 +676,8 @@ def entry(row: Any) -> dict[str, Any]:
                 and row.get("owner_payout_account_ready") is True
             ),
             "owner_allowed": row.get("owner_allowed") is True,
+            **({"v1_live_request": True} if row.get("v1_live_request") is True else {}),
+            **({"v1_evaluation_unavailable": True} if v1_unavailable else {}),
             **({"agent_package": True} if row.get("agent_package") is True else {}),
             **(
                 {"payment_required": row.get("payment_required") is True}
@@ -769,6 +818,8 @@ class _ProjectionCapabilities:
     payout_projection: bool
     estimate: bool
     packages: bool
+    v1_live: bool
+    evaluations: bool
 
 
 _CAPABILITY_SQL = """
@@ -811,7 +862,13 @@ SELECT
                     AND attname='initial_quote_cents' AND NOT attisdropped)) AS estimate,
   (EXISTS (SELECT 1 FROM pg_attribute
             WHERE attrelid=to_regclass('drive_share_requests')
-              AND attname='agent_package_required' AND NOT attisdropped)) AS packages
+              AND attname='agent_package_required' AND NOT attisdropped)) AS packages,
+  (EXISTS (SELECT 1 FROM pg_attribute
+            WHERE attrelid=to_regclass('drive_share_requests')
+              AND attname='v1_live_request' AND NOT attisdropped)) AS v1_live,
+  (EXISTS (SELECT 1 FROM pg_attribute
+            WHERE attrelid=to_regclass('drive_owner_search_jobs')
+              AND attname='evaluation_status' AND NOT attisdropped)) AS evaluations
 """
 
 
@@ -861,6 +918,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         capabilities.pricing,
                         capabilities.payout_projection,
                         packages=capabilities.packages,
+                        v1_live=capabilities.v1_live,
+                        evaluations=capabilities.evaluations,
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -902,6 +961,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             capabilities.payout_projection,
                             capabilities.estimate,
                             packages=capabilities.packages,
+                            v1_live=capabilities.v1_live,
+                            evaluations=capabilities.evaluations,
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -958,6 +1019,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         capabilities.payout_projection,
                         capabilities.estimate,
                         packages=capabilities.packages,
+                        v1_live=capabilities.v1_live,
+                        evaluations=capabilities.evaluations,
                     )  # nosec B608
                     + """
                     , ranked AS (

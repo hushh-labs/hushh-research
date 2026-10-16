@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 350,
+  "expected_migration_version": 358,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -91,7 +91,10 @@
     "one_referral_bind_network",
     "one_referral_record_completed_reply",
     "one_referral_rebuild_network",
-    "one_referral_record_confirmed_memory_reward"
+    "one_referral_record_confirmed_memory_reward",
+    "guard_wallet_card_request",
+    "mirror_drive_request_payment_obligation",
+    "mark_drive_bulk_share_v1_removal_source"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -247,7 +250,11 @@
       "image_iv",
       "request_digest",
       "created_at",
-      "notification_previews"
+      "notification_previews",
+      "reply_to_message_id",
+      "revision",
+      "edited_at",
+      "deleted_for_everyone_at"
     ],
     "circle_chat_preferences": [
       "circle_id",
@@ -270,7 +277,8 @@
       "feed_event_id",
       "push_status",
       "push_attempts",
-      "push_due_at"
+      "push_due_at",
+      "deleted_at"
     ],
     "connected_documents": [
       "document_id",
@@ -822,7 +830,8 @@
       "stopped_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "v1_statement_search"
     ],
     "drive_collection_sync": [
       "user_id",
@@ -988,7 +997,8 @@
       "evaluation_status",
       "evaluation_next_at",
       "evaluation_attempts",
-      "evaluation_error_code"
+      "evaluation_error_code",
+      "v1_statement_search"
     ],
     "drive_owner_search_results": [
       "job_id",
@@ -1113,7 +1123,8 @@
       "next_at",
       "safe_error_code",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "v1_statement_search"
     ],
     "drive_request_owner_payouts": [
       "request_id",
@@ -1156,7 +1167,8 @@
       "wallet_id",
       "sandbox_wallet_id",
       "credited_at",
-      "held_at"
+      "held_at",
+      "v1_statement_search"
     ],
     "drive_request_owner_pricing": [
       "user_id",
@@ -1183,7 +1195,8 @@
       "created_at",
       "updated_at",
       "stripe_mode",
-      "settlement_method"
+      "settlement_method",
+      "v1_statement_search"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -2376,6 +2389,24 @@
       "recorded_at",
       "dashboard_visited_at"
     ],
+    "one_referral_circle_contributions": [
+      "relationship_id",
+      "round_id",
+      "selection_id"
+    ],
+    "one_referral_circle_selections": [
+      "id",
+      "user_id",
+      "circle_id",
+      "round_id",
+      "selected_at",
+      "ended_at"
+    ],
+    "one_referral_circle_teams": [
+      "round_id",
+      "circle_id",
+      "team_key"
+    ],
     "one_referral_events": [
       "scored_at"
     ],
@@ -2405,6 +2436,10 @@
     ],
     "one_referral_score_events": [
       "coins"
+    ],
+    "one_referral_scoring_jobs": [
+      "job_id",
+      "circle_selection_id"
     ],
     "one_referral_streak_state": [
       "last_activity_date",
@@ -3274,6 +3309,19 @@
       "source_commit_id",
       "source_projection",
       "source_projection_revision"
+    ],
+    "wallet_card_requests": [
+      "id",
+      "requester_user_id",
+      "target_user_id",
+      "client_request_id",
+      "message_id",
+      "status",
+      "created_at",
+      "expires_at",
+      "resolved_at",
+      "payment_grant_id",
+      "profile_grant_id"
     ],
     "wallet_card_share_requests": [
       "owner_user_id",

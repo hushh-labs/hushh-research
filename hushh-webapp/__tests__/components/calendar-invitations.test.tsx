@@ -7,6 +7,8 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 import { CalendarInvitations } from "@/components/calendar/calendar-invitations";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { CacheService } from "@/lib/services/cache-service";
+import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import type { CalendarInvitation } from "@/lib/services/google-calendar-service";
 
@@ -20,6 +22,8 @@ const mutations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path)
 const preparations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).endsWith("/attendance/review"));
 
 beforeEach(() => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
+  CacheService.getInstance().clear();
   vi.clearAllMocks(); mock.token = "synthetic-owner";
   invitations = [structuredClone(pending), { ...structuredClone(pending), id: "declined", title: "Declined Review", response_status: "declined" }];
   outcome = { calendar: "accepted", email: "not_sent", calendar_error: null, email_error: null };
@@ -34,7 +38,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request ${path}`);
   });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("shared page/chat Invitations with real typed transport", () => {
   it("loads owner-bound upcoming invitations and filters pending/responded/all", async () => {
@@ -73,8 +77,8 @@ describe("shared page/chat Invitations with real typed transport", () => {
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm decline" }));
     expect(await screen.findByText("Your attendance was declined.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Invitations", exact: true }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
     expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
   });
@@ -126,4 +130,95 @@ it("replaces the selected chat review when a later request chooses another invit
   expect(screen.getByLabelText("Alternative start time")).toHaveValue("15:00");
   expect(screen.getByRole("textbox", { name: "Message to organiser" })).toHaveValue("Friday afternoon, please.");
   expect(mutations()).toHaveLength(0);
+});
+
+
+it("reuses a warm invitation snapshot immediately on tab remount", async () => {
+  const getIdToken = vi.fn(async () => "synthetic-firebase");
+  const first = render(view({ workspaceLayout: true, getIdToken }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  render(view({ workspaceLayout: true, getIdToken }));
+  expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "Invitations loading" })).not.toBeInTheDocument();
+  expect(getIdToken).toHaveBeenCalledTimes(1);
+  expect(mock.apiFetch).toHaveBeenCalledTimes(1);
+});
+
+it("invalidates snapshots for changes made while the tab is unmounted", async () => {
+  const first = render(view({ workspaceLayout: true }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  invitations[0]!.response_status = "accepted";
+  act(() => notifyCalendarChanged("owner"));
+  render(view({ workspaceLayout: true, initialFilter: "responded" }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  expect(mock.apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it("filters each selected local date, including an empty date, without a placeholder", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
+  invitations.push({ ...structuredClone(pending), id: "tomorrow", title: "Tomorrow Sync", start: { dateTime: "2030-10-15T10:00:00Z" }, end: { dateTime: "2030-10-15T10:45:00Z" } });
+  render(view({ workspaceLayout: true }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  expect(screen.queryByText("Select an invitation to see its details.")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Open invitation: Tomorrow Sync" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  await screen.findByRole("button", { name: "Open invitation: Tomorrow Sync" });
+  expect(screen.queryByRole("button", { name: "Open invitation: Client Sync" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  await screen.findByText("No pending invitations on this date.");
+  expect(screen.getByRole("button", { name: "Previous day" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
+  expect(screen.getByRole("button", { name: "Open invitation: Tomorrow Sync" })).toBeInTheDocument();
+  vi.restoreAllMocks();
+});
+
+it("isolates cached invitations by owner, account and session", async () => {
+  const first = render(view({ workspaceLayout: true }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  mock.apiFetch.mockImplementation(() => new Promise(() => {}));
+  const other = render(view({ workspaceLayout: true, userId: "another-owner", accountEmail: "another@example.test" }));
+  expect(screen.queryByRole("button", { name: "Open invitation: Client Sync" })).not.toBeInTheDocument();
+  other.unmount();
+  act(() => advanceVaultSessionEpoch());
+  render(view({ workspaceLayout: true }));
+  expect(screen.queryByRole("button", { name: "Open invitation: Client Sync" })).not.toBeInTheDocument();
+});
+
+it("retains expired rows while refreshing and uses the selected time zone", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
+  invitations = [{ ...structuredClone(pending), start: { dateTime: "2030-10-13T23:30:00Z" } }];
+  const first = render(view({ workspaceLayout: true, zone: "Asia/Kolkata" }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  now.mockReturnValue(Date.parse("2030-10-14T09:02:00Z"));
+  mock.apiFetch.mockImplementation(() => new Promise(() => {}));
+  render(view({ workspaceLayout: true, zone: "Asia/Kolkata" }));
+  expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "Invitations loading" })).not.toBeInTheDocument();
+  await waitFor(() => expect(mock.apiFetch).toHaveBeenCalledTimes(2));
+  vi.restoreAllMocks();
+});
+
+
+it("includes multi-day invitations on overlapping dates and excludes their end date", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
+  invitations = [{ ...structuredClone(pending), start: { date: "2030-10-13" }, end: { date: "2030-10-15" } }];
+  render(view({ workspaceLayout: true }));
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+  await screen.findByText("No pending invitations on this date.");
+  vi.restoreAllMocks();
+});
+
+
+it("keeps explicit chat invitation requests live instead of using tab snapshots", async () => {
+  const first = render(view());
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  render(view());
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  expect(mock.apiFetch).toHaveBeenCalledTimes(2);
 });

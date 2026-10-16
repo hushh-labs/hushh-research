@@ -9,6 +9,7 @@ import { buildWalletCardSvg, walletCardImageFields, walletCardImageKey, NWS_SAMP
 import styles from "./wallet-demo-cards.module.css";
 
 export type WalletDemoProfile = {
+  presentation?: "shared";
   ownerId?: string;
   shareToken?: string | null;
   displayName: string | null;
@@ -88,8 +89,8 @@ function WalletAgentCardImage({ kind, name, profile, onArtworkLoad }: {
       {kind === "nws" ? <span className="sr-only">{NWS_SAMPLE_DESCRIPTION}</span> : null}
       <dl className="sr-only">
         <div><dt>Name</dt><dd>{fields.username}</dd></div>
-        <div><dt>Member since</dt><dd>{fields.memberSince}</dd></div>
-        <div><dt>Wallet ID</dt><dd>{fields.walletId}</dd></div>
+        {fields.memberSince ? <div><dt>Member since</dt><dd>{fields.memberSince}</dd></div> : null}
+        {fields.walletId ? <div><dt>Wallet ID</dt><dd>{fields.walletId}</dd></div> : null}
       </dl>
     </div>
   </div>;

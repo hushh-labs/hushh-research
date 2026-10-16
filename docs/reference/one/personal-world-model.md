@@ -40,7 +40,7 @@ Findings are grouped into seven display sections: About, Work, Education, Projec
 - **Edit** saves only the owner's corrected wording.
 - **Remove** deletes the saved statement and keeps it removed after sign-out and sign-in.
 
-Native Google search suggestions stay displayed with the grounded findings they belong to. **Invite someone** is a later, separate action shown only once the model is usable, never while preparing or empty. The invitation claim block stays reachable on the page in every state. An invitation may carry selected, cited public professional facts from an independently supplied profile URL. It never grants the inviter access to the recipient’s full model.
+Native Google search suggestions stay displayed with the grounded findings they belong to. **Invite someone** is a later, separate action shown only once the model is usable, never while preparing or empty. The invitation claim block stays reachable on the page in every state. The inviter enters a name and an email, phone, or both; no public profile URL is required. Either supplied contact may be used to claim after verification. Full research starts under the recipient's own account and remains under their control. Older invitation links may still carry selected, cited public professional preview facts. Claiming never grants the inviter access to the recipient’s model.
 
 ### Easy user stories
 
@@ -49,25 +49,26 @@ Native Google search suggestions stay displayed with the grounded findings they 
 3. **Find preferences.** Alex explicitly says “blue is my favorite color” in an attributed public interview. That can be proposed with its citation. Wearing blue, buying a gift, or requesting fewer ads does not prove a durable preference or dislike.
 4. **Find little information.** Public search finds no reliably linked sources. The page explains that limitation. It does not fill empty sections with guesses.
 5. **Keep control.** Alex taps No on a wrong fact; it does not come back and nothing opposite is saved. Alex corrects another with Edit and later removes it; it stays removed after signing in again. Research itself writes no approved memory.
-6. **Invite Sam.** Once Alex's model is usable, Alex creates a link bound to Sam's email or international phone. Alex first prepares and checks a public professional preview. Sam can inspect it before claiming, then verifies the matching contact and claims it. Sam's own model is prepared automatically after Sam's setup unless Sam turned research off. Claiming shares nothing with Alex.
+6. **Invite Sam.** Once Alex's model is usable, Alex enters Sam's name, email and international phone. The link is bound to both contacts, and Sam can use either verified contact to claim it. Sam's own model prepares automatically after setup unless Sam turned research off. Claiming shares nothing with Alex; the inviter does not receive Sam's private findings.
 
 ## Exact prompt and models
 
 The single authored system instruction is the `one_personal_world_model.system_instruction` block in [the One manifest](../../../consent-protocol/hushh_mcp/agents/one/agent.yaml). Python loads this manifest; it contains no duplicate system prompt. The generated product-agent registries describe the same specialist. The instruction also tells the specialist not to propose again any claim in the owner's confirmed or rejected decisions, or an equivalent of one, and never to infer the opposite of a rejected claim. The model decides equivalence; host code does not.
 
-The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.6-flash`**, with medium thinking and a 16,384-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** reads independently supplied permitted public URLs for reviewable facts. Google research and saved owner knowledge have separate source-use contracts.
+The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-flash`**, with medium thinking and a 32,768-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** remains available for separately supplied owner pages; it is no longer needed to create an invitation. Google research and saved owner knowledge have separate source-use contracts.
 
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
-| Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
-| Production | `hushh-vertex-personal54` | same | same | same |
+| Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Dev / UAT / Production | `hushh-gemini-bridge` | same | same | same |
 
-UAT sharing production's project is a stopgap while `hussh-511311` is suspended for billing: UAT traffic draws on production's Vertex quota, so move UAT back to its own project once that billing is restored.
+The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 
-Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
+The release configuration disables automatic world-model research with `ONE_PROFILE_RESEARCH_ENABLED=false`; UAT deployments default the corresponding repository variable to false. This stops new research and resumes without deleting encrypted drafts or changing ordinary chat. The notification scheduler alone does not stop generation. Drive background processing is separately paused with `DRIVE_WORK_DRAIN_UAT_ENABLED=false`: both API and worker drains remain disabled and the three retained Drive jobs remain paused during release; stored files and queued work are preserved.
+
+The default 3.8 text model uses the verified `global` endpoint; Live remains regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 
 Change the checked-in environment profile and deploy its revision. The compiler and runtime share validation and a normalized configuration hash. Candidate readiness compares the image's hash and exercises the configured text and enabled Live targets. The runtime config CI contract rejects managed environment reads outside the canonical settings boundary. Local development retains explicit overrides; hosted runtimes use the packaged profile and ignore retired per-surface project overrides.
 
@@ -82,7 +83,7 @@ These are stages of one manifest-backed specialist, not six independent services
 5. Inspect contradictions, dates, namesakes, and mirrored sources.
 6. Return a decision with a plain-English reason before broad coverage.
 
-Identity states are `owner_linked`, `candidate_for_review`, `ambiguous`, and `no_match`. The report maps these to matched/uncertain/no-match. **Probability stays null:** no calibrated identity estimator has been validated. Each fact independently has supported, uncertain, or conflicting evidence. Strong fact support does not establish that its subject is the owner.
+Identity states are `owner_linked`, `candidate_for_review`, `ambiguous`, and `no_match`. The report maps these to matched/uncertain/no-match. **Probability stays null:** no calibrated identity estimator has been validated. Each fact carries the model's supported, uncertain, or conflicting label. The host computes a separate 1–4 **source-trail review score** from received citations, source-host diversity, identity state and conservative topic caps. A citation receipt does not prove that the page supports the claim, so the UI shows the source trail and asks the owner to check it. Strong fact support does not establish that its subject is the owner.
 
 Six baselines describe the reasoning process, not a six-query limit. Overall host-enforced bounds are 32 search invocations and 128 logical model calls across resumable slices. One search invocation may issue multiple Google queries; this is not a billable-query cap. Regional failover can make additional provider requests within a logical model call. Python enforces authority, budgets, receipts, schema, and deadlines. Semantic linkage and interpretation belong to the LLM and owner review.
 
@@ -113,7 +114,7 @@ The model contract keeps these twenty topics. The page groups them for display o
 | Public records | Non-sensitive professional registries |
 | Security | Reserved for authorized breach metadata; adapter not implemented |
 
-Each section permits up to eight facts with one to three exact source references. Empty categories are omitted. Topic coverage is a checklist, not a claim that information exists or every platform was searched. Private family relationships, children's dossiers, criminal allegations, sensitive inferences, private accounts, and stolen credentials are outside this public-web discovery endpoint.
+PWM permits up to 40 distinct facts per topic and 269 across the whole report, with one to three exact source references per fact. This is a ceiling, never a target: the prompt forbids filler, repeated identifier fragments, inferred preferences from professional work and claims of safety from missing search hits. The UI shows every received point as a Yes/No review row with source detail. Empty categories are omitted. Topic coverage is a checklist, not a claim that information exists or every platform was searched. Private family relationships, children's dossiers, criminal allegations, sensitive inferences, private accounts, and stolen credentials are outside this public-web discovery endpoint.
 
 ### How advertising preferences relate
 
@@ -133,11 +134,11 @@ Owner endpoints require an authenticated owner token and the unlocked-vault deri
 | `DELETE /api/one/world-model/jobs?draft_id=…` | Discard that draft generation |
 | `GET/PUT /api/one/world-model/preferences` | Read/update the research off switch and readiness-email preference |
 | `POST /api/one/world-model/ensure` | Create the default preference once setup is resolved, then idempotently prepare or resume |
-| `POST/GET/DELETE /api/one/world-model/source-reviews` | Prepare/read/discard a separate independently supplied source draft |
+| `POST/GET/DELETE /api/one/world-model/source-reviews` | Optional owner-supplied source review; automatic PWM and invitations do not require it |
 | `POST /api/one/world-model/source-reviews/complete` | Verify acknowledged owner PKM receipts for that source draft |
 | `POST /api/one/world-model/invitation-preview` | Token-authorized public professional preview, without full-model authority |
 | `POST /api/one/world-model/invitations/reject` | Verified intended recipient deletes the unclaimed invitation |
-| `POST/GET /api/one/world-model/invitations` | Create/list the owner's invitations |
+| `POST/GET /api/one/world-model/invitations` | Create/list a contact-bound invitation; an optional second contact may claim the same link |
 | `DELETE /api/one/world-model/invitations/{id}` | Revoke an invitation |
 | `POST /api/one/world-model/claims` | Match verified recipient contact and record explicit claim consent |
 
@@ -164,15 +165,15 @@ Name and at least one verified contact are required. Phone uses E.164. Every sup
 }
 ```
 
-Each list holds at most 50 statements of 1 to 600 characters. The server stores them in the sealed, chat-key-encrypted job state under `inputs`, carries them across resumes, and passes them to the specialist as data. The client separately hides any draft statement whose claim key is already decided; that is an exact-key match only.
+Each list holds at most 269 statements of 1 to 600 characters. The server stores them in the sealed, chat-key-encrypted job state under `inputs`, carries them across resumes, and passes them to the specialist as data. The client separately hides any draft statement whose claim key is already decided; that is an exact-key match only.
 
-A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `research.checked_topics`, `research.gaps`, `research.searches_used`, and `pkm_written: false`. Missing configuration or failure before any successful search yields unavailable, not proof that no information exists. Later search failures may produce a partial cited draft with gaps.
+A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `research.checked_topics`, `research.gaps`, `research.searches_used`, and `pkm_written: false`. Missing configuration or failure before any successful search yields unavailable, not proof that no information exists. Pending, paused, and unavailable results may also carry `validated_facts`: provisional, cited, candidate-bound findings from the encrypted checkpoint. The owner-only SSE stream sends a cumulative `partial` frame when that list changes; an empty list revokes earlier provisional findings. These findings are read-only until the complete report passes its evidence checks. The UI shows observed search/source counts instead of a synthetic completion percentage, and retains the latest checkpoint summary during a retry.
 
 The specialist deadline is 240 seconds; the job deadline is 270 seconds. The existing derived key's lifetime remains bounded to 300 seconds. Search calls currently execute serially. Attempt slots are charged durably before dispatch and survive retries and identity edits within the checkpoint budget window. Native search receipts, assessed candidates and topic attempts are checkpointed before the next dependent step. A slice ends before the existing 300-second key authority expires; the app-wide provider's next `ensure` or `/jobs` call from an active owner session resumes the same generation. No key is persisted to run indefinitely after sign-out. An interrupted closed app resumes after the next vault unlock. Full unattended processing after key expiry would require a separately designed processing grant; this release does not claim it.
 
 `managed-ai-runtime.json.pwm_research` declares providers, search/model limits, slice/job/lease durations, preview bounds and notification scheduler identity. Secret-free native Vertex ADC remains the provider authority. Migration 340's old Tavily accounting table remains for migration compatibility, with no active PWM reader or writer. Native research uses the durable per-generation search and model limits above; it does not claim the legacy 900-credit monthly ceiling.
 
-The readiness email is on by default and can be turned off. It uses the existing Workspace mail adapter, not another email provider. A metadata-only outbox is committed with the encrypted draft; a database trigger creates one Feed projection, and at most one email is sent per draft. The email links to the Personal World Model page and does not refer to a settings screen. Failure-to-success retries update that same row without resetting read/dismiss state. Email leases, generation checks, owner preferences and current checkpoint checks prevent duplicate/stale dispatch. Uncertain delivery is not blindly retried. UAT uses the configured test inbox; if that test configuration is absent, email is suppressed. A dedicated OIDC Cloud Scheduler endpoint wakes a bounded drain after scale-to-zero. Provisioning is part of the UAT release and remains behind the feature switch.
+The readiness email is on by default and can be turned off. It uses the existing Workspace mail adapter, not another email provider. A metadata-only completion record is committed with the encrypted draft; only a ready or partial offered report leaves an actionable Feed projection. Failed, insufficient-identity, and empty drafts retain internal attention records without a visible Feed item or email. A later promotion of the same draft removes any historical attention projection before creating a fresh reviewable Feed item, so dismissing an old failure cannot hide real findings. At most one email is sent per draft. The email links to the Personal World Model page and does not refer to a settings screen. Email leases, generation checks, owner preferences and current checkpoint checks prevent duplicate/stale dispatch. Uncertain delivery is not blindly retried. UAT uses the configured test inbox; if that test configuration is absent, email is suppressed. A dedicated OIDC Cloud Scheduler endpoint wakes a bounded drain after scale-to-zero. Provisioning is part of the UAT release and remains behind the feature switch.
 
 
 ## State, save, reset, and invitations
@@ -192,7 +193,7 @@ Private metadata `_pwm_claims`, keyed by `pwmClaimKey(statement)`, is stored bes
 
 Account deletion removes `one_memory` with the rest of the owner's encrypted PKM, the `one_adk_sessions` research checkpoints, the research preference row and invitation state.
 
-Invitation storage contains a random token hash, keyed contact commitment and optional AES-GCM encrypted professional preview. Its key is derived from the random invitation token and bound to the invitation ID. Raw contact, token and plaintext preview are not stored. New links open the public `/world-model/invite` preview with the token in the URL fragment. Login, phone verification, setup and vault continuation preserve the invitation destination. Links expire in seven days, with at most twenty pending invitations per inviter. Claims verify the intended contact under the shared graph lock, transfer the preview into the recipient’s encrypted source-review checkpoint in the same transaction, and erase transferable ciphertext. Repeated claims by the same recipient are idempotent. Rejection, revocation, reset and deletion remove invitation state. After claiming, the recipient's own model is prepared automatically unless they turned research off; sharing is a separate action.
+Invitation storage contains a random token hash, one or two keyed contact commitments and an optional AES-GCM encrypted inviter-supplied name or legacy professional preview. Its key is derived from the random invitation token and bound to the invitation ID. Raw contacts, token and plaintext name/preview are not stored. New links open `/world-model/invite` with the token in the URL fragment. Login, phone verification, setup and vault continuation preserve the invitation destination. Links expire in seven days, with at most twenty pending invitations per inviter. Claims verify either intended contact under the shared graph lock; a legacy professional preview transfers to the recipient’s encrypted source-review checkpoint, while a name-only invitation transfers no findings. Repeated claims by the same recipient are idempotent. Rejection, revocation, reset and deletion remove invitation state. After claiming, the recipient's own model is prepared automatically unless they turned research off; sharing is a separate action.
 
 Native Google results never enter memory as grounded content; only the owner's declaration from a Yes or Edit is saved. Only independently supplied permitted source drafts use `profile_review_v1`; checked/edited facts and their exact sources pass through the existing review and acknowledged-save contract. A provider receipt without successful retrieval cannot support a source fact.
 
@@ -213,7 +214,7 @@ The current page is a sectioned fact/source list, not an interactive graph. Auth
 ## Source and exposure references
 
 - [Google Search grounding](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/grounding/grounding-with-google-search) and [URL Context](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/url-context): native retrieval capabilities and receipt/display requirements.
-- [Dedupe active labeling](https://docs.dedupe.io/en/latest/API-documentation.html), [Splink evaluation](https://moj-analytical-services.github.io/splink/api_docs/evaluation.html), and [confidence calibration](https://proceedings.mlr.press/v70/guo17a.html): references for future labeled evaluation. PWM currently uses explicit evidence states; it does not present an uncalibrated score as probability.
+- [Dedupe active labeling](https://docs.dedupe.io/en/latest/API-documentation.html), [Splink evaluation](https://moj-analytical-services.github.io/splink/api_docs/evaluation.html), and [confidence calibration](https://proceedings.mlr.press/v70/guo17a.html): references for future labeled evaluation. PWM's deterministic source-trail score is capped at 4 and is not a calibrated probability or a claim verification.
 - [Google Cloud service terms](https://cloud.google.com/terms/service-terms): grounding reuse has specific restrictions; owner confirmation alone does not remove provider restrictions.
 - [Wikidata access and CC0](https://www.wikidata.org/wiki/Wikidata:Data_access), [Crossref REST metadata](https://www.crossref.org/documentation/retrieve-metadata/rest-api/), and [GitHub public users API](https://docs.github.com/en/rest/users/users#get-a-user): candidates for future direct-source adapters, not wired into this release.
 - [Have I Been Pwned API](https://haveibeenpwned.com/API/v3): future authorized exact-identifier breach metadata checks; no collection or display of leaked passwords/tokens. No provider configured means unavailable. “No hit” never means never breached or currently safe.
@@ -232,7 +233,7 @@ See the PR and its exact-commit CI for final verification. Contract/unit tests c
 - Decision checks: Yes saves the exact statement; No writes no bullet and never an opposite; Edit saves only the corrected wording; Remove stays removed after reload; `_pwm_claims` survives other Soul.md writers and is excluded from model memory context; a failed commit shows no success; retries are idempotent.
 - Default-on checks: `ensure` creates a missing preference only after setup is resolved and never flips an explicit opt-out; `owner_decisions` are bounded and carried in the sealed job state across resumes.
 
-User checks on the deployed UAT revision: finish setup and unlock; navigate elsewhere and return while preparation continues; open the Feed item and the email link; open Personal World Model from Profile; tap Yes, No, Edit and Remove, then sign out and in and confirm each decision held; turn research off and confirm it stays off; add an independently supplied profile URL and save only one checked fact; prepare a professional preview and claim it with the intended verified contact; reject another invitation. No automatic PWM chat messages should appear. Live source quality and p50/p95 improvements are not claimed from unit tests.
+User checks on the deployed UAT revision: finish setup and unlock; navigate elsewhere and return while preparation continues; open the Feed item and the email link; open Personal World Model from Profile; inspect the source trail; tap Yes, No, Edit and Remove, then sign out and in and confirm each decision held; turn research off and confirm it stays off; invite someone using a name plus email and phone, claim through either verified contact, and reject another invitation. No automatic PWM chat messages should appear. Live source quality and p50/p95 improvements are not claimed from unit tests.
 
 ## Profile presentation
 
