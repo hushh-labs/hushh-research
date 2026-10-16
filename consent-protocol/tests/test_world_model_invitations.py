@@ -420,7 +420,11 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             )
             assert research_preferences.public_preferences(row)["enabled"] is False
             await research_preferences.update_preferences(
-                "wrong", "fixture", enabled=True, email_enabled=True
+                "wrong",
+                "fixture",
+                enabled=True,
+                email_enabled=True,
+                consent_version=research_preferences.AZURE_BING_CONSENT_VERSION,
             )
             opted_in = dict(await pool.fetchrow(enrolled))
             assert opted_in["consent_version"] == "pwm-azure-bing-v1"
