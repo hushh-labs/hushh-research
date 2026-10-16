@@ -903,9 +903,11 @@ async def test_collection_source_version_change_cancels_old_ingestion(collection
     assert (await ingestion.page_progress(replacement, source_version="2"))["next_page"] == 1
 
 
-async def test_collection_bootstrap_captures_token_and_replays_new_files(collection):
+async def test_collection_bootstrap_captures_token_and_replays_new_files(collection, monkeypatch):
+    import base64
     from dataclasses import asdict
 
+    from hushh_mcp.services import drive_collection_store
     from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
     from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
 
@@ -949,7 +951,18 @@ async def test_collection_bootstrap_captures_token_and_replays_new_files(collect
     adapter.collection_files.assert_not_awaited()
     assert await sync.run_one(user_id="owner") == {"status": "queued"}
     assert await sync.run_one(user_id="owner") == {"status": "queued"}
-    assert await sync.run_one(user_id="owner") == {"status": "synced"}
+
+    def collision_nonce(size):
+        assert size == 12
+        return base64.b64decode("endAAAAAAAAAAAAA", validate=True)
+
+    # A valid encrypted envelope may contain the provider token by coincidence.
+    # Scope the deterministic nonce to this single synthetic checkpoint write.
+    with monkeypatch.context() as crypto_patch:
+        crypto_patch.setattr(
+            drive_collection_store, "secrets", SimpleNamespace(token_bytes=collision_nonce)
+        )
+        assert await sync.run_one(user_id="owner") == {"status": "synced"}
     adapter.collection_changes.assert_awaited_once_with(
         access_token="synthetic", page_token="start"
     )
@@ -958,7 +971,10 @@ async def test_collection_bootstrap_captures_token_and_replays_new_files(collect
     assert status["initialCompletedAt"] is None
     with collection.db.engine.connect() as conn:
         stored = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
-        assert "end" not in str(stored["checkpoint_envelope"])
+        envelope = stored["checkpoint_envelope"]
+        assert set(envelope) == {"version", "iv", "ciphertext"}
+        assert envelope["version"] == 1
+        assert envelope["iv"] == "endAAAAAAAAAAAAA"
         assert collection.checkpoint(dict(stored))["changes_token"] == "end"
 
 
