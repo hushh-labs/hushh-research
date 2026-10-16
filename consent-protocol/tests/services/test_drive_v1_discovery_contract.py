@@ -15,7 +15,11 @@ from hushh_mcp.services.drive_owner_search_service import (
     compile_request_queries,
 )
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_request_bulk_service import _deterministic_statement_plan
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_meeting_note_plan,
+    _deterministic_statement_plan,
+)
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import LIVE_SUPPORTED_TYPES, DriveReadError
 from tests.services.test_drive_owner_search_postgres import (  # noqa: F401
@@ -98,14 +102,76 @@ def test_meeting_notes_expand_to_sync_and_standup_without_using_file_dates():
     assert all(
         "modifiedTime >=" not in query and "createdTime >=" not in query for query in compiled
     )
-    assert len(queries) <= 5
-    structural = compiled[-1]
-    assert "fullText" not in structural and "title" not in structural
-    assert all(f"mimeType = '{mime}'" in structural for mime in LIVE_SUPPORTED_TYPES)
+    assert len(queries) == 2
+    assert "fullText" in compiled[0]
+    assert "fullText" not in compiled[1]
+    assert "name contains 'meeting'" in compiled[1]
+
+
+def test_v1_meeting_note_plan_is_stable_and_document_scoped():
+    purpose = {
+        "purpose": "3 months of meeting notes",
+        "periodStart": "2026-09-02",
+        "periodEnd": "2026-10-02",
+    }
+    plan = _deterministic_meeting_note_plan(purpose)
+    assert plan is not None
+    assert plan.file_kind == "document"
+    assert plan.time_intent == "document_coverage"
+    assert _deterministic_meeting_note_plan({"purpose": "meeting recordings"}) is None
+    queries, period = compile_request_queries(
+        plan.model_dump(mode="json"), purpose, "Asia/Kolkata", v1_live_request=True
+    )
+    assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
+    assert len(queries) == 2
+    assert all("mimeType = 'application/pdf'" in item["arguments"]["query"] for item in queries[:2])
+    assert "standup" in queries[1]["arguments"]["query"]
+    assert "fullText" in queries[0]["arguments"]["query"]
+    assert "fullText" not in queries[1]["arguments"]["query"]
 
 
 @pytest.mark.asyncio
-async def test_meeting_note_structural_sweep_keeps_generic_names_for_content_evaluation():
+async def test_v1_meeting_note_request_starts_without_model_planning():
+    context = {
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+        "purpose": {
+            "purpose": "3 months of meeting notes",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        "revision": 1,
+        "requestTimeZone": "Asia/Kolkata",
+    }
+    sharing = SimpleNamespace(
+        package_preparation_authority=AsyncMock(),
+        request_bulk_context=AsyncMock(return_value=context),
+    )
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "search", "status": "queued"}),
+    )
+    planner = AsyncMock(side_effect=AssertionError("model plan must not run"))
+    service = DriveRequestBulkService(
+        sharing=sharing,
+        search=search,
+        bulk=SimpleNamespace(),
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=AsyncMock(),
+    )
+
+    result = await service.start_search(
+        user_id="owner", request_id="request", authority_mode="agent_package"
+    )
+
+    assert result["status"] == "queued"
+    planner.assert_not_awaited()
+    assert search.create_for_request.await_args.kwargs["plan"]["file_kind"] == "document"
+
+
+@pytest.mark.asyncio
+async def test_meeting_note_search_uses_aliases_and_keeps_generic_folder_children():
     purpose = {
         "purpose": "3 months of meeting notes",
         "periodStart": "2026-09-02",
@@ -120,36 +186,12 @@ async def test_meeting_note_structural_sweep_keeps_generic_names_for_content_eva
         "time_intent": "document_coverage",
     }
     queries, _ = compile_request_queries(plan, purpose, "Asia/Kolkata", v1_live_request=True)
-    structural = queries[-1]["arguments"]["query"]
-
-    async def read(*, user_id, tool_name, arguments):
-        assert user_id == "owner" and tool_name == "search_files"
-        assert arguments["query"] == structural
-        return ExternalMcpToolResult(
-            False,
-            {
-                "files": [
-                    _provider_file(
-                        "generic-doc", "Untitled", "application/vnd.google-apps.document"
-                    ),
-                    _provider_file("generic-scan", "scan_001.pdf", "application/pdf"),
-                    _provider_file("generic-image", "IMG_0929.jpg", "image/jpeg"),
-                ],
-                "nextPageToken": None,
-                "incompleteSearch": False,
-            },
-            False,
-        )
-
+    assert "fullText" in queries[0]["arguments"]["query"]
+    assert "fullText" not in queries[1]["arguments"]["query"]
     checkpoint = _v1_structural_checkpoint(plan, queries)
     checkpoint["request"] = {"query": purpose["purpose"]}
-    service = DriveOwnerSearchService(transport=SimpleNamespace(read_owner_search_page=read))
-    _, files, incomplete, _ = await service._page({"user_id": "owner", "checkpoint": checkpoint})
-    assert [item["id"] for item in files] == ["generic-doc", "generic-scan", "generic-image"]
-    assert all(item["requestEvidence"]["assessment"] == "unverified" for item in files)
-    assert incomplete is False
-
-    # A generic file inside a topical folder must reach the same evaluator.
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    # A generic file inside a topical folder still reaches content evaluation.
     checkpoint["request_notes"] = True
     children, child_incomplete = await service._request_candidates(
         {"user_id": "owner"},
@@ -341,6 +383,94 @@ async def test_v1_named_unsupported_document_reports_incomplete_instead_of_disap
 
     assert files == [] and incomplete is True
     assert checkpoint["coverage_counts"]["unsupportedCandidateCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_v1_document_search_excludes_live_audio_video_without_losing_coverage():
+    plan = {
+        "terms": ["meeting", "notes"],
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+    checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "meeting"}}])
+    checkpoint["request"] = {"query": "3 months of meeting notes"}
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [
+            _provider_file("recording", "Meeting notes recording", "video/mp4"),
+            _provider_file("audio", "Meeting notes audio", "audio/mpeg"),
+            _provider_file("notes", "Untitled", "application/vnd.google-apps.document"),
+        ],
+        folder_scoped=False,
+        drive_id=None,
+    )
+
+    assert [file["id"] for file in files] == ["notes"]
+    assert incomplete is False
+    assert checkpoint["coverage_counts"]["excludedByKindCount"] == 2
+    assert checkpoint["coverage_counts"].get("unsupportedCandidateCount", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_v1_unavailable_video_shortcut_remains_unverified():
+    plan = {
+        "terms": ["meeting", "notes"],
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+    checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "meeting"}}])
+    checkpoint["request"] = {"query": "3 months of meeting notes"}
+    shortcut = _provider_file("shortcut", "Meeting notes", "application/vnd.google-apps.shortcut")
+    shortcut["shortcutDetails"] = {
+        "targetId": "target-file",
+        "targetMimeType": "video/mp4",
+    }
+    service = DriveOwnerSearchService(
+        transport=SimpleNamespace(
+            read_tool=AsyncMock(side_effect=DriveReadError("source_unavailable"))
+        )
+    )
+
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [shortcut],
+        folder_scoped=False,
+        drive_id=None,
+    )
+
+    assert files == [] and incomplete is True
+    assert checkpoint["coverage_counts"]["unsupportedCandidateCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_v1_resolved_video_shortcut_does_not_block_document_search():
+    plan = {"terms": ["meeting", "notes"], "file_kind": "document"}
+    checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "meeting"}}])
+    checkpoint["request"] = {"query": "3 months of meeting notes"}
+    shortcut = _provider_file("shortcut", "Meeting notes", "application/vnd.google-apps.shortcut")
+    shortcut["shortcutDetails"] = {
+        "targetId": "recording",
+        "targetMimeType": "application/vnd.google-apps.document",
+    }
+    metadata = ExternalMcpToolResult(
+        False, {"file": _provider_file("recording", "Meeting recording", "video/mp4")}, False
+    )
+    service = DriveOwnerSearchService(
+        transport=SimpleNamespace(read_tool=AsyncMock(return_value=metadata))
+    )
+
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, [shortcut], folder_scoped=False, drive_id=None
+    )
+
+    assert files == [] and incomplete is False
+    assert checkpoint["coverage_counts"]["resolvedShortcutCount"] == 1
+    assert checkpoint["coverage_counts"]["excludedByKindCount"] == 1
+    assert checkpoint["coverage_counts"].get("unsupportedCandidateCount", 0) == 0
 
 
 @pytest.mark.asyncio
