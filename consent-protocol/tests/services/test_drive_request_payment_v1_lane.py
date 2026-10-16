@@ -154,6 +154,58 @@ async def test_v1_checkout_due_requires_marked_exact_owner_approval(sharing):
 
 
 @pytest.mark.asyncio
+async def test_v1_request_marker_selects_frozen_checkout_but_cannot_replace_sealed_allow(sharing):
+    request_id = await _payment_batch(sharing, marked=True, approved=False)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET v1_live_request=TRUE,
+                owner_allowed_at=clock_timestamp() WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET updated_at=clock_timestamp()
+                WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        marked = connection.execute(
+            text("""SELECT v1_statement_search FROM drive_request_payment_obligations
+                WHERE request_id=:request"""),
+            {"request": request_id},
+        ).scalar_one()
+    store = DriveRequestPaymentStore(db=sharing.db)
+    assert marked is True  # Durable refund provenance, not charging authority.
+    assert [row["request_id"] for row in await store.due_checkout_orders(v1_only=True)] == [
+        request_id
+    ]
+    assert not await store.v1_checkout_eligible(
+        requester_user_id="recipient", request_id=request_id
+    )
+    with sharing.db.engine.begin() as connection:
+        share_id = connection.execute(
+            text("""UPDATE drive_bulk_shares SET approval_source='trusted_auto',
+                approved_at=clock_timestamp(),status='queued'
+                WHERE origin_request_id=:request RETURNING share_id"""),
+            {"request": request_id},
+        ).scalar_one()
+        assert (
+            connection.execute(
+                text("SELECT v1_statement_search FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": share_id},
+            ).scalar_one()
+            is True
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests SET access_stop_requested_at=clock_timestamp()
+                WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert await store.due_checkout_orders(v1_only=True) == []
+    assert await DriveBulkShareStore(db=sharing.db).v1_approved(
+        user_id="owner", share_id=str(share_id)
+    )  # The reconciliation lane remains identifiable after revocation.
+
+
+@pytest.mark.asyncio
 async def test_v1_owner_approval_keeps_complete_checkout_search_until_share_expiry(
     request_bulk, sharing
 ):
@@ -314,6 +366,12 @@ async def test_v1_refund_claim_survives_request_and_search_erasure(sharing):
             )
         connection.execute(
             text("DELETE FROM drive_share_events WHERE request_id=:request"),
+            {"request": positive},
+        )
+        # Erasure removes request-bound frozen shares before their parent;
+        # the financial obligation keeps its own immutable V1 provenance.
+        connection.execute(
+            text("DELETE FROM drive_bulk_shares WHERE origin_request_id=:request"),
             {"request": positive},
         )
         connection.execute(

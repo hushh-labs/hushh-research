@@ -328,7 +328,7 @@ async def test_v1_removal_provenance_survives_search_and_recipient_erasure(shari
 
     def erase_recipient(connection):
         lock_connection_graph_users(connection, user_ids=["recipient"])
-        erase_drive_account_in_transaction(connection, user_id="recipient")
+        erase_drive_account_in_transaction(connection, user_id="recipient", permanent=True)
 
     await store._transaction(erase_recipient)
     assert rows(store, "drive_share_requests") == []
@@ -339,3 +339,19 @@ async def test_v1_removal_provenance_survives_search_and_recipient_erasure(shari
     assert claimed is not None
     assert claimed["plan"]["permission_id"] == "synthetic-permission-1"
     assert claimed["v1_statement_search"] is True
+
+
+def test_early_stop_only_removes_the_exact_recorded_expiring_permission():
+    from hushh_mcp.services.drive_revocation_executor import current_recorded_viewer
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+    expiry = "2026-11-16T00:00:00Z"
+    plan = {**_plan(), "expiration_time": expiry}
+    permission = {**_snapshot().permissions[0], "expirationTime": expiry}
+    assert current_recorded_viewer(PermissionSnapshot((permission,)), plan) == permission
+    with pytest.raises(DriveSharingError, match="permission_changed_manage_in_google"):
+        current_recorded_viewer(
+            PermissionSnapshot(({**permission, "expirationTime": "2026-12-16T00:00:00Z"},)), plan
+        )
+    with pytest.raises(DriveSharingError, match="permission_changed_manage_in_google"):
+        current_recorded_viewer(_snapshot(), plan)

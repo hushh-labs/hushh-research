@@ -45,10 +45,33 @@ def managed_bulk_plan(*, receipt: dict, file: dict, recipient: dict) -> dict | N
         "permission_id": permission_id,
         "recipient_email": email,
         "issuer": issuer,
+        **(
+            {"expiration_time": receipt["expiration_time"]}
+            if receipt.get("expiration_time")
+            else {}
+        ),
     }
 
 
 class DriveRequestBulkRemovalStore(DriveBulkShareStore):
+    @staticmethod
+    def _expire_due(connection, *, limit: int, v1_only: bool = False) -> None:
+        # Google expires each granted ACL natively. Recovery also closes local
+        # authority and records removal/absence through the same provenance-safe
+        # queue used by an owner's earlier Stop. No unauthenticated ACL is deleted.
+        connection.execute(
+            text("""WITH due AS (
+            SELECT request_id FROM drive_share_requests
+            WHERE access_expires_at<=clock_timestamp() AND access_stop_requested_at IS NULL
+              AND (:v1_only=FALSE OR v1_live_request=TRUE)
+            ORDER BY access_expires_at,request_id LIMIT :limit FOR UPDATE SKIP LOCKED
+          ) UPDATE drive_share_requests r SET access_stop_requested_at=clock_timestamp(),
+              status=CASE WHEN r.status IN ('pending','approved') THEN 'partial' ELSE r.status END,
+              updated_at=clock_timestamp()
+            FROM due WHERE r.request_id=due.request_id"""),
+            {"limit": limit, "v1_only": v1_only},
+        )
+
     def _materialize(self, connection, *, limit: int, v1_only: bool = False) -> int:
         # The source effect is locked while its successful receipt is copied.
         # No private Drive identifier or email enters the queue in plaintext.
@@ -69,7 +92,7 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
                   b.v1_statement_search=TRUE
                   AND b.origin_request_id IS NOT NULL
                   AND b.progressive_batch=TRUE
-                  AND b.approval_source='owner' AND b.approved_at IS NOT NULL))
+                  AND b.approval_source IN ('owner','trusted_auto') AND b.approved_at IS NOT NULL))
                 AND NOT EXISTS (SELECT 1 FROM drive_request_bulk_removals removal
                   WHERE removal.share_id=e.share_id AND removal.position=e.position
                     AND removal.recipient_user_id=e.recipient_user_id)
@@ -136,6 +159,11 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
             raise ValueError("invalid bulk removal limit")
         if type(v1_only) is not bool:
             raise ValueError("invalid bulk removal mode")
+        # Release request expiry locks before locking effects (settle takes
+        # effect then request); retries can safely resume between transactions.
+        await self._transaction(
+            lambda connection: self._expire_due(connection, limit=limit, v1_only=v1_only)
+        )
         return await self._transaction(
             lambda connection: self._materialize(connection, limit=limit, v1_only=v1_only)
         )

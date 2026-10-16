@@ -187,6 +187,7 @@ class DriveRequestBulkService:
                     raise DriveReadError("invalid_argument")
                 mismatch = (
                     documents_only
+                    and plan.semantic_intent != "broad_financial_records"
                     and plan.file_kind != "document"
                     or any(_GENERIC_SEARCH_TERM.search(term) for term in plan.terms)
                     or bool(
@@ -236,7 +237,9 @@ class DriveRequestBulkService:
         timezone = context.get("requestTimeZone") or timezone
         requested_at = context.get("requestCreatedAt")
         statement_plan = (
-            _deterministic_statement_plan(purpose) if authority_mode != "agent_package" else None
+            _deterministic_statement_plan(purpose)
+            if authority_mode != "agent_package" and not context.get("v1LiveRequest")
+            else None
         )
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and statement_plan is not None:
@@ -275,7 +278,7 @@ class DriveRequestBulkService:
         if existing is not None and existing["status"] not in {"failed", "limited", "stopped"}:
             return existing
         route = None
-        if authority_mode == "agent_package":
+        if authority_mode == "agent_package" and not context.get("v1LiveRequest"):
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
             )
@@ -311,6 +314,7 @@ class DriveRequestBulkService:
             requested_at=requested_at,
             require_current=self.require_owner,
             authority_mode=authority_mode,
+            **({"v1_live_request": True} if context.get("v1LiveRequest") else {}),
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
         )
@@ -327,6 +331,7 @@ class DriveRequestBulkService:
             user_id=user_id,
             job_id=state["jobId"],
             cursor=cursor,
+            request_id=request_id,
             require_current=self.require_owner,
         )
 

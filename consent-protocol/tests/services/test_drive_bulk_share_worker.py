@@ -46,7 +46,7 @@ def _worker(*, permission=None, send_push=None):
         due_notifications=AsyncMock(return_value=[]),
         require_current=AsyncMock(),
         require_reconciliation_current=AsyncMock(),
-        mark_dispatching=AsyncMock(),
+        mark_dispatching=AsyncMock(return_value=None),
         settle=AsyncMock(return_value=True),
         release=AsyncMock(return_value="unknown"),
         claim_notification=AsyncMock(
@@ -411,3 +411,16 @@ async def test_package_grant_checks_evaluated_version_before_any_permission_writ
     adapter.create_reader.assert_not_awaited()
     store.mark_dispatching.assert_not_awaited()
     assert store.release.await_args.kwargs["error"] == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop():
+    worker, store, adapter = _worker()
+    expires = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    store.mark_dispatching.return_value = expires
+    adapter.create_reader.return_value = CreatedReader(
+        "permission-1", "recipient@example.com", expires
+    )
+    assert await worker._grant(_job()) == "succeeded"
+    assert adapter.create_reader.await_args.kwargs["expiration_time"] == expires
+    assert store.settle.await_args.kwargs["receipt"]["expiration_time"] == expires

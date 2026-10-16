@@ -109,7 +109,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         request_id: str,
         selected_ids: frozenset[str],
     ) -> None:
-        """Block another charge for the same exact legacy file set and buyer.
+        """Block another charge for overlapping frozen files and the same buyer.
 
         The caller holds the owner/buyer graph lock. Source IDs remain inside
         encrypted file envelopes and this transaction; no plaintext manifest is
@@ -147,8 +147,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                     {"owner": owner_user_id, "prior": order["request_id"]},
                 ).mappings()
             )
-            if len(rows) != len(selected_ids):
+            if not rows:
                 continue
+            if len(rows) > 120:
+                raise DriveSharingError("payment_not_ready")
             try:
                 prior_ids = frozenset(
                     bulk._open(
@@ -161,9 +163,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 )
             except (DriveSharingError, KeyError, TypeError, ValueError):
                 raise DriveSharingError("payment_not_ready") from None
-            if prior_ids == selected_ids:
+            if prior_ids & selected_ids:
                 raise DriveSharingError(
-                    "payment_already_paid" if order["status"] == "paid" else "payment_not_ready"
+                    "payment_already_paid"
+                    if order["status"] == "paid" and selected_ids <= prior_ids
+                    else "package_existing_access_requires_review"
+                    if order["status"] == "paid"
+                    else "payment_not_ready"
                 )
 
     async def ensure_payment_for_frozen_batch(
@@ -300,17 +306,23 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise DriveSharingError("payment_not_ready")
         private = sharing._open_request(request)
-        if require_package_disclosure and private.get("agent_package_required") is True:
-            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+        if require_package_disclosure:
+            from hushh_mcp.services.drive_request_package_disclosure import (
+                buyer_package_disclosure,
+                manual_buyer_disclosure,
+            )
 
-            if (
-                buyer_package_disclosure(
+            if private.get("agent_package_required") is True:
+                disclosure = buyer_package_disclosure(
                     private,
                     request_revision=request["revision"],
                     owner_allowed_at=request["owner_allowed_at"],
                 )
-                is None
-            ):
+            elif private.get("v1_live_request") is True:
+                disclosure = manual_buyer_disclosure(private, request_revision=request["revision"])
+            else:
+                disclosure = True
+            if disclosure is None:
                 raise DriveSharingError("payment_not_ready")
         if request["status"] == "pending" and not request_has_document_scope(private):
             raise DriveSharingError("date_range_required")
@@ -411,7 +423,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         package_owner = state.get("_package_owner_user_id")
         legacy_owner = state.get("_legacy_auto_owner_user_id")
         manual_owner = state.get("_legacy_manual_owner_user_id")
-        selected_legacy_ids = None
+        selected_checkout_ids = None
         if package_owner or legacy_owner or manual_owner:
             from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
             from hushh_mcp.services.drive_package_access_preflight import (
@@ -445,7 +457,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                     # for a completed search and every shareable source to be
                     # frozen before inspecting buyer access or opening Stripe.
                     files = None
-                    if legacy_owner:
+                    if package_owner:
+                        files = await bulk.package_sources(user_id=owner, request_id=request_id)
+                    elif legacy_owner:
                         files = await bulk.legacy_checkout_sources(
                             user_id=owner, request_id=request_id
                         )
@@ -472,8 +486,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             if access.status != "none":
                 raise DriveSharingError("payment_not_ready")
             checked_revision = getattr(access, "request_revision", None)
-            if legacy_owner or manual_owner:
-                selected_legacy_ids = frozenset(file["id"] for file in files)
+            selected_checkout_ids = frozenset(file["id"] for file in files)
         else:
             checked_revision = None
 
@@ -488,13 +501,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_not_ready")
             if checked_revision is not None and request["revision"] != checked_revision:
                 raise DriveSharingError("payment_not_ready")
-            if selected_legacy_ids is not None:
+            if selected_checkout_ids is not None:
                 self._guard_legacy_duplicate_purchase(
                     connection,
                     owner_user_id=request["user_id"],
                     requester_user_id=requester_user_id,
                     request_id=request_id,
-                    selected_ids=selected_legacy_ids,
+                    selected_ids=selected_checkout_ids,
                 )
             order = self._row(
                 connection,

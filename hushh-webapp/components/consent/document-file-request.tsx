@@ -45,13 +45,21 @@ export type FileRequestTerms = {
   purpose: string;
   periodStart: string | null;
   periodEnd: string | null;
+  accessDays?: number;
+  requesterActorType?: "person" | "ria";
+  reason?: string;
 };
 
 export const FILE_REQUEST_HELPER =
   "You get original Drive links for the files they share with you.";
 
 export function validFileRequest(terms: FileRequestTerms): boolean {
-  return validDocumentRequestTerms(
+  if (terms.requesterActorType !== undefined &&
+    terms.requesterActorType !== "person" && terms.requesterActorType !== "ria") return false;
+  if (terms.reason !== undefined && (terms.reason.length > 500 ||
+    (terms.requesterActorType === "ria" && !terms.reason.trim()))) return false;
+  return (terms.accessDays === undefined ||
+    (Number.isSafeInteger(terms.accessDays) && terms.accessDays >= 1 && terms.accessDays <= 90)) && validDocumentRequestTerms(
     terms.purpose,
     terms.periodStart || null,
     terms.periodEnd || null,
@@ -231,7 +239,11 @@ export function useFileRequest({
       const result = await DriveSharingService.create(
         token,
         firebaseToken,
-        { ownerPersonRef: personRef, clientRequestId, expectedQuoteVersion: quote.version, purpose: clean },
+        { ownerPersonRef: personRef, clientRequestId, expectedQuoteVersion: quote.version,
+          accessDays: clean.accessDays ?? 30, requesterActorType: clean.requesterActorType ?? "person",
+          reason: clean.reason ?? "", purpose: {
+            purpose: clean.purpose, periodStart: clean.periodStart, periodEnd: clean.periodEnd,
+          } },
         guard,
       );
       guard();
@@ -278,6 +290,9 @@ function normalize(terms: FileRequestTerms): FileRequestTerms {
     purpose: terms.purpose.trim(),
     periodStart: terms.periodStart || null,
     periodEnd: terms.periodEnd || null,
+    accessDays: terms.accessDays ?? 30,
+    requesterActorType: terms.requesterActorType ?? "person",
+    reason: terms.reason?.trim() ?? "",
   };
 }
 
@@ -310,6 +325,9 @@ export function RequestFilesButton({
   const [purpose, setPurpose] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [accessDays, setAccessDays] = useState(30);
+  const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
+  const [reason, setReason] = useState("");
   // What was sent, kept for its status row; the form itself starts over.
   const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
   const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
@@ -322,7 +340,7 @@ export function RequestFilesButton({
     identityMissing: identity.state === "missing",
     onIdentityLinked: identity.refresh,
   });
-  const terms = { purpose, periodStart: start || null, periodEnd: end || null };
+  const terms = { purpose, periodStart: start || null, periodEnd: end || null, accessDays, requesterActorType, reason };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
   const close = () => {
@@ -338,6 +356,9 @@ export function RequestFilesButton({
     setPurpose("");
     setStart("");
     setEnd("");
+    setAccessDays(30);
+    setRequesterActorType("person");
+    setReason("");
   };
   return (
     <>
@@ -435,6 +456,23 @@ export function RequestFilesButton({
                   placeholder="Six months of bank statements"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="document-request-role">Requesting as</Label>
+                <select id="document-request-role" value={requesterActorType}
+                  onChange={event => setRequesterActorType(event.target.value as "person" | "ria")}
+                  disabled={busy}
+                  className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
+                  <option value="person">Myself</option>
+                  <option value="ria">Verified RIA</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="document-request-reason">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
+                <Textarea id="document-request-reason" value={reason}
+                  onChange={event => setReason(event.target.value)} maxLength={500}
+                  required={requesterActorType === "ria"} disabled={busy}
+                  placeholder="Why do you need these documents?" />
+              </div>
               <fieldset className="min-w-0" disabled={busy}>
                 <legend className="mb-2">Dates</legend>
                 <MobileDocumentDateRange
@@ -466,6 +504,17 @@ export function RequestFilesButton({
                   </div>
                 </div>
               </fieldset>
+              <div className="space-y-2">
+                <Label htmlFor="document-access-days">Access period</Label>
+                <select id="document-access-days" value={accessDays}
+                  onChange={event => setAccessDays(Number(event.target.value))}
+                  disabled={busy}
+                  className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
+                  <option value={7}>7 days</option>
+                  <option value={30}>30 days</option>
+                  <option value={90}>90 days</option>
+                </select>
+              </div>
               {!start || !end ? (
                 <HelperText role="status">Choose a start and end date.</HelperText>
               ) : null}

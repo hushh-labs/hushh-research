@@ -865,7 +865,9 @@ async def test_v1_due_selects_only_server_marked_statement_jobs(store):
     assert len(due) == 1
     assert str(due[0]["job_id"]) == statement["jobId"]
     assert due[0]["user_id"] == "other"
-    assert len(await store.due()) == 2
+    # due() intentionally defaults to one job, independently of lane filtering.
+    all_due = await store.due(limit=2)
+    assert {row["user_id"] for row in all_due} == {"owner", "other"}
 
 
 async def test_dated_title_fallback_is_frozen_and_filters_unrelated_dates(store, monkeypatch):

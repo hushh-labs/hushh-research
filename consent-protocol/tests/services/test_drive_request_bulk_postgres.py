@@ -2283,7 +2283,9 @@ async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
     )
     request_id = request["requestId"]
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
-    selection = None
+    # A real legacy checkpoint contains its original provider query. Omitting
+    # arguments altogether describes a malformed job, which must not replan.
+    selection = {"arguments": {"query": "name contains 'statement'"}}
     if history == "current":
         plan = _deterministic_statement_plan(context["purpose"])
         queries, period = compile_request_queries(

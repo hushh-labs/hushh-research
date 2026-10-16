@@ -310,7 +310,9 @@ async def test_owner_reviewed_legacy_checkout_blocks_preexisting_file_before_str
     [
         ("paid", ("source-1", "source-2"), "payment_already_paid"),
         ("checkout_open", ("source-2", "source-1"), "payment_not_ready"),
-        ("paid", ("source-1", "source-3"), None),
+        ("paid", ("source-1", "source-3"), "package_existing_access_requires_review"),
+        ("checkout_open", ("source-1",), "payment_not_ready"),
+        ("paid", ("source-3", "source-4"), None),
     ],
 )
 def test_legacy_checkout_blocks_cross_request_duplicate_file_set(
@@ -356,6 +358,41 @@ def test_legacy_checkout_blocks_cross_request_duplicate_file_set(
         guard()
     assert len(observed) == 2
     assert all("source-1" not in str(params) for _, params in observed)
+
+
+async def test_machine_selected_request_checks_prior_purchase_before_reserving_stripe(monkeypatch):
+    from hushh_mcp.services import drive_package_access_preflight as access_module
+
+    sources = [{"id": "source-1", "name": "Statement.pdf", "sourceVersion": "7", "generation": 1}]
+    monkeypatch.setattr(DriveBulkShareStore, "package_sources", AsyncMock(return_value=sources))
+    monkeypatch.setattr(DriveSharingStore, "trusted_request_authority", AsyncMock())
+    monkeypatch.setattr(
+        access_module,
+        "DrivePackageAccessPreflight",
+        lambda **kw: SimpleNamespace(
+            inspect=AsyncMock(return_value=SimpleNamespace(status="none", request_revision=1))
+        ),
+    )
+    create = Mock()
+    payment, request_id, _, connection = _checkout_fixture(monkeypatch, create)
+    payment.payment_state = AsyncMock(
+        return_value={"status": "awaiting_payment", "_package_owner_user_id": "owner"}
+    )
+    payment._current_checkout_authority.return_value.update(user_id="owner")
+    payment._guard_legacy_duplicate_purchase = Mock(
+        side_effect=DriveSharingError("payment_already_paid")
+    )
+    with pytest.raises(DriveSharingError, match="payment_already_paid"):
+        await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    payment._guard_legacy_duplicate_purchase.assert_called_once_with(
+        connection,
+        owner_user_id="owner",
+        requester_user_id="recipient",
+        request_id=request_id,
+        selected_ids=frozenset({"source-1"}),
+    )
+    connection.execute.assert_not_called()
+    create.assert_not_called()
 
 
 class _CommerceStripe:
@@ -1057,7 +1094,7 @@ def test_paid_grant_guard_blocks_reconciliation_hold():
 @pytest.mark.parametrize(
     "owner_price,quoted_price,amount",
     [
-        (None, None, 1000),
+        (None, None, 50),
         (3000, None, 3000),
         (None, 2500, 2500),
         (3000, 2500, 2500),
@@ -1122,7 +1159,7 @@ def test_new_owner_settlement_never_falls_back_to_platform_price():
             _order_amount_cents({"quoted_amount_cents": missing_price}, private)
     assert _order_amount_cents({"quoted_amount_cents": 1050}, private) == 1050
     assert _order_amount_cents({"quoted_amount_cents": 200}, private) == 200
-    assert _order_amount_cents({}, {}) == 1000  # Legacy payment terms stay unchanged.
+    assert _order_amount_cents({}, {}) == 50  # New unquoted requests use the fifty-cent default.
 
 
 @pytest.mark.parametrize(
@@ -1323,7 +1360,7 @@ def test_bulk_identity_writes_gate_participant_graph_before_row_locks(monkeypatc
     )
 
 
-@pytest.mark.parametrize("owner_price,amount", [(None, 1000), (3000, 3000)])
+@pytest.mark.parametrize("owner_price,amount", [(None, 50), (3000, 3000)])
 def test_first_frozen_batch_orders_at_the_owner_allowed_price(monkeypatch, owner_price, amount):
     request_id = str(uuid4())
     participant = {"user_id": "owner", "recipient_user_id": "recipient"}
@@ -2449,6 +2486,30 @@ async def test_checkout_charges_the_order_amount_and_binds_only_that_amount(monk
         "SET status='checkout_open'" in str(call.args[0])
         for call in connection.execute.call_args_list
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount_cents", [10, 11, 49])
+async def test_subminimum_owner_price_never_reserves_checkout_or_rounds_up(
+    monkeypatch, amount_cents
+):
+    create = Mock()
+    service, request_id, _, connection = _checkout_fixture(
+        monkeypatch, create, amount_cents=amount_cents
+    )
+    with pytest.raises(DriveSharingError, match="payment_unavailable"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+    create.assert_not_called()
+    connection.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount_cents", [50, 51, 50000])
+async def test_checkout_preserves_supported_boundary_prices(monkeypatch, amount_cents):
+    create = Mock(side_effect=lambda **params: _checkout_sdk_response(params))
+    service, request_id, _, _ = _checkout_fixture(monkeypatch, create, amount_cents=amount_cents)
+    await service.checkout(requester_user_id="recipient", request_id=request_id)
+    assert create.call_args.kwargs["line_items"][0]["price_data"]["unit_amount"] == amount_cents
 
 
 @pytest.mark.asyncio
@@ -3724,6 +3785,11 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
         lambda **kw: SimpleNamespace(inspect=preflight),
     )
     monkeypatch.setattr(payment_module, "DriveSharingStore", lambda **kw: SimpleNamespace())
+    monkeypatch.setattr(
+        DriveBulkShareStore,
+        "package_sources",
+        AsyncMock(return_value=[{"id": "source", "sourceVersion": "1"}]),
+    )
     create = Mock()
     service = object.__new__(DriveRequestPaymentService)
     service.db = object()

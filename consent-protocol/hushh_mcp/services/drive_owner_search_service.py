@@ -33,6 +33,7 @@ from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransp
 
 PAGE_SIZE = 25
 FILE_LIST_PAGE_SIZE = 100
+V1_FILE_LIST_PAGE_SIZE = 1000
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
 MAX_REQUEST_FILE_PAGES = 1000
@@ -138,6 +139,22 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
             "standup" if term.casefold() in {"standup", "stand up", "stand-up"} else term.casefold()
         ).search(title)
         for term in terms
+    )
+
+
+def _v1_folder_clue_matches(checkpoint: dict, title: str) -> bool:
+    """A clue can discover a folder; its children still require content evaluation."""
+    if checkpoint.get("v1_live_request") is not True:
+        return False
+    authored = checkpoint.get("authored_plan")
+    clues = authored.get("discovery_clues") if isinstance(authored, dict) else None
+    if not isinstance(clues, list):
+        return False
+    return any(
+        isinstance(clue, str)
+        and 1 <= len(clue) <= 50
+        and bool(_term_pattern(clue.casefold()).search(title))
+        for clue in clues[:12]
     )
 
 
@@ -400,6 +417,13 @@ def compile_request_queries(
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
     broader_subject = None
+    entity_subject = (
+        "("
+        + " or ".join(compile_search_terms([entity]) for entity in parsed.required_entities)
+        + ")"
+        if parsed.required_entities
+        else None
+    )
     if parsed.exact_title:
         subject = f"name = {quote_literal(parsed.exact_title)}"
     elif parsed.terms:
@@ -457,11 +481,43 @@ def compile_request_queries(
         else "modifiedTime"
     )
     queries = [{"arguments": {"query": query, "orderBy": f"{order} desc"}}]
+    if entity_subject:
+        # The explicit-entity sweep already includes every anatomy clue. One
+        # exhaustive sweep avoids N redundant broad searches for account/portfolio.
+        entity_query = {
+            "arguments": {
+                "query": " and ".join([entity_subject, *base]),
+                "orderBy": f"{order} desc",
+            }
+        }
+        if entity_query not in queries:
+            queries.append(entity_query)
+        return queries, period
     if broader_subject is not None:
-        broader_query = " and ".join([broader_subject, *base])
+        broader_query = " and ".join(
+            [*([entity_subject] if entity_subject else []), broader_subject, *base]
+        )
         if len(broader_query) > 1800:
             raise DriveReadError("invalid_argument")
         queries.append({"arguments": {"query": broader_query, "orderBy": f"{order} desc"}})
+    # Model-authored clues broaden discovery, including content-only issuer,
+    # account and anatomy terms. They never become filename inclusion rules.
+    # Bounded groups keep Drive's literal query budget without dropping clues.
+    clues = getattr(parsed, "discovery_clues", [])
+    for offset in range(0, len(clues), 4):
+        clue_subject = (
+            "("
+            + " or ".join(compile_search_terms([clue]) for clue in clues[offset : offset + 4])
+            + ")"
+        )
+        clue_query = " and ".join(
+            [*([entity_subject] if entity_subject else []), clue_subject, *base]
+        )
+        if len(clue_query) > 1800:
+            raise DriveReadError("invalid_argument")
+        candidate_query = {"arguments": {"query": clue_query, "orderBy": f"{order} desc"}}
+        if candidate_query not in queries:
+            queries.append(candidate_query)
     return queries, period
 
 
@@ -970,9 +1026,15 @@ class DriveOwnerSearchService:
         requested_at: datetime | None = None,
         after_page=None,
         evidence_route=None,
+        v1_live_request=False,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
-        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
+        if (
+            authority_mode not in {"owner", "trusted_auto", "agent_package"}
+            or type(v1_live_request) is not bool
+        ):
+            raise DriveReadError("invalid_argument")
+        if v1_live_request and authority_mode != "agent_package":
             raise DriveReadError("invalid_argument")
         route = evidence_route or {"kind": "provider"}
         indexed = route["kind"] in {"index", "packet"}
@@ -1002,7 +1064,7 @@ class DriveOwnerSearchService:
         )
 
         statement_plan = _deterministic_statement_plan(purpose)
-        v1_statement_search = (
+        v1_statement_search = v1_live_request or (
             authority_mode in {"owner", "trusted_auto"}
             and route["kind"] == "provider"
             and statement_plan is not None
@@ -1049,10 +1111,12 @@ class DriveOwnerSearchService:
                 "packet_offset": 0,
                 "authority_mode": authority_mode,
                 "agent_package_required": authority_mode == "agent_package",
+                "v1_live_request": v1_live_request,
+                **({"authored_plan": plan} if v1_live_request else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
                 "request_coverage_query_version": 1
-                if len(queries) == 2 and time_intent == "document_coverage"
+                if len(queries) >= 2 and time_intent == "document_coverage"
                 else None,
                 "request_time_intent": time_intent,
                 "request_owner_review_required": owner_review_required,
@@ -1137,10 +1201,12 @@ class DriveOwnerSearchService:
         await require_current()
         return result
 
-    async def results(self, *, user_id, job_id, require_current, cursor=None, limit=25):
+    async def results(
+        self, *, user_id, job_id, require_current, cursor=None, limit=25, request_id=None
+    ):
         await require_current()
         result = await self.store.results(
-            user_id=user_id, job_id=job_id, cursor=cursor, limit=limit
+            user_id=user_id, job_id=job_id, cursor=cursor, limit=limit, request_id=request_id
         )
         await require_current()
         return result
@@ -1397,9 +1463,13 @@ class DriveOwnerSearchService:
                 if (
                     folder_scoped
                     or _subject_matches(checkpoint, match["name"])
+                    or _v1_folder_clue_matches(checkpoint, match["name"])
                     or (
                         match.get("shortcut_name")
-                        and _subject_matches(checkpoint, match["shortcut_name"])
+                        and (
+                            _subject_matches(checkpoint, match["shortcut_name"])
+                            or _v1_folder_clue_matches(checkpoint, match["shortcut_name"])
+                        )
                     )
                 ):
                     if not _queue_folder(
@@ -1425,6 +1495,7 @@ class DriveOwnerSearchService:
             if (
                 folder_scoped
                 and not checkpoint.get("request_notes")
+                and not checkpoint.get("v1_live_request")
                 and not _subject_matches(checkpoint, match["name"])
                 and not _subject_matches(checkpoint, match.get("shortcut_name", ""))
             ):
@@ -1627,6 +1698,10 @@ class DriveOwnerSearchService:
             PAGE_SIZE
             if checkpoint.get("file_page_size") == PAGE_SIZE or page_size_override == PAGE_SIZE
             else FILE_LIST_PAGE_SIZE
+            if checkpoint.get("file_page_size") == FILE_LIST_PAGE_SIZE
+            else V1_FILE_LIST_PAGE_SIZE
+            if checkpoint.get("v1_live_request") is True
+            else FILE_LIST_PAGE_SIZE
         )
         args = {**checkpoint["arguments"], "pageSize": file_page_size}
         if phase == "folder_files":
@@ -1647,22 +1722,20 @@ class DriveOwnerSearchService:
             args["pageToken"] = checkpoint["page_token"]
         if phase == "files":
             args["driveId"] = checkpoint["drives"][checkpoint["drive_index"]]
-        try:
-            result = await listing_read(
-                user_id=job["user_id"], tool_name="search_files", arguments=args
-            )
-        except DriveReadError as error:
-            if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
-                raise
-            # A 100-row response can exceed the unchanged 256 KiB metadata
-            # ceiling when titles or URLs are long. Retry the same token with
-            # 25 rows and persist that size with the next successful page.
-            file_page_size = PAGE_SIZE
-            checkpoint["file_page_size"] = PAGE_SIZE
-            args["pageSize"] = PAGE_SIZE
-            result = await listing_read(
-                user_id=job["user_id"], tool_name="search_files", arguments=args
-            )
+        while True:
+            try:
+                result = await listing_read(
+                    user_id=job["user_id"], tool_name="search_files", arguments=args
+                )
+                break
+            except DriveReadError as error:
+                if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
+                    raise
+                # Retry the exact cursor with less metadata; never advance a
+                # checkpoint from a page that exceeded the response budget.
+                file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
+                checkpoint["file_page_size"] = file_page_size
+                args["pageSize"] = file_page_size
         payload = result.payload
         if not isinstance(payload, dict):
             raise DriveReadError("provider_response_invalid")
@@ -1677,7 +1750,7 @@ class DriveOwnerSearchService:
             or len(candidates) > file_page_size
         ):
             raise DriveReadError("provider_response_invalid")
-        if (
+        while (
             file_page_size > PAGE_SIZE
             and sum(
                 item.get("mimeType") == SHORTCUT_MIME
@@ -1686,12 +1759,12 @@ class DriveOwnerSearchService:
             )
             > 8
         ):
-            # Avoid making a 90-second slice resolve an unbounded fanout of
-            # shortcut targets (six concurrent metadata reads at a time).
-            # No rows or cursor from the large page have been committed.
+            # A shortcut-heavy page could require hundreds of target reads.
+            # Retry the same cursor at a smaller size before committing rows.
             large_page_incomplete = incomplete
-            checkpoint["file_page_size"] = PAGE_SIZE
-            args["pageSize"] = PAGE_SIZE
+            file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
+            checkpoint["file_page_size"] = file_page_size
+            args["pageSize"] = file_page_size
             result = await listing_read(
                 user_id=job["user_id"], tool_name="search_files", arguments=args
             )
@@ -1707,7 +1780,7 @@ class DriveOwnerSearchService:
                 or payload.get("overLimit") is True
                 or type(incomplete) is not bool
                 or not isinstance(candidates, list)
-                or len(candidates) > PAGE_SIZE
+                or len(candidates) > file_page_size
             ):
                 raise DriveReadError("provider_response_invalid")
             incomplete = incomplete or large_page_incomplete

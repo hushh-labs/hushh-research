@@ -240,13 +240,14 @@ class DriveBulkShareWorker:
                 return "preexisting"
             # No network await between durable dispatch marker and POST.
             stage = "dispatch"
-            await self.store.mark_dispatching(job)
+            expiration_time = await self.store.mark_dispatching(job)
             dispatched = True
             stage = "create"
             created = await self.adapter.create_reader(
                 **args,
                 verified_email=recipient["email"],
                 send_notification_email=False,
+                **({"expiration_time": expiration_time} if expiration_time is not None else {}),
             )
             provider_succeeded = True
             stage = "receipt"
@@ -259,6 +260,11 @@ class DriveBulkShareWorker:
                     "email": created.email,
                     "issuer": verified_issuer(credentials),
                     "provenance": "successful_create_after_absence_check",
+                    **(
+                        {"expiration_time": created.expiration_time}
+                        if created.expiration_time
+                        else {}
+                    ),
                 },
             )
             self._speed_up()

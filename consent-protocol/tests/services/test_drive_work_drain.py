@@ -159,11 +159,12 @@ async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_financ
     checkout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
     refund.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
     payout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=40, v1_only=True)
-    for worker in workers:
-        worker.run.assert_not_awaited()
+    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175, v1_only=True)
+    for index in (0, 2, 3):
+        workers[index].run.assert_not_awaited()
     assert result["workers"] == {
         "documents": {"deferred": 1},
-        "suggestions": {"deferred": 1},
+        "suggestions": {"not_claimed": 1},
         "searches": {"completed": 1},
         "permissions": {"deferred": 1},
         "bulk_shares": {"succeeded": 1},

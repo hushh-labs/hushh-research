@@ -28,7 +28,7 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 
 OWNER_ALLOWED_KEY = "owner_allowed"
 OWNER_ALLOWED_VERSION = 1
-DEFAULT_PRICE_CENTS = 1000
+DEFAULT_PRICE_CENTS = 50
 MIN_OWNER_PRICE_CENTS = 50
 MAX_OWNER_PRICE_CENTS = 50_000
 
@@ -97,11 +97,8 @@ def owner_allowed_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
     return dict(marker)
 
 
-def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Only a complete, sealed package Allow authorizes package delivery."""
-    marker = owner_allowed_marker(private)
-    if private.get("agent_package_required") is not True or marker is None:
-        return None
+def _complete_selection(marker: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate a sealed exact selection without deciding who authorized it."""
     sources = marker.get("selected_sources")
     positions = marker.get("selected_positions")
     if (
@@ -135,7 +132,40 @@ def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
             )
         ):
             return None
-    return marker
+    return dict(marker)
+
+
+def trusted_selection_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
+    """V1 machine selection under Trusted access; never represents an owner Allow."""
+    marker = private.get("trusted_selection")
+    if (
+        private.get("v1_live_request") is not True
+        or private.get("trusted_auto") is not True
+        or private.get("agent_package_required") is not True
+        or private.get("reusable_packet") is not None
+        or private.get(OWNER_ALLOWED_KEY) is not None
+        or not isinstance(marker, Mapping)
+        or type(marker.get("v")) is not int
+        or marker.get("v") != 1
+        or not isinstance(marker.get("selected_at"), str)
+        or not marker["selected_at"]
+        or marker.get("amount_cents") is not None
+        and not valid_owner_price_cents(marker["amount_cents"])
+    ):
+        return None
+    return _complete_selection(marker)
+
+
+def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Exact sealed selection, from owner Allow or the current V1 Trusted lane.
+
+    Shape alone never grants access. Every caller must separately recheck the
+    matching authority with automatic_recipient_current before effects.
+    """
+    if private.get("agent_package_required") is not True:
+        return None
+    marker = owner_allowed_marker(private)
+    return _complete_selection(marker) if marker is not None else trusted_selection_marker(private)
 
 
 def owner_allowed_price_cents(private: Mapping[str, Any]) -> int | None:
@@ -172,6 +202,8 @@ def automatic_recipient_current(
     from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
     if private.get("agent_package_required") is True:
+        if trusted_selection_marker(private) is not None:
+            return DriveSharingStore._trusted_recipient_current(connection, owner, recipient)
         return package_allow_marker(private) is not None and request_connection_current(
             connection, owner, recipient, request_id
         )

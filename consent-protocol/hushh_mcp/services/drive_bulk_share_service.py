@@ -140,6 +140,7 @@ class DriveBulkShareService:
         share_id: str,
         revision: int,
         review_digest: str,
+        access_days: int | None = None,
         approval_source: str = "owner",
     ) -> dict:
         started = time.perf_counter()
@@ -150,6 +151,7 @@ class DriveBulkShareService:
             share_id=share_id,
             revision=revision,
             review_digest=review_digest,
+            access_days=access_days,
             approval_source=approval_source,
         )
         # PostgreSQL is authoritative; a lost wake still resumes on schedule.

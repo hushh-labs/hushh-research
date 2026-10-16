@@ -318,7 +318,9 @@
     "350_circle_chat_full_emoji_reactions.sql",
     "351_wallet_card_requests.sql",
     "352_drive_v1_statement_search.sql",
-    "353_drive_v1_bulk_removals.sql"
+    "353_drive_v1_bulk_removals.sql",
+    "354_drive_v1_live_request.sql",
+    "355_drive_v1_access_period.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -674,6 +676,8 @@
     "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql",
     "351_wallet_card_requests.sql": "rollback/351_wallet_card_requests.rollback.sql",
     "352_drive_v1_statement_search.sql": "rollback/352_drive_v1_statement_search.rollback.sql",
-    "353_drive_v1_bulk_removals.sql": "rollback/353_drive_v1_bulk_removals.rollback.sql"
+    "353_drive_v1_bulk_removals.sql": "rollback/353_drive_v1_bulk_removals.rollback.sql",
+    "354_drive_v1_live_request.sql": "rollback/354_drive_v1_live_request.rollback.sql",
+    "355_drive_v1_access_period.sql": "rollback/355_drive_v1_access_period.rollback.sql"
   }
 }

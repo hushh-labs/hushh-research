@@ -127,10 +127,10 @@ _V1_APPROVED_BATCH_REQUEST_SQL = text("""SELECT EXISTS (
         AND j.expires_at>clock_timestamp()
         AND b.progressive_batch=TRUE
         AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+        AND b.status IN ('queued','running','completed','partial')
         AND b.expires_at>clock_timestamp()
         AND b.file_count>0 AND b.recipient_count=1
         AND recipient.recipient_user_id=r.recipient_user_id
-        AND b.status IN ('queued','running','completed','partial')
     )
 )""")
 
@@ -251,12 +251,17 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                             AND v1_search.v1_statement_search=TRUE
                             AND v1_search.expires_at>clock_timestamp()
                             AND v1_batch.progressive_batch=TRUE
-                            AND v1_batch.approval_source='owner'
-                            AND v1_batch.approved_at IS NOT NULL
+                            AND ((v1_batch.approval_source='owner'
+                                  AND v1_batch.approved_at IS NOT NULL
+                                  AND v1_batch.status IN ('queued','running','completed','partial'))
+                              OR (r.v1_live_request=TRUE
+                                AND ((v1_batch.status='review_ready' AND v1_batch.approved_at IS NULL)
+                                  OR (v1_batch.approval_source='trusted_auto'
+                                    AND v1_batch.approved_at IS NOT NULL
+                                    AND v1_batch.status IN ('queued','running','completed','partial')))))
                             AND v1_batch.expires_at>clock_timestamp()
                             AND v1_batch.file_count>0 AND v1_batch.recipient_count=1
                             AND v1_recipient.recipient_user_id=r.recipient_user_id
-                            AND v1_batch.status IN ('queued','running','completed','partial')
                         ))
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
                     {
@@ -318,6 +323,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
     @staticmethod
     def v1_approved_progressive_batch(connection, request) -> bool:
         """Require the live server-marked job and exact owner-approved batch."""
+        from hushh_mcp.services.drive_v1_authority import v1_package_allowed
+
+        if request.get("v1_live_request") is True and request.get("agent_package_required") is True:
+            return v1_package_allowed(connection, request)
         return bool(
             connection.execute(
                 _V1_APPROVED_BATCH_REQUEST_SQL,
@@ -335,17 +344,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         request_id = _request_id(request_id)
 
         def operation(connection):
-            return bool(
-                connection.execute(
-                    _V1_APPROVED_BATCH_REQUEST_SQL,
-                    {
-                        "request": request_id,
-                        "requester": requester_user_id,
-                        "owner": None,
-                        "revision": None,
-                    },
-                ).scalar_one_or_none()
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                  WHERE request_id=:request AND recipient_user_id=:requester""",
+                {"request": request_id, "requester": requester_user_id},
             )
+            return bool(request and self.v1_approved_progressive_batch(connection, request))
 
         return await self._transaction(operation)
 
@@ -694,9 +699,18 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or request["status"] in {"approved", "partial", "completed"}
                     or self.owner_approved_progressive_batch(connection, request)
                 )
-            from hushh_mcp.services.drive_request_package_disclosure import buyer_package_disclosure
+            from hushh_mcp.services.drive_request_package_disclosure import (
+                buyer_package_disclosure,
+                manual_buyer_disclosure,
+            )
 
             package_required = bool(private and private.get("agent_package_required") is True)
+            manual_disclosure_required = bool(
+                private
+                and private.get("v1_live_request") is True
+                and private.get("agent_package_required") is False
+            )
+            disclosure_required = package_required or manual_disclosure_required
             legacy_auto = bool(
                 private
                 and private.get("trusted_auto") is True
@@ -716,10 +730,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     owner_allowed_at=request.get("owner_allowed_at"),
                 )
                 if package_required
+                else manual_buyer_disclosure(private or {}, request_revision=request["revision"])
+                if manual_disclosure_required
                 else None
             )
             if (
-                package_required
+                disclosure_required
                 and disclosure is None
                 and (order is None or order["status"] not in {"paid", "refunded"})
             ):
@@ -766,7 +782,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             view = requester_payment_view(
                 payment_required=True,
-                package_disclosure_required=package_required,
+                package_disclosure_required=disclosure_required,
                 package_disclosure=disclosure,
                 request_status=request["status"],
                 request_expires_at=request.get("expires_at"),
@@ -795,13 +811,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 ),
                 configured_mode=configured_stripe_mode(),
             )
-            if package_required:
+            if disclosure_required:
                 # This authenticated read knows whether sealed terms are current.
                 # Null prevents clients from reusing a stale context disclosure.
                 view["packageDisclosure"] = disclosure
             return {
                 "paymentView": view,
-                **({"packageDisclosureRequired": True} if package_required else {}),
+                **({"packageDisclosureRequired": True} if disclosure_required else {}),
                 **({"packageDisclosure": disclosure} if disclosure is not None else {}),
                 "status": status,
                 "amountCents": None

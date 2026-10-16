@@ -14,7 +14,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -71,6 +71,30 @@ class PermissionSnapshot:
 class CreatedReader:
     permission_id: str = field(repr=False)
     email: str = field(repr=False)
+    expiration_time: str | None = field(default=None, repr=False)
+
+
+def same_expiration(actual: object, expected: object) -> bool:
+    """Compare equivalent RFC3339 times; absence is valid only for legacy grants."""
+    if actual is None or expected is None:
+        return actual is expected
+    try:
+        a = datetime.fromisoformat(actual.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(expected.replace("Z", "+00:00"))
+        return a.tzinfo is not None and b.tzinfo is not None and a == b
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _expiry(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        now = datetime.now(UTC)
+        if parsed.tzinfo is None or not now < parsed <= now + timedelta(days=365):
+            raise ValueError()
+        return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    except (AttributeError, TypeError, ValueError):
+        raise DrivePermissionError("operation_not_allowed") from None
 
 
 def _unknown() -> DrivePermissionError:
@@ -165,6 +189,7 @@ class GoogleDrivePermissionAdapter:
         page_token: str | None = None,
         send_notification_email: bool = True,
         resource_key: str | None = None,
+        expiration_time: str | None = None,
     ) -> dict:
         started = time.perf_counter()
         outcome = "error"
@@ -182,6 +207,7 @@ class GoogleDrivePermissionAdapter:
                 page_token=page_token,
                 send_notification_email=send_notification_email,
                 resource_key=resource_key,
+                expiration_time=expiration_time,
             )
             outcome = "ok"
             return result
@@ -226,6 +252,7 @@ class GoogleDrivePermissionAdapter:
         page_token: str | None = None,
         send_notification_email: bool = True,
         resource_key: str | None = None,
+        expiration_time: str | None = None,
     ) -> dict:
         path = f"/files/{_identifier(file_id)}"
         body, method = None, "GET"
@@ -248,6 +275,8 @@ class GoogleDrivePermissionAdapter:
                 raise DrivePermissionError("operation_not_allowed")
             method, path = "POST", path + "/permissions"
             body = {"type": "user", "role": "reader", "emailAddress": _email(email)}
+            if expiration_time is not None:
+                body["expirationTime"] = _expiry(expiration_time)
             # Bulk shares suppress one email per file and deliver a single
             # confirmed-results summary. Existing individual shares retain
             # Google's standard notification.
@@ -520,6 +549,7 @@ class GoogleDrivePermissionAdapter:
         require_current: Fence,
         send_notification_email: bool = True,
         resource_key: str | None = None,
+        expiration_time: str | None = None,
     ) -> CreatedReader:
         result = await self._exchange(
             "create",
@@ -529,6 +559,7 @@ class GoogleDrivePermissionAdapter:
             require_current=require_current,
             send_notification_email=send_notification_email,
             resource_key=resource_key,
+            expiration_time=expiration_time,
         )
         try:
             permission = _permission(result)
@@ -540,11 +571,13 @@ class GoogleDrivePermissionAdapter:
             or permission.get("emailAddress", "").casefold() != verified_email.casefold()
             or permission.get("deleted") is True
             or permission.get("pendingOwner") is True
-            or permission.get("expirationTime") is not None
+            or not same_expiration(permission.get("expirationTime"), expiration_time)
         ):
             raise _unknown()
         # Record success even if owner disconnects while Google is responding.
-        return CreatedReader(permission["id"], permission["emailAddress"])
+        return CreatedReader(
+            permission["id"], permission["emailAddress"], permission.get("expirationTime")
+        )
 
     async def remove_recorded_permission(
         self,

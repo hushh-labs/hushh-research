@@ -31,14 +31,20 @@ class DriveOwnerSearchWorker:
             or type(v1_only) is not bool
         ):
             raise ValueError("invalid search worker bounds")
-        # V1 drains only the server-marked deterministic statement queue.
-        # Trusted planning and automatic batch effects belong to the normal
-        # worker, never this isolated drain.
+        # V1 plans only creation-marked live requests and never auto-approves
+        # their files. The content evaluator prepares an exact owner decision.
         trusted_auto = None if v1_only else self.trusted_auto
+        request_preparer = self.trusted_auto
         counts = Counter()
         continuation = False
         woke_early = False
         deadline = asyncio.get_running_loop().time() + deadline_seconds
+        if v1_only and request_preparer:
+            try:
+                async with asyncio.timeout(20):
+                    await request_preparer.continue_batches(max_jobs=min(max_jobs, 2), v1_only=True)
+            except Exception:
+                counts["unavailable"] += 1
         if trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
             try:
                 # A payment/restart wake can arrive with committed results
@@ -53,8 +59,10 @@ class DriveOwnerSearchWorker:
         async def prepare_pending():
             try:
                 with drive_stage(logger, "worker_prepare"):
-                    started = await trusted_auto.start_pending(
-                        max_jobs=min(max_jobs, 2), deadline_at=deadline
+                    started = await request_preparer.start_pending(
+                        max_jobs=min(max_jobs, 2),
+                        deadline_at=deadline,
+                        **({"v1_only": True} if v1_only else {}),
                     )
                 counts["queued"] += started["started"]
                 counts["unavailable"] += started["deferred"]
@@ -68,7 +76,7 @@ class DriveOwnerSearchWorker:
         async with asyncio.TaskGroup() as tasks:
             preparation = (
                 tasks.create_task(prepare_pending())
-                if trusted_auto and deadline - asyncio.get_running_loop().time() > 20
+                if request_preparer and deadline - asyncio.get_running_loop().time() > 20
                 else None
             )
             with drive_stage(logger, "worker_due"):
@@ -80,7 +88,9 @@ class DriveOwnerSearchWorker:
                 # With no older work, use the rest of this same drain to continue it.
                 await preparation
                 with drive_stage(logger, "worker_due"):
-                    jobs = await self.service.store.due(limit=max_jobs)
+                    jobs = await self.service.store.due(
+                        limit=max_jobs, **({"v1_only": True} if v1_only else {})
+                    )
             for job in jobs:
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining < 1:
@@ -117,6 +127,8 @@ class DriveOwnerSearchWorker:
                         if trusted_auto and current["errorCode"] is None:
                             await wake_drive_work("suggestions")
                             woke_early = True
+                    elif outcome == "completed" and v1_only:
+                        await wake_drive_work("v1")
                     counts[
                         outcome
                         if outcome

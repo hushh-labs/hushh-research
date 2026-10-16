@@ -45,7 +45,15 @@ STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
     "v1": frozenset(
-        {"searches", "bulk_shares", "bulk_removals", "checkouts", "refunds", "owner_payouts"}
+        {
+            "searches",
+            "suggestions",
+            "bulk_shares",
+            "bulk_removals",
+            "checkouts",
+            "refunds",
+            "owner_payouts",
+        }
     ),
     "sharing": frozenset(
         {
@@ -401,7 +409,7 @@ class DriveWorkDrain:
                 *(
                     run_worker(name, worker)
                     for name, worker in self._workers
-                    if name in {"searches", "checkouts", "bulk_shares"}
+                    if name in {"searches", "suggestions", "checkouts", "bulk_shares"}
                 )
             )
             for name, worker in self._workers:

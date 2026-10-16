@@ -172,7 +172,7 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
           EXISTS(SELECT 1 FROM drive_bulk_share_effects e
             JOIN drive_bulk_shares b ON b.share_id=e.share_id
             WHERE b.origin_request_id=:request
-              AND e.state IN ('succeeded','preexisting')) AS delivered,
+              AND (e.state='succeeded' OR (:count_preexisting AND e.state='preexisting'))) AS delivered,
           EXISTS(SELECT 1 FROM drive_bulk_share_effects e
             JOIN drive_bulk_shares b ON b.share_id=e.share_id
             WHERE b.origin_request_id=:request
@@ -187,7 +187,10 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
               AND p.state IN ('dispatching','unknown','present_unattributed'))
             AS legacy_unsettled
             """,
-                {"request": request_id},
+                {
+                    "request": request_id,
+                    "count_preexisting": request.get("v1_live_request") is not True,
+                },
             )
             if (
                 (effects["delivered"] and not partial_refund)

@@ -449,13 +449,18 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
 
     @staticmethod
     def _delivery_summary(
-        connection, request_id: str, requester_user_id: str, *, package_count: int | None = None
+        connection,
+        request_id: str,
+        requester_user_id: str,
+        *,
+        package_count: int | None = None,
+        count_preexisting: bool = True,
     ) -> dict[str, int]:
         row = (
             connection.execute(
                 text("""WITH file_outcomes AS (
                 SELECT f.file_digest,
-                  bool_or(e.state IN ('succeeded','preexisting')) AS confirmed,
+                  bool_or(e.state='succeeded' OR (:count_preexisting AND e.state='preexisting')) AS confirmed,
                   bool_or((b.approved_at IS NOT NULL AND
                     (e.state IS NULL OR e.state NOT IN
                     ('succeeded','preexisting','skipped','failed','absent') OR
@@ -482,6 +487,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                     "request": request_id,
                     "requester": requester_user_id,
                     "include_frozen": package_count is not None,
+                    "count_preexisting": count_preexisting,
                 },
             )
             .mappings()
@@ -642,7 +648,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 except (DriveSharingError, ValueError, TypeError, KeyError):
                     return "held"
             summary = self._delivery_summary(
-                connection, request_id, request["recipient_user_id"], package_count=package_count
+                connection,
+                request_id,
+                request["recipient_user_id"],
+                package_count=package_count,
+                count_preexisting=request.get("v1_live_request") is not True,
             )
             if summary["unsettled"]:
                 return "held"

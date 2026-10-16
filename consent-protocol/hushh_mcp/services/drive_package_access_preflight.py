@@ -109,8 +109,11 @@ class DrivePackageAccessPreflight:
                 args = {"file_id": file["id"], "access_token": credential["accessToken"]}
 
                 async def source_current():
-                    actual = await reader.adapter.get_metadata(
-                        **args, require_app_authorized=False, require_genai_eligibility=False
+                    actual = await reader.adapter.get_share_metadata(
+                        **args,
+                        **(
+                            {"resource_key": file["resourceKey"]} if file.get("resourceKey") else {}
+                        ),
                     )
                     # Agent packets pin the Drive version. Older automatic
                     # searches saved a modified timestamp instead; compare
@@ -151,8 +154,17 @@ class DrivePackageAccessPreflight:
                     "permission": permission,
                 }
 
-        async with asyncio.timeout(40):
-            evidence = tuple(await asyncio.gather(*(inspect(file) for file in files)))
+        tasks = [asyncio.create_task(inspect(file)) for file in files]
+        try:
+            async with asyncio.timeout(40):
+                evidence = tuple(await asyncio.gather(*tasks))
+        finally:
+            # A failed file must not leave the other Google reads running
+            # after checkout has already refused the selection.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self.verify_recipient(recipient)
         await require_current()
         states = {item["access"] for item in evidence}

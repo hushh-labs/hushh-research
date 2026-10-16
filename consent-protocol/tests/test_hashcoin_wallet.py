@@ -88,7 +88,8 @@ def ledger(connector_postgres_url, monkeypatch):
           status TEXT,stripe_mode TEXT,reconciliation_required BOOLEAN DEFAULT FALSE,
           stripe_payment_intent_id TEXT,erased_at TIMESTAMPTZ,
           delivery_confirmed_at_erasure BOOLEAN DEFAULT FALSE,
-          delivery_unsettled_at_erasure BOOLEAN DEFAULT FALSE)""")
+          delivery_unsettled_at_erasure BOOLEAN DEFAULT FALSE,
+          v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE)""")
         c.exec_driver_sql(
             "CREATE TABLE drive_request_payment_refunds(request_id UUID PRIMARY KEY,status TEXT,stripe_refund_id TEXT)"
         )
@@ -101,6 +102,12 @@ def ledger(connector_postgres_url, monkeypatch):
         )
         c.exec_driver_sql(
             "ALTER TABLE drive_request_owner_payouts ADD COLUMN stripe_mode TEXT DEFAULT 'live'"
+        )
+        # Mirror migration352's provenance column in this compact wallet-only
+        # schema; these historical orders intentionally stay outside V1.
+        c.exec_driver_sql(
+            "ALTER TABLE drive_request_owner_payouts ADD COLUMN "
+            "v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE"
         )
         for _ in range(2):
             c.exec_driver_sql(
