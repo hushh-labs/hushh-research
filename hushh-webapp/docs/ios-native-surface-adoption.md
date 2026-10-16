@@ -18,7 +18,10 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared-renderer recovery and release gate — 2026-10-16
 
-The current recovery integrates main through `44cf8c778b`. Custom native
+The current recovery integrates main through `9ad50abbf0`, including Calendar's
+local-time/invitation corrections and the intentional Mail connection-screen
+rollback. Receipt owner/session and request-generation guards remain intact.
+Custom native
 qualification remains opt-in; ordinary Capacitor/React and the independent
 native tab bar retain their existing admission policy. No additional Profile
 family is qualified by this integration.
@@ -31,8 +34,11 @@ apply Profile's WebKit material policy to its portaled row menus. Confirmed
 chat-key recovery is bound to the original authentication generation and
 conversation, cancelled by later edits, and rechecks Calendar sources rather
 than retaining fetched meeting text. The authoritative composer still clears
-on lock. These changes require fresh combined-head core and CI; prior green
-checks do not qualify the repaired head or establish physical acceptance.
+on lock. The repaired `67cc084bbc` head passed canonical core and all exact-head
+PR Validation lanes, including the browser packs and native builds. Main then
+advanced into overlapping files, requiring the new integration above. Fresh
+combined-head core and CI remain required; the earlier pass does not qualify a
+different head or establish physical acceptance.
 
 ### Earlier main integration and shared-pane repair — 2026-10-16
 
