@@ -87,10 +87,10 @@ test.afterAll(() => {
 });
 
 const scenarios = [
-  { width: 320, height: 568, theme: "light" },
-  { width: 390, height: 844, theme: "light" },
-  { width: 390, height: 844, theme: "dark" },
-  { width: 1440, height: 900, theme: "light" },
+  { width: 320, height: 568, theme: "light", email: "you@gmail.com", brand: "Google email domain" },
+  { width: 390, height: 844, theme: "light", email: "you@icloud.com", brand: "Apple email domain" },
+  { width: 390, height: 844, theme: "dark", email: "you@outlook.com", brand: "Microsoft email domain" },
+  { width: 1440, height: 900, theme: "light", email: "you@gmail.com", brand: "Google email domain" },
 ] as const;
 
 for (const scenario of scenarios) {
@@ -101,6 +101,9 @@ for (const scenario of scenarios) {
       if (message.type() === "error") browserErrors.push(message.text());
     });
     await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.route("http://setup.local/brand/**", route => route.fulfill({
+      path: path.join(process.cwd(), "public", new URL(route.request().url()).pathname),
+    }));
     await page.route("http://setup.local/onboarding/intro-v2/*", async route => {
       const name = path.basename(new URL(route.request().url()).pathname);
       await route.fulfill({
@@ -108,7 +111,7 @@ for (const scenario of scenarios) {
         contentType: "image/png",
       });
     });
-    await page.setContent(`<html class="${scenario.theme === "dark" ? "dark" : ""}"><head><base href="http://setup.local/"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await page.setContent(`<html class="${scenario.theme === "dark" ? "dark" : ""}"><head><base href="http://setup.local/"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root" data-email="${scenario.email}"></div></body></html>`);
     // about:blank is not a secure origin, so Web Crypto omits randomUUID.
     // The production flow uses it for attempt IDs before calling the stubbed vault.
     await page.evaluate(() => {
@@ -131,6 +134,41 @@ for (const scenario of scenarios) {
     await expect(heading).toHaveText("Set a lock");
     await expect(heading).toHaveCSS("font-family", /Plus Jakarta Sans/);
     await expect(password).toHaveCSS("font-size", "16px");
+    const identity = page.getByRole("img", { name: scenario.brand, exact: true });
+    await expect(identity).toBeVisible();
+    await expect.poll(() => identity.locator("img").evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    for (const field of [password, confirm]) {
+      const shell = field.locator("..");
+      const toggle = shell.getByRole("button");
+      await expect(toggle).toHaveAccessibleName("Show password");
+      await toggle.hover();
+      await expect(toggle).toHaveAttribute("title", "Show password");
+      const eye = toggle.locator("svg");
+      const irisStroke = await eye.locator("circle").evaluate(element => getComputedStyle(element).stroke);
+      const slashStroke = await eye.locator("path").last().evaluate(element => getComputedStyle(element).stroke);
+      expect(irisStroke).not.toBe(slashStroke);
+      const accent = await eye.evaluate(element => {
+        const probe = document.createElement("span");
+        probe.style.color = getComputedStyle(element).getPropertyValue("--ios-account-accent").trim();
+        return probe.style.color;
+      });
+      await expect(eye.locator("circle")).toHaveCSS("stroke", accent);
+      await expect(eye.locator("path").last()).toHaveCSS("stroke", await eye.evaluate(element => getComputedStyle(element).color));
+      await toggle.click();
+      await expect(field).toHaveAttribute("type", "text");
+      await expect(toggle).toHaveAttribute("title", "Hide password");
+      await toggle.click();
+      await expect(field).toHaveAttribute("type", "password");
+      await expect(toggle).toHaveAttribute("title", "Show password");
+      await heading.click();
+      await page.mouse.move(0, 0);
+      const inactiveFill = await shell.evaluate(element => getComputedStyle(element).backgroundColor);
+      await field.focus();
+      await expect(field).toHaveCSS("outline-style", "none");
+      await expect(field).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      expect(await shell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(inactiveFill);
+      await expect(shell).not.toHaveCSS("box-shadow", "none");
+    }
     await expect(page.getByText("Also unlock with a passkey")).toBeVisible();
     await expect(create).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
