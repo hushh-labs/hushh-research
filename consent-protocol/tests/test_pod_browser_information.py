@@ -16,7 +16,10 @@ from tests.helpers.pod_browser import (
 )
 
 
-@pytest.mark.parametrize("model_name", SUPPORTED_GEMINI_TEXT_MODELS)
+@pytest.mark.parametrize(
+    "model_name",
+    [name for model in SUPPORTED_GEMINI_TEXT_MODELS for name in (model, "models/" + model)],
+)
 async def test_model_factory_rejects_custom_transport_and_unverified_native_model(
     monkeypatch, model_name
 ):

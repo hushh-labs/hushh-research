@@ -4245,7 +4245,10 @@ combined backend run passes 20,657 cases and exposes one retired Gemini pin in
 the browser specialist. It now uses the shared two-release policy while keeping
 exact capability/transport/processing verification. Its existing model-factory
 test covers both supported releases and rejects the retired release even with a
-matching capability receipt; 21 focused checks pass and the predecessor fails.
+matching capability receipt; 23 focused checks cover canonical and prefixed
+model identifiers. The retired predecessor fails. Fresh serving readback shows
+backend `439f181304` and frontend `5c2d1483aa`; the candidate retains the deployed
+managed-runtime fixes and reuses its canonical model predicate.
 Capability projections are refreshed against the merged main base. This remains
 integration evidence: no new
 Dev deployment, paid purchase, recipient-model receipt or payout is established.
