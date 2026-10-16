@@ -97,6 +97,9 @@ const CLOUD_VENDOR = /gemini/i;
 type Mode = "one" | "puppy";
 
 interface Variant {
+  /** Render the empty-chat welcome using production layout classes. */
+  welcomeName?: string;
+  welcomeTheme?: "light" | "dark";
   /** Whether this person has more than one cloud model to choose between. */
   canPickOneModel: boolean;
   /**
@@ -280,7 +283,19 @@ function renderScreen(mode: Mode, variant: Variant): string {
    * One's transcript and composer, hidden rather than unmounted, so a cloud
    * turn in flight survives a glance at Puppy. The spec asserts both halves.
    */
-  const oneTranscript = `
+  const oneTranscript = variant.welcomeName !== undefined ? `
+    <div class="${SRC.welcome.viewportClass} ${plan.oneHidden}">
+      <div data-testid="one-transcript" class="${SRC.welcome.scrollClass}">
+        <div class="${SRC.welcome.transcriptColumnClass}">
+          <section data-testid="welcome" class="${SRC.welcome.sectionClass}">
+            <div class="${SRC.welcome.columnClass}">
+              <h2 data-testid="welcome-heading" class="${SRC.welcome.headingClass}">Hi ${escapeHtml(variant.welcomeName)}</h2>
+              <p class="${SRC.welcome.descriptionClass}">What would you like to do today?</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>` : `
     <div data-testid="one-transcript"
          class="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-6 sm:px-6 ${plan.oneHidden}">
       <div class="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
@@ -400,7 +415,7 @@ async function buildFixture(variant: Variant): Promise<string> {
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8">
+    `<!doctype html><html${variant.welcomeTheme ? ` class="${variant.welcomeTheme}"` : ""}><head><meta charset="utf-8">
 <!-- Load-bearing on the mobile projects. A page with no viewport meta gets the
      980px fallback layout viewport under \`isMobile\`, so every width below it
      measures the same 980px-wide header scaled down, and the widths this file
@@ -760,6 +775,66 @@ test.describe("Agent Chat: which agent is answering", () => {
     // A cloud model named on the surface whose whole claim is that the answer
     // was generated on the owner's machine.
     expect(await visibleClaims(page)).toMatch(CLOUD_VENDOR);
+  });
+});
+
+test.describe("Empty One chat: welcome spacing", () => {
+  test("detects the previous viewport-centered gap", async ({ page }) => {
+    await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, welcomeName: "Smirthika" }, 1920);
+    // Negative control: the reported layout reserved up to 32rem and centered
+    // the welcome inside it, independently of the header directly above it.
+    await page.addStyleTag({ content: '[data-testid="welcome"] { min-height: clamp(18rem, 45vh, 32rem); justify-content: center; padding-block: 2.5rem; }' });
+    const gaps: number[] = [];
+    for (const height of [600, 1080]) {
+      await page.setViewportSize({ width: 1920, height });
+      const identity = await box(page, "agent-identity");
+      const heading = await box(page, "welcome-heading");
+      gaps.push(heading.y - identity.y - identity.height);
+    }
+    expect(gaps[1]).toBeGreaterThan(64);
+    expect(gaps[1] - gaps[0]).toBeGreaterThan(64);
+  });
+
+  test("keeps the greeting close to the identity at every viewport height", async ({ page }) => {
+    for (const width of [390, 1920]) {
+      const gaps: number[] = [];
+      for (const height of [390, 600, 1080]) {
+        await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, safeTop: width < 768 ? 44 : 0, welcomeName: "Smirthika" }, width);
+        await page.setViewportSize({ width, height });
+        const identity = await box(page, "agent-identity");
+        const heading = await box(page, "welcome-heading");
+        const gap = heading.y - identity.y - identity.height;
+        gaps.push(gap);
+        expect(gap).toBeGreaterThanOrEqual(16);
+        expect(gap).toBeLessThanOrEqual(64);
+        await page.screenshot({ path: test.info().outputPath(`welcome-${width}x${height}px.png`) });
+      }
+      expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+      await test.info().attach(`welcome-gaps-${width}px`, { body: JSON.stringify({ width, heights: [390, 600, 1080], gaps }), contentType: "application/json" });
+    }
+  });
+
+  test("keeps welcome text within the reading column on small and large screens", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1280, 720], [2560, 1440]]) {
+      for (const [name, welcomeTheme] of [["there", "light"], ["Smirthika", "light"], ["Zoë 🦋", "dark"], ["نور", "dark"], ["A".repeat(64), "light"]] as const) {
+        await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, safeTop: width < 768 ? 44 : 0, welcomeName: name, welcomeTheme }, width);
+        await page.setViewportSize({ width, height });
+        const geometry = await page.getByTestId("welcome-heading").evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, top: rect.top, scrollWidth: element.scrollWidth, width: element.clientWidth };
+        });
+        const identity = await box(page, "agent-identity");
+        const gap = geometry.top - identity.y - identity.height;
+        expect(gap).toBeGreaterThanOrEqual(16);
+        expect(gap).toBeLessThanOrEqual(64);
+        expect(geometry.left).toBeGreaterThanOrEqual(0);
+        expect(geometry.right).toBeLessThanOrEqual(width);
+        expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+        const transcript = await page.getByTestId("one-transcript").evaluate(element => ({ scroll: element.scrollWidth, width: element.clientWidth }));
+        expect(transcript.scroll).toBeLessThanOrEqual(transcript.width);
+      }
+    }
   });
 });
 
