@@ -4463,7 +4463,7 @@ export function LocationImmersiveMap({
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <span className="sr-only">Find a person</span>
                   <Input
-                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
+                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4 focus-visible:ring-2 focus-visible:ring-inset"
                     data-testid="one-location-map-search"
                     inputMode="search"
                     placeholder="Search"
@@ -4648,7 +4648,7 @@ export function LocationImmersiveMap({
                               {person.label}
                             </span>
                             {lastSeen ? (
-                              <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              <span className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
                                 {lastSeen}
                               </span>
                             ) : null}
