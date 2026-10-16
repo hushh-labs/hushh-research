@@ -75,3 +75,8 @@ No calling implementation PR was found when this review was prepared. Prior
 local commits on `feat/direct-message-audio-calls` are `8064b896a` (calling),
 `e965fd90c` (deployment preparation), and `040cc760de` (relay provisioning).
 These local commit IDs are context only; this PR does not publish those changes.
+
+## Information impact
+
+This DNS review creates no durable owner information and changes no Live Memory
+source. Approval of this document is separate from approval to release calling.
