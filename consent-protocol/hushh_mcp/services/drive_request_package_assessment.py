@@ -239,19 +239,51 @@ def _record_type_cited(claim: str, quotation: str, *, institutional_statement: b
     return False
 
 
+_NOTE_CUE = re.compile(r"\b(?:meeting\s+notes?|minutes|notes\s+by\s+gemini)\b", re.I)
+
+
+def _note_cue_negated(text: str, start: int, end: int) -> bool:
+    nearby = text[max(0, start - 40) : min(len(text), end + 50)]
+    return bool(
+        re.search(r"\b(?:no|without|missing)\s+(?:meeting\s+notes?|minutes)\b", nearby, re.I)
+        or re.search(
+            r"\b(?:meeting\s+notes?|minutes)\b[^.!?\n]{0,35}"
+            r"\b(?:not\s+available|unavailable|missing|absent|not\s+(?:recorded|taken))\b",
+            nearby,
+            re.I,
+        )
+    )
+
+
 def _meeting_note_type_cited(claim: str, quotation: str) -> bool:
     """A meeting title alone is not evidence that notes were recorded."""
     if not re.search(r"\b(?:notes?|minutes)\b", claim, re.I):
         return False
     if not re.search(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", quotation, re.I):
         return False
+    affirmative_note = any(
+        not _note_cue_negated(quotation, match.start(), match.end())
+        for match in _NOTE_CUE.finditer(quotation)
+    )
     return bool(
-        re.search(r"\b(?:meeting\s+notes?|minutes|notes\s+by\s+gemini)\b", quotation, re.I)
+        affirmative_note
         or re.search(
             r"\b(?:decisions?|action\s+items?|discussion|takeaways|blockers)\b"
             r"(?:\s*:|\s*\n\s*(?:[-•*]|\d+[.)]))",
             quotation,
             re.I,
+        )
+        or (
+            re.search(
+                r"\b(?:discussed|decided|agreed|reviewed|identified|noted|resolved)\b",
+                quotation,
+                re.I,
+            )
+            and not re.search(r"\b(?:agenda|planned|scheduled|upcoming)\b", quotation, re.I)
+            and not any(
+                _note_cue_negated(quotation, match.start(), match.end())
+                for match in _NOTE_CUE.finditer(quotation)
+            )
         )
     )
 
@@ -267,6 +299,80 @@ def _meeting_event_date_cited(day: date, quotation: str) -> bool:
         quotation,
         re.I,
     )
+
+
+_MEETING_NOTE_EVIDENCE = re.compile(
+    r"\b(?:meeting\s+notes?|minutes|notes\s+by\s+gemini)\b"
+    r"|\b(?:decisions?|action\s+items?|discussion|takeaways|blockers)\b"
+    r"(?:\s*:|\s*\n\s*(?:[-•*]|\d+[.)]))",
+    re.I,
+)
+_MEETING_CUE = re.compile(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", re.I)
+
+
+def _recover_meeting_citations(item, citations, document_sources, required_entities):
+    """Bind omitted type/subject anchors to exact text from this document only.
+
+    An existing valid model citation is required. Date citations and claimed
+    periods are never synthesized here; the event-date gate stays independent.
+    """
+    if not citations:
+        return citations
+    recovered = list(citations)
+    seen = {(cite.source_ref, cite.quote) for cite in recovered}
+
+    def add(source_ref, quote):
+        if len(recovered) >= 8 or not quote or len(quote) > 500:
+            return
+        if (source_ref, quote) not in seen:
+            recovered.append(EvidenceQuote(source_ref=source_ref, quote=quote))
+            seen.add((source_ref, quote))
+
+    def joined():
+        return "\n".join(cite.quote for cite in recovered)
+
+    if item.record_type_claim and not _meeting_note_type_cited(item.record_type_claim, joined()):
+        for pattern in (_MEETING_NOTE_EVIDENCE, _MEETING_CUE):
+            for source_ref, source_text in document_sources:
+                match = next(
+                    (
+                        match
+                        for match in pattern.finditer(source_text)
+                        if not (
+                            _NOTE_CUE.fullmatch(match.group(0))
+                            and _note_cue_negated(source_text, match.start(), match.end())
+                        )
+                    ),
+                    None,
+                )
+                if match is not None:
+                    add(source_ref, match.group(0))
+                    break
+
+    for claim in [item.entity_claim, *required_entities]:
+        if not claim or any(_entity_cited(claim, cite.quote) for cite in recovered):
+            continue
+        terms = [token.casefold() for token in re.findall(r"[^\W_]+", claim, re.UNICODE)]
+        while terms and terms[0] in _CLAIM_GENERIC:
+            terms.pop(0)
+        while terms and terms[-1] in _CLAIM_GENERIC:
+            terms.pop()
+        if not terms:
+            continue
+        for source_ref, source_text in document_sources:
+            tokens = list(re.finditer(r"[^\W_]+", source_text, re.UNICODE))
+            for index in range(len(tokens) - len(terms) + 1):
+                if [
+                    token.group(0).casefold() for token in tokens[index : index + len(terms)]
+                ] != terms:
+                    continue
+                quote = source_text[tokens[index].start() : tokens[index + len(terms) - 1].end()]
+                if _entity_cited(claim, quote):
+                    add(source_ref, quote)
+                    break
+            if any(_entity_cited(claim, cite.quote) for cite in recovered):
+                break
+    return recovered
 
 
 def verify_v1_document_batch(
@@ -306,7 +412,6 @@ def verify_v1_document_batch(
             if sources.get(cite.source_ref, {}).get("document_ref") == item.document_ref
             and cite.quote in sources[cite.source_ref]["text"]
         ]
-        joined = "\n".join(cite.quote for cite in citations)
         periods = []
         for period in item.covered_periods:
             period_quote = "\n".join(
@@ -317,6 +422,20 @@ def verify_v1_document_batch(
                 date.fromisoformat(period.period_end), period_quote
             ):
                 periods.append(period)
+        if meeting_notes:
+            document_sources = [
+                (source_ref, source["text"])
+                for source_ref, source in sources.items()
+                if source.get("document_ref") == item.document_ref
+                and isinstance(source.get("text"), str)
+                and source.get("truncated") is not True
+                and source.get("evidence_kind") != "versioned_document_facts"
+                and source.get("source_version", item.source_version) == item.source_version
+            ]
+            citations = _recover_meeting_citations(
+                item, citations, document_sources, required_entities
+            )
+        joined = "\n".join(cite.quote for cite in citations)
         supported = (
             bool(citations)
             and bool(joined.strip())
@@ -356,7 +475,7 @@ def verify_v1_document_batch(
             )
         )
         checked.append(
-            item
+            item.model_copy(update={"citations": citations})
             if supported
             else item.model_copy(
                 update={

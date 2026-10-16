@@ -16,6 +16,10 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_owner_search_service import (
+    _MEETING_SUBJECT,
+    _is_meeting_note_request,
+)
 from hushh_mcp.services.drive_owner_search_store import (
     MAX_RESULTS,
     DriveOwnerSearchStore,
@@ -86,6 +90,14 @@ def _metadata_priority(metadata, *, plan, purpose):
         years = {str(year) for year in range(start.year, end.year + 1)}
     except (KeyError, TypeError, ValueError):
         pass
+    # The deterministic meeting plan searches these title aliases, but its
+    # generic "notes" term and a year can otherwise outrank a "Team Sync"
+    # title in the first evaluation cohort. This only changes read order.
+    meeting_title_hint = 20 * bool(
+        plan.get("semantic_intent") not in {"institutional_statement", "broad_financial_records"}
+        and _is_meeting_note_request(str(purpose.get("purpose") or ""))
+        and _MEETING_SUBJECT.search(name)
+    )
     return (
         40 * sum(value in name for value in entities)
         + 10 * sum(value in context for value in entities)
@@ -93,6 +105,7 @@ def _metadata_priority(metadata, *, plan, purpose):
         + sum(value in context for value in clues)
         + min(8, sum(value in name for value in anatomy))
         + 12 * bool(years.intersection(re.findall(r"(?<!\d)\d{4}(?!\d)", name)))
+        + meeting_title_hint
     )
 
 
