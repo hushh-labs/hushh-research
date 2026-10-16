@@ -1623,4 +1623,13 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+
+  it.each(["capabilities", "request", "verify"] as const)(
+    "rejects malformed successful email-auth %s responses", async (action) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(null));
+      await expect(ApiService.emailAuthRequest(action, action === "capabilities" ? undefined : {
+        challenge_id: "opaque-challenge-reference", browser_binding: "opaque-browser-reference",
+      })).rejects.toMatchObject({ code: "invalid_auth_response" });
+    },
+  );
 });
