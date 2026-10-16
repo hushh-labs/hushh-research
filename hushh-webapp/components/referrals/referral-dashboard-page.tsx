@@ -19,6 +19,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
+import { formatWeeklyPrizeCountdown, weeklyPrizeRemainingMs } from "@/lib/referral/weekly-prize-clock";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -75,43 +76,21 @@ function fmt(value: number): string {
   return value.toLocaleString("en-IN");
 }
 
-function twoDigit(value: number): string {
-  return String(Math.max(0, value)).padStart(2, "0");
-}
+// Compatibility export; the small prize clock owns formatting and time math.
+export const formatCountdown = formatWeeklyPrizeCountdown;
 
-/**
- * Total-hours `HHH:MM:SS` remaining until `remainingMs` from now, clamped to
- * `00:00:00` once passed. A pure function so the countdown math is testable
- * without rendering or faking a timer.
- */
-export function formatCountdown(remainingMs: number): string {
-  if (remainingMs <= 0) return "00:00:00";
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${twoDigit(hours)}:${twoDigit(minutes)}:${twoDigit(seconds)}`;
-}
-
-/**
- * `HHH:MM:SS` remaining until the absolute `cutoffIso` the backend reports,
- * recomputed every tick from that fixed instant -- never a client-side
- * `Date.now() + demo duration`, and never reset by a re-render, a route
- * change, a tab switch, or an account switch (those can only ever change
- * which `cutoffIso` the caller passes in, which is itself sourced from
- * `GET /api/one/referrals/challenge`, not invented here).
- */
-function useCountdown(cutoffIso: string | null, serverNow?: string, receivedAt?: number): string | null {
+function useCountdown(challenge: WeeklyChallenge | null): string | null {
   const [label, setLabel] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!cutoffIso) {
+    if (!challenge || weeklyPrizeRemainingMs(challenge, performance.now()) === null) {
       setLabel(null);
       return;
     }
-    const cutoff = new Date(cutoffIso).getTime();
-    const now = () => serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
-    const tick = () => setLabel(formatCountdown(cutoff - now()));
+    const tick = () => {
+      const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+      setLabel(remaining === null ? null : formatCountdown(remaining));
+    };
     tick();
     const interval = window.setInterval(tick, 1000);
     // A backgrounded tab throttles `setInterval`; recompute immediately from
@@ -125,7 +104,7 @@ function useCountdown(cutoffIso: string | null, serverNow?: string, receivedAt?:
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [cutoffIso, serverNow, receivedAt]);
+  }, [challenge]);
 
   return label;
 }
@@ -332,25 +311,14 @@ function ReferralDashboardContent() {
   }, [connected, reloadAll]);
 
   const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
-  const countdown = useCountdown(
-    challengeRes.status === "ready" && challengeRes.data.active
-      ? challengeRes.data.cutoff_at
-      : null,
-    challengeRes.status === "ready" ? challengeRes.data.server_now : undefined,
-    challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined,
-  );
-
-  const cutoffAt = challengeRes.status === "ready" ? challengeRes.data.cutoff_at : null;
-  const serverNow = challengeRes.status === "ready" ? challengeRes.data.server_now : undefined;
-  const receivedAt = challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined;
+  const challenge = challengeRes.status === "ready" ? challengeRes.data : null;
+  const countdown = useCountdown(challenge);
   useEffect(() => {
-    if (!cutoffAt) return;
-    const now = serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
-    const delay = new Date(cutoffAt).getTime() - now;
-    if (!Number.isFinite(delay)) return;
-    const timer = window.setTimeout(reloadChallenge, Math.max(0, delay) + 1000);
+    const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+    if (remaining === null) return;
+    const timer = window.setTimeout(reloadChallenge, remaining + 250);
     return () => window.clearTimeout(timer);
-  }, [cutoffAt, reloadChallenge, serverNow, receivedAt]);
+  }, [challenge, reloadChallenge]);
 
   const onCopy = useCallback(async () => {
     if (!link) return;
@@ -666,113 +634,41 @@ function ChallengeClock({
   onRetryChallenge: () => void;
   countdown: string | null;
 }) {
-  // The compact seven-day track keeps its accessible day labels in every
-  // resource state; only an active server window supplies progress.
-  const weekProgress = (() => {
-    if (challengeRes.status === "ready" && challengeRes.data.active) {
-      const { week_started_at, cutoff_at } = challengeRes.data;
-      if (week_started_at && cutoff_at) {
-        const start = new Date(week_started_at).getTime();
-        const end = new Date(cutoff_at).getTime();
-        const now = challengeRes.data.server_now && challengeRes.data.received_at_monotonic !== undefined
-          ? new Date(challengeRes.data.server_now).getTime() + performance.now() - challengeRes.data.received_at_monotonic
-          : Date.now();
-        const totalDays = Math.max(1, Math.round((end - start) / 86_400_000));
-        const elapsedDays = Math.min(totalDays, Math.max(0, (now - start) / 86_400_000));
-        return { totalDays, elapsedDays, live: true };
-      }
-    }
-    return { totalDays: 7, elapsedDays: 0, live: false };
-  })();
-
-  const headline =
-    challengeRes.status === "loading"
-      ? { label: "Weekly calendar", value: "…" }
-      : challengeRes.status === "error"
-        ? { label: "Weekly calendar", value: "Unable to load" }
-        : challengeRes.data.active
-          ? { label: "This week ends in", value: countdown ?? "—" }
-          : { label: "Weekly calendar", value: "Not yet scheduled" };
+  const challenge = challengeRes.status === "ready" ? challengeRes.data : null;
+  const remaining = weeklyPrizeRemainingMs(challenge, performance.now());
+  const running = remaining !== null && remaining > 0;
+  const timingUnavailable = Boolean(challenge && (challenge.active || challenge.campaign_active === true)
+    && challenge.weekly_prizes_enabled !== false && challenge.campaign_active !== false && remaining === null);
+  const value = challengeRes.status === "loading" ? "Loading…"
+    : challengeRes.status === "error" ? "Unable to load"
+    : challenge?.status === "not_configured" ? "Not yet scheduled"
+    : challenge?.weekly_prizes_enabled === false ? "Paused"
+    : timingUnavailable ? "Timing unavailable"
+    : running ? countdown ?? "Updating…"
+    : remaining === 0 ? "Updating…" : "Not yet scheduled";
 
   return (
-    <div
-      className="referral-clock"
-    >
+    <div className="referral-clock">
       <p className="referral-challenge-heading">
         <span className="inline-flex items-center gap-[9px]">
           <span
             className="inline-flex size-[7px] rounded-full"
-            style={{ background: challengeRes.status === "ready" && challengeRes.data.active ? COLORS.green : COLORS.text3 }}
+            style={{ background: running ? COLORS.green : COLORS.text3 }}
             aria-hidden="true"
           />
-          {headline.label}
+          {running ? "Weekly prizes end in" : "Weekly prizes"}
         </span>
       </p>
       <div className="referral-challenge-status referral-type-support">
-        <span className={`tabular-nums${challengeRes.status === "ready" && challengeRes.data.active ? " referral-countdown-value" : ""}`}>
-          {headline.value}
+        <span className={`tabular-nums${running ? " referral-countdown-value" : ""}`}>
+          {value}
         </span>
-      {challengeRes.status === "error" ? (
+      {challengeRes.status === "error" || timingUnavailable ? (
         <button onClick={onRetryChallenge} className="min-h-11 referral-type-support underline">
           Try again
         </button>
       ) : null}
       </div>
-      {challengeRes.status === "ready" && challengeRes.data.weekly_prizes_enabled === false ? (
-        <p className="referral-challenge-notice referral-type-caption">Weekly prizes are not active</p>
-      ) : null}
-      <div
-        className="referral-challenge-track grid gap-2"
-        style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}
-        role="img"
-        aria-label={
-          weekProgress.live
-            ? `Weekly calendar progress: day ${Math.min(7, Math.floor(weekProgress.elapsedDays) + 1)} of ${weekProgress.totalDays}`
-            : "Weekly calendar progress: not yet started"
-        }
-      >
-        {Array.from({ length: weekProgress.totalDays }, (_, i) => {
-          const fill = weekProgress.live
-            ? Math.max(0, Math.min(1, weekProgress.elapsedDays - i)) * 100
-            : 0;
-          const isNow =
-            weekProgress.live &&
-            i === Math.min(weekProgress.totalDays - 1, Math.floor(weekProgress.elapsedDays));
-          return (
-            <div
-              key={i}
-              className="relative h-[6px] rounded-full"
-              style={{ background: "rgba(255,255,255,.14)" }}
-            >
-              <div
-                    className="h-full rounded-full bg-white"
-                style={{ width: `${fill}%` }}
-              />
-              {isNow ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1/2 size-[14px] -translate-y-1/2 rounded-full bg-white"
-                  style={{ left: `calc(${fill}% - 7px)`, boxShadow: "0 0 0 5px rgba(255,255,255,.16)" }}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      <ol className="referral-challenge-days sr-only">
-        {Array.from({ length: weekProgress.totalDays }, (_, i) => {
-          const isNow =
-            weekProgress.live &&
-            i === Math.min(weekProgress.totalDays - 1, Math.floor(weekProgress.elapsedDays));
-          return (
-            <li key={i} className="min-w-0 text-center referral-type-caption" style={{ color: isNow ? "#aeaeb2" : "#8e8e93" }}>
-              <b className="block whitespace-nowrap" style={{ color: isNow ? "#fff" : "#aeaeb2" }}>
-                Day {i + 1}
-              </b>
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
 }

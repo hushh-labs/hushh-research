@@ -3601,9 +3601,17 @@ Firebase authentication derives the owner; client payloads cannot select one.
   visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
   a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning
   streak, `server_now` and `next_day_at`. `GET /engagement` awards nothing.
-- `GET /challenge` returns Monday/Kolkata start, exclusive cutoff, server time
-  and persisted round metadata. `calendar_active`/legacy `active` are separate
-  from `campaign_active` and `weekly_prizes_enabled`. Reads never enable prizes.
+- `GET /challenge` returns persisted Monday/Kolkata round bounds and fresh server
+  time after database work. `active` and `campaign_active` both mean enabled
+  weekly prizes in an open round; `calendar_active` only describes the schedule.
+  `weekly_prizes_enabled` remains the explicit campaign setting. Reads never
+  enable prizes. A wait across cutoff resolves the next round before responding.
+  `server_processing_ms` lets clients estimate response transit separately from
+  server work, then advance `server_now` using a monotonic receipt anchor. The
+  dashboard shows one weekly-prize countdown with days/hours/minutes/seconds;
+  disabled, unknown or invalid timing never falls back to a device clock.
+  Activation sends the allowlisted global `weekly_prizes_enabled` referral
+  doorbell so open dashboards re-read state; it carries only that reason.
 - `GET /policy` supplies active amounts through compatible `points` keys,
   streak/schedule rules and flash/prize availability. UI calls amounts Coins.
 - `GET /transactions` returns owner-only cursor history; row `coins` aliases

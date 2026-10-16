@@ -73,6 +73,9 @@ export type WeeklyChallenge = {
   calendar_active?: boolean;
   campaign_active?: boolean;
   received_at_monotonic?: number;
+  /** Server work is excluded when estimating the response's one-way transit. */
+  server_processing_ms?: number;
+  estimated_transit_ms?: number;
   server_now?: string;
   round_id?: string;
   status?: string;
@@ -338,9 +341,9 @@ export const ReferralService = {
     });
   },
 
-  /** The current seven-day challenge round's start and close. `active` is
-   * false when the program's weekly schedule is unset. */
+  /** The persisted weekly-prize round. Calendar existence never enables prizes. */
   async getChallenge(opts: { idToken: string }): Promise<WeeklyChallenge> {
+    const requestedAt = performance.now();
     const result = await apiJson<WeeklyChallenge>("/api/one/referrals/challenge", {
       method: "GET",
       headers: {
@@ -348,7 +351,12 @@ export const ReferralService = {
         Authorization: `Bearer ${opts.idToken}`,
       },
     });
-    return { ...result, received_at_monotonic: performance.now() };
+    const receivedAt = performance.now();
+    const processing = result.server_processing_ms;
+    const transit = typeof processing === "number" && Number.isFinite(processing) && processing >= 0
+      ? Math.max(0, receivedAt - requestedAt - processing) / 2
+      : 0;
+    return { ...result, received_at_monotonic: receivedAt, estimated_transit_ms: transit };
   },
 
   /** This person's current referral-contest team, if any. */

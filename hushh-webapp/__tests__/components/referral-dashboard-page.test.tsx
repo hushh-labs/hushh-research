@@ -83,18 +83,21 @@ function neverResolves<T = unknown>(): Promise<T> {
   return new Promise<T>(() => {});
 }
 
+function runningChallenge(bounds: { week_started_at: string; cutoff_at: string }) {
+  return { active: true, campaign_active: true, weekly_prizes_enabled: true,
+    timezone: "Asia/Kolkata", server_now: new Date().toISOString(),
+    received_at_monotonic: performance.now(), ...bounds };
+}
+
 describe("formatCountdown", () => {
-  it("formats total hours:minutes:seconds, not days+hours", () => {
-    // 137h 22m 10s, matching the reference design's example -- the total
-    // must stay in the hours column rather than rolling over into a day
-    // count once it exceeds 24 hours.
+  it("makes days and remaining hours explicit", () => {
     const ms = (137 * 3600 + 22 * 60 + 10) * 1000;
-    expect(formatCountdown(ms)).toBe("137:22:10");
+    expect(formatCountdown(ms)).toBe("5d 17h 22m 10s");
   });
 
-  it("clamps an expired deadline to 00:00:00, never a negative value", () => {
-    expect(formatCountdown(-5000)).toBe("00:00:00");
-    expect(formatCountdown(0)).toBe("00:00:00");
+  it("clamps an expired deadline instead of showing a negative value", () => {
+    expect(formatCountdown(-5000)).toBe("00h 00m 00s");
+    expect(formatCountdown(0)).toBe("00h 00m 00s");
   });
 });
 
@@ -105,7 +108,7 @@ describe("ReferralDashboardPage", () => {
       available_milestones: [{ milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch" }],
     });
     render(<ReferralDashboardPage />);
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     for (const image of screen.getAllByRole("img", { name: "Apple Watch" })) {
       expect(image).toHaveAttribute("src", "/referrals/product-apple-watch-premium.svg");
@@ -125,19 +128,20 @@ describe("ReferralDashboardPage", () => {
     expect(screen.getByText("You're #2. 20 coins to pass Priya Rao.")).toBeInTheDocument();
   });
 
-  it("does not call an omitted prize flag inactive on a running calendar", async () => {
+  it("does not imply prizes are active when the prize flags are missing", async () => {
     mocks.getChallenge.mockResolvedValue({ active: true, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
     render(<ReferralDashboardPage />);
-    await screen.findByText("This week ends in");
-    expect(screen.queryByText("Weekly prizes are not active")).toBeNull();
+    await screen.findByText("Timing unavailable");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByText("Weekly prizes end in")).toBeNull();
   });
 
-  it("keeps an explicit inactive-prize notice below the calendar header", async () => {
+  it("shows paused prizes without a calendar countdown or track", async () => {
     mocks.getChallenge.mockResolvedValue({ active: true, weekly_prizes_enabled: false, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
     render(<ReferralDashboardPage />);
-    const notice = await screen.findByText("Weekly prizes are not active");
-    expect(notice).toHaveClass("referral-challenge-notice");
-    expect(notice.previousElementSibling).toHaveClass("referral-challenge-status");
+    await screen.findByText("Paused");
+    expect(screen.queryByText("Weekly prizes end in")).toBeNull();
+    expect(screen.queryByRole("img", { name: /Weekly calendar progress/ })).toBeNull();
   });
 
   it("revalidates a change received while the first request is still in flight", async () => {
@@ -163,7 +167,7 @@ describe("ReferralDashboardPage", () => {
       available_milestones: [{ milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher" }],
     });
     render(<ReferralDashboardPage />);
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(screen.getByText("0 of 1 unlocked")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Claim reward" })).toBeNull();
@@ -285,7 +289,7 @@ describe("ReferralDashboardPage", () => {
   it("renders Rules amounts from the active backend policy", async () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     render(<ReferralDashboardPage />);
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
@@ -294,7 +298,7 @@ describe("ReferralDashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Flash boost" }).closest("article")).toHaveTextContent("246 coins");
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
-    expect(screen.getByText("This week ends in")).toBeInTheDocument();
+    expect(screen.getByText("Weekly prizes end in")).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
@@ -323,7 +327,7 @@ describe("ReferralDashboardPage", () => {
       available_milestones: catalogue,
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
     if (title && threshold) {
@@ -355,7 +359,7 @@ describe("ReferralDashboardPage", () => {
       ],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     const rewards = within(screen.getByRole("region", { name: "Rewards" }));
     expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" })).toBeInTheDocument();
@@ -395,12 +399,10 @@ describe("ReferralDashboardPage", () => {
       streak: { current_run_days: 6, run_length_days: 9 },
       flash: { active: false, ends_at: null },
     });
-    mocks.getChallenge.mockResolvedValue({
-      active: true,
+    mocks.getChallenge.mockImplementation(async () => runningChallenge({
       week_started_at: new Date(Date.now() - 86_400_000).toISOString(),
       cutoff_at: new Date(Date.now() + 6 * 86_400_000).toISOString(),
-      timezone: "Asia/Kolkata",
-    });
+    }));
     mocks.getCircleSelection.mockResolvedValue({ circle_id: null });
   });
 
@@ -418,40 +420,38 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.markReferralIntroductionSeen).not.toHaveBeenCalled();
   });
 
-  it("advances the day segments at midnight and reloads the backend at weekly rollover", async () => {
+  it("ticks from server time and reloads at weekly-prize rollover", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-08T23:59:59+05:30"));
-    mocks.getChallenge.mockResolvedValue({
-      active: true,
+    mocks.getChallenge.mockResolvedValue(runningChallenge({
       week_started_at: "2026-10-05T00:00:00+05:30",
       cutoff_at: "2026-10-12T00:00:00+05:30",
-      timezone: "Asia/Kolkata",
-    });
+    }));
     const view = render(<ReferralDashboardPage />);
     await act(async () => {});
-    expect(screen.getByText("72:00:01")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 4 of 7" })).toBeInTheDocument();
+    expect(screen.getByText("3d 00h 00m 01s")).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByText("72:00:00")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 5 of 7" })).toBeInTheDocument();
+    expect(screen.getByText("3d 00h 00m 00s")).toBeInTheDocument();
     view.unmount();
     vi.setSystemTime(new Date("2026-10-11T23:59:59+05:30"));
+    mocks.getChallenge.mockResolvedValue(runningChallenge({
+      week_started_at: "2026-10-05T00:00:00+05:30",
+      cutoff_at: "2026-10-12T00:00:00+05:30",
+    }));
     render(<ReferralDashboardPage />);
     await act(async () => {});
-    mocks.getChallenge.mockResolvedValue({
-      active: true,
+    mocks.getChallenge.mockImplementation(async () => runningChallenge({
       week_started_at: "2026-10-12T00:00:00+05:30",
       cutoff_at: "2026-10-19T00:00:00+05:30",
-      timezone: "Asia/Kolkata",
-    });
+    }));
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(mocks.getChallenge).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 1 of 7" })).toBeInTheDocument();
+    expect(screen.getByText("6d 23h 59m 59s")).toBeInTheDocument();
     expect(screen.getByText("2,450")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "6 day streak" })).toBeInTheDocument();
   });
 
-  it("always renders the dark weekly-challenge card, even while every other resource is loading", async () => {
+  it("renders the weekly-prize timer independently of other resources", async () => {
     // Points, leaderboard, milestones, engagement and circle never resolve;
     // only the page-gating summary does. The timer card must not depend on
     // any of them.
@@ -463,12 +463,8 @@ describe("ReferralDashboardPage", () => {
 
     render(<ReferralDashboardPage />);
 
-    expect(await screen.findByText("This week ends in")).toBeInTheDocument();
-    // Seven structural progress segments and Day 1..Day 7 labels are present
-    // even though nothing else on the page has resolved yet.
-    for (let day = 1; day <= 7; day++) {
-      expect(screen.getByText(`Day ${day}`)).toBeInTheDocument();
-    }
+    expect(await screen.findByText("Weekly prizes end in")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /Weekly calendar progress/ })).toBeNull();
   });
 
   it("keeps the timer card visible when the challenge resource itself fails", async () => {
@@ -477,15 +473,14 @@ describe("ReferralDashboardPage", () => {
     render(<ReferralDashboardPage />);
 
     await waitFor(() => expect(screen.getByText("Unable to load")).toBeInTheDocument());
-    expect(screen.getByText("Day 1")).toBeInTheDocument();
-    expect(screen.getByText("Day 7")).toBeInTheDocument();
+    expect(screen.getByText("Weekly prizes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("keeps the reference colours through a route-scoped accent override", async () => {
     render(<ReferralDashboardPage />);
 
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
 
     const inviteButton = screen.getByRole("button", { name: "Invite & earn $" });
     // The shared token is deliberately overridden at this route, so a saved
@@ -542,7 +537,7 @@ describe("ReferralDashboardPage", () => {
     });
 
     const { rerender } = render(<ReferralDashboardPage />);
-    await screen.findByText("This week ends in");
+    await screen.findByText("Weekly prizes end in");
 
     // Switch accounts before account A's points request resolves.
     currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };

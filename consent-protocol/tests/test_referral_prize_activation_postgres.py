@@ -2,6 +2,8 @@
 
 # ruff: noqa: F811 -- imported shared PostgreSQL fixture
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,8 @@ from sqlalchemy import text
 
 from db.migration_authority import _replay_sql, build_manifest_entries
 from db.referral_prize_activation import activate_weekly_prizes_sql
+from hushh_mcp.services import one_referral_program_settings_service as settings
+from hushh_mcp.services import one_referral_weekly_award_service as weekly
 from tests.test_one_referral_lifecycle_postgres import db  # noqa: F401
 
 pytestmark = pytest.mark.db
@@ -20,8 +24,8 @@ def test_activation_is_additive_idempotent_and_replayable(db):
         before = connection.execute(
             text("SELECT to_jsonb(s) FROM one_referral_program_settings s WHERE version=5")
         ).scalar()
-        connection.exec_driver_sql(activate_weekly_prizes_sql())
-        connection.exec_driver_sql(activate_weekly_prizes_sql())
+        connection.execute(text(activate_weekly_prizes_sql()))
+        connection.execute(text(activate_weekly_prizes_sql()))
         rows = connection.execute(
             text(
                 "SELECT version,feature_active,activated_at,retired_at FROM one_referral_program_settings WHERE version IN (5,6) ORDER BY version"
@@ -65,7 +69,7 @@ def test_activation_refuses_unresolved_past_rounds_without_changing_settings(db)
         )
     with pytest.raises(Exception, match="historical inactive rounds"):
         with db.begin() as connection:
-            connection.exec_driver_sql(activate_weekly_prizes_sql())
+            connection.execute(text(activate_weekly_prizes_sql()))
     with db.connect() as connection:
         assert (
             connection.execute(
@@ -77,7 +81,7 @@ def test_activation_refuses_unresolved_past_rounds_without_changing_settings(db)
 
 def test_replay_rejects_a_changed_activation_successor(db):
     with db.begin() as connection:
-        connection.exec_driver_sql(activate_weekly_prizes_sql())
+        connection.execute(text(activate_weekly_prizes_sql()))
         connection.execute(
             text("UPDATE one_referral_program_settings SET points='{}'::JSONB WHERE version=6")
         )
@@ -100,11 +104,49 @@ def test_activation_uses_fresh_time_after_a_transaction_wait(db):
                 )
             )
             connection.execute(text("SELECT pg_sleep(1.05)"))
-            connection.exec_driver_sql(activate_weekly_prizes_sql())
+            connection.execute(text(activate_weekly_prizes_sql()))
     with db.connect() as connection:
         assert (
             connection.execute(
                 text("SELECT version FROM one_referral_program_settings WHERE retired_at IS NULL")
             ).scalar()
             == 5
+        )
+
+
+def test_upcoming_v5_round_survives_activation_and_awards_once(db, monkeypatch):
+    cutoff = datetime.now(timezone.utc) + timedelta(days=1)
+    before = settings.get_or_create_reward_round(cutoff, "Asia/Kolkata")
+    with db.begin() as connection:
+        connection.execute(text("INSERT INTO actor_profiles(user_id) VALUES('weekly-winner')"))
+        connection.execute(
+            text(
+                "INSERT INTO one_referral_score_events(user_id,event_type,points,settings_version,idempotency_key) VALUES('weekly-winner','streak_bonus',15,5,'weekly-winner-bonus')"
+            )
+        )
+        connection.execute(text(activate_weekly_prizes_sql()))
+    after = settings.get_or_create_reward_round(cutoff, "Asia/Kolkata")
+    assert after == before
+    assert after["settings_version"] == 5
+
+    @contextmanager
+    def database():
+        with db.begin() as connection:
+            yield connection
+
+    class AfterCutoff(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cutoff + timedelta(seconds=1)
+
+    monkeypatch.setattr(weekly, "get_db_connection", database)
+    monkeypatch.setattr(weekly, "datetime", AfterCutoff)
+    first = weekly.finalize_reward_round(cutoff, "Asia/Kolkata")
+    repeated = weekly.finalize_reward_round(cutoff, "Asia/Kolkata")
+    assert first.reward_round_id == repeated.reward_round_id == before["id"]
+    assert len(first.awards) == len(repeated.awards) == 1
+    with db.connect() as connection:
+        assert (
+            connection.execute(text("SELECT COUNT(*) FROM one_referral_weekly_awards")).scalar()
+            == 1
         )

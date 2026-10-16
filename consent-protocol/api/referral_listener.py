@@ -113,7 +113,7 @@ def _notify_callback(connection, pid, channel, payload: str) -> None:
         return
     user_id = str(data.get("referrer_user_id") or "").strip()
     message = {"reason": str(data.get("reason") or "changed")}
-    if not user_id and message["reason"] != "leaderboard_published":
+    if not user_id and message["reason"] not in {"leaderboard_published", "weekly_prizes_enabled"}:
         return
 
     loop = _serving_loop

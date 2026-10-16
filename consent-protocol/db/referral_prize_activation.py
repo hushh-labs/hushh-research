@@ -65,5 +65,6 @@ def activate_weekly_prizes_sql() -> str:
       VALUES(6,prior.qualification_policy_version,prior.points,{watch_milestones_sql("prior")},
         prior.streak_rules,prior.flash_windows,prior.weekly_schedule,prior.prize_catalogue,
         prior.tie_break_rules,prior.fulfillment_config,TRUE,at);
+      PERFORM pg_notify('one_referral_changed','{{"reason":"weekly_prizes_enabled"}}');
     END $$;
     """
