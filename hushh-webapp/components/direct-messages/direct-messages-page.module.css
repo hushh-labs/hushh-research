@@ -1626,7 +1626,10 @@ article[data-message-role="peer"] .messageBubble {
   border-radius: 18px !important;
 }
 .messageBubbleMeta { font-size: 12px; }
-@media (max-width: 374px) { .messageBubbleMeta { margin-left: 4px; font-size: 11px; } }
+@media (max-width: 374px) {
+  .messageBubble, article[data-message-role="user"] .messageBubble { padding-left: 8px !important; }
+  .messageBubbleMeta { margin-left: 4px; font-size: 11px; }
+}
 article[data-message-role="user"] .messageBubbleMeta,
 article[data-message-role="user"] .messageDeliveryState {
   color: var(--chat-outgoing-meta);

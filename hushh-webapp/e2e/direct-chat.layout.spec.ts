@@ -466,40 +466,43 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   expect(threadTitle.weight).toBe("600");
 });
 
-for (const width of [320, 393, 768, 1440]) test(`compact message controls preserve inline timestamps at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 1000 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await mount(page, width === 393);
-  if (width === 320) await transcript(page).evaluate(element => {
-    // Reproduce CI's 15px classic scrollbar gutter on overlay-scrollbar hosts.
-    const gutter = element.getBoundingClientRect().width - element.clientWidth;
-    if (gutter < 15) element.style.paddingRight = `${parseFloat(getComputedStyle(element).paddingRight) + 15 - gutter}px`;
-  });
-  await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
-  for (const id of ["maya-79", "maya-78"]) {
-    const row = page.locator(`[data-chat-message="${id}"]`);
-    await row.hover();
-    const bubble = row.locator('[data-chat-bubble]');
-    const before = await bubble.boundingBox();
-    await row.getByRole("button", { name: "Message options" }).focus();
-    expect(await bubble.boundingBox()).toEqual(before);
-    const geometry = await bubble.evaluate(element => {
-      const text = element.querySelector(":scope > p")!.getBoundingClientRect();
-      const time = element.querySelector("time")!.getBoundingClientRect();
-      return { textBottom: text.bottom, timeTop: time.top, textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
+test.describe("compact message layout", () => {
+  test.use({ timezoneId: "UTC", locale: "en-US" });
+  for (const width of [320, 393, 768, 1440]) test(`compact message controls preserve inline timestamps at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mount(page, width === 393);
+    if (width === 320) await transcript(page).evaluate(element => {
+      // Reproduce CI's 15px classic scrollbar gutter on overlay-scrollbar hosts.
+      const gutter = element.getBoundingClientRect().width - element.clientWidth;
+      if (gutter < 15) element.style.paddingRight = `${parseFloat(getComputedStyle(element).paddingRight) + 15 - gutter}px`;
     });
-    expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
-    for (const label of ["React to message", "Message options"]) {
-      const button = row.getByRole("button", { name: label });
-      const rect = (await button.boundingBox())!;
-      expect(rect.width).toBeGreaterThanOrEqual(44);
-      expect(rect.height).toBeGreaterThanOrEqual(44);
-      expect(rect.x).toBeGreaterThanOrEqual(0);
-      expect(rect.x + rect.width).toBeLessThanOrEqual(width);
-      await expect(button).toHaveCSS("background-image", /14px.*15px/);
+    await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
+    for (const id of ["maya-79", "maya-78"]) {
+      const row = page.locator(`[data-chat-message="${id}"]`);
+      await row.hover();
+      const bubble = row.locator('[data-chat-bubble]');
+      const before = await bubble.boundingBox();
+      await row.getByRole("button", { name: "Message options" }).focus();
+      expect(await bubble.boundingBox()).toEqual(before);
+      const geometry = await bubble.evaluate(element => {
+        const text = element.querySelector(":scope > p")!.getBoundingClientRect();
+        const time = element.querySelector("time")!.getBoundingClientRect();
+        return { textBottom: text.bottom, timeTop: time.top, textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
+      });
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      for (const label of ["React to message", "Message options"]) {
+        const button = row.getByRole("button", { name: label });
+        const rect = (await button.boundingBox())!;
+        expect(rect.width).toBeGreaterThanOrEqual(44);
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        await expect(button).toHaveCSS("background-image", /14px.*15px/);
+      }
     }
-  }
-  await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
+    await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
+  });
 });
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
