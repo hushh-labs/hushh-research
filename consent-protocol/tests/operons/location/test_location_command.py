@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import json
@@ -33,6 +34,18 @@ class FakeCommandModel(BaseLlm):
         value = self.responses.pop(0)
         part = types.Part.from_text(text=value) if isinstance(value, str) else value
         yield LlmResponse(content=types.Content(role="model", parts=[part]))
+
+
+class StalledCommandModel(BaseLlm):
+    model: str = "stalled-command-model"
+    cancelled: bool = False
+
+    async def generate_content_async(self, llm_request, stream=False):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled = True
+        yield LlmResponse()
 
 
 def test_all_current_location_capabilities_have_an_authored_destination():
@@ -251,8 +264,22 @@ async def test_semantic_agent_returns_typed_proposal_only(monkeypatch):
     assert model.requests[0].config.response_schema is not None
     assert not model.requests[0].config.speech_config
     assert len(options) == 1
-    assert options[0].timeout == 20_000
+    assert options[0].timeout == 60_000
     assert options[0].retry_options.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_semantic_agent_cancels_a_stalled_model_at_assessment_deadline(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.agents.location.command_brain._SEMANTIC_ASSESS_TIMEOUT_SECONDS",
+        0.05,
+    )
+    model = StalledCommandModel()
+    with pytest.raises(TimeoutError):
+        await LocationCommandBrain(client=object(), adk_model=model).assess(
+            query="show location", context={}, catalog=catalog()[1]
+        )
+    assert model.cancelled
 
 
 @pytest.mark.asyncio
