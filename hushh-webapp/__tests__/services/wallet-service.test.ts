@@ -17,6 +17,10 @@ vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: networkAp
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: networkApi.user, getIdTokenWithRetry: networkApi.token } }));
 
 import { WalletService } from "@/lib/services/wallet-service";
+import { WalletPresentationResource } from "@/lib/services/wallet-presentation-resource";
+import { CacheService } from "@/lib/services/cache-service";
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { luhnValid } from "@/lib/wallet/card-validation";
@@ -61,6 +65,79 @@ const DOMAIN_DATA = {
     },
   },
 };
+
+describe("Wallet presentation preloading", () => {
+  beforeEach(() => CacheService.getInstance().clear());
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+  const row = () => ({ summary: { cardId: CARD_ID, nickname: "Synthetic card", brand: "visa", last4: "1111", expiryMonth: 12, expiryYear: 2030, issuingRegion: "US", createdAt: "synthetic" }, cardholderName: "SYNTHETIC OWNER", artwork: approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "test", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: true, evidence: "network_assigned" }, CONTEXT.userId, snapshotVaultSessionEpoch()) });
+  it("shares preload with entry and caches only the owner display projection", async () => {
+    const data = { ...row(), pan: "4111111111111111", manual_cvv: "private-code", vaultKey: CONTEXT.vaultKey };
+    const read = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValue([data]);
+    const a = WalletPresentationResource.load(CONTEXT), b = WalletPresentationResource.load(CONTEXT);
+    expect(a).toBe(b);
+    const snapshot = await a;
+    expect(WalletPresentationResource.peek(CONTEXT.userId)).toBe(snapshot);
+    await WalletPresentationResource.load(CONTEXT);
+    expect(read).toHaveBeenCalledTimes(1);
+    const serialized = JSON.stringify(snapshot);
+    for (const value of [data.pan, data.manual_cvv, CONTEXT.vaultKey, CONTEXT.vaultOwnerToken]) expect(serialized).not.toContain(value);
+  });
+  it("preserves the original approval deadline across cached entry and hides expired images synchronously", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(WalletService, "listCardPresentations").mockResolvedValue([row()]);
+    const first = await WalletPresentationResource.load(CONTEXT);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect((await WalletPresentationResource.load(CONTEXT)).artworkExpiresAt).toBe(first.artworkExpiresAt);
+    await vi.advanceTimersByTimeAsync(40_001);
+    expect(WalletPresentationResource.peek(CONTEXT.userId)?.rows[0].artwork?.source).toBe("neutral");
+  });
+  it.each(["wallet mutation", "epoch", "owner", "verification"])("fences late preload after %s", async boundary => {
+    let finish!: (rows: ReturnType<typeof row>[]) => void;
+    vi.spyOn(WalletService, "listCardPresentations").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = WalletPresentationResource.load(CONTEXT);
+    const data = row();
+    if (boundary === "wallet mutation") bumpPkmInvalidationEpoch(CONTEXT.userId, "wallet");
+    if (boundary === "epoch") advanceVaultSessionEpoch();
+    if (boundary === "owner") publishValidatedAuthSessionOwner("another-owner");
+    if (boundary === "verification") window.dispatchEvent(new Event(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT));
+    finish([data]);
+    await expect(pending).rejects.toThrow("Wallet changed");
+    expect(WalletPresentationResource.peek(CONTEXT.userId)).toBeNull();
+  });
+  it("keeps the original warm lease after unavailable validation and replays denials to late joiners", async () => {
+    const read = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row()]);
+    const saved = await WalletPresentationResource.load(CONTEXT);
+    read.mockRejectedValueOnce(new Error("Artwork unavailable"));
+    await expect(WalletPresentationResource.load(CONTEXT, { force: true })).rejects.toThrow("Artwork unavailable");
+    expect(WalletPresentationResource.peek(CONTEXT.userId)).toBe(saved);
+    let finish!: (rows: ReturnType<typeof row>[]) => void;
+    read.mockImplementationOnce((_context, options) => {
+      expect(options?.failOnArtworkUnavailable).toBe(true);
+      options?.onArtworkRejected?.([{ cardId: CARD_ID, assetId: "synthetic", digest: "a".repeat(64) }]);
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const first = WalletPresentationResource.load(CONTEXT, { force: true });
+    const denied = vi.fn();
+    const joined = WalletPresentationResource.load(CONTEXT, { force: true, onArtworkRejected: denied });
+    expect(joined).toBe(first); expect(denied).toHaveBeenCalledOnce();
+    finish([]); await joined;
+  });
+  it("removes a known denied image from the warm snapshot before a stalled refresh finishes", async () => {
+    const read = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row()]);
+    await WalletPresentationResource.load(CONTEXT);
+    let finish!: (rows: ReturnType<typeof row>[]) => void;
+    read.mockImplementationOnce((_context, options) => {
+      options?.onArtworkRejected?.([{ cardId: CARD_ID, assetId: "synthetic", digest: "a".repeat(64) }]);
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const denied = vi.fn();
+    const refresh = WalletPresentationResource.load(CONTEXT, { force: true, onArtworkRejected: denied });
+    expect(denied).toHaveBeenCalledOnce();
+    expect(WalletPresentationResource.peek(CONTEXT.userId)?.rows[0].artwork?.source).toBe("neutral");
+    finish([]);
+    await refresh;
+  });
+});
 
 describe("WalletService", () => {
   it("rotates unused bank designs privately, reuses the same number, and never mutates existing cards", async () => {
@@ -273,6 +350,39 @@ describe("WalletService", () => {
     expect(full?.secrets.pan).toBe("4111111111111111");
     expect(full?.secrets).not.toHaveProperty("pin");
     expect(full?.secrets).not.toHaveProperty("cvv");
+  });
+
+  it("keeps manual codes out of card readers and exposes them only through the owner action", async () => {
+    expect(await WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID })).toBeUndefined();
+    mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, secrets: { [CARD_ID]: { ...DOMAIN_DATA.secrets[CARD_ID], manual_cvv: "007" } } });
+    expect(await WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID })).toBe("007");
+    expect((await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID }))?.secrets).toEqual({ pan: "4111111111111111", cardholderName: "A Person" });
+    expect(JSON.stringify(await WalletService.listCardPresentations(CONTEXT))).not.toContain("007");
+    let finish!: (data: typeof DOMAIN_DATA) => void;
+    mockLoadDomainData.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const read = WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID });
+    advanceVaultSessionEpoch();
+    finish(DOMAIN_DATA);
+    await expect(read).rejects.toThrow("Wallet changed");
+  });
+
+  it("writes a manual code with exact owner authority and never sends it for network resolution", async () => {
+    const card = { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099, securityCode: "0123" };
+    const saved = await WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add" });
+    const call = mockStoreWalletDomain.mock.calls[0][0];
+    expect(call.securityCodeChange).toEqual({ cardId: saved.cardId, value: "0123" });
+    const domain = await call.applyMutation({});
+    expect(domain.secrets[saved.cardId].manual_cvv).toBe("0123");
+    expect(JSON.stringify([saved, domain.summary, networkApi.fetch.mock.calls])).not.toContain("0123");
+    mockStoreWalletDomain.mockClear();
+    await expect(WalletService.addCard({ ...CONTEXT, card, surface: "chat", source: "agent_chat_wallet_add" })).rejects.toThrow("Security code write unavailable");
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+  });
+
+  it("never carries a previous number's code onto a changed retry number", async () => {
+    await WalletService.addCard({ ...CONTEXT, card: { draftId: CARD_ID.slice(5), pan: "4242424242424242", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "one_wallet_add" });
+    const call = mockStoreWalletDomain.mock.calls[0][0];
+    await expect(call.applyMutation({ ...DOMAIN_DATA, secrets: { [CARD_ID]: { ...DOMAIN_DATA.secrets[CARD_ID], manual_cvv: "007" } } })).rejects.toThrow("cancel and start a new card");
   });
 
   it("refuses an invalid card before any storage call", async () => {
@@ -568,6 +678,16 @@ describe("automatic network artwork saves", () => {
     expect((await pending).map(row => row.artwork?.source === "catalog" ? row.artwork.digest : null)).toEqual(designs.slice(0, 2).map(row => row.variant.digest));
   });
 
+  it("distinguishes unavailable validation from denial when retaining a warm card", async () => {
+    const designs = await recoveryCatalog();
+    const saved = { ...designs[0]!.variant, source: "catalog", version: 1, catalogVersion: "old-v1", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected" };
+    mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, artwork: { [CARD_ID]: saved } });
+    networkApi.fetch.mockRejectedValue(new Error("offline"));
+    const rejected = vi.fn();
+    await expect(WalletService.listCardPresentations(CONTEXT, { failOnArtworkUnavailable: true, onArtworkRejected: rejected })).rejects.toThrow("offline");
+    expect(rejected).not.toHaveBeenCalled();
+    expect((await WalletService.listCardPresentations(CONTEXT))[0]!.artwork?.source).toBe("neutral");
+  });
   it("reports a denied saved reference before unrelated recovery finishes", async () => {
     const designs = await recoveryCatalog(), rejected = vi.fn();
     const saved = { ...designs[0]!.variant, source: "catalog", version: 1, catalogVersion: "old-v1", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected", assetId: "withdrawn" };

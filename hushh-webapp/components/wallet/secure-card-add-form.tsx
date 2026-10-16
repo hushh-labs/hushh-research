@@ -49,6 +49,7 @@ const ERROR_COPY: Record<string, string> = {
   expiry_month_invalid: "Enter a valid expiry month.",
   expiry_year_invalid: "Enter a valid expiry year.",
   card_expired: "This card is already expired.",
+  security_code_invalid: "Enter a 3 or 4 digit CVV, or leave it blank.",
 };
 
 export interface SecureCardAddFormProps {
@@ -62,6 +63,8 @@ export interface SecureCardAddFormProps {
   /** Legacy host flag; approved network illustrations are assigned on save. */
   artworkEnabled?: boolean;
   scanInToolbar?: boolean;
+  /** Enabled only by owner Wallet Add, never by the chat entry widget. */
+  collectSecurityCode?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
   active?: boolean;
   /** Compatibility label supplied by a chat offer; never asks for it again. */
@@ -70,11 +73,12 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
+  const [securityCode, setSecurityCode] = useState("");
   const [pan, setPan] = useState(initialPan ?? "");
   const [network, setNetwork] = useState<CardBrand | "">("");
   const draftId = useRef(walletOperationId());
@@ -121,6 +125,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     else setExpiry(formatCardExpiryInput(digits));
   };
   useEffect(() => { if (!active) { setScanReading(null); } }, [active]);
+  useEffect(() => { if (!active || !collectSecurityCode) setSecurityCode(""); }, [active, collectSecurityCode]);
+  useEffect(() => {
+    const hidden = () => { if (document.visibilityState === "hidden") setSecurityCode(""); };
+    document.addEventListener("visibilitychange", hidden);
+    return () => document.removeEventListener("visibilitychange", hidden);
+  }, []);
   useEffect(() => {
     if (errors.length) errorsRef.current?.focus();
   }, [errors]);
@@ -138,7 +148,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   useEffect(() => {
     if (previousOwner.current === ownerKey) return;
     previousOwner.current = ownerKey;
-    setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null);
+    setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null); setSecurityCode("");
     setIssuingRegion(""); setErrors([]); entryCaret.current = null;
     edited.current = { pan: false, cardholderName: false, expiry: false }; draftId.current = walletOperationId();
   }, [ownerKey]);
@@ -206,6 +216,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       expiryMonth: Number(match?.[1] ?? 0),
       expiryYear: match ? (rawYear < 100 ? 2000 + rawYear : rawYear) : 0,
       issuingRegion: issuingRegion || undefined,
+      ...(collectSecurityCode && securityCode ? { securityCode } : {}),
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!network && brand === "other") result.errors.push("brand_required");
@@ -225,6 +236,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       edited.current = { pan: false, expiry: false, cardholderName: false };
       setScanReading(null);
       setCardholderName("");
+      setSecurityCode("");
       setExpiry("");
       setNetwork("");
       setIssuingRegion("");
@@ -349,6 +361,14 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
               </SelectContent>
             </Select>
           </div>
+          {collectSecurityCode ? <div className={styles.field}>
+            <Label htmlFor={`${id}-security-code`}><ProfilePaneCardIcon className={styles.fieldIcon} />CVV</Label>
+            <Input id={`${id}-security-code`} type="password" inputMode="numeric" autoComplete="off" maxLength={4}
+              value={draftVisible ? securityCode : ""} placeholder="3 or 4 digits"
+              onChange={event => setSecurityCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 4))}
+              {...fieldErrors("security_code_invalid")} />
+            <p className={styles.scanHint}>Only visible to you in Wallet.</p>
+          </div> : null}
         </div>
       </fieldset>
       {errors.length > 0 ? (

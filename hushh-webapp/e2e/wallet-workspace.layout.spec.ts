@@ -226,7 +226,7 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/card-scan-agent-one-slim-v1.webp") {
+    if (assetPath === "/wallet/card-scan-complete-v4.webp") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
@@ -455,7 +455,8 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         expect(fullNumber).toBe(maskedNumber);
         expect(fullNumber.replace(/ /g, "").endsWith(maskedNumber.slice(-4))).toBe(true);
         await expect(details.getByText(fullNumber, { exact: true })).toBeVisible();
-        await expect(details).not.toContainText(/CVV|CVC|PIN/);
+        await expect(details.getByTestId("wallet-owner-cvv")).toHaveText("•••");
+    await expect(details).not.toContainText(/CVC|PIN/);
         expect(await page.evaluate(() => window.__walletEvents ?? [])).not.toContain(`reveal:${lastCardId}`);
         await page.getByRole("button", { name: "Back", exact: true }).click();
       }
@@ -644,7 +645,9 @@ for (const width of [320, 393, 1440]) {
     await expect(scan).toBeVisible();
     await expect(scan.getByText("Scan to add card", { exact: true })).toBeVisible();
     const artwork = scan.locator("img");
-    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-slim-v1.webp");
+    await expect(artwork).toHaveCount(1);
+    await expect(artwork).toBeVisible();
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-complete-v4.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
     if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
       await scan.click();
@@ -657,7 +660,7 @@ for (const width of [320, 393, 1440]) {
     const number = form.getByLabel("Card number", { exact: true });
     const holder = form.getByLabel("Name on card", { exact: true });
     const expiry = form.getByLabel("Expiry (MM/YY)", { exact: true });
-    await expect(form.getByLabel("CVV", { exact: true })).toHaveCount(0);
+    await expect(form.getByLabel("CVV", { exact: true })).toHaveAttribute("type", "password");
     await expect(form.getByLabel("PIN (optional)", { exact: true })).toHaveCount(0);
     for (const field of [number, holder, expiry]) {
       await expect(field).toBeVisible();
@@ -1063,10 +1066,11 @@ for (const width of [390, 1440]) {
     await expect(page.getByRole("button", { name: "Change card design", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
-    await expect(details).not.toContainText(/CVV|CVC|PIN/);
+    await expect(details.getByTestId("wallet-owner-cvv")).toHaveText("•••");
+    await expect(details).not.toContainText(/CVC|PIN/);
     const icons = details.locator('[data-slot="settings-row-icon"] svg');
-    await expect(icons).toHaveCount(6);
-    expect(await icons.evaluateAll(elements => elements.slice(0, 5).every(icon => {
+    await expect(icons).toHaveCount(7);
+    expect(await icons.evaluateAll(elements => elements.slice(0, 6).every(icon => {
       const keyAccent = icon.querySelector('defs pattern circle');
       if (keyAccent) {
         const ink = icon.querySelector('defs pattern rect');

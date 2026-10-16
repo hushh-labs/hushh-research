@@ -96,6 +96,15 @@ vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
   },
 }));
 
+// Wallet warming is optional background I/O; this suite owns the real
+// ApiService token-revocation boundary and its explicitly controlled responses.
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({
+  loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>"),
+}));
+vi.mock("@/lib/services/wallet-presentation-resource", () => ({
+  WalletPresentationResource: { load: vi.fn().mockResolvedValue({ rows: [] }) },
+}));
+
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
   UnlockWarmOrchestrator: { run: mocks.unlockWarmRun },
 }));
