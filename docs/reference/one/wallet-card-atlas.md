@@ -70,7 +70,7 @@ Add remains available while bank artwork loads and can save a neutral
 design if artwork is unavailable. Saving pins the chosen reference under the
 existing card ID. Listing or adding another card does not rotate pinned designs,
 alter credentials or change grants. Missing and neutral artwork is recovered
-on owner reads in memory; it is not silently written back to PKM. Recovery uses
+in the background after Cards loads; it is not silently written back to PKM. Recovery uses
 unused image digests and leaves saved photos and withdrawn references alone.
 Focus and visible-minute rechecks also retry an initially neutral collection.
 

@@ -480,12 +480,13 @@ designs assigned automatically by the selected network during Add. It does not
 infer a bank from a sample number or claim an exact physical-card match. The
 bundled catalog is replaced by an explicitly configured private catalog.
 
-Owner Cards reads also recover missing or neutral artwork from the approved
-network catalog in memory, including cards saved before artwork was available.
+After publishing decrypted cards, Workspace recovers missing or neutral artwork
+from the approved network catalog in memory, including older saved cards.
+The normal owner read does not wait for optional artwork recovery.
 Different numbers prefer unused image digests; the full number is compared only
 inside the unlocked client. This display recovery does not write PKM, change
 credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
-reference. Four network workers share an eight-second deadline. Focus and
+reference. Four background network workers share an eight-second deadline. Focus and
 visible-minute checks retry even when all initial faces were neutral; a newly
 saved fallback card also starts a quiet retry without delaying its appearance.
 

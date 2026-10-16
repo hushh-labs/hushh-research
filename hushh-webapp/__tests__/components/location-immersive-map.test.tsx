@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, type ReactNode } from "react";
@@ -2772,6 +2773,24 @@ describe("LocationImmersiveMap reported map defects", () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
+  });
+
+  it("keeps a selected person's last-seen text white and other people muted", async () => {
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463), incomingMarker(ABDUL, 25.4501, 81.8201)],
+      preferences: { presenceMode: "ghost" },
+    });
+    await renderReadyMap();
+    const people = await screen.findAllByTestId("one-location-map-person");
+    const firstStatus = within(people[0]).getByText(/^last seen/);
+    const secondStatus = within(people[1]).getByText(/^last seen/);
+    fireEvent.click(people[0]);
+    await waitFor(() => expect(firstStatus).toHaveClass("text-white"));
+    expect(firstStatus).not.toHaveClass("text-muted-foreground");
+    expect(secondStatus).toHaveClass("text-muted-foreground");
+    fireEvent.click(people[1]);
+    await waitFor(() => expect(secondStatus).toHaveClass("text-white"));
+    expect(firstStatus).toHaveClass("text-muted-foreground");
   });
 
   it("sends a private share to the person it was written for while Ghost Mode is on", async () => {

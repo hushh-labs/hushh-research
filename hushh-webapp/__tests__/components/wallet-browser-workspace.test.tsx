@@ -124,6 +124,7 @@ describe("Wallet video browser workspace", () => {
     const view = render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-card-browser");
+    await act(async () => {});
     return view;
   };
   it("retries artwork on resume even when every card initially has a neutral face", async () => {
@@ -162,8 +163,17 @@ describe("Wallet video browser workspace", () => {
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(3));
     vaultMock.token = "renewed_after_recovery";
     view.rerender(<WalletWorkspace />);
-    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenLastCalledWith(expect.objectContaining({ vaultOwnerToken: "renewed_after_recovery" })));
+    await waitFor(() => expect(serviceMock.listCardSummaries.mock.calls.some(([context]) => context.vaultOwnerToken === "renewed_after_recovery")).toBe(true));
     expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
+  });
+  it("shows decrypted cards while optional cold-load artwork recovery is still pending", async () => {
+    let finish!: (cards: unknown[]) => void;
+    serviceMock.listCardSummaries.mockResolvedValueOnce(makeCards(2)).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await open();
+    expect(finish).toBeTypeOf("function");
+    expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
+    expect(screen.queryByText("Opening your wallet…")).toBeNull();
+    await act(async () => finish(makeCards(2)));
   });
   it("preloads history with a session context that survives tab changes but never lock or epoch changes", async () => {
     const view = await open();

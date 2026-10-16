@@ -494,6 +494,10 @@ export function WalletWorkspace() {
           artworks: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.artwork])),
         });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
+        // Optional network images must not hold otherwise readable cards behind a loader.
+        if (presentations.some(card => card.summary.brand !== "other" && (!card.artwork || card.artwork.source === "neutral"))) {
+          setArtworkRetryRevision(revision => revision + 1);
+        }
       } catch {
         if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
@@ -522,7 +526,7 @@ export function WalletWorkspace() {
       const revision = ++cardReadRevision.current;
       setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
       try {
-        const rows = await WalletService.listCardPresentations(context);
+        const rows = await WalletService.listCardPresentations(context, { recoverArtwork: true });
         if (disposed || revision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
       } catch { /* Approval is unknown: keep the neutral presentation. */ }

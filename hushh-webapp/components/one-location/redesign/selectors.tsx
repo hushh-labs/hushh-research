@@ -8,8 +8,9 @@
  * They do not introduce new business logic.
  */
 
-import { useId } from "react";
-import { Search } from "@/components/icons";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
+import { CheckIcon, ChevronDownIcon, Search } from "@/components/icons";
 
 import {
   Select,
@@ -19,6 +20,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   FormLabel,
   InputValue,
   RowDescription,
@@ -26,6 +32,8 @@ import {
 } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
@@ -120,7 +128,7 @@ export function DurationSelector({
   /** `select` only: height and radius overrides for the trigger. */
   selectClassName?: string;
   /**
-   * `buttons` only. Overrides the selected-option border/background/text
+   * `buttons` and `ladder`. Overrides the selected-option border/background/text
    * classes for this one call site, leaving every other caller's default
    * `--app-accent` look untouched.
    */
@@ -172,6 +180,7 @@ export function DurationSelector({
           centered={centered}
           compact={compact}
           labelledBy={label ? labelId : undefined}
+          activeClassName={activeClassName}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
       ) : presentation === "wheel" ? (
@@ -341,120 +350,130 @@ export function ReasonChips({
   value,
   onChange,
   label = "Reason",
-  presentation = "buttons",
   placeholder = "Pick a reason…",
 }: {
   value: ReasonValue | null;
   onChange: (next: ReasonValue) => void;
   label?: string;
+  /** Both legacy presentations now use the same inline picker. */
   presentation?: "buttons" | "select";
   placeholder?: string;
 }) {
   const labelId = useId();
+  const valueId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const closePicker = useCallback(() => {
+    setExpanded(false);
+    triggerRef.current?.focus();
+  }, []);
 
-  // Dropdown presentation to match DurationSelector's select variant, for a
-  // denser Ask form. Buttons variant is retained for any other caller.
-  if (presentation === "select") {
-    return (
-      <div className="space-y-2">
-        {label ? <FormLabel as="p" id={labelId}>{label}</FormLabel> : null}
-        <Select
-          value={value ?? undefined}
-          onValueChange={(next) => onChange(next as ReasonValue)}
-        >
-          <SelectTrigger
-            aria-label={label || "Reason"}
-            aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
-          >
-            <InputValue as="span">
-              <SelectValue placeholder={placeholder} />
-            </InputValue>
-          </SelectTrigger>
-          <SelectContent
-            align="start"
-            position="popper"
-            className="rounded-[14px]"
-          >
-            {REASON_CHIPS.map((reason) => (
-              <SelectItem key={reason} value={reason}>
-                {reason}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    );
-  }
-
-  // Adaptive: button grid on desktop, dropdown on phones. Both are driven
-  // by the same value/onChange, so picking a reason works identically on
-  // every viewport and no functionality is lost in either form.
-  const reasonSelect = (
-    <Select
-      value={value ?? undefined}
-      onValueChange={(next) => onChange(next as ReasonValue)}
-    >
-      <SelectTrigger
-        aria-label={label || "Reason"}
-        aria-labelledby={label ? labelId : undefined}
-        className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
-      >
-        <InputValue as="span">
-          <SelectValue placeholder={placeholder} />
-        </InputValue>
-      </SelectTrigger>
-      <SelectContent
-        align="start"
-        position="popper"
-        className="rounded-[14px]"
-      >
-        {REASON_CHIPS.map((reason) => (
-          <SelectItem key={reason} value={reason}>
-            {reason}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+  // Ask details owns depth 2. Its inline choice closes before that step unwinds.
+  useBackLayer(
+    ROUTES.ONE_LOCATION,
+    expanded ? 3 : 0,
+    () => {
+      closePicker();
+      return true;
+    },
+    { action: "ask" },
   );
 
+  useEffect(() => {
+    if (!expanded) return;
+    const selected = optionsRef.current?.querySelector<HTMLButtonElement>(
+      '[role="radio"][aria-checked="true"]',
+    );
+    (
+      selected ?? optionsRef.current?.querySelector<HTMLButtonElement>("button")
+    )?.focus();
+  }, [expanded]);
+
   return (
-    <div className="space-y-2">
+    <Collapsible
+      open={expanded}
+      onOpenChange={setExpanded}
+      className="flex flex-col gap-2"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !expanded) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closePicker();
+      }}
+    >
       {label ? (
-        <FormLabel as="p" id={labelId}>{label}</FormLabel>
+        <FormLabel as="p" id={labelId}>
+          {label}
+        </FormLabel>
       ) : null}
-      {/* Desktop: same bordered cell look as the duration rungs above
-          (rounded-[14px] + separator/accent border), in a 2-up grid. */}
-      <div
-        className="hidden gap-2 sm:grid sm:grid-cols-2"
-        role="radiogroup"
-        aria-labelledby={label ? labelId : undefined}
-        aria-label={label ? undefined : "Reason"}
+      <CollapsibleTrigger
+        ref={triggerRef}
+        aria-label={label || "Reason"}
+        aria-describedby={valueId}
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          setExpanded(true);
+        }}
       >
-        {REASON_CHIPS.map((reason) => {
-          const active = reason === value;
-          return (
-            <button
-              key={reason}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => onChange(reason)}
-              className={cn(
-                "h-10 rounded-[14px] border px-3 transition-colors touch-manipulation",
-                active
-                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                  : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
+        <InputValue as="span" id={valueId}>
+          {value ?? placeholder}
+        </InputValue>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn(
+            "size-4 shrink-0 text-[color:var(--app-secondary-label)]",
+            expanded && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      {expanded ? (
+        <CollapsibleContent>
+          <ToggleGroupPrimitive.Root
+            ref={optionsRef}
+            type="single"
+            value={value ?? ""}
+            onValueChange={(next) => {
+              if (next) onChange(next as ReasonValue);
+              closePicker();
+            }}
+            role="radiogroup"
+            aria-labelledby={label ? labelId : undefined}
+            aria-label={label ? undefined : "Reason"}
+            className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-2"
+          >
+            {REASON_CHIPS.map((reason) => (
+              <ToggleGroupPrimitive.Item
+                key={reason}
+                value={reason}
+                className={cn(
+                  "flex min-h-11 min-w-0 items-center justify-between gap-1 rounded-[14px] border px-2 py-2 text-left transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                  reason === value
+                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
+                    : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >
-              {reason}
-            </button>
-          );
-        })}
-      </div>
-      {/* Phones: the same choice as a dropdown instead of plain buttons. */}
-      <div className="sm:hidden">{reasonSelect}</div>
-    </div>
+                <InputValue
+                  as="span"
+                  className={cn(
+                    "shrink-0 whitespace-nowrap [--type-input-value-size:15px]",
+                    reason === value && "[--app-label:var(--app-accent)]",
+                  )}
+                >
+                  {reason}
+                </InputValue>
+                <CheckIcon
+                  aria-hidden="true"
+                  className={cn("size-3.5 shrink-0", reason !== value && "invisible")}
+                />
+              </ToggleGroupPrimitive.Item>
+            ))}
+          </ToggleGroupPrimitive.Root>
+        </CollapsibleContent>
+      ) : null}
+    </Collapsible>
   );
 }
 

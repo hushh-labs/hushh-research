@@ -593,13 +593,16 @@ describe("named Circle flows", () => {
     expect(screen.getByLabelText("Search members")).toHaveValue("");
   }, 15000);
 
-  it("creates a typed Circle and keeps a failed submission recoverable", async () => {
+  it("creates a Circle without a type selector and keeps a failed submission recoverable", async () => {
     const onSubmit = vi
       .fn()
       .mockRejectedValueOnce(new Error("Circle limit reached."))
       .mockResolvedValueOnce(undefined);
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} showCircleType={false} />);
+
+    expect(screen.queryByText("Circle type")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
 
     fireEvent.change(
       screen.getByPlaceholderText("Family, close friends, project team"),
@@ -637,6 +640,11 @@ describe("named Circle flows", () => {
     // Whitespace is not a name.
     fireEvent.change(input, { target: { value: "   " } });
     expect(create).toBeDisabled();
+
+    // Leaving the field alone must not validate when a host closes the form.
+    fireEvent.blur(input);
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(input).not.toHaveAttribute("aria-invalid", "true");
 
     // Choosing a Type is not the Circle name; the form explains the blocked CTA.
     fireEvent.click(screen.getByRole("radio", { name: "Friends" }));
@@ -758,9 +766,8 @@ describe("named Circle flows", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
-      "2345-6789-ABCD",
-    );
+    expect(screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value))
+      .toEqual(["2345", "6789", "ABCD"]);
   });
 
   it("opens an already-joined Circle after review and lets the code be changed", async () => {
@@ -839,9 +846,8 @@ describe("named Circle flows", () => {
       ).toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Open Circle" })).toBeTruthy();
-    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
-      "2345-6789-ABCD",
-    );
+    expect(screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value))
+      .toEqual(["2345", "6789", "ABCD"]);
   });
 
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
@@ -1247,7 +1253,7 @@ describe("named Circle flows", () => {
     expect(leaveCircle).toHaveClass("w-full", "max-w-[320px]");
     expect(screen.getByTestId("one-location-leave-circle-row")).toHaveClass(
       "flex",
-      "justify-end",
+      "justify-center",
     );
     expect(
       screen

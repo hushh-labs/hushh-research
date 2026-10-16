@@ -4028,9 +4028,13 @@ describe("OneLocationAgentPage", () => {
       "aria-pressed",
       "true",
     );
+    fireEvent.click(screen.getByRole("button", { name: "Reason" }));
     expect(
       screen.getByRole("radio", { name: "Safety check-in" }),
     ).toHaveAttribute("aria-checked", "true");
+    fireEvent.keyDown(screen.getByRole("radio", { name: "Safety check-in" }), {
+      key: "Escape",
+    });
     expect(screen.queryByDisplayValue("Old draft")).toBeNull();
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
@@ -6433,6 +6437,13 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
     expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
     const navigateBack = vi.fn();
+    fireEvent.click(screen.getByRole("button", { name: "Reason" }));
+    expect(screen.getByRole("radiogroup", { name: "Reason" })).toBeTruthy();
+    act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reason" })).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Who, then how long?" })).toBeTruthy();
+    expect(navigateBack).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
     expect(await screen.findByRole("heading", { name: "Ask for location" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Who, then how long?" })).toBeNull();

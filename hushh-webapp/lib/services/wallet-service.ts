@@ -420,6 +420,7 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
+    options?: { recoverArtwork?: boolean },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
@@ -436,10 +437,10 @@ export class WalletService {
     const catalogCards = presentations.filter(row => row.artwork?.source === "catalog");
     // Decide recovery from the saved record, before hiding unapproved copies.
     // A withdrawn catalog design must never become a fresh automatic choice.
-    const recoverable = presentations.filter(row => {
+    const recoverable = options?.recoverArtwork ? presentations.filter(row => {
       const saved = storedArtwork[row.summary.cardId];
       return row.summary.brand !== "other" && (saved === undefined || (isRecord(saved) && saved.source === "neutral"));
-    });
+    }) : [];
     const savedReferences = catalogCards.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>);
     catalogCards.forEach(row => { row.artwork = { source: "neutral", version: 1 }; });
     if (catalogCards.length || recoverable.length) await artworkDeadline(undefined, async signal => {

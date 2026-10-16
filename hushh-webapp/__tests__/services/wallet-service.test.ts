@@ -481,9 +481,9 @@ describe("automatic network artwork saves", () => {
     mockLoadDomainData.mockResolvedValue(domain); mockStoreWalletDomain.mockClear(); networkApi.fetch.mockClear();
     const transport = networkApi.fetch.getMockImplementation()!;
     networkApi.fetch.mockImplementation(async (url, options) => url.endsWith("/artwork/banks") ? new Response("Outage", { status: 503 }) : transport(url, options));
-    expect((await WalletService.listCardPresentations(CONTEXT)).slice(0, 3).every(row => row.artwork?.source !== "catalog")).toBe(true);
+    expect((await WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true })).slice(0, 3).every(row => row.artwork?.source !== "catalog")).toBe(true);
     networkApi.fetch.mockImplementation(transport); networkApi.fetch.mockClear();
-    const rows = await WalletService.listCardPresentations(CONTEXT);
+    const rows = await WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true });
     // The retired alias still occupies design-0's pixels in the collection.
     expect(rows.slice(0, 3).map(row => row.artwork)).toEqual([designs[1]!, designs[0]!, designs[2]!].map(row => expect.objectContaining({ source: "catalog", digest: row.variant.digest, evidence: "network_assigned" })));
     expect(rows[3]!.artwork).toEqual(photo);
@@ -505,7 +505,7 @@ describe("automatic network artwork saves", () => {
       if (url.includes("/assets/")) advanceVaultSessionEpoch();
       return transport(url, options);
     });
-    await expect(WalletService.listCardPresentations(CONTEXT)).rejects.toThrow("Wallet changed");
+    await expect(WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true })).rejects.toThrow("Wallet changed");
   });
 
   it("tries the next approved design when the first image fails integrity validation", async () => {
@@ -513,7 +513,7 @@ describe("automatic network artwork saves", () => {
     mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, summary: { [CARD_ID]: { ...DOMAIN_DATA.summary[CARD_ID], brand: "amex" } } });
     const transport = networkApi.fetch.getMockImplementation()!;
     networkApi.fetch.mockImplementation(async (url, options) => url.endsWith(designs[0]!.variant.digest) ? new Response(designs[1]!.bytes, { headers: { "Content-Type": "image/png" } }) : transport(url, options));
-    expect((await WalletService.listCardPresentations(CONTEXT))[0]!.artwork).toMatchObject({ source: "catalog", digest: designs[1]!.variant.digest });
+    expect((await WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true }))[0]!.artwork).toMatchObject({ source: "catalog", digest: designs[1]!.variant.digest });
   });
 
   it("bounds the whole recovery and cancels pending artwork requests", async () => {
@@ -522,12 +522,21 @@ describe("automatic network artwork saves", () => {
     networkApi.fetch.mockClear().mockImplementation(() => new Promise(() => {}));
     vi.useFakeTimers();
     try {
-      const result = WalletService.listCardPresentations(CONTEXT);
+      const result = WalletService.listCardPresentations(CONTEXT, { recoverArtwork: true });
       await vi.advanceTimersByTimeAsync(8001);
       expect((await result)[0]!.artwork).toBeUndefined();
       expect(networkApi.fetch).toHaveBeenCalledOnce();
       expect(networkApi.fetch.mock.calls[0]![1].signal.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("returns readable neutral cards immediately without waiting for an unavailable artwork transport", async () => {
+    mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
+    networkApi.fetch.mockClear().mockImplementation(() => new Promise(() => {}));
+    const rows = await WalletService.listCardPresentations(CONTEXT);
+    expect(rows[0]!.summary.cardId).toBe(CARD_ID);
+    expect(rows[0]!.cardholderName).toBe("A Person");
+    expect(networkApi.fetch).not.toHaveBeenCalled();
   });
 
   it("allocates across issuers against the fresh mutation snapshot and retains images on retry and reload", async () => {

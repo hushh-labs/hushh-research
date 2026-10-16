@@ -1580,8 +1580,10 @@ export function VaultFlow({
       {signOutEscape}
     </div>
   ) : null;
+  // The 44px escape targets already leave 24px below their 20px labels.
+  // Keep the last-resort copy in the same secondary group without extra gaps.
   const lostVaultDeleteEscape = onSignOut ? (
-    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] pt-[var(--app-form-section-gap)] text-center type-footnote">
+    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] text-center type-footnote">
       <p className="text-muted-foreground">Lost every way in?</p>
       <button
         type="button"
@@ -2127,8 +2129,12 @@ export function VaultFlow({
                   </Button>
                 )}
 
-                {unlockSecondaryActions}
-                {lostVaultDeleteEscape}
+                {unlockSecondaryActions || lostVaultDeleteEscape ? (
+                  <div className="flex flex-col">
+                    {unlockSecondaryActions}
+                    {lostVaultDeleteEscape}
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
@@ -2176,8 +2182,10 @@ export function VaultFlow({
                     "Unlock"
                   )}
                 </Button>
-                {recoverySecondaryActions}
-                {lostVaultDeleteEscape}
+                <div className="flex flex-col">
+                  {recoverySecondaryActions}
+                  {lostVaultDeleteEscape}
+                </div>
               </div>
             </div>
           )}
