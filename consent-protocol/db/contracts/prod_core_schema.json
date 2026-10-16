@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 351,
+  "expected_migration_version": 353,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -92,7 +92,9 @@
     "one_referral_record_completed_reply",
     "one_referral_rebuild_network",
     "one_referral_record_confirmed_memory_reward",
-    "guard_wallet_card_request"
+    "guard_wallet_card_request",
+    "mirror_drive_request_payment_obligation",
+    "mark_drive_bulk_share_v1_removal_source"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -823,7 +825,8 @@
       "stopped_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "v1_statement_search"
     ],
     "drive_collection_sync": [
       "user_id",
@@ -989,7 +992,8 @@
       "evaluation_status",
       "evaluation_next_at",
       "evaluation_attempts",
-      "evaluation_error_code"
+      "evaluation_error_code",
+      "v1_statement_search"
     ],
     "drive_owner_search_results": [
       "job_id",
@@ -1114,7 +1118,8 @@
       "next_at",
       "safe_error_code",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "v1_statement_search"
     ],
     "drive_request_owner_payouts": [
       "request_id",
@@ -1157,7 +1162,8 @@
       "wallet_id",
       "sandbox_wallet_id",
       "credited_at",
-      "held_at"
+      "held_at",
+      "v1_statement_search"
     ],
     "drive_request_owner_pricing": [
       "user_id",
@@ -1184,7 +1190,8 @@
       "created_at",
       "updated_at",
       "stripe_mode",
-      "settlement_method"
+      "settlement_method",
+      "v1_statement_search"
     ],
     "drive_request_payment_orders": [
       "request_id",

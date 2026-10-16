@@ -43,6 +43,7 @@ def service(monkeypatch, *, circle=None, identity=None):
         review=AsyncMock(return_value={"shareId": SHARE, "status": "review_ready"}),
         files=AsyncMock(return_value={"shareId": SHARE, "files": [], "nextCursor": None}),
         approve=AsyncMock(return_value={"shareId": SHARE, "status": "queued"}),
+        v1_approved=AsyncMock(return_value=False),
         stop=AsyncMock(return_value={"shareId": SHARE, "status": "stopped"}),
         inbox=AsyncMock(return_value={"shares": [{"shareId": SHARE, "sharedCount": 1}]}),
         recipient_files=AsyncMock(
@@ -138,6 +139,22 @@ async def test_approval_queues_only_stored_review_and_wakes_worker(monkeypatch):
     )
     wake.assert_awaited_once_with("sharing")
     assert current.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_approved_v1_selected_batch_wakes_isolated_delivery_lane(monkeypatch):
+    subject, store, _, _, _, wake = service(monkeypatch)
+    store.approve.return_value = {
+        "shareId": SHARE,
+        "status": "queued",
+        "progressiveBatch": True,
+    }
+    store.v1_approved.return_value = True
+
+    await subject.approve(user_id=OWNER, share_id=SHARE, revision=3, review_digest="a" * 64)
+
+    store.v1_approved.assert_awaited_once_with(user_id=OWNER, share_id=SHARE)
+    wake.assert_awaited_once_with("v1")
 
 
 @pytest.mark.asyncio

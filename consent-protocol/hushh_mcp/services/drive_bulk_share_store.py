@@ -1621,7 +1621,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                 ):
                     raise DriveSharingError("payment_not_ready")
                 selected.append({**metadata, "generation": current["connection_generation"]})
-            if progressive:
+            # V1 search results are provider candidates. The owner freezes
+            # the exact relevant subset; requiring every shareable candidate
+            # would block checkout when unrelated Drive matches are present.
+            # Legacy automatic selections still require complete freezing.
+            if progressive and search.get("v1_statement_search") is not True:
                 eligible = set()
                 for result in results:
                     metadata = self._open(
@@ -1950,9 +1954,10 @@ class DriveBulkShareStore(DriveLivePreferences):
                         raise DriveSharingError("trusted_request_unavailable")
                 search = self._row(
                     connection,
-                    """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope
+                    """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope,
+                              v1_statement_search,expires_at
                     FROM drive_owner_search_jobs
-                    WHERE job_id=:job AND user_id=:user FOR SHARE""",
+                    WHERE job_id=:job AND user_id=:user FOR UPDATE""",
                     {"job": row["search_job_id"], "user": user_id},
                 )
                 if (
@@ -1964,6 +1969,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                         else {"completed"}
                     )
                     or search["incomplete_search"]
+                    or (
+                        search["v1_statement_search"]
+                        and search["expires_at"]
+                        <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+                    )
                     or (
                         search["revision"] < row["search_revision"]
                         if row["progressive_batch"]
@@ -2092,6 +2102,42 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
 
                 DriveRequestPaymentStore.ensure_order_for_approved_request(connection, origin)
+                if search["v1_statement_search"]:
+                    # Keep the complete search snapshot available through this
+                    # approved share's life. Checkout compares every frozen
+                    # file with that snapshot before live Drive access checks.
+                    extended = connection.execute(
+                        text("""UPDATE drive_owner_search_jobs
+                          SET expires_at=GREATEST(expires_at,:expires)
+                          WHERE job_id=:job AND user_id=:user
+                            AND v1_statement_search=TRUE
+                            AND expires_at>clock_timestamp()"""),
+                        {
+                            "expires": updated["expires_at"],
+                            "job": row["search_job_id"],
+                            "user": user_id,
+                        },
+                    )
+                    if extended.rowcount != 1:
+                        raise DriveSharingError("search_incomplete")
+                    # A Trusted order/payout can predate the owner's exact
+                    # approval. Refresh its mirror only after this batch is
+                    # approved so post-erasure reconciliation keeps the V1
+                    # provenance without depending on an expiring search job.
+                    connection.execute(
+                        text("""UPDATE drive_request_payment_orders
+                          SET updated_at=clock_timestamp()
+                          WHERE request_id=:request"""),
+                        {"request": origin["request_id"]},
+                    )
+                    connection.execute(
+                        text("""UPDATE drive_request_owner_payouts p
+                          SET v1_statement_search=TRUE
+                          FROM drive_request_payment_obligations o
+                          WHERE p.request_id=:request AND o.request_id=p.request_id
+                            AND o.v1_statement_search=TRUE"""),
+                        {"request": origin["request_id"]},
+                    )
             if origin is not None and not row["progressive_batch"]:
                 request = origin
                 request = self._row(
@@ -2597,15 +2643,52 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         await self._transaction(operation)
 
-    async def due(self, limit=400):
+    @staticmethod
+    def _v1_approved_share(connection, *, user_id, share_id):
+        """Use approval provenance that survives the search job's expiry."""
+        return (
+            connection.execute(
+                text("""
+            SELECT 1 FROM drive_bulk_shares b
+            WHERE b.share_id=:share AND b.user_id=:user
+              AND b.v1_statement_search=TRUE
+              AND b.origin_request_id IS NOT NULL
+              AND b.progressive_batch=TRUE
+              AND b.approval_source='owner'
+              AND b.approved_at IS NOT NULL
+              AND b.file_count>0 AND b.recipient_count=1
+            """),
+                {"share": share_id, "user": user_id},
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    async def v1_approved(self, *, user_id, share_id):
+        share = _uuid(share_id)
+        return await self._transaction(
+            lambda connection: self._v1_approved_share(connection, user_id=user_id, share_id=share)
+        )
+
+    async def due(self, limit=400, *, v1_only=False):
         if type(limit) is not int or not 1 <= limit <= 500:
             raise ValueError("invalid bulk worker bound")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid bulk worker mode")
+
+        v1_filter = (
+            """AND b.v1_statement_search=TRUE
+               AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
+               AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+               AND b.file_count>0 AND b.recipient_count=1"""
+            if v1_only
+            else ""
+        )
 
         def operation(connection):
             return [
                 dict(item)
                 for item in connection.execute(
-                    text("""
+                    text(f"""
                     WITH due AS (
                       SELECT e.share_id,e.position,e.recipient_user_id
                       FROM drive_bulk_share_effects e
@@ -2615,6 +2698,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                         AND e.next_at<=clock_timestamp()
                         AND (e.lease_id IS NULL OR e.lease_expires_at<=clock_timestamp())
                         AND b.expires_at>clock_timestamp()
+                        {v1_filter}
                       ORDER BY e.inspected_at,e.share_id,e.position,e.recipient_user_id
                       LIMIT :limit FOR UPDATE OF e SKIP LOCKED
                     )
@@ -2629,15 +2713,19 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def claim(self, *, user_id, share_id, position, recipient_user_id):
+    async def claim(self, *, user_id, share_id, position, recipient_user_id, v1_only=False):
         share = _uuid(share_id)
         if type(position) is not int or not 1 <= position <= 10000:
+            raise DriveSharingError("invalid_argument")
+        if type(v1_only) is not bool:
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
             self._gate_graph_for_share(connection, user_id=user_id, share_id=share)
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             row = self._owned(connection, user_id, share, locked=True, unexpired=False)
+            if v1_only and not self._v1_approved_share(connection, user_id=user_id, share_id=share):
+                return None
             if row["origin_request_id"] is not None:
                 # A dispatcher takes the order before the effect. Claims must
                 # follow that order too, including reconciliation claims, so a
@@ -3351,15 +3439,26 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def due_notifications(self, limit=20):
+    async def due_notifications(self, limit=20, *, v1_only=False):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("invalid notification bound")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid notification mode")
+
+        v1_filter = (
+            """AND b.v1_statement_search=TRUE
+               AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
+               AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+               AND b.file_count>0 AND b.recipient_count=1"""
+            if v1_only
+            else ""
+        )
 
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text("""
+                    text(f"""
                     SELECT n.share_id,n.user_id,n.recipient_user_id,n.state
                       FROM drive_bulk_share_notifications n
                     JOIN drive_bulk_shares b ON b.share_id=n.share_id
@@ -3367,6 +3466,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND n.next_at<=clock_timestamp()
                       AND (n.lease_id IS NULL OR n.lease_expires_at<=clock_timestamp())
                       AND b.expires_at>clock_timestamp()
+                      {v1_filter}
                     ORDER BY n.next_at,n.share_id,n.recipient_user_id
                     LIMIT :limit FOR UPDATE OF n SKIP LOCKED
                     """),
@@ -3376,8 +3476,10 @@ class DriveBulkShareStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def claim_notification(self, *, share_id, recipient_user_id):
+    async def claim_notification(self, *, share_id, recipient_user_id, v1_only=False):
         share = _uuid(share_id)
+        if type(v1_only) is not bool:
+            raise DriveSharingError("invalid_argument")
 
         def operation(connection):
             row = self._row(
@@ -3389,6 +3491,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                   AND b.expires_at>clock_timestamp() FOR UPDATE OF n""",
                 {"share": share, "recipient": recipient_user_id},
             )
+            if (
+                row is not None
+                and v1_only
+                and not self._v1_approved_share(connection, user_id=row["user_id"], share_id=share)
+            ):
+                return None
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row is None

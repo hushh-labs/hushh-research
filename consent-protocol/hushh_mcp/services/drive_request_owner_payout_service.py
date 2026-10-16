@@ -35,6 +35,16 @@ _CLOSED_WHEN_EXPIRED = frozenset({"pending", "preparing", "review_ready", "appro
 _UNPAID_ORDER_STATUSES = frozenset({"awaiting_payment", "checkout_open", "expired"})
 
 
+def _v1_filter(v1_only: bool, alias: str = "") -> str:
+    if type(v1_only) is not bool:
+        raise ValueError("invalid owner payout worker mode")
+    return f"AND {alias}v1_statement_search=TRUE" if v1_only else ""
+
+
+def _v1_allowed(payout: dict | None, v1_only: bool) -> bool:
+    return not v1_only or bool(payout and payout.get("v1_statement_search") is True)
+
+
 def _request_closed(request: dict) -> bool:
     expires_at = request.get("expires_at")
     return request["status"] in _CLOSED_REQUESTS or (
@@ -269,6 +279,17 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         }
 
     @staticmethod
+    def _v1_order_marker(connection, *, request_id: str) -> bool:
+        """Copy approval provenance captured by the order's durable obligation."""
+        return bool(
+            connection.execute(
+                text("""SELECT v1_statement_search
+                  FROM drive_request_payment_obligations WHERE request_id=:request"""),
+                {"request": request_id},
+            ).scalar_one()
+        )
+
+    @staticmethod
     def record_order(
         connection,
         *,
@@ -304,6 +325,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             or order.get("settlement_method", "stripe_transfer") != settlement_method
         ):
             raise ValueError("payout_order_not_new")
+        v1_approved = DriveRequestOwnerPayoutService._v1_order_marker(
+            connection, request_id=request
+        )
         wallet_id = sandbox_wallet_id = None
         if settlement_method == "hashcoins":
             wallet_id = HashcoinWalletService.ensure_wallet(
@@ -315,8 +339,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 )
         inserted = connection.execute(
             text("""INSERT INTO drive_request_owner_payouts
-              (request_id,gross_amount_cents,stripe_mode,settlement_method,wallet_id,sandbox_wallet_id)
-              VALUES (:request,:amount,:stripe_mode,:method,:wallet,:sandbox)
+              (request_id,gross_amount_cents,stripe_mode,settlement_method,wallet_id,sandbox_wallet_id,
+               v1_statement_search)
+              VALUES (:request,:amount,:stripe_mode,:method,:wallet,:sandbox,:v1_approved)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request,
@@ -325,11 +350,20 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 "method": settlement_method,
                 "wallet": wallet_id,
                 "sandbox": sandbox_wallet_id,
+                "v1_approved": v1_approved,
             },
         )
+        if v1_approved and inserted.rowcount == 0:
+            connection.execute(
+                text("""UPDATE drive_request_owner_payouts
+                  SET v1_statement_search=TRUE WHERE request_id=:request
+                    AND v1_statement_search=FALSE"""),
+                {"request": request},
+            )
         ledger = (
             connection.execute(
-                text("""SELECT gross_amount_cents,commission_bps,settlement_method FROM drive_request_owner_payouts
+                text("""SELECT gross_amount_cents,commission_bps,settlement_method,
+                  v1_statement_search FROM drive_request_owner_payouts
               WHERE request_id=:request"""),
                 {"request": request},
             )
@@ -341,6 +375,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             or ledger["gross_amount_cents"] != amount_cents
             or ledger["commission_bps"] != 300
             or ledger.get("settlement_method", "stripe_transfer") != settlement_method
+            or (v1_approved and not ledger["v1_statement_search"])
         ):
             raise ValueError("payout_order_mismatch")
         return inserted.rowcount == 1
@@ -461,7 +496,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             result["expected"] = package_count
         return result
 
-    def _advance_delivery(self, connection, request_id: str) -> str:
+    def _advance_delivery(self, connection, request_id: str, *, v1_only: bool = False) -> str:
         # The same order as share/erasure/refund writers: shares, request,
         # order, obligation, refund, then payout.
         connection.execute(
@@ -494,7 +529,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
-        if payout is None or payout["status"] not in {"awaiting_delivery", "awaiting_refund"}:
+        if (
+            payout is None
+            or not _v1_allowed(payout, v1_only)
+            or payout["status"] not in {"awaiting_delivery", "awaiting_refund"}
+        ):
             return "unchanged"
         if payout["status"] == "awaiting_refund" and payout["erased_at"] is not None:
             if (
@@ -659,15 +698,17 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         return target
 
-    async def reconcile_due(self, *, max_orders: int = 20) -> dict[str, int]:
+    async def reconcile_due(self, *, max_orders: int = 20, v1_only: bool = False) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout reconciliation bound")
+        v1_filter = _v1_filter(v1_only)
         candidates = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text("""SELECT request_id FROM drive_request_owner_payouts
+                    text(f"""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('awaiting_delivery','awaiting_refund')
+                {v1_filter}
               ORDER BY updated_at,request_id LIMIT :scan"""),
                     {"scan": max_orders * 4, "stripe_mode": configured_stripe_mode()},
                 ).all()
@@ -682,7 +723,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         }
         for request_id in candidates[:max_orders]:
             result = await self._transaction(
-                lambda c, request_id=request_id: self._advance_delivery(c, request_id)
+                lambda c, request_id=request_id: self._advance_delivery(
+                    c, request_id, v1_only=v1_only
+                )
             )
             outcomes["checked"] += 1
             if result in outcomes:
@@ -696,19 +739,22 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                         {"request": request_id},
                     )
                 )
-        fee_count = await self.resolve_processing_fees(max_orders=max_orders)
+        fee_count = await self.resolve_processing_fees(max_orders=max_orders, v1_only=v1_only)
         outcomes["fees_resolved"] = fee_count
-        outcomes["coin_sources_checked"] = await self.reconcile_coin_sources(max_orders=max_orders)
+        outcomes["coin_sources_checked"] = await self.reconcile_coin_sources(
+            max_orders=max_orders, v1_only=v1_only
+        )
         return outcomes
 
-    async def resolve_processing_fees(self, *, max_orders: int = 20) -> int:
+    async def resolve_processing_fees(self, *, max_orders: int = 20, v1_only: bool = False) -> int:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout fee bound")
+        v1_filter = _v1_filter(v1_only, "p.")
         claims = await self._transaction(
             lambda c: [
                 dict(row)
                 for row in c.execute(
-                    text("""SELECT p.request_id,p.gross_amount_cents,p.retained_amount_cents,
+                    text(f"""SELECT p.request_id,p.gross_amount_cents,p.retained_amount_cents,
                 p.refund_amount_cents,p.platform_fee_cents,
                 COALESCE(o.stripe_payment_intent_id,p.stripe_payment_intent_id)
                   AS stripe_payment_intent_id
@@ -716,6 +762,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
               JOIN drive_request_payment_obligations b ON b.request_id=p.request_id
               LEFT JOIN drive_request_payment_orders o ON o.request_id=p.request_id
               WHERE p.status='awaiting_fee' AND p.stripe_mode=:stripe_mode AND b.stripe_mode=p.stripe_mode
+                {v1_filter}
                 AND p.next_check_at<=clock_timestamp()
                 AND b.status='paid' AND b.reconciliation_required=FALSE
                 AND ((p.erased_at IS NULL AND o.status='paid'
@@ -757,7 +804,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 continue
             result = await self._transaction(
                 lambda c, claim=claim, intent=intent, charge=charge, balance=balance: (
-                    self._finish_fee(c, claim, intent, charge, balance)
+                    self._finish_fee(c, claim, intent, charge, balance, v1_only=v1_only)
                 )
             )
             resolved += bool(result)
@@ -811,7 +858,14 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         return intent, charge, balance
 
     def _finish_fee(
-        self, connection, claim: dict, intent: dict, charge: dict, balance: dict
+        self,
+        connection,
+        claim: dict,
+        intent: dict,
+        charge: dict,
+        balance: dict,
+        *,
+        v1_only: bool = False,
     ) -> bool:
         order = self._row(
             connection,
@@ -849,6 +903,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         if (
             payout is None
+            or not _v1_allowed(payout, v1_only)
             or payout["status"] != "awaiting_fee"
             or obligation is None
             or obligation["status"] != "paid"
@@ -902,16 +957,18 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             HashcoinWalletService.credit_earning(connection, request_id=str(claim["request_id"]))
         return True
 
-    async def reconcile_coin_sources(self, *, max_orders: int = 20) -> int:
+    async def reconcile_coin_sources(self, *, max_orders: int = 20, v1_only: bool = False) -> int:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid coin reconciliation bound")
+        v1_filter = _v1_filter(v1_only)
         claims = await self._transaction(
             lambda c: [
                 dict(row)
                 for row in c.execute(
-                    text("""
+                    text(f"""
           SELECT * FROM drive_request_owner_payouts WHERE settlement_method='hashcoins'
           AND stripe_mode=:mode AND status IN ('hashcoins_credited','hashcoins_held')
+          {v1_filter}
           AND next_check_at<=clock_timestamp() ORDER BY next_check_at,request_id LIMIT :limit
           """),
                     {"mode": configured_stripe_mode(), "limit": max_orders},
@@ -950,7 +1007,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 outcome = "provider_unavailable"
             await self._transaction(
                 lambda c, claim=claim, outcome=outcome: self._finish_coin_source_check(
-                    c, str(claim["request_id"]), outcome
+                    c, str(claim["request_id"]), outcome, v1_only=v1_only
                 )
             )
         return len(claims)
@@ -991,14 +1048,20 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 return "dispute_pending"
         return "clear"
 
-    def _finish_coin_source_check(self, connection, request_id: str, outcome: str) -> None:
+    def _finish_coin_source_check(
+        self, connection, request_id: str, outcome: str, *, v1_only: bool = False
+    ) -> None:
         row = self._row(
             connection,
             """SELECT * FROM drive_request_owner_payouts
           WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
-        if row is None or row["status"] not in {"hashcoins_credited", "hashcoins_held"}:
+        if (
+            row is None
+            or not _v1_allowed(row, v1_only)
+            or row["status"] not in {"hashcoins_credited", "hashcoins_held"}
+        ):
             return
         if outcome == "reverse":
             HashcoinWalletService.reverse_earning(connection, request_id=request_id)
@@ -1106,9 +1169,10 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             except PacketOrderError:
                 continue  # Existing earning remains due for a later verified retry.
 
-    async def transfer_due(self, *, max_orders: int = 20) -> dict[str, int]:
+    async def transfer_due(self, *, max_orders: int = 20, v1_only: bool = False) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout transfer bound")
+        v1_filter = _v1_filter(v1_only)
         outcomes = {"claimed": 0, "transferred": 0, "unknown": 0, "manual_review": 0}
         # The switch controls enrollment and new Checkout. Once an earning is
         # enrolled and paid, disabling enrollment cannot strand that obligation.
@@ -1117,8 +1181,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text("""SELECT request_id FROM drive_request_owner_payouts
+                    text(f"""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND settlement_method='stripe_transfer'
+                {v1_filter}
                 AND (status IN ('dispatching','unknown') OR
                 (:allow_new AND status IN ('due','awaiting_account')))
                 AND next_check_at<=clock_timestamp()
@@ -1141,7 +1206,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 break
             claim = await self._transaction(
                 lambda c, request_id=request_id: self._claim_transfer(
-                    c, request_id, allow_new=allow_new
+                    c, request_id, allow_new=allow_new, v1_only=v1_only
                 )
             )
             if claim is None:
@@ -1153,7 +1218,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 transfer, error = None, "provider_unavailable"
             result = await self._transaction(
                 lambda c, claim=claim, transfer=transfer, error=error: self._finish_transfer(
-                    c, claim, transfer, error
+                    c, claim, transfer, error, v1_only=v1_only
                 )
             )
             if result in outcomes:
@@ -1161,7 +1226,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         return outcomes
 
     def _claim_transfer(
-        self, connection, request_id: str, *, allow_new: bool = True
+        self, connection, request_id: str, *, allow_new: bool = True, v1_only: bool = False
     ) -> dict[str, Any] | None:
         request = self._row(
             connection,
@@ -1190,6 +1255,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         if (
             payout is None
+            or not _v1_allowed(payout, v1_only)
             or payout.get("stripe_mode") != configured_stripe_mode()
             or payout.get("settlement_method", "stripe_transfer") != "stripe_transfer"
         ):
@@ -1435,7 +1501,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
 
     def _finish_transfer(
-        self, connection, claim: dict, transfer: dict | None, error: str | None
+        self,
+        connection,
+        claim: dict,
+        transfer: dict | None,
+        error: str | None,
+        *,
+        v1_only: bool = False,
     ) -> str:
         request = self._row(
             connection,
@@ -1462,8 +1534,10 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": claim["request_id"]},
         )
-        if payout is None or str(payout["transfer_attempt_id"]) != str(
-            claim["transfer_attempt_id"]
+        if (
+            payout is None
+            or not _v1_allowed(payout, v1_only)
+            or str(payout["transfer_attempt_id"]) != str(claim["transfer_attempt_id"])
         ):
             return "manual_review"
         refund_confirmed = payout["refund_amount_cents"] == 0 or bool(
@@ -1555,16 +1629,20 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         return target
 
-    async def reconcile_external_debits(self, *, max_orders: int = 20) -> dict[str, int]:
+    async def reconcile_external_debits(
+        self, *, max_orders: int = 20, v1_only: bool = False
+    ) -> dict[str, int]:
         """Rotate transferred charges daily for later refunds and disputes."""
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid external debit bound")
+        v1_filter = _v1_filter(v1_only)
         ids = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text("""SELECT request_id FROM drive_request_owner_payouts
+                    text(f"""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('transferred','manual_review')
+                {v1_filter}
                 AND stripe_transfer_id IS NOT NULL
                 AND stripe_charge_id IS NOT NULL
                 AND stripe_payment_intent_id IS NOT NULL
@@ -1582,10 +1660,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             claim = await self._transaction(
                 lambda c, request_id=request_id: self._row(
                     c,
-                    """SELECT request_id,status,gross_amount_cents,refund_amount_cents,
+                    f"""SELECT request_id,status,gross_amount_cents,refund_amount_cents,
                     owner_earning_cents,destination_account_id,stripe_transfer_id,
                     stripe_charge_id,stripe_payment_intent_id
-                  FROM drive_request_owner_payouts WHERE request_id=:request""",
+                  FROM drive_request_owner_payouts WHERE request_id=:request
+                    {v1_filter}""",
                     {"request": request_id},
                 )
             )
@@ -1616,7 +1695,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 outcome = "provider_unavailable"
             result = await self._transaction(
                 lambda c, request_id=request_id, outcome=outcome: self._finish_external_debit_check(
-                    c, request_id, outcome
+                    c, request_id, outcome, v1_only=v1_only
                 )
             )
             outcomes["checked"] += 1
@@ -1660,13 +1739,21 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             return "refund_mismatch"
         return "clear"
 
-    def _finish_external_debit_check(self, connection, request_id: str, outcome: str) -> str:
+    def _finish_external_debit_check(
+        self, connection, request_id: str, outcome: str, *, v1_only: bool = False
+    ) -> str:
         row = self._row(
             connection,
-            "SELECT status FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
+            "SELECT status"
+            + (",v1_statement_search" if v1_only else "")
+            + " FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
-        if row is None or row["status"] not in {"transferred", "manual_review"}:
+        if (
+            row is None
+            or not _v1_allowed(row, v1_only)
+            or row["status"] not in {"transferred", "manual_review"}
+        ):
             return "unchanged"
         if outcome in {"chargeback", "full_refund", "payment_failed", "external_reversal"}:
             self.mark_reversal_due(connection, request_id=request_id, reason=outcome)
@@ -1696,15 +1783,19 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         return "unchanged"
 
-    async def reconcile_reversals(self, *, max_orders: int = 20) -> dict[str, int]:
+    async def reconcile_reversals(
+        self, *, max_orders: int = 20, v1_only: bool = False
+    ) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid reversal bound")
+        v1_filter = _v1_filter(v1_only)
         ids = await self._transaction(
             lambda c: [
                 str(row[0])
                 for row in c.execute(
-                    text("""SELECT request_id FROM drive_request_owner_payouts
+                    text(f"""SELECT request_id FROM drive_request_owner_payouts
               WHERE stripe_mode=:stripe_mode AND status IN ('reversal_due','reversal_unknown')
+                {v1_filter}
                 AND next_check_at<=clock_timestamp()
                 AND (reversal_lease_expires_at IS NULL OR
                      reversal_lease_expires_at<=clock_timestamp())
@@ -1719,7 +1810,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         key, _, _ = _config()
         for request_id in ids:
             claim = await self._transaction(
-                lambda c, request_id=request_id: self._claim_reversal(c, request_id)
+                lambda c, request_id=request_id: self._claim_reversal(
+                    c, request_id, v1_only=v1_only
+                )
             )
             if claim is None:
                 continue
@@ -1730,14 +1823,14 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 reversal, error = None, "provider_unavailable"
             result = await self._transaction(
                 lambda c, claim=claim, reversal=reversal, error=error: self._finish_reversal(
-                    c, claim, reversal, error
+                    c, claim, reversal, error, v1_only=v1_only
                 )
             )
             if result in outcomes:
                 outcomes[result] += 1
         return outcomes
 
-    def _claim_reversal(self, connection, request_id: str) -> dict | None:
+    def _claim_reversal(self, connection, request_id: str, *, v1_only: bool = False) -> dict | None:
         payout = self._row(
             connection,
             "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
@@ -1745,6 +1838,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         if (
             payout is None
+            or not _v1_allowed(payout, v1_only)
             or payout.get("stripe_mode") != configured_stripe_mode()
             or payout["status"] not in {"reversal_due", "reversal_unknown"}
             or payout["stripe_transfer_id"] is None
@@ -1818,15 +1912,23 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
 
     def _finish_reversal(
-        self, connection, claim: dict, reversal: dict | None, error: str | None
+        self,
+        connection,
+        claim: dict,
+        reversal: dict | None,
+        error: str | None,
+        *,
+        v1_only: bool = False,
     ) -> str:
         payout = self._row(
             connection,
             "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": claim["request_id"]},
         )
-        if payout is None or str(payout["reversal_attempt_id"]) != str(
-            claim["reversal_attempt_id"]
+        if (
+            payout is None
+            or not _v1_allowed(payout, v1_only)
+            or str(payout["reversal_attempt_id"]) != str(claim["reversal_attempt_id"])
         ):
             return "manual_review"
         if reversal is not None:

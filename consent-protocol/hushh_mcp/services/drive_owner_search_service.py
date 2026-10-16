@@ -997,6 +997,17 @@ class DriveOwnerSearchService:
             queries, period = compile_request_queries(
                 plan, purpose, timezone, requested_at=requested_at
             )
+        from hushh_mcp.services.drive_request_bulk_service import (
+            _deterministic_statement_plan,
+        )
+
+        statement_plan = _deterministic_statement_plan(purpose)
+        v1_statement_search = (
+            authority_mode in {"owner", "trusted_auto"}
+            and route["kind"] == "provider"
+            and statement_plan is not None
+            and plan == statement_plan.model_dump(mode="json")
+        )
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
@@ -1011,6 +1022,7 @@ class DriveOwnerSearchService:
             client_request_id=request_id,
             request=request,
             confirmed=True,
+            v1_statement_search=v1_statement_search,
             checkpoint={
                 "request": request,
                 "arguments": queries[0]["arguments"],
@@ -1108,7 +1120,7 @@ class DriveOwnerSearchService:
                 require_current=require_current,
                 **({"after_page": after_page} if after_page is not None else {}),
             )
-        await wake_drive_work("suggestions")
+        await wake_drive_work("v1" if v1_statement_search else "suggestions")
         return await self.status(
             user_id=user_id, job_id=state["jobId"], require_current=require_current
         )
@@ -1857,7 +1869,7 @@ class DriveOwnerSearchService:
                     expected_lease=job["lease_id"],
                 )
                 if changed:
-                    await wake_drive_work("suggestions")
+                    await wake_drive_work("v1")
                     return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():

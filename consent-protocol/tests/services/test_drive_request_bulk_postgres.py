@@ -17,9 +17,16 @@ from sqlalchemy import text
 from hushh_mcp.runtime_settings import clear_runtime_settings_caches
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_owner_search_service import (
+    DriveOwnerSearchService,
+    compile_request_queries,
+)
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_statement_plan,
+)
 from hushh_mcp.services.drive_request_payment_refunds import _claim_refunds
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_request_recovery_view import (
@@ -146,7 +153,7 @@ def request_bulk(sharing, monkeypatch):
     clear_runtime_settings_caches()
 
 
-async def _request(sharing):
+async def _request(sharing, *, purpose_text="Standup notes from last 3 months"):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
@@ -156,7 +163,7 @@ async def _request(sharing):
         client_request_id=str(uuid4()),
         expected_quote_version=1,
         purpose=ShareRequestPurpose(
-            purpose="Standup notes from last 3 months",
+            purpose=purpose_text,
             periodStart=(today - timedelta(days=90)).isoformat(),
             periodEnd=today.isoformat(),
         ),
@@ -167,7 +174,7 @@ async def _request(sharing):
 @pytest.mark.parametrize("authority", ["nontrusted", "owner_allowed", "trusted"])
 @pytest.mark.parametrize("selection_intent", ["document_coverage", "legacy"])
 async def test_unverified_candidates_payment_starts_only_after_exact_owner_approval(
-    request_bulk, sharing, authority, selection_intent
+    request_bulk, sharing, authority, selection_intent, monkeypatch
 ):
     if authority == "trusted":
         with sharing.db.engine.begin() as connection:
@@ -277,6 +284,18 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
             position=1,
             recipient_user_id="recipient",
         )
+
+    async def absent_buyer_acl(self, *, user_id, request_id, require_current, files=None):
+        # Only replace the unavailable live Drive ACL read. Exact approved
+        # source selection and current request authority still run in SQL.
+        assert files and len({file["id"] for file in files}) == len(files)
+        assert all(file["name"] and file["modifiedTime"] and file["generation"] for file in files)
+        await require_current()
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        await require_current()
+        return SimpleNamespace(status="none", request_revision=context["revision"])
+
+    monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", absent_buyer_acl)
     assert (await payment.checkout(requester_user_id="recipient", request_id=request_id))[
         "checkoutUrl"
     ] == "https://checkout.stripe.com/c/pay/cs_test_owner_approved"
@@ -326,6 +345,72 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
     await request_bulk.require_current(claim)
 
 
+@pytest.mark.asyncio
+async def test_v1_owner_selected_statement_is_checkout_source_with_unrelated_drive_candidate(
+    request_bulk, sharing
+):
+    created = await _request(sharing, purpose_text="Schwab brokerage statements from 2026")
+    request_id = created["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=2,
+        names={1: "Schwab brokerage statement September 2026", 2: "Unrelated standup notes"},
+        selection={
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        },
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+
+    sources = await request_bulk.legacy_manual_checkout_sources(
+        user_id="owner", request_id=request_id
+    )
+    assert [item["id"] for item in sources] == ["standup-file-1"]
+    assert [item["name"] for item in sources] == ["Schwab brokerage statement September 2026"]
+
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET incomplete_search=TRUE WHERE job_id=:job"),
+            {"job": search},
+        )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await request_bulk.legacy_manual_checkout_sources(user_id="owner", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET incomplete_search=FALSE WHERE job_id=:job"),
+            {"job": search},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_bulk_shares SET approval_source='trusted_auto' WHERE share_id=:share"
+            ),
+            {"share": review["shareId"]},
+        )
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await request_bulk.legacy_manual_checkout_sources(user_id="owner", request_id=request_id)
+
+
 FILE_ACTIVITY_SELECTION = {
     "request_selection_version": 2,
     "request_time_intent": "file_activity",
@@ -340,6 +425,7 @@ def _search(
     count=525,
     incomplete=False,
     shareability=None,
+    names=None,
     verified=True,
     selection=None,
 ):
@@ -349,7 +435,9 @@ def _search(
         file_id = f"standup-file-{position}"
         metadata = {
             "id": file_id,
-            "name": f"Standup notes 2026-09-{(position % 28) + 1:02d} #{position}",
+            "name": (names or {}).get(
+                position, f"Standup notes 2026-09-{(position % 28) + 1:02d} #{position}"
+            ),
             "mimeType": "application/vnd.google-apps.document",
             "modifiedTime": "2026-09-27T00:00:00Z",
             "openUrl": f"https://drive.google.com/open?id={file_id}",
@@ -2169,6 +2257,74 @@ async def test_request_start_replans_only_unfrozen_pending_legacy_search(
                 ).scalar_one()
                 == "paid"
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history", ["legacy", "current", "frozen"])
+async def test_statement_replan_marks_only_eligible_unfrozen_job_for_v1(
+    request_bulk, sharing, history
+):
+    request = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "trusted-member",
+            "subject-trusted-member",
+            "trusted@example.invalid",
+            datetime.now(UTC),
+            "verified_email",
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        expected_quote_version=1,
+        purpose=ShareRequestPurpose(
+            purpose="I need Manish's Schwab brokerage statements from 2026",
+            periodStart="2026-09-01",
+            periodEnd="2026-10-09",
+        ),
+    )
+    request_id = request["requestId"]
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
+    selection = None
+    if history == "current":
+        plan = _deterministic_statement_plan(context["purpose"])
+        queries, period = compile_request_queries(
+            plan.model_dump(mode="json"),
+            context["purpose"],
+            context.get("requestTimeZone") or "UTC",
+            requested_at=context["requestCreatedAt"],
+        )
+        selection = {
+            "request_coverage_query_version": 1,
+            "queries": queries,
+            "requested_period": period,
+            "request_subject_terms": plan.terms,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        }
+    old_job = _search(request_bulk, request_id=request_id, count=1, selection=selection)
+    if history == "frozen":
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=old_job,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("trusted-member", "trusted@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            selected_positions=[1],
+        )
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    _, changed = await DriveOwnerSearchService(store=store).replan_legacy_statement_request(
+        user_id="owner", request_id=request_id, context=context
+    )
+    assert changed is (history != "frozen")
+    with sharing.db.engine.begin() as connection:
+        marked = connection.execute(
+            text("SELECT v1_statement_search FROM drive_owner_search_jobs WHERE job_id=:job"),
+            {"job": old_job},
+        ).scalar_one()
+    assert marked is (history != "frozen")
+    due = await store.due(v1_only=True)
+    assert [str(row["job_id"]) for row in due] == ([old_job] if history == "legacy" else [])
 
 
 @pytest.mark.asyncio

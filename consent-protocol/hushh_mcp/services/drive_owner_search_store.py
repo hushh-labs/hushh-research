@@ -247,9 +247,20 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         await self._transaction(operation)
 
-    async def create(self, *, user_id, client_request_id, request, checkpoint, confirmed):
+    async def create(
+        self,
+        *,
+        user_id,
+        client_request_id,
+        request,
+        checkpoint,
+        confirmed,
+        v1_statement_search=False,
+    ):
         if confirmed is not True:
             raise DriveReadError("confirmation_required")
+        if type(v1_statement_search) is not bool:
+            raise DriveReadError("invalid_argument")
         _bounded_selection(checkpoint)
         client = _identity(client_request_id)
         digest = self.search_cipher.digest("owner-search-request", [user_id, request])
@@ -293,8 +304,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 connection,
                 """
                 INSERT INTO drive_owner_search_jobs(job_id,user_id,client_request_id,request_digest,
-                  connection_generation,consent_version,checkpoint_envelope)
-                VALUES(:job,:user,:client,:digest,:generation,:consent,CAST(:envelope AS jsonb)) RETURNING *
+                  connection_generation,consent_version,checkpoint_envelope,v1_statement_search)
+                VALUES(:job,:user,:client,:digest,:generation,:consent,CAST(:envelope AS jsonb),:v1_statement_search) RETURNING *
             """,
                 {
                     "job": identity,
@@ -303,6 +314,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "digest": digest,
                     "generation": current["connection_generation"],
                     "consent": CONSENT_VERSION,
+                    "v1_statement_search": v1_statement_search,
                     "envelope": self._seal(
                         checkpoint, user_id, identity, "owner-search-checkpoint"
                     ),
@@ -425,8 +437,6 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 or checkpoint.get("request_revision") != request_revision
                 or checkpoint.get("evidence_route", "provider") != "provider"
                 or checkpoint.get("agent_package_required") is True
-                or checkpoint.get("request_coverage_query_version") == 1
-                or not _legacy_single_query(checkpoint)
                 or row["status"] not in {"queued", "running", "completed"}
                 or expected_lease is not None
                 and str(row["lease_id"]) != expected_lease
@@ -447,6 +457,28 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 {"request": client, "job": row["job_id"]},
             ):
                 # Frozen selections, approvals and paid receipts are immutable.
+                return self._view(row), False
+            if checkpoint.get("request_coverage_query_version") == 1:
+                # A job created before this migration may already have the
+                # deterministic two-query plan. Mark it without clearing its
+                # page progress or changing stable result positions.
+                if (
+                    row["v1_statement_search"]
+                    or checkpoint.get("queries") != queries
+                    or checkpoint.get("requested_period") != period
+                    or checkpoint.get("request_subject_terms") != terms
+                    or checkpoint.get("request_time_intent") != "document_coverage"
+                    or checkpoint.get("request_owner_review_required") is not True
+                ):
+                    return self._view(row), False
+                updated = self._row(
+                    connection,
+                    """UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE,
+                       updated_at=clock_timestamp() WHERE job_id=:job RETURNING *""",
+                    {"job": row["job_id"]},
+                )
+                return self._view(updated), True
+            if not _legacy_single_query(checkpoint):
                 return self._view(row), False
             if self._row(
                 connection,
@@ -508,6 +540,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 connection,
                 """UPDATE drive_owner_search_jobs SET
                   checkpoint_envelope=CAST(:checkpoint AS jsonb),status='queued',
+                  v1_statement_search=TRUE,
                   incomplete_search=FALSE,lease_id=NULL,lease_expires_at=NULL,
                   error_code=NULL,retry_count=0,next_at=clock_timestamp(),
                   revision=revision+1,updated_at=clock_timestamp()
@@ -865,18 +898,22 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         return await self._transaction(operation)
 
-    async def due(self, limit=1):
+    async def due(self, limit=1, *, v1_only=False):
+        if type(v1_only) is not bool:
+            raise ValueError("invalid search worker mode")
         await self.purge()
+        v1_clause = "AND v1_statement_search" if v1_only else ""
 
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text("""
+                    text(f"""
                 WITH due AS (SELECT job_id FROM drive_owner_search_jobs
                   WHERE status IN ('queued','running') AND expires_at>clock_timestamp()
                     AND next_at<=clock_timestamp()
                     AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+                    {v1_clause}
                   ORDER BY inspected_at,created_at,job_id LIMIT :limit FOR UPDATE SKIP LOCKED)
                 UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
                   FROM due WHERE j.job_id=due.job_id RETURNING j.job_id,j.user_id

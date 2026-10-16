@@ -108,6 +108,28 @@ def _record_new_owner_payout(
         )
 
 
+# Keep the V1 checkout predicate tied to the current request revision and the
+# exact recipient. Refunds use the durable obligation marker after these live
+# search and batch rows have been purged.
+_V1_APPROVED_BATCH_EXISTS_SQL = """EXISTS (
+  SELECT 1 FROM drive_bulk_shares b
+  JOIN drive_owner_search_jobs j
+    ON j.job_id=b.search_job_id AND j.user_id=b.user_id
+  JOIN drive_bulk_share_recipients recipient ON recipient.share_id=b.share_id
+  WHERE b.origin_request_id=r.request_id
+    AND b.origin_request_revision=r.revision
+    AND b.user_id=r.user_id
+    AND j.v1_statement_search=TRUE
+    AND j.expires_at>clock_timestamp()
+    AND b.progressive_batch=TRUE
+    AND b.approval_source='owner' AND b.approved_at IS NOT NULL
+    AND b.expires_at>clock_timestamp()
+    AND b.file_count>0 AND b.recipient_count=1
+    AND recipient.recipient_user_id=r.recipient_user_id
+    AND b.status IN ('queued','running','completed','partial')
+)"""
+
+
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
     @staticmethod
     def settle_existing_access_nocharge_locked(connection, request) -> None:
@@ -174,16 +196,22 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             identity,
         )
 
-    async def due_checkout_orders(self, *, limit: int = 20) -> list[dict[str, str]]:
+    async def due_checkout_orders(
+        self, *, limit: int = 20, v1_only: bool = False
+    ) -> list[dict[str, str]]:
         """Read bounded eligible orders; checkout rechecks all authority under locks."""
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError("invalid checkout preparation bound")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid checkout preparation mode")
+
+        v1_filter = f"AND {_V1_APPROVED_BATCH_EXISTS_SQL}" if v1_only else ""
 
         def operation(connection):
             return [
                 dict(row)
                 for row in connection.execute(
-                    text("""SELECT o.request_id::text AS request_id,o.requester_user_id
+                    text(f"""SELECT o.request_id::text AS request_id,o.requester_user_id
                       FROM drive_request_payment_orders o
                       JOIN drive_share_requests r ON r.request_id=o.request_id
                       WHERE o.status='awaiting_payment' AND o.stripe_mode=:stripe_mode
@@ -207,6 +235,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                                 AND b.approved_at IS NOT NULL
                                 AND b.status IN ('queued','running','completed','partial')))
                         ))
+                        {v1_filter}
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
                     {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
@@ -217,10 +246,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         return await self._transaction(operation)
 
     async def defer_unready_checkout_order(
-        self, *, request_id: str, requester_user_id: str
+        self, *, request_id: str, requester_user_id: str, v1_only: bool = False
     ) -> None:
         """Move a stale candidate behind newer orders without granting authority."""
         request_id = _request_id(request_id)
+        if type(v1_only) is not bool:
+            raise ValueError("invalid checkout preparation mode")
 
         def operation(connection):
             from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
@@ -239,11 +270,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             request = self._row(
                 connection,
-                """SELECT request_id FROM drive_share_requests
+                """SELECT * FROM drive_share_requests
                    WHERE request_id=:request AND recipient_user_id=:requester FOR UPDATE""",
                 {"request": request_id, "requester": requester_user_id},
             )
             if request is None:
+                return
+            if v1_only and not self.v1_approved_progressive_batch(connection, request):
                 return
             connection.execute(
                 text("""UPDATE drive_request_payment_orders
@@ -255,6 +288,40 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
 
         await self._transaction(operation)
+
+    @staticmethod
+    def v1_approved_progressive_batch(connection, request) -> bool:
+        """Require the live server-marked job and exact owner-approved batch."""
+        return bool(
+            connection.execute(
+                text(f"""SELECT {_V1_APPROVED_BATCH_EXISTS_SQL}
+                  FROM drive_share_requests r WHERE r.request_id=:request
+                    AND r.user_id=:owner AND r.recipient_user_id=:requester
+                    AND r.revision=:revision"""),
+                {
+                    "request": request["request_id"],
+                    "owner": request["user_id"],
+                    "requester": request["recipient_user_id"],
+                    "revision": request["revision"],
+                },
+            ).scalar_one_or_none()
+        )
+
+    async def v1_checkout_eligible(self, *, requester_user_id: str, request_id: str) -> bool:
+        """Check live V1 provenance before payout or Stripe preflight I/O."""
+        request_id = _request_id(request_id)
+
+        def operation(connection):
+            return bool(
+                connection.execute(
+                    text(f"""SELECT {_V1_APPROVED_BATCH_EXISTS_SQL}
+                      FROM drive_share_requests r
+                      WHERE r.request_id=:request AND r.recipient_user_id=:requester"""),
+                    {"request": request_id, "requester": requester_user_id},
+                ).scalar_one_or_none()
+            )
+
+        return await self._transaction(operation)
 
     @staticmethod
     def owner_approved_progressive_batch(connection, request) -> bool:
@@ -756,7 +823,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
 
         return await self._transaction(operation)
 
-    async def repair_paid_request_authority(self, *, limit: int = 64) -> int:
+    async def repair_paid_request_authority(self, *, limit: int = 64, v1_only: bool = False) -> int:
         """Move legacy paid-request correction off the read path.
 
         Old GETs could make an order before consent. Rotate a bounded set of
@@ -765,6 +832,16 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         """
         if type(limit) is not int or not 1 <= limit <= 256:
             raise ValueError("invalid repair limit")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid repair mode")
+
+        v1_join = (
+            "JOIN drive_request_payment_obligations obligation "
+            "ON obligation.request_id=o.request_id"
+            if v1_only
+            else ""
+        )
+        v1_filter = "AND obligation.v1_statement_search=TRUE" if v1_only else ""
 
         def operation(connection):
             from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
@@ -772,12 +849,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
 
             candidates = (
                 connection.execute(
-                    text("""SELECT r.request_id,r.user_id,r.recipient_user_id
+                    text(f"""SELECT r.request_id,r.user_id,r.recipient_user_id
                   FROM drive_request_payment_orders o
                   JOIN drive_share_requests r ON r.request_id=o.request_id
+                  {v1_join}
                   WHERE o.status='paid' AND o.reconciliation_required=FALSE AND o.stripe_mode=:stripe_mode
                     AND r.payment_required=TRUE
                     AND r.status IN ('pending','approved','partial')
+                    {v1_filter}
                   ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
                     {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
@@ -818,6 +897,15 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or order["reconciliation_required"]
                 ):
                     continue
+                if v1_only:
+                    obligation = self._row(
+                        connection,
+                        """SELECT v1_statement_search FROM drive_request_payment_obligations
+                           WHERE request_id=:request FOR SHARE""",
+                        {"request": candidate["request_id"]},
+                    )
+                    if obligation is None or obligation["v1_statement_search"] is not True:
+                        continue
                 private = sharing._open_request(request)
                 # Trusted creation and an owner's Allow both seal trusted_auto.
                 authorized = (

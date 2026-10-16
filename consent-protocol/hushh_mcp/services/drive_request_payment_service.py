@@ -178,11 +178,17 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
         return {key: value for key, value in state.items() if not key.startswith("_")}
 
-    async def reconcile_refunds(self, *, max_orders: int = 4) -> dict:
+    async def reconcile_refunds(self, *, max_orders: int = 4, v1_only: bool = False) -> dict:
         from hushh_mcp.services.drive_request_payment_refunds import reconcile_refunds
 
-        await self.repair_paid_request_authority(limit=min(256, max_orders * 16))
-        return await reconcile_refunds(self, max_orders=max_orders)
+        if type(v1_only) is not bool:
+            raise ValueError("invalid refund reconciliation mode")
+        await self.repair_paid_request_authority(
+            limit=min(256, max_orders * 16), **({"v1_only": True} if v1_only else {})
+        )
+        return await reconcile_refunds(
+            self, max_orders=max_orders, **({"v1_only": True} if v1_only else {})
+        )
 
     def _retire_session(self, session_id: str, key: str) -> str:
         """Prove a Checkout session can no longer be charged.
@@ -352,7 +358,15 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         request["_agent_package_required"] = private.get("agent_package_required") is True
         return request
 
-    async def checkout(self, *, requester_user_id: str, request_id: str) -> dict:
+    async def checkout(
+        self, *, requester_user_id: str, request_id: str, v1_only: bool = False
+    ) -> dict:
+        if type(v1_only) is not bool:
+            raise ValueError("invalid checkout mode")
+        if v1_only and not await self.v1_checkout_eligible(
+            requester_user_id=requester_user_id, request_id=request_id
+        ):
+            raise DriveSharingError("payment_not_ready")
         key, _, origin = _config()
         request_id = _request_id(request_id)
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
@@ -470,6 +484,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 requester_user_id=requester_user_id,
                 require_package_disclosure=True,
             )
+            if v1_only and not self.v1_approved_progressive_batch(connection, request):
+                raise DriveSharingError("payment_not_ready")
             if checked_revision is not None and request["revision"] != checked_revision:
                 raise DriveSharingError("payment_not_ready")
             if selected_legacy_ids is not None:
@@ -550,6 +566,14 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             ):
                 raise DriveSharingError("payment_checkout_expired")
             if order["stripe_checkout_url"] and reserved_expiry is not None:
+                if v1_only:
+                    # The obligation mirror captures V1 provenance before an
+                    # existing Checkout URL can be returned to the worker.
+                    connection.execute(
+                        text("""UPDATE drive_request_payment_orders
+                          SET updated_at=clock_timestamp() WHERE request_id=:request"""),
+                        {"request": request_id},
+                    )
                 return order
             if order["stripe_checkout_session_id"]:
                 raise DriveSharingError("payment_unavailable")
@@ -680,6 +704,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 requester_user_id=requester_user_id,
                 require_package_disclosure=True,
             )
+            if v1_only and not self.v1_approved_progressive_batch(connection, request):
+                raise DriveSharingError("payment_not_ready")
             current = self._row(
                 connection,
                 """SELECT * FROM drive_request_payment_orders
@@ -991,6 +1017,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                    ON CONFLICT (stripe_event_id) DO NOTHING"""),
                 {"event": event["id"], "session": session["id"], "request": request_id},
             )
+            if obligation.get("v1_statement_search") is True:
+                return "v1"
             return (
                 "sharing"
                 if request is None

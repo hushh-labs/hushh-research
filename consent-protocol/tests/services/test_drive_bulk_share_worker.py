@@ -42,6 +42,8 @@ def _job(state="queued"):
 
 def _worker(*, permission=None, send_push=None):
     store = SimpleNamespace(
+        due=AsyncMock(return_value=[]),
+        due_notifications=AsyncMock(return_value=[]),
         require_current=AsyncMock(),
         require_reconciliation_current=AsyncMock(),
         mark_dispatching=AsyncMock(),
@@ -100,6 +102,39 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disa
     assert not store._owner_grants_enabled("owner")
     with pytest.raises(DriveSharingError, match="sharing_unavailable"):
         store._effect_current(None, _job())
+
+
+@pytest.mark.asyncio
+async def test_v1_worker_filters_due_claims_notices_and_wake_to_v1_only():
+    worker, store, _ = _worker()
+    row = {
+        "share_id": _job()["share_id"],
+        "user_id": "owner",
+        "position": 1,
+        "recipient_user_id": "recipient",
+    }
+    store.due.side_effect = [[row], [row]]
+    store.claim = AsyncMock(return_value=_job())
+    worker._pace = AsyncMock()
+    worker._grant = AsyncMock(return_value="succeeded")
+
+    result = await worker.run(max_jobs=1, deadline_seconds=80, v1_only=True)
+
+    assert result["outcomes"] == {"succeeded": 1}
+    store.due.assert_any_await(limit=1, v1_only=True)
+    store.claim.assert_awaited_once_with(
+        user_id="owner",
+        share_id=row["share_id"],
+        position=1,
+        recipient_user_id="recipient",
+        v1_only=True,
+    )
+    assert store.due_notifications.await_count >= 1
+    assert all(
+        call.kwargs.get("limit") in {1, 8} and call.kwargs.get("v1_only") is True
+        for call in store.due_notifications.await_args_list
+    )
+    worker.wake.assert_awaited_once_with("v1")
 
 
 @pytest.mark.asyncio

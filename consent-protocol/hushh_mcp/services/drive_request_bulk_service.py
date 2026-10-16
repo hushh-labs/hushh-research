@@ -246,7 +246,7 @@ class DriveRequestBulkService:
             if replanned is not None:
                 existing = replanned
             if changed:
-                await self.wake("suggestions")
+                await self.wake("v1")
         if (
             existing is not None
             and existing["status"] == "completed"
@@ -349,7 +349,7 @@ class DriveRequestBulkService:
             if replanned is not None:
                 search = replanned
             if changed:
-                await self.wake("suggestions")
+                await self.wake("v1")
         if search is not None and search["status"] == "completed":
             await self.bulk.refresh_request(user_id=user_id, request_id=request_id)
         batches = await self.bulk.batches_by_request(user_id=user_id, request_id=request_id)

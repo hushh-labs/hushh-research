@@ -22,33 +22,38 @@ class DriveOwnerSearchWorker:
             else (DriveTrustedAutoService() if service is None else None)
         )
 
-    async def run(self, *, max_jobs=1, deadline_seconds=90):
+    async def run(self, *, max_jobs=1, deadline_seconds=90, v1_only=False):
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= 20
             or type(deadline_seconds) is not int
             or not 1 <= deadline_seconds <= 205
+            or type(v1_only) is not bool
         ):
             raise ValueError("invalid search worker bounds")
+        # V1 drains only the server-marked deterministic statement queue.
+        # Trusted planning and automatic batch effects belong to the normal
+        # worker, never this isolated drain.
+        trusted_auto = None if v1_only else self.trusted_auto
         counts = Counter()
         continuation = False
         woke_early = False
         deadline = asyncio.get_running_loop().time() + deadline_seconds
-        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
+        if trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
             try:
                 # A payment/restart wake can arrive with committed results
                 # still waiting for approval. Drain them before the next
                 # provider page can spend the whole search slice.
                 async with asyncio.timeout(20):
                     with drive_stage(logger, "worker_batches"):
-                        await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
+                        await trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
             except Exception:
                 counts["unavailable"] += 1
 
         async def prepare_pending():
             try:
                 with drive_stage(logger, "worker_prepare"):
-                    started = await self.trusted_auto.start_pending(
+                    started = await trusted_auto.start_pending(
                         max_jobs=min(max_jobs, 2), deadline_at=deadline
                     )
                 counts["queued"] += started["started"]
@@ -63,11 +68,13 @@ class DriveOwnerSearchWorker:
         async with asyncio.TaskGroup() as tasks:
             preparation = (
                 tasks.create_task(prepare_pending())
-                if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20
+                if trusted_auto and deadline - asyncio.get_running_loop().time() > 20
                 else None
             )
             with drive_stage(logger, "worker_due"):
-                jobs = await self.service.store.due(limit=max_jobs)
+                jobs = await self.service.store.due(
+                    limit=max_jobs, **({"v1_only": True} if v1_only else {})
+                )
             if not jobs and preparation is not None:
                 # New trusted requests can create their first job during planning.
                 # With no older work, use the rest of this same drain to continue it.
@@ -81,10 +88,10 @@ class DriveOwnerSearchWorker:
                     break
                 try:
                     authority = (
-                        await self.trusted_auto.search_authority_for_job(
+                        await trusted_auto.search_authority_for_job(
                             user_id=job["user_id"], job_id=str(job["job_id"])
                         )
-                        if self.trusted_auto
+                        if trusted_auto
                         else None
                     )
                     outcome = await self.service.run_one(
@@ -94,7 +101,7 @@ class DriveOwnerSearchWorker:
                         **(
                             {
                                 "require_current": authority,
-                                "after_page": self.trusted_auto.after_search_page,
+                                "after_page": trusted_auto.after_search_page,
                             }
                             if authority is not None
                             else {}
@@ -107,7 +114,7 @@ class DriveOwnerSearchWorker:
                             user_id=job["user_id"], job_id=str(job["job_id"])
                         )
                         continuation = continuation or current["errorCode"] is None
-                        if self.trusted_auto and current["errorCode"] is None:
+                        if trusted_auto and current["errorCode"] is None:
                             await wake_drive_work("suggestions")
                             woke_early = True
                     counts[
@@ -124,23 +131,23 @@ class DriveOwnerSearchWorker:
                         }
                         else "unavailable"
                     ] += 1
-                    if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
+                    if trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
                         # A completed search must also get a continuation wake
                         # before batches run, since an outer deadline can cancel
                         # this worker between freezing and approving a batch.
                         if outcome == "completed":
                             await wake_drive_work("suggestions")
                             woke_early = True
-                        await self.trusted_auto.after_search_slice(
+                        await trusted_auto.after_search_slice(
                             user_id=job["user_id"], job_id=str(job["job_id"])
                         )
                 except Exception:
                     counts["unavailable"] += 1
-        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
+        if trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
             try:
-                await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
+                await trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
             except Exception:
                 counts["unavailable"] += 1
         if continuation and not woke_early:
-            await wake_drive_work("suggestions")
+            await wake_drive_work("v1" if v1_only else "suggestions")
         return {"schema_version": "drive.owner_search.worker.v1", "outcomes": dict(counts)}

@@ -220,7 +220,11 @@ async def test_natural_request_prefers_index_and_preserves_selected_dates(
         owner_user_id="owner",
         client_request_id=str(uuid4()),
         purpose=ShareRequestPurpose(
-            purpose="Schwab statements from 2026", periodStart="2026-09-01", periodEnd="2026-10-09"
+            # Explicit statement requests now take the deterministic V1 Drive
+            # search; this request exercises the separate indexed packet path.
+            purpose="Schwab account records from 2026",
+            periodStart="2026-09-01",
+            periodEnd="2026-10-09",
         ),
     )
     search = DriveOwnerSearchService(

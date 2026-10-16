@@ -319,12 +319,13 @@ class DriveBulkShareWorker:
                 uncertain=uncertain,
             )
 
-    async def _effect(self, row):
+    async def _effect(self, row, *, v1_only=False):
         job = await self.store.claim(
             user_id=row["user_id"],
             share_id=str(row["share_id"]),
             position=row["position"],
             recipient_user_id=row["recipient_user_id"],
+            **({"v1_only": True} if v1_only else {}),
         )
         if job is None:
             return "not_claimed"
@@ -332,9 +333,11 @@ class DriveBulkShareWorker:
             return await self._reconcile(job)
         return await self._grant(job)
 
-    async def _notification(self, row):
+    async def _notification(self, row, *, v1_only=False):
         job = await self.store.claim_notification(
-            share_id=str(row["share_id"]), recipient_user_id=row["recipient_user_id"]
+            share_id=str(row["share_id"]),
+            recipient_user_id=row["recipient_user_id"],
+            **({"v1_only": True} if v1_only else {}),
         )
         if job is None:
             return "not_claimed"
@@ -374,12 +377,13 @@ class DriveBulkShareWorker:
             job, delivered=type(attempted) is int and attempted > 0
         )
 
-    async def run(self, *, max_jobs=400, deadline_seconds=80):
+    async def run(self, *, max_jobs=400, deadline_seconds=80, v1_only=False):
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= MAX_EFFECTS_PER_SLICE
             or type(deadline_seconds) is not int
             or not 1 <= deadline_seconds <= 160
+            or type(v1_only) is not bool
         ):
             raise ValueError("invalid bulk worker bounds")
         counts: Counter[str] = Counter()
@@ -392,7 +396,7 @@ class DriveBulkShareWorker:
             async with semaphore:
                 await self._pace()
                 try:
-                    outcome = await self._effect(row)
+                    outcome = await self._effect(row, v1_only=v1_only)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -416,7 +420,7 @@ class DriveBulkShareWorker:
 
         async def run_notice(row):
             try:
-                outcome = await self._notification(row)
+                outcome = await self._notification(row, v1_only=v1_only)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -431,9 +435,13 @@ class DriveBulkShareWorker:
             async with asyncio.timeout(deadline_seconds):
                 # Previously completed recipients are notified first. A large
                 # 400-effect page cannot starve the summary signal.
-                ready_notices = await self.store.due_notifications(limit=8)
+                ready_notices = await self.store.due_notifications(
+                    limit=8, **({"v1_only": True} if v1_only else {})
+                )
                 await asyncio.gather(*(run_notice(row) for row in ready_notices))
-                rows = await self.store.due(limit=max_jobs)
+                rows = await self.store.due(
+                    limit=max_jobs, **({"v1_only": True} if v1_only else {})
+                )
                 offered = len(rows)
                 effect_budget = max(1, deadline - asyncio.get_running_loop().time() - 5)
                 try:
@@ -442,15 +450,21 @@ class DriveBulkShareWorker:
                 except TimeoutError:
                     counts["deadline"] += 1
                 if deadline - asyncio.get_running_loop().time() >= 25:
-                    notices = await self.store.due_notifications(limit=8)
+                    notices = await self.store.due_notifications(
+                        limit=8, **({"v1_only": True} if v1_only else {})
+                    )
                     await asyncio.gather(*(run_notice(row) for row in notices))
         except TimeoutError:
             counts["deadline"] += 1
         # Prompt another finite slice when eligible work is ready now. The
         # scheduler recovers any lost wake and handles future backoff dates.
         if counts["succeeded"] or counts["preexisting"] or counts["queued"] or counts["deadline"]:
-            if await self.store.due(limit=1) or await self.store.due_notifications(limit=1):
-                await self.wake("sharing")
+            if await self.store.due(
+                limit=1, **({"v1_only": True} if v1_only else {})
+            ) or await self.store.due_notifications(
+                limit=1, **({"v1_only": True} if v1_only else {})
+            ):
+                await self.wake("v1" if v1_only else "sharing")
         logger.info(
             "drive_bulk_share.worker duration_ms=%.2f offered=%d processed=%d "
             "shared=%d preexisting=%d unknown=%d unavailable=%d notices=%d",
