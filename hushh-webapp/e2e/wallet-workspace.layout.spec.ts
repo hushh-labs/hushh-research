@@ -727,9 +727,10 @@ test("profile swipe details keep a compact header gap and a full close target", 
   const geometry = await close.evaluate(button => {
     const header = button.parentElement!;
     const box = header.parentElement!.querySelector('[data-slot="settings-group-shell"]')!;
-    return { gap: box.getBoundingClientRect().top - header.getBoundingClientRect().bottom, target: button.getBoundingClientRect().height };
+    return { gap: box.getBoundingClientRect().top - header.getBoundingClientRect().bottom, textGap: box.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect().top - header.querySelector("p")!.getBoundingClientRect().bottom, target: button.getBoundingClientRect().height };
   });
   expect(geometry.gap).toBeCloseTo(3, 0);
+  expect(geometry.textGap).toBeLessThanOrEqual(12);
   expect(geometry.target).toBeCloseTo(44, 1);
   await page.screenshot({ path: test.info().outputPath("wallet-profile-compact-header.png") });
 });
