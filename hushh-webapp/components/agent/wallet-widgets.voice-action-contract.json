@@ -72,7 +72,7 @@
     {
       "action_id": "wallet.add",
       "label": "Add a card",
-      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat. Owner Wallet Add also accepts bank and card product for matching catalog artwork; these private field values are not exposed to the agent.",
       "aliases": [
         "add a card",
         "save my card",
@@ -95,7 +95,9 @@
         "target": "agent_chat_wallet_add"
       },
       "control_ids": [
-        "secure-card-add-form"
+        "secure-card-add-form",
+        "wallet-bank-name",
+        "wallet-card-product"
       ],
       "state_exposure": [
         "whether the secure add form is open"

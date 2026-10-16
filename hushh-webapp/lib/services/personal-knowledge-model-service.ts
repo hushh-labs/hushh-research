@@ -4521,8 +4521,12 @@ export class PersonalKnowledgeModelService {
       // still scrubbed. Rebuilds pass the same comparison against fresh content.
       if (this.isPlainObject(domainData.secrets)) domainData = { ...domainData, secrets: Object.fromEntries(Object.entries(domainData.secrets).map(([id, value]) => {
         if (!this.isPlainObject(value)) throw new Error("Your saved cards could not be read. Please try again.");
-        const allowed = ["pan", "cardholder_name", "share_receipts", "manual_cvv"];
+        const allowed = ["pan", "cardholder_name", "share_receipts", "manual_cvv", "bank_name", "card_product"];
         const projected = Object.fromEntries(allowed.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+        for (const key of ["bank_name", "card_product"]) {
+          const name = projected[key];
+          if (name !== undefined && (typeof name !== "string" || name.length > 100 || /[\u0000-\u001f\u007f]/.test(name))) throw new Error("Invalid card product.");
+        }
         if (Array.isArray(projected.share_receipts)) projected.share_receipts = projected.share_receipts.filter(row => this.isPlainObject(row)).map(row => Object.fromEntries(["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].filter(key => typeof row[key] === "string").map(key => [key, row[key]])));
         else delete projected.share_receipts;
         return [id, projected];

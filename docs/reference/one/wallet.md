@@ -490,26 +490,42 @@ survive unrelated catalog updates but current revocation, grant or rights change
 invalidate their presentation on authorized reads and visible approval rechecks. This does not erase a durable
 encrypted copy, so a license requiring copy deletion is unsupported.
 
-The [supplied card atlas](./wallet-card-atlas.md) adds reviewed, adapted bank
-designs assigned automatically by the selected network during Add. It does not
-infer a bank from a sample number or claim an exact physical-card match. The
-bundled catalog is replaced by an explicitly configured private catalog.
+The [supplied card atlas](./wallet-card-atlas.md) contains reviewed, adapted bank
+product designs. Owner Add accepts **Bank name** and **Card product** with catalog
+suggestions after the owner selects a network. Issuing region disambiguates banks
+with the same name across countries. Names are matched after Unicode/spacing/case
+normalization, without fuzzy inference: exactly one eligible bank and product
+variant is required. Unlisted names, ambiguous editions, unavailable assets and
+integrity failures save a neutral card, never another issuer or product's design.
+The atlas is finite and adapted; a product match does not establish that its pixels
+are identical to every physical edition of that card.
 
-Vault unlock and the One dashboard warm a shared, memory-only Wallet display
-projection before entry. Wallet joins that protected read, including approved
-network artwork recovery for older saved cards. Returning to Wallet uses the
-same owner/session-scoped snapshot without restarting the card load. Quiet
-refreshes retain approved pixels until their original one-minute deadline;
-explicit denial hides them immediately. Lock, owner change, verification,
-vault epoch and Wallet mutation invalidate the projection. It never contains
-full card numbers, CVV, keys or consent tokens. A cold load still needs the
-protected read; unavailable artwork falls back to a readable neutral card.
-Different numbers prefer unused image digests; the full number is compared only
-inside the unlocked client. This display recovery does not write PKM, change
-credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
-reference. Four background network workers share an eight-second deadline. Focus and
-visible-minute checks retry even when all initial faces were neutral; a newly
-saved fallback card also starts a quiet retry without delaying its appearance.
+This manual flow does not call prefix/network identification or artwork IIN
+resolution. Bank browsing sends only the chosen network, optional country,
+opaque bank key and pagination offset. Bank/product names remain in the encrypted
+private `wallet.secrets` segment; names, PAN, CVV and cardholder information do not
+enter catalog requests, shared projections, agent context or plaintext summaries.
+A matching product determines the image for every number using that product.
+Neither Add, the legacy suggestion helper nor presentation reads rotate images
+by number, usage count or network. Existing saved photos, approved catalog
+references and reviewed same-design replacements retain their validation rules.
+
+Vault unlock and the One dashboard warm the memory-only Wallet display projection.
+Wallet entry joins that protected read. Quiet refresh retains approved pixels until
+their original one-minute deadline; explicit denials hide them immediately. Lock,
+owner change, verification, vault epoch and Wallet mutation invalidate the projection.
+It never contains full card numbers, CVV, keys or consent tokens. A cold load still
+needs the protected read. Missing/neutral artwork can be recovered only from the
+explicit bank/product recorded by owner Add; legacy cards without that information
+remain neutral. Recovery is read-only and never changes the encrypted records.
+
+Payment-card images and catalog previews are displayed using local `Blob` objects
+and `blob:` object URLs. Default card image exports already use the same mechanism.
+Object URLs are temporary display leases: replacement, unmount, vault-session changes
+and current-owner verification requirements revoke them. They are never persisted
+or transmitted. The approved image bytes remain inside encrypted Wallet storage and
+new object URLs are created from the decrypted bytes after reload. Number/name/expiry
+are still separate in-memory overlays on artwork that permits personalization.
 
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
 `POST /resolve`, `POST /banks`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only

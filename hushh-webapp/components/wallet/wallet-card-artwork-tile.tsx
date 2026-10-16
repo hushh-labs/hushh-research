@@ -6,6 +6,7 @@ import type { WalletArtworkVariant } from "@/lib/wallet/card-artwork";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
+import { useWalletArtworkBlob } from "@/lib/wallet/use-wallet-artwork-blob";
 
 /** Only authenticated, revalidated bytes reach an image element. No remote src. */
 export function WalletCardArtworkTile({ context, variant, catalogVersion, selected, onSelect }: {
@@ -17,6 +18,7 @@ export function WalletCardArtworkTile({ context, variant, catalogVersion, select
   const [unavailable, setUnavailable] = useState(false);
   const { userId, vaultOwnerToken } = context;
   const visible = useWalletArtworkVisibility(context, image ? { ...variant, catalogVersion } : undefined, true);
+  const imageUrl = useWalletArtworkBlob(visible ? image ?? undefined : undefined);
   useEffect(() => {
     const controller = new AbortController();
     setImage(null); setUnavailable(false);
@@ -38,7 +40,7 @@ export function WalletCardArtworkTile({ context, variant, catalogVersion, select
     className={cn("flex w-40 shrink-0 snap-start flex-col gap-2 rounded-2xl border p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]", selected ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-surface)]" : "border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]")}>
     <span className="flex h-24 w-full items-center justify-center overflow-hidden rounded-lg">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {image && visible ? <img src={image} alt="" className="h-full w-full object-contain" /> : <span className={TYPOGRAPHY_CLASSNAMES.helperText}>{unavailable || image ? "Preview unavailable" : "Loading design…"}</span>}
+      {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-contain" /> : <span className={TYPOGRAPHY_CLASSNAMES.helperText}>{unavailable || image ? "Preview unavailable" : "Loading design…"}</span>}
     </span>
     <span className={TYPOGRAPHY_CLASSNAMES.helperText}>{variant.issuerName ?? "Approved design"}</span>
     <span className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>{variant.productName ?? variant.label}</span>

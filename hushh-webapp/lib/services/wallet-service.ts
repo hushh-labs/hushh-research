@@ -24,6 +24,7 @@ import { approveWalletCatalogArtwork, assertWalletArtworkApproval, readWalletArt
 import { validateCardImage } from "@/lib/wallet/card-scan-image";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { readWalletSecurityCode } from "@/lib/wallet/card-security-code";
+import { createWalletArtworkBlobUrl } from "@/lib/wallet/wallet-artwork-blob";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -57,6 +58,9 @@ export interface WalletCardInput {
   draftId?: string;
   artwork?: WalletCardArtwork;
   cardholderName: string;
+  /** Owner-entered product metadata stays in the encrypted private segment. */
+  bankName?: string;
+  cardProduct?: string;
   /** Owner Wallet manual entry only; never part of getCard or sharing. */
   securityCode?: string;
   expiryMonth: number;
@@ -162,28 +166,6 @@ function summariesFromDomain(data: Record<string, unknown> | null): WalletCardSu
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.cardId.localeCompare(b.cardId));
 }
 
-/** Allocation uses the current decrypted snapshot, including after a CAS conflict. */
-function chooseUnusedWalletArtwork(data: Record<string, unknown> | null, inputPan: string, candidates: readonly WalletArtworkVariant[], reserved?: ReadonlyMap<string, number>): WalletArtworkVariant | null {
-  const sorted = [...candidates].sort((a, b) => a.assetId.localeCompare(b.assetId));
-  const seen = new Set<string>();
-  const unique = sorted.filter(row => { if (seen.has(row.digest)) return false; seen.add(row.digest); return true; });
-  if (!unique.length) return null;
-  const counts = new Map(unique.map(row => [row.digest, reserved?.get(row.digest) ?? 0]));
-  const artwork = isRecord(data?.artwork) ? data.artwork : {}, secrets = isRecord(data?.secrets) ? data.secrets : {};
-  const pan = normalizePan(inputPan);
-  for (const [cardId, record] of Object.entries(artwork)) {
-    const chosen = readWalletArtwork(record);
-    if (chosen?.source !== "catalog") continue;
-    const candidate = sorted.find(row => row.issuerId === chosen.issuerId && row.productId === chosen.productId && row.variantId === chosen.variantId && ((row.assetId === chosen.assetId && row.digest === chosen.digest) || row.replaces?.some(old => old.assetId === chosen.assetId && old.digest === chosen.digest)));
-    const secret = secrets[cardId];
-    if (candidate && pan.length >= 13 && isRecord(secret) && normalizePan(String(secret.pan ?? "")) === pan) return candidate;
-    // Retired aliases still occupy these pixels in the owner's collection.
-    const occupied = candidate?.digest ?? chosen.digest;
-    if (counts.has(occupied)) counts.set(occupied, counts.get(occupied)! + 1);
-  }
-  return unique.reduce((least, row) => counts.get(row.digest)! < counts.get(least.digest)! ? row : least);
-}
-
 export class WalletService {
   private static saveIdentities = new Map<string, Promise<string>>();
   private static identityEpoch = -1;
@@ -263,13 +245,10 @@ export class WalletService {
     return { catalogVersion: String(data.catalogVersion), banks, variants, nextOffset: data.nextOffset as number | null };
   }
 
-  /** Local-only allocation from the encrypted domain. Never identify by last4. */
+  /** Legacy callers may suggest only an unambiguous explicit design. */
   static async suggestBankArtwork(params: VaultContextParams & { pan: string; variants: readonly WalletArtworkVariant[]; signal?: AbortSignal }): Promise<WalletArtworkVariant | null> {
-    const assertCurrent = networkSessionGuard(params, params.signal); assertCurrent();
-    const candidates = [...params.variants].sort((a, b) => a.assetId.localeCompare(b.assetId));
-    if (!candidates.length || new Set(candidates.map(row => row.issuerId)).size !== 1) return null;
-    const data = await this.loadDomain(params); assertCurrent();
-    return chooseUnusedWalletArtwork(data, params.pan, candidates);
+    networkSessionGuard(params, params.signal)();
+    return params.variants.length === 1 ? params.variants[0]! : null;
   }
 
   /** Approved network illustrations only; no bank inference or card identity on wire. */
@@ -316,6 +295,40 @@ export class WalletService {
       if (["credit", "debit", "prepaid"].includes(String(data.metadata.cardType))) metadata.cardType = data.metadata.cardType as "credit" | "debit" | "prepaid";
     }
     return { catalogVersion: data.catalogVersion, match: data.match as WalletArtworkResolution["match"], issuerId: typeof data.issuerId === "string" ? data.issuerId : null, provider: ["configured", "unconfigured", "unavailable"].includes(String(data.provider)) ? data.provider as WalletArtworkResolution["provider"] : "unavailable", variants, metadata };
+  }
+
+  /** Match only the owner's explicit bank/product, never a number or prefix. */
+  static async cardProductChoices(context: WalletNetworkContext, network: CardBrand, country?: string, bankName = "", signal?: AbortSignal): Promise<WalletBankDesigns> {
+    return artworkDeadline(signal, async bounded => {
+      const first = await this.bankArtwork(context, { network, ...(country ? { country } : {}) }, bounded);
+      const normalize = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+      const banks = first.banks.filter(bank => normalize(bank.name) === normalize(bankName));
+      if (!bankName.trim() || banks.length !== 1) return { ...first, variants: [], nextOffset: null };
+      const bank = banks[0]!;
+      const variants: WalletArtworkVariant[] = [];
+      let offset = 0;
+      do {
+        const page = await this.bankArtwork(context, { network, ...(country ? { country } : {}), bankKey: bank.bankKey, offset }, bounded);
+        if (page.catalogVersion !== first.catalogVersion || page.variants.some(row => row.issuerId !== bank.issuerId || row.country !== bank.country) || variants.length + page.variants.length > 1000) throw new Error("Card products unavailable.");
+        variants.push(...page.variants);
+        if (page.nextOffset === null) break;
+        offset = page.nextOffset;
+      } while (!bounded.aborted);
+      if (bounded.aborted) throw new Error("Card products unavailable.");
+      return { ...first, variants, nextOffset: null };
+    });
+  }
+
+  private static async selectedProductArtwork(context: WalletNetworkContext, card: Pick<WalletCardInput, "bankName" | "cardProduct" | "issuingRegion">, network: CardBrand, signal?: AbortSignal): Promise<WalletCardArtwork | undefined> {
+    if (!card.bankName?.trim() || !card.cardProduct?.trim()) return;
+    return artworkDeadline(signal, async signal => {
+      const result = await this.cardProductChoices(context, network, card.issuingRegion?.trim().toUpperCase(), card.bankName, signal);
+      const normalize = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+      const matches = result.variants.filter(row => normalize(row.productName || row.label) === normalize(card.cardProduct!));
+      // An ambiguous edition is not permission to choose an arbitrary image.
+      if (matches.length !== 1) return;
+      return this.selectCardArtwork(context, matches[0]!, result.catalogVersion, signal);
+    });
   }
 
   static async selectCardArtwork(context: WalletNetworkContext, variant: WalletArtworkVariant, catalogVersion: string, signal?: AbortSignal): Promise<WalletCardArtwork> {
@@ -460,8 +473,9 @@ export class WalletService {
     // Decide recovery from the saved record, before hiding unapproved copies.
     // A withdrawn catalog design must never become a fresh automatic choice.
     const recoverable = options?.recoverArtwork ? presentations.filter(row => {
-      const saved = storedArtwork[row.summary.cardId];
-      return row.summary.brand !== "other" && (saved === undefined || (isRecord(saved) && saved.source === "neutral"));
+      const saved = storedArtwork[row.summary.cardId], secret = secrets[row.summary.cardId];
+      return (!saved || (isRecord(saved) && saved.source === "neutral")) && isRecord(secret) &&
+        typeof secret.bank_name === "string" && secret.bank_name.trim() && typeof secret.card_product === "string" && secret.card_product.trim();
     }) : [];
     const savedReferences = catalogCards.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>);
     catalogCards.forEach(row => { row.artwork = { source: "neutral", version: 1 }; });
@@ -509,48 +523,19 @@ export class WalletService {
           await Promise.all(Array.from({ length: Math.min(4, batch.length) }, refreshSaved));
         }
       };
-      // Read-only display enrichment: no PKM write or persistence approval.
-      // Keep allocation local so numbers and saved-card IDs never go on wire.
-      const allocation = { ...data, artwork: { ...storedArtwork } };
-      const networks = [...new Set(recoverable.map(row => row.summary.brand))];
-      let nextNetwork = 0;
-      const recoverNetwork = async () => {
-        while (nextNetwork < networks.length) {
-          const network = networks[nextNetwork++]!;
+      let nextProduct = 0;
+      const recoverProduct = async () => {
+        while (nextProduct < recoverable.length) {
+          const row = recoverable[nextProduct++]!, secret = secrets[row.summary.cardId];
+          if (!isRecord(secret)) continue;
           try {
-            const catalog = await this.networkArtwork(params, network, signal);
-            const unavailable = new Set<string>();
-            const images = new Map<string, Promise<Extract<WalletCardArtwork, { source: "catalog" }>>>();
-            const reserved = new Map<string, number>();
-            await Promise.all(recoverable.filter(card => card.summary.brand === network).map(async row => {
-              assertDisplayCurrent();
-              const secret = secrets[row.summary.cardId];
-              const pan = isRecord(secret) ? normalizePan(String(secret.pan ?? "")) : "";
-              if (!/^[0-9]{13,19}$/.test(pan)) return;
-              while (!signal.aborted) {
-                const candidate = chooseUnusedWalletArtwork(allocation, pan, catalog.variants.filter(variant => !unavailable.has(variant.digest)), reserved);
-                if (!candidate) break;
-                reserved.set(candidate.digest, (reserved.get(candidate.digest) ?? 0) + 1);
-                try {
-                  let image = images.get(candidate.digest);
-                  if (!image) {
-                    image = readImage(candidate, catalog.catalogVersion).then(artwork => ({ ...artwork, evidence: "network_assigned" as const }));
-                    images.set(candidate.digest, image);
-                  }
-                  const artwork = await image;
-                  assertDisplayCurrent();
-                  allocation.artwork[row.summary.cardId] = artwork;
-                  row.artwork = artwork;
-                  break;
-                } catch { assertDisplayCurrent(); unavailable.add(candidate.digest); }
-                finally { reserved.set(candidate.digest, (reserved.get(candidate.digest) ?? 1) - 1); }
-              }
-            }));
-          } catch { assertDisplayCurrent(); }
+            const artwork = await this.selectedProductArtwork(params, { bankName: String(secret.bank_name), cardProduct: String(secret.card_product), issuingRegion: row.summary.issuingRegion }, row.summary.brand, signal);
+            assertDisplayCurrent();
+            if (artwork) row.artwork = artwork;
+          } catch (error) { assertDisplayCurrent(); if (options?.failOnArtworkUnavailable) throw error; }
         }
       };
-      // At most four concurrent downloads, under one total deadline.
-      await Promise.all([validateSaved(), ...Array.from({ length: Math.min(4, networks.length) }, recoverNetwork)]);
+      await Promise.all([validateSaved(), ...Array.from({ length: Math.min(4, recoverable.length) }, recoverProduct)]);
       // Decode approved originals before the first card paint. Browser decoding
       // overlaps the remaining hydration instead of starting after a gray face mounts.
       if (typeof Image !== "undefined" && typeof Image.prototype.decode === "function") {
@@ -558,10 +543,11 @@ export class WalletService {
         await Promise.all(images.map(async source => {
           assertDisplayCurrent();
           const image = new Image();
+          const url = createWalletArtworkBlobUrl(source);
           const cancel = () => { image.src = ""; };
           signal.addEventListener("abort", cancel, { once: true });
-          try { image.src = source; await image.decode().catch(() => {}); assertDisplayCurrent(); }
-          finally { signal.removeEventListener("abort", cancel); }
+          try { image.src = url; await image.decode().catch(() => {}); assertDisplayCurrent(); }
+          finally { signal.removeEventListener("abort", cancel); image.src = ""; URL.revokeObjectURL(url); }
         }));
       }
     }).catch(error => { assertCurrent(); if (options?.failOnArtworkUnavailable) throw error; });
@@ -612,9 +598,9 @@ export class WalletService {
     const preliminary = this.validateCard(params.card);
     const draftErrors = preliminary.errors.filter(error => error !== "pan_checksum_invalid");
     if (draftErrors.length) throw new Error(`CARD_VALIDATION_FAILED:${draftErrors.join(",")}`);
-    let network: CardBrand = "other";
+    let network: CardBrand = params.card.brand ?? "other";
     try {
-      network = (await this.resolveCardNetwork(params, { iinPrefix: normalizePan(params.card.pan).slice(0, 6), panLength: normalizePan(params.card.pan).length, selectedNetwork: params.card.brand })).network;
+      if (!params.card.brand) network = (await this.resolveCardNetwork(params, { iinPrefix: normalizePan(params.card.pan).slice(0, 6), panLength: normalizePan(params.card.pan).length, selectedNetwork: params.card.brand })).network;
     } catch (error) {
       assertCurrent();
       if (error instanceof WalletNetworkSessionChangedError) throw error;
@@ -645,11 +631,12 @@ export class WalletService {
       if (!approval[0]?.approved || approval[0].allowOverlay !== artwork.allowOverlay) artwork = { source: "neutral", version: 1 };
     }
     assertCurrent();
-    let automaticDesigns: Awaited<ReturnType<typeof WalletService.networkArtwork>> | undefined;
-    // The Wallet Add writer owns private artwork; chat writers retain their scope.
-    const assignAutomatically = !params.card.artwork && params.surface === "web" && params.source === "one_wallet_add";
-    if (assignAutomatically && network !== "other") {
-      try { automaticDesigns = await this.networkArtwork(params, network); }
+    const manualProduct = !params.card.artwork && params.surface === "web" && params.source === "one_wallet_add";
+    if (manualProduct) {
+      for (const value of [params.card.bankName, params.card.cardProduct]) {
+        if (value !== undefined && (typeof value !== "string" || value.length > 100 || /[\u0000-\u001f\u007f]/.test(value))) throw new Error("Invalid card product.");
+      }
+      try { artwork = await this.selectedProductArtwork(params, params.card, network); }
       catch { assertCurrent(); }
     }
     assertCurrent();
@@ -666,6 +653,7 @@ export class WalletService {
     const secretsRecord = {
       pan: params.card.pan.replace(/[\s-]/g, ""),
       cardholder_name: params.card.cardholderName.trim(),
+      ...(manualProduct ? { bank_name: params.card.bankName?.trim() ?? "", card_product: params.card.cardProduct?.trim() ?? "" } : {}),
       ...(params.card.securityCode ? { manual_cvv: params.card.securityCode } : {}),
     };
     await PersonalKnowledgeModelService.storeWalletDomain({
@@ -692,28 +680,9 @@ export class WalletService {
         }
         // An uncertain acknowledgement may already have committed this draft.
         // Retain its private image without converting saved bytes into a new approval.
-        const preserveArtwork = assignAutomatically && isRecord(previousSummary) && previousSummary.brand === network && isRecord(previousSecret) && normalizePan(String(previousSecret.pan ?? "")) === normalizePan(params.card.pan);
-        if (preserveArtwork) {
-          artwork = readWalletArtwork(isRecord(next.artwork) ? next.artwork[cardId] : undefined);
-        } else if (automaticDesigns) {
-          artwork = { source: "neutral", version: 1 };
-          const candidate = chooseUnusedWalletArtwork(next, params.card.pan, automaticDesigns.variants);
-          if (candidate) {
-            try {
-              const selected = await artworkDeadline(undefined, signal => this.readCatalogArtwork(params, candidate, automaticDesigns!.catalogVersion, signal));
-              assertCurrent();
-              artwork = approveWalletCatalogArtwork({ ...selected, evidence: "network_assigned" }, params.userId, epoch);
-            } catch { assertCurrent(); }
-          }
-          const collection = isRecord(next.artwork) ? { ...next.artwork } : {};
-          collection[cardId] = artwork;
-          if (JSON.stringify(collection).length > MAX_WALLET_ARTWORK_CHARACTERS) {
-            // Omission renders the same neutral face and needs no extra storage.
-            artwork = undefined;
-            delete collection[cardId];
-            next.artwork = collection;
-          }
-        }
+        const preserveArtwork = manualProduct && isRecord(previousSummary) && previousSummary.brand === network && previousSummary.issuing_region === summaryRecord.issuing_region && isRecord(previousSecret) && normalizePan(String(previousSecret.pan ?? "")) === normalizePan(params.card.pan) && previousSecret.bank_name === secretsRecord.bank_name && previousSecret.card_product === secretsRecord.card_product;
+        if (preserveArtwork) artwork = readWalletArtwork(isRecord(next.artwork) ? next.artwork[cardId] : undefined);
+        else if (manualProduct && !artwork) artwork = { source: "neutral", version: 1 };
         assertCurrent();
         const previous = summary[cardId];
         summary[cardId] = { ...summaryRecord, ...(isRecord(previous) && typeof previous.created_at === "string" ? { created_at: previous.created_at } : {}) };
@@ -724,7 +693,11 @@ export class WalletService {
           assertWalletArtworkApproval(artwork, params.userId);
           const collection = isRecord(next.artwork) ? { ...next.artwork } : {};
           collection[cardId] = artwork;
-          if (JSON.stringify(collection).length > MAX_WALLET_ARTWORK_CHARACTERS) throw new Error("Your artwork storage is full. Choose neutral artwork.");
+          if (JSON.stringify(collection).length > MAX_WALLET_ARTWORK_CHARACTERS) {
+            if (!manualProduct) throw new Error("Your artwork storage is full. Choose neutral artwork.");
+            artwork = undefined;
+            delete collection[cardId];
+          }
           next.artwork = collection;
         }
         next.summary = summary;

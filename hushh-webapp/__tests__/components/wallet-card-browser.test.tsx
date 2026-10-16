@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { registerBackLayer, unwindBackLayer } from "@/lib/navigation/back-layers";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, publishValidatedAuthSessionOwner, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
 import type { WalletCardArtwork } from "@/lib/wallet/card-artwork";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -109,6 +111,10 @@ describe("Wallet card browser", () => {
 
 
 describe("Approved payment-card artwork", () => {
+  beforeEach(() => {
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:owned-card") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  });
   const summary: WalletCardSummary = { cardId: "artwork-card", nickname: "Discover", brand: "discover", last4: "1117", expiryMonth: 12, expiryYear: 2030, issuingRegion: "US", createdAt: "" };
   const artwork: Extract<WalletCardArtwork, { source: "catalog" }> = { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "owned", variantId: "one", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: true, evidence: "owner_selected" };
   it("embeds owner details inside approved artwork and reveals the full number only when explicitly requested", () => {
@@ -141,6 +147,8 @@ describe("Approved payment-card artwork", () => {
     expect(within(face).getByText("Synthetic Owner")).toBeInTheDocument();
     view.rerender(<WalletCardFace summary={summary} artwork={artwork} cardholderName="Synthetic Owner" />);
     const image = face.querySelector("img")!;
+    expect(image).toHaveAttribute("src", "blob:owned-card");
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
     expect(image).toBeVisible();
     Object.defineProperties(image, { naturalWidth: { configurable: true, value: 856 }, naturalHeight: { configurable: true, value: 540 } });
     fireEvent.load(image);
@@ -153,4 +161,29 @@ describe("Approved payment-card artwork", () => {
     expect(face).toHaveAttribute("data-card-artwork", "neutral");
     expect(screen.queryByRole("status")).toBeNull();
   });
+  it("uses real Blobs and revokes display URLs on replacement, verification, vault change and unmount", () => {
+    publishValidatedAuthSessionOwner("blob-owner");
+    let sequence = 0;
+    vi.mocked(URL.createObjectURL).mockImplementation(() => `blob:card-${++sequence}`);
+    const before = JSON.stringify(artwork);
+    const view = render(<WalletCardFace summary={summary} artwork={artwork} />);
+    expect(view.container.querySelector("img")).toHaveAttribute("src", "blob:card-1");
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    const owner = snapshotValidatedAuthSessionOwner()!;
+    act(() => window.dispatchEvent(new CustomEvent(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, { detail: { ...owner, userId: "foreign" } })));
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:card-1");
+    view.rerender(<WalletCardFace summary={summary} artwork={{ ...artwork, image: "data:image/png;base64,bmV4dA==" }} />);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:card-1");
+    act(() => advanceVaultSessionEpoch());
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:card-2");
+    expect(view.container.querySelector("img")).not.toHaveAttribute("src");
+    view.rerender(<WalletCardFace summary={summary} artwork={artwork} />);
+    act(() => window.dispatchEvent(new CustomEvent(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, { detail: owner })));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:card-3");
+    view.rerender(<WalletCardFace summary={summary} artwork={{ ...artwork, image: "data:image/png;base64,bmV4dA==" }} />);
+    view.unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:card-4");
+    expect(JSON.stringify(artwork)).toBe(before);
+  });
+
 });

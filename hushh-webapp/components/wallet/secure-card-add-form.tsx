@@ -31,6 +31,7 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { formatCardNumberInput, formatCardExpiryInput } from "@/lib/wallet/wallet-card-presentation";
 
+import { WalletCardProductFields } from "./wallet-card-product-fields";
 import { WalletCardFace } from "./wallet-card-face";
 import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
@@ -60,7 +61,7 @@ export interface SecureCardAddFormProps {
   showIntroduction?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
-  /** Legacy host flag; approved network illustrations are assigned on save. */
+  /** Owner Add accepts explicit bank/product metadata without a card-prefix lookup. */
   artworkEnabled?: boolean;
   scanInToolbar?: boolean;
   /** Enabled only by owner Wallet Add, never by the chat entry widget. */
@@ -73,7 +74,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, artworkEnabled = false, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -86,6 +87,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const [scanReading, setScanReading] = useState<CardScanDraft | null>(null);
   const [expiry, setExpiry] = useState("");
   const [issuingRegion, setIssuingRegion] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [cardProduct, setCardProduct] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -149,7 +152,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     if (previousOwner.current === ownerKey) return;
     previousOwner.current = ownerKey;
     setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null); setSecurityCode("");
-    setIssuingRegion(""); setErrors([]); entryCaret.current = null;
+    setIssuingRegion(""); setBankName(""); setCardProduct(""); setErrors([]); entryCaret.current = null;
     edited.current = { pan: false, cardholderName: false, expiry: false }; draftId.current = walletOperationId();
   }, [ownerKey]);
   const contextRef = useRef(context);
@@ -159,9 +162,9 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const length = digits.length;
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
-  const brand = currentReply?.result?.network ?? "other";
+  const brand = artworkEnabled ? network || "other" : currentReply?.result?.network ?? "other";
   const networkLengthMismatch = length >= 12 && length <= 19 && !isCardPanLengthValid(length, network || brand);
-  const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
+  const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : artworkEnabled || networkLoading || !currentReply ? null : !currentReply.result
     ? "Choose the card network to continue."
     : currentReply.result.source === "ambiguous"
       ? "This number matches more than one network. Choose the network printed on your card."
@@ -184,7 +187,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     const current = contextRef.current;
     const controller = new AbortController();
     setNetworkLoading(false);
-    if (!active || !current || !prefix || length < 12 || length > 19) return;
+    if (artworkEnabled || !active || !current || !prefix || length < 12 || length > 19) return;
     setNetworkLoading(true);
     const timer = window.setTimeout(() => {
       void WalletService.resolveCardNetwork(current, { iinPrefix: prefix, panLength: length, selectedNetwork: network || undefined }, controller.signal).then(result => {
@@ -193,7 +196,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
         .finally(() => { if (!controller.signal.aborted) setNetworkLoading(false); });
     }, 150);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [context?.userId, context?.vaultOwnerToken, active, prefix, length, network, lookupKey]);
+  }, [context?.userId, context?.vaultOwnerToken, active, prefix, length, network, lookupKey, artworkEnabled]);
   const fieldErrors = (...codes: string[]) => {
     const matches = errors.filter((error) => codes.includes(error));
     return {
@@ -216,10 +219,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       expiryMonth: Number(match?.[1] ?? 0),
       expiryYear: match ? (rawYear < 100 ? 2000 + rawYear : rawYear) : 0,
       issuingRegion: issuingRegion || undefined,
+      ...(artworkEnabled ? { bankName: bankName.trim(), cardProduct: cardProduct.trim() } : {}),
       ...(collectSecurityCode && securityCode ? { securityCode } : {}),
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
-    if (!network && brand === "other") result.errors.push("brand_required");
+    if (!network && (artworkEnabled || brand === "other")) result.errors.push("brand_required");
     result.valid = result.errors.length === 0;
     if (!result.valid) {
       setErrors(result.errors);
@@ -240,6 +244,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       setExpiry("");
       setNetwork("");
       setIssuingRegion("");
+      setBankName(""); setCardProduct("");
     } catch {
       // Raw service errors can contain request details; keep the draft for retry.
       toast.error("Your card could not be saved. Please try again.");
@@ -333,25 +338,25 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
           </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network<sup aria-hidden="true" className={styles.required} /></Label>
-            <Select required value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
+            <Select required value={network || "auto"} onValueChange={(value) => { setNetwork(value === "auto" ? "" : value as CardBrand); setBankName(""); setCardProduct(""); }} disabled={submitting || scanning || !active}>
               <SelectTrigger id={`${id}-network`} aria-required="true" className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid", "brand_required")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className={styles.selectMenu}>
-                <SelectItem value="auto">{brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
+                <SelectItem value="auto">{artworkEnabled ? "Select network" : brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
                 {(supportedNetworks.length ? supportedNetworks : ["other"]).map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </div>
         {catalogFailed ? <div role="status" className={styles.scanHint}>
-          <p>Network options could not load. Auto-detect is still available.</p>
+          <p>Network options could not load. Retry to choose your card network.</p>
           <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
         </div> : null}
         <div className={styles.row}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-region`}><ProfilePaneGlobeIcon className={styles.fieldIcon} />Issuing region</Label>
-            <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || scanning || !active}>
+            <Select value={issuingRegion || "none"} onValueChange={(value) => { setIssuingRegion(value === "none" ? "" : value); setBankName(""); setCardProduct(""); }} disabled={submitting || scanning || !active}>
               <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
                 <SelectValue />
               </SelectTrigger>
@@ -370,6 +375,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             <p className={styles.scanHint}>Only visible to you in Wallet.</p>
           </div> : null}
         </div>
+        {artworkEnabled ? <WalletCardProductFields key={ownerKey} context={context} active={draftVisible} network={network} country={issuingRegion}
+          bankName={bankName} cardProduct={cardProduct} onChange={(bank, product) => { setBankName(bank); setCardProduct(product); }} /> : null}
       </fieldset>
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">

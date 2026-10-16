@@ -24,6 +24,7 @@ import {
   maskedCardNumberGroups,
 } from "@/lib/wallet/wallet-card-presentation";
 import type { WalletCardArtwork } from "@/lib/wallet/card-artwork";
+import { useWalletArtworkBlob } from "@/lib/wallet/use-wallet-artwork-blob";
 
 import styles from "./wallet-payment-card-artwork.module.css";
 
@@ -76,6 +77,7 @@ function FaceNumber({ groups, label, className }: { groups: string[]; label: str
 }
 
 export function WalletCardFace({ summary, artwork, artworkPending = false, cardholderName, revealed, children, className }: WalletCardFaceProps) {
+  const imageUrl = useWalletArtworkBlob(artwork?.source === "catalog" || artwork?.source === "photo" ? artwork.image : undefined, summary.cardId);
   const [imageShape, setImageShape] = useState<{ digest: string; image: string; ratio: number; failed: boolean } | null>(null);
   const network = cardNetworkLabel(summary.brand);
   const title = summary.nickname?.trim();
@@ -100,20 +102,20 @@ export function WalletCardFace({ summary, artwork, artworkPending = false, cardh
   </div>;
   const currentImage = artwork && artwork.source !== "neutral" && imageShape?.digest === artwork.digest && imageShape.image === artwork.image ? imageShape : null;
 
-  if (artwork && artwork.source !== "neutral" && !currentImage?.failed) {
+  if (artwork && artwork.source !== "neutral" && imageUrl !== null && !currentImage?.failed) {
     const overlayAllowed = artwork.source === "catalog" && artwork.allowOverlay;
     const cardRatio = 85.6 / 53.98;
     // Current personalized designs are reviewed in the default landscape
     // proportion. Photos and external restricted originals remain contained.
     const imageRatio = overlayAllowed ? cardRatio : currentImage?.ratio ?? cardRatio;
-    const imageReady = Boolean(currentImage);
+    const imageReady = Boolean(currentImage && imageUrl);
     return <div className={cn(styles.container, className)}>
     <div data-testid="wallet-card-face" data-card-artwork={artwork.source} data-artwork-asset-id={artwork.source === "catalog" ? artwork.assetId : undefined} data-artwork-digest={artwork.digest} data-artwork-ready={imageReady ? "true" : "false"} data-revealed={revealed ? "true" : "false"} aria-busy={!imageReady} className={cn(styles.face, styles.pendingFace)} style={{ borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` }}>
       {!imageReady ? <span role="status" className="sr-only">Loading card design</span> : null}
       <div data-slot="wallet-card-artwork-plane" data-artwork-orientation={imageRatio < 1 ? "portrait" : "landscape"} className={styles.artworkPlane} style={{ width: `${Math.min(1, imageRatio / cardRatio) * 100}%`, height: `${Math.min(1, cardRatio / imageRatio) * 100}%` }}>
         {/* Original approved pixels stay intact; owner details are a separate display layer. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={artwork.image} alt={title || "Your card design"} className="absolute inset-0 h-full w-full" style={{ objectFit: overlayAllowed ? "fill" : "contain" }} onLoad={event => {
+        <img src={imageUrl} alt={title || "Your card design"} className="absolute inset-0 h-full w-full" style={{ objectFit: overlayAllowed ? "fill" : "contain" }} onLoad={event => {
           const image = event.currentTarget;
           if (image.naturalWidth && image.naturalHeight) setImageShape({ digest: artwork.digest, image: artwork.image, ratio: image.naturalWidth / image.naturalHeight, failed: false });
         }} onError={() => setImageShape({ digest: artwork.digest, image: artwork.image, ratio: cardRatio, failed: true })} />

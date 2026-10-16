@@ -1333,8 +1333,8 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
   const firstId = "card_123e4567-e89b-12d3-a456-426614174000";
   const nextId = "card_123e4567-e89b-12d3-a456-426614174001";
   const metadata = { brand: "visa", last4: "1111", expiry_month: 5, expiry_year: 2031, issuing_region: "" };
-  const nextCard = { pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner", share_receipts: [{ messageId: "message", recipientName: "Private Recipient", recipientPersonRef: "private-person" }] };
-  const safeNextCard = { pan: nextCard.pan, cardholder_name: nextCard.cardholder_name, share_receipts: nextCard.share_receipts };
+  const nextCard = { bank_name: "Private Bank", card_product: "Private Product", pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner", share_receipts: [{ messageId: "message", recipientName: "Private Recipient", recipientPersonRef: "private-person" }] };
+  const safeNextCard = { bank_name: nextCard.bank_name, card_product: nextCard.card_product, pan: nextCard.pan, cardholder_name: nextCard.cardholder_name, share_receipts: nextCard.share_receipts };
   const applyMutation = (base: Record<string, unknown>) => ({
     ...base,
     summary: { ...(base.summary as Record<string, unknown>), [nextId]: metadata },
@@ -1372,7 +1372,7 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     expect(payload.mutationPlan?.source_revision).toBe(0);
     expect(payload.domainData).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: safeNextCard } });
     const plaintext = JSON.stringify([payload.summary, payload.manifest, payload.structureDecision]);
-    for (const privateValue of [nextCard.pan, nextCard.cardholder_name, "Private Recipient", "private-person", '"cvv"', '"pin"', '"share_receipts"']) {
+    for (const privateValue of [nextCard.bank_name, nextCard.card_product, nextCard.pan, nextCard.cardholder_name, "Private Recipient", "private-person", '"cvv"', '"pin"', '"share_receipts"']) {
       expect(plaintext).not.toContain(privateValue);
     }
     expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({ plaintext: JSON.stringify(payload.domainData) }));
