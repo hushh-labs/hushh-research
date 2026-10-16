@@ -188,6 +188,33 @@ describe("WalletWorkspace at scale", () => {
       expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
     } finally { vi.useRealTimers(); }
   });
+  it("gives a new save fresh artwork after expiry without reviving expired cards", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      const artwork = { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } as const;
+      const row: WalletCardPresentation = { summary: makeCards(1)[0]!, cardholderName: "Synthetic Owner", artwork };
+      let finish!: (rows: WalletCardPresentation[]) => void;
+      const pending = new Promise<WalletCardPresentation[]>(resolve => { finish = resolve; });
+      vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValueOnce(pending).mockReturnValue(new Promise(() => {}));
+      serviceMock.addCard.mockResolvedValueOnce({ cardId: "saved", summary: { ...row.summary, cardId: "saved", nickname: "New card" }, cardholderName: "NEW CARD", artwork: { ...artwork, assetId: "fresh", digest: "b".repeat(64) } });
+      const view = render(<WalletWorkspace />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_001); });
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+      fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true })); fillCard();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      fireEvent.click(screen.getByTestId("secure-card-save"));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(view.container.querySelector('[data-artwork-asset-id="fresh"]')).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+      expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+      await act(async () => { finish([row]); });
+      fireEvent.click(screen.getByRole("button", { name: "Open New card, ending 1000" }));
+      expect(view.container.querySelector('[data-artwork-asset-id="fresh"]')).not.toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
   it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
     const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
     const rotated = { ...card, shareTokenVersion: 2 };

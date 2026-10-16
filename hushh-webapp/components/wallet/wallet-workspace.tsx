@@ -1086,23 +1086,32 @@ export function WalletWorkspace() {
                       if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
                       // A list request begun before this receipt cannot remove the new card.
                       cardReadRevision.current += 1;
+                      const priorSnapshot = cardSnapshotRef.current;
+                      const retryExpired = priorSnapshot?.ownerId === context.userId && priorSnapshot.cards.length > 0 && priorSnapshot.artworkExpiresAt <= Date.now();
                       setCardSnapshot((previous) => {
                         const owned = previous?.ownerId === context.userId ? previous : null;
+                        const now = Date.now(), expired = !owned || owned.artworkExpiresAt <= now;
                         const pendingArtworkIds = new Set(owned?.pendingArtworkIds);
+                        const artworks = { ...owned?.artworks };
+                        if (expired) for (const [id, artwork] of Object.entries(artworks)) {
+                          if (artwork?.source === "catalog") { artworks[id] = { source: "neutral", version: 1 }; pendingArtworkIds.add(id); }
+                        }
                         pendingArtworkIds.delete(saved.cardId);
                         if (saved.summary.brand !== "other" && (!saved.artwork || saved.artwork.source === "neutral")) pendingArtworkIds.add(saved.cardId);
                         return {
                           ownerId: context.userId,
                           cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
                           cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
-                          artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
+                          artworks: { ...artworks, [saved.cardId]: saved.artwork },
                           pendingArtworkIds,
-                          artworkExpiresAt: owned?.artworkExpiresAt ?? Date.now() + 60_000,
+                          // A fresh save may start a lease after clearing expired
+                          // old images; it must never extend those old approvals.
+                          artworkExpiresAt: expired ? now + 60_000 : owned.artworkExpiresAt,
                         };
                       });
                       setSelectedDeckCardId(saved.cardId);
                       savedCardId = saved.cardId;
-                      retryArtwork = !saved.artwork || saved.artwork.source === "neutral";
+                      retryArtwork = !saved.artwork || saved.artwork.source === "neutral" || retryExpired;
                       if (activeOwnerIdRef.current === context.userId) {
                         trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
                       }
