@@ -92,6 +92,84 @@ def test_a_fresh_setup_runs_every_stage_in_order_and_proves_the_agent():
     assert result.image_digest == "sha256:" + "b" * 64
 
 
+def test_confirmed_model_quota_refuses_before_cloud_creation_but_retry_credits_own_deployment():
+    arm = FakeArm()
+    regional = f"/subscriptions/{_SUB}/providers/Microsoft.CognitiveServices/locations/eastus2"
+    model = {"format": "OpenAI", "name": "gpt-6-luna", "version": "2026-09-22"}
+    arm.resources[f"{regional}/models"] = {
+        "value": [
+            {
+                "kind": "OpenAI",
+                "model": {
+                    **model,
+                    "skus": [
+                        {
+                            "name": "GlobalStandard",
+                            "usageName": "exact-model-quota",
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    arm.resources[f"{regional}/usages"] = {
+        "value": [
+            {
+                "name": {"value": "exact-model-quota"},
+                "currentValue": 0,
+                "limit": 0,
+                "unit": "Count",
+            }
+        ]
+    }
+    with pytest.raises(AzureSetupRefused) as refused:
+        _run(arm)
+    assert refused.value.code == "AZURE_OPENAI_QUOTA_REFUSED"
+    assert arm.writes() == []
+    arm.resources[f"{regional}/usages"]["value"][0]["limit"] = 250
+    _run(arm)
+    arm.resources[f"{regional}/usages"]["value"][0]["currentValue"] = 250
+    _run(arm)  # Same quota allocated to this exact bound deployment, not a new reservation.
+
+
+@pytest.mark.parametrize("incomplete", ["permission", "pagination", "units"])
+def test_unreadable_model_quota_is_not_treated_as_zero(incomplete):
+    arm = FakeArm()
+    regional = f"/subscriptions/{_SUB}/providers/Microsoft.CognitiveServices/locations/eastus2"
+    arm.resources[f"{regional}/models"] = {
+        "value": [
+            {
+                "kind": "OpenAI",
+                "model": {
+                    "name": "gpt-6-luna",
+                    "version": "2026-09-22",
+                    "skus": [
+                        {
+                            "name": "GlobalStandard",
+                            "usageName": "exact-model-quota",
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    arm.resources[f"{regional}/usages"] = {
+        "value": [
+            {
+                "name": {"value": "exact-model-quota"},
+                "currentValue": 0,
+                "limit": 0,
+                "unit": "unknown",
+            }
+        ]
+    }
+    if incomplete == "permission":
+        arm.forbidden.add(f"{regional}/models")
+    elif incomplete == "pagination":
+        arm.resources[f"{regional}/models"]["nextLink"] = "not-followed"
+    assert _run(arm).model_credential_mode == "user_azure_mi"
+
+
 def test_setup_freezes_its_binding_before_any_write_and_checks_each_mutation():
     arm, bindings, admissions = FakeArm(), [], []
 

@@ -269,6 +269,17 @@ def test_preview_is_read_only_and_restored_inventory_keeps_dependency_order(arm,
         "location": inputs.location,
         "setupNonce": inputs.nonce,
     }
+    with pytest.raises(AzureTeardownRefused, match="AZURE_CLEANUP_UNRECORDED_AGENT"):
+        inspect_plan(
+            client,
+            context={**context, "neverDeployed": True},
+            reservation={
+                "ownerId": OWNER,
+                "attemptId": "attempt-preview",
+                "registrySnapshot": snapshot,
+            },
+            hub_principal="88888888-8888-8888-8888-888888888888",
+        )
     plan = inspect_plan(
         client,
         context=context,

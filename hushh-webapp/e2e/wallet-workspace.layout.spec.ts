@@ -491,9 +491,15 @@ test("Wallet Add scrolls in the page and swipes back to Cards without a tall bla
     const pager = document.querySelector('[data-swipe-views-root="true"]')!;
     const baseline = [cards.scrollHeight, pager.clientHeight];
     for (let i = 0; i < 3; i += 1) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    return Math.abs(pager.clientHeight - cards.scrollHeight) <= 1 &&
-      cards.scrollHeight === baseline[0] && pager.clientHeight === baseline[1];
-  })).toBe(true);
+    return {
+      heightFits: Math.abs(pager.clientHeight - cards.scrollHeight) <= 1,
+      contentStable: cards.scrollHeight === baseline[0],
+      viewportStable: pager.clientHeight === baseline[1],
+      cardsHeight: cards.scrollHeight,
+      pagerHeight: pager.clientHeight,
+      pagerStyle: pager.getAttribute("style"),
+    };
+  })).toMatchObject({ heightFits: true, contentStable: true, viewportStable: true });
   const cardsOverflow = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();

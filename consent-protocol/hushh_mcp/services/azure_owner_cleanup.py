@@ -36,9 +36,12 @@ async def begin(store: AzureTeardownStore, owner: str, purpose: CleanupPurpose) 
         snapshot_digest = None
         if row.get("status") != "suspended":
             snapshot_digest = await store.candidate_digest(owner, row)
-            await verify_owner_access_compatibility(
-                PersonalAgentProvisioningService(registry=store.registry), user_id=owner, row=row
-            )
+            if not await store.never_deployed(owner, row):
+                await verify_owner_access_compatibility(
+                    PersonalAgentProvisioningService(registry=store.registry),
+                    user_id=owner,
+                    row=row,
+                )
         # Retains a snapshot and closes new pod admission. No key destruction,
         # cloud mutation or account deletion occurs while inspecting terms.
         await store.reserve(owner, snapshot_digest)
@@ -150,20 +153,27 @@ async def _execute(
             raise AzureTeardownRefused("AZURE_CLEANUP_PLAN_CHANGED")
     await bound_authorization(store, owner, selection)
     metadata = reservation["registrySnapshot"].get("backend_metadata") or {}
-    backend = UserAzureBackend(
-        tenant_id=inputs.tenant_id,
-        subscription_id=inputs.subscription_id,
-        resource_group=inputs.resource_group,
-        location=inputs.location,
-        observer=lambda: arm,
-        recorded_principal=str(metadata.get("runtime_principal_id") or ""),
-        recorded_digest=str(metadata.get("image_digest") or ""),
-        files_library_enabled=True,
-    )
-    service = PersonalAgentProvisioningService(registry=store.registry, backend=backend)
-    await checkpoint_reserved_owner_access(
-        service, user_id=owner, reservation=reservation, backend=backend
-    )
+    never_deployed = await store.never_deployed(owner, reservation["registrySnapshot"])
+    if (
+        reservation["azureTeardown"]["plan"]["context"].get("neverDeployed") is True
+        and not never_deployed
+    ):
+        raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
+    if not never_deployed:
+        backend = UserAzureBackend(
+            tenant_id=inputs.tenant_id,
+            subscription_id=inputs.subscription_id,
+            resource_group=inputs.resource_group,
+            location=inputs.location,
+            observer=lambda: arm,
+            recorded_principal=str(metadata.get("runtime_principal_id") or ""),
+            recorded_digest=str(metadata.get("image_digest") or ""),
+            files_library_enabled=True,
+        )
+        service = PersonalAgentProvisioningService(registry=store.registry, backend=backend)
+        await checkpoint_reserved_owner_access(
+            service, user_id=owner, reservation=reservation, backend=backend
+        )
     # Only SQL-qualified historical provider coverage can admit the worker.
     async with azure_teardown_authority(owner=owner, attempt=reservation["attemptId"]) as authority:
         await authority.run_worker(

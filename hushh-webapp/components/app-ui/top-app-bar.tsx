@@ -69,6 +69,8 @@ import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
+import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
@@ -1255,7 +1257,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     )}
                   >
                     {!isAuthenticated ? null : showOnboardingActions ? (
-                      <OnboardingRouteActions />
+                      <OnboardingRouteActions key={user?.uid ?? "signed-out"} />
                     ) : (
                       <>
                         {showVaultUnlockAction ? (
@@ -1350,6 +1352,8 @@ function OnboardingRouteActions() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  const deletionRunning = useRef(false);
 
   async function handleSignOut() {
     try {
@@ -1384,9 +1388,11 @@ function OnboardingRouteActions() {
   }
 
   async function handleDeleteAccount() {
-    if (!user?.uid) return;
+    if (!user?.uid || deletionRunning.current) return;
 
+    deletionRunning.current = true;
     setIsDeleting(true);
+    let needsCloudReview = false;
     try {
       const resolution = await resolveDeleteAccountAuth({
         userId: user.uid,
@@ -1422,13 +1428,16 @@ function OnboardingRouteActions() {
         skipFcmCleanup: true,
       });
     } catch (error) {
+      needsCloudReview = azureAccountCleanupRequired(error);
+      if (needsCloudReview) setCloudCleanupRequired(true);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "[TopAppBar] Failed to delete account:",
         error,
       );
     } finally {
+      deletionRunning.current = false;
       setIsDeleting(false);
-      setDeleteConfirmOpen(false);
+      if (!needsCloudReview) setDeleteConfirmOpen(false);
     }
   }
 
@@ -1477,13 +1486,27 @@ function OnboardingRouteActions() {
       ) : null}
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
           <AlertDialogHeader>
             <AlertDialogTitle>{DELETE_ACCOUNT_DIALOG_TITLE}</AlertDialogTitle>
             <AlertDialogDescription>
-              {DELETE_ACCOUNT_DIALOG_DESCRIPTION}
+              {cloudCleanupRequired
+                ? "Cloud cleanup is required before account deletion."
+                : DELETE_ACCOUNT_DIALOG_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {cloudCleanupRequired && user ? (
+            <AccountCloudCleanup
+              key={user.uid}
+              userId={user.uid}
+              token={vaultOwnerToken ?? null}
+              onUnlock={() => {
+                setDeleteConfirmOpen(false);
+                setVaultUnlockOpen(true);
+              }}
+              onFinish={handleDeleteAccount}
+            />
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -1492,7 +1515,8 @@ function OnboardingRouteActions() {
                 if (!isDeleting) void handleDeleteAccount();
               }}
               variant="destructive"
-              disabled={isDeleting}
+              disabled={isDeleting || cloudCleanupRequired}
+              hidden={cloudCleanupRequired}
             >
               {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>

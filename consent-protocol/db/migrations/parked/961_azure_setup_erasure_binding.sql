@@ -14,9 +14,10 @@ BEGIN
    'resourceGroup','location','setupNonce']) field
    WHERE jsonb_typeof(intent->field) IS DISTINCT FROM 'string') THEN RETURN false; END IF;
  RETURN intent - ARRAY['version','jobId','hushhId','tenantId','subscriptionId',
-   'resourceGroup','location','setupNonce'] = '{}'::jsonb
+   'resourceGroup','location','setupNonce','groupInitiallyAbsent'] = '{}'::jsonb
  AND intent ?& ARRAY['version','jobId','hushhId','tenantId','subscriptionId',
    'resourceGroup','location','setupNonce']
+ AND (NOT intent ? 'groupInitiallyAbsent' OR jsonb_typeof(intent->'groupInitiallyAbsent')='boolean')
  AND intent->'version' = '1'::jsonb
  AND coalesce(owner_id,'') <> '' AND coalesce(job_id,'') <> ''
  AND intent->>'jobId' = job_id AND intent->>'hushhId' = hushh_id
@@ -542,6 +543,14 @@ BEGIN
    IF history='[]'::jsonb THEN
      IF TG_OP='DELETE' THEN RETURN OLD; END IF;
      RETURN NEW;
+   END IF;
+   -- An early eligibility refusal made only reads. Keep the journal unless
+   -- 962 independently proves every worker exited and no ARM request existed.
+   IF TG_OP='DELETE' THEN
+    IF to_regprocedure('public.azure_setup_no_effects(text)') IS NOT NULL THEN
+     IF pg_try_advisory_xact_lock(hashtextextended(owner_id,206))
+      AND public.azure_setup_no_effects(owner_id) IS TRUE THEN RETURN OLD; END IF;
+    END IF;
    END IF;
    IF TG_OP='DELETE' OR NEW.project_id IS DISTINCT FROM OLD.project_id
    THEN RAISE EXCEPTION 'Azure setup recovery retained' USING ERRCODE='42501'; END IF;

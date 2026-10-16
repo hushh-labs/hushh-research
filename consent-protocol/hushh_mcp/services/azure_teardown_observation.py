@@ -98,6 +98,7 @@ def inspect_plan(arm: ArmClient, *, context: dict, reservation: dict, hub_princi
         raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
     metadata = snapshot.get("backend_metadata") or {}
     inputs = _inputs(context, metadata, arm)
+    _require_undeployed_app_absent(arm, context, inputs)
     resources = inventory(
         inputs,
         pod_principal=_principal(arm, inputs, metadata, hub_principal),
@@ -201,9 +202,23 @@ def bound_execution_inventory(
         raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
     metadata = (reservation.get("registrySnapshot") or {}).get("backend_metadata") or {}
     inputs = _inputs(context, metadata, arm)
+    _require_undeployed_app_absent(arm, context, inputs)
     return execution_inventory(
         plan,
         pod_principal=_principal(arm, inputs, metadata, hub_principal),
         hub_principal=hub_principal,
         pod_incarnation=metadata.get("serviceUid"),
     )
+
+
+def _require_undeployed_app_absent(arm: ArmClient, context: dict, inputs: PlanInputs) -> None:
+    if (
+        context.get("neverDeployed") is True
+        and arm.get_or_none(
+            Scopes(inputs, resource_names(inputs)).app,
+            api_version=API_VERSIONS["container_apps"],
+            op="cleanup_preview",
+        )
+        is not None
+    ):
+        raise AzureTeardownRefused("AZURE_CLEANUP_UNRECORDED_AGENT")

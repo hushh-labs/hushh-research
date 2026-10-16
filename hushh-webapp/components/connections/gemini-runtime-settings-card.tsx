@@ -13,6 +13,8 @@ import {
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
+import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { GeminiKeyChoice, type CredentialValidationState } from "./gemini-key-choice";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -26,6 +28,7 @@ import {
   sendAiSelectionToAgent,
   aiSelectionRefusalMessage,
   shareGeminiSelectionWithAgent,
+  verifyAgentCloudAi,
 } from "@/lib/one/ai-selection-agent";
 import { useAiPlacement } from "@/lib/connections/use-ai-placement";
 import {
@@ -133,7 +136,7 @@ function OwnerRuntimeSettingsCard({
     "hushh_managed_vertex",
   );
   const [cloudAiVerified, setCloudAiVerified] = useState(false);
-  const { placement, ownCloudProject } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
+  const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const [showAiAlternatives, setShowAiAlternatives] = useState(false);
   const [pendingAiProviders, setPendingAiProviders] = useState<
     Record<string, boolean>
@@ -149,10 +152,8 @@ function OwnerRuntimeSettingsCard({
 
   const privateCloud = placement === "gcp" || placement === "azure";
   const defaultLabel =
-    placement === "azure"
-      ? "Use your Azure AI"
-      : placement === "gcp"
-        ? "Use your agent’s Vertex AI"
+    privateCloud
+      ? "Use existing cloud"
         : "Use Hussh's Gemini";
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
   const [otherProvider, setOtherProvider] = useState<string | null>(null); // e.g. OpenAI is the own key in use
@@ -164,8 +165,9 @@ function OwnerRuntimeSettingsCard({
   const [isSaving, setIsSaving] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const managedChoiceDisabled =
-    isSaving || isRemoving || (!privateCloud && placement !== "shared");
+    isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared");
   const [agentOutcome, setAgentOutcome] = useState("");
+  const [cloudAiFailure, setCloudAiFailure] = useState<string | null>(null);
   const [credentialValidation, setCredentialValidation] =
     useState<CredentialValidationState>({ status: "idle" });
   const credentialRevisionRef = useRef(0);
@@ -185,6 +187,7 @@ function OwnerRuntimeSettingsCard({
 
   useEffect(() => {
     setAgentOutcome("");
+    setCloudAiFailure(null);
   }, [userId]);
 
   const invalidateCredentialValidation = useCallback(() => {
@@ -371,11 +374,17 @@ function OwnerRuntimeSettingsCard({
       //      before it, choosing managed contacted no server route at all.
       if (!privateCloud && placement !== "shared")
         throw new Error("HOSTING_NOT_READY");
-      const selection = privateCloud
-        ? (await clearAgentAiSelectionFor(null, true)) === "failed"
-          ? null
-          : { agentScheduled: false, agentReason: "host already connected" }
-        : await ApiService.selectManagedGeminiRuntime();
+      let selection;
+      if (privateCloud) {
+        const outcome = await verifyAgentCloudAi();
+        if (!ownerIsCurrent()) return;
+        if (!outcome.ok) {
+          setCloudAiFailure(outcome.code);
+          throw new Error(outcome.code);
+        }
+        setCloudAiFailure(null);
+        selection = { agentScheduled: false, agentReason: "host already connected" };
+      } else selection = await ApiService.selectManagedGeminiRuntime();
       if (!selection) throw new Error("AGENT_UNREACHABLE");
       if (!ownerIsCurrent()) return;
       if (!privateCloud && (await clearAgentAiSelectionFor(null)) === "failed")
@@ -436,7 +445,9 @@ function OwnerRuntimeSettingsCard({
         return;
       }
       toast.error(
-        error instanceof Error && error.message === "AGENT_UNREACHABLE"
+        error instanceof Error && privateCloud && ["QUOTA_EXCEEDED", "MODEL_UNAVAILABLE", "KEY_REFUSED", "AI_DEFAULT_UNAVAILABLE"].includes(error.message)
+          ? "Your cloud AI is unavailable. Check model access or connect your own key below."
+          : error instanceof Error && error.message === "AGENT_UNREACHABLE"
           ? "Your private agent could not be reached. Try again."
           : error instanceof Error && error.message === "PKM_CONFLICT"
             ? "This setting changed on another device. Refresh and try again."
@@ -881,7 +892,8 @@ function OwnerRuntimeSettingsCard({
   const geminiKeyChoice = <GeminiKeyChoice isSaving={isSaving} isRemoving={isRemoving} privateCloud={privateCloud} placement={placement} requiresExplicitSelection={requiresExplicitSelection} vaultReady={Boolean(vaultReady)} selectedOption={selectedOption} mode={mode} hasExplicitSelection={hasExplicitSelection} otherProvider={Boolean(otherProvider)} hasSavedKey={Boolean(hasSavedKey)} needsVaultCreation={needsVaultCreation} needsUnlock={needsUnlock} transport={transport} vertexProject={vertexProject} vertexLocation={vertexLocation} draftKey={draftKey} credentialValidation={credentialValidation} selectByok={selectByok} setTransport={setTransport} setVertexProject={setVertexProject} setVertexLocation={setVertexLocation} setDraftKey={setDraftKey} invalidateCredentialValidation={invalidateCredentialValidation} saveByok={saveByok} validateByok={validateByok} removeByok={removeByok} />;
   const otherProviderChoices = (
     <BringYourOwnAiProviders
-      onAccepted={() => setCloudAiVerified(false)}
+      ungrouped
+      onAccepted={() => { setCloudAiVerified(false); setCloudAiFailure(null); }}
       onPendingChange={onProviderPendingChange}
       showUnavailable={!requiresExplicitSelection}
       userId={userId}
@@ -919,7 +931,7 @@ function OwnerRuntimeSettingsCard({
       ) : null}
       <RadioPrimitive.Root
         asChild
-        value={selectedOption}
+        value={otherProvider ?? selectedOption}
         onValueChange={(value) => {
           if (value === "byok") void selectByok();
           else void selectManaged();
@@ -930,7 +942,7 @@ function OwnerRuntimeSettingsCard({
       >
         <div>
           <SettingsGroup
-            title="AI connection"
+            title="Bring your own AI"
             titleAction={
               compactDefault ? (
                 <Button
@@ -951,7 +963,8 @@ function OwnerRuntimeSettingsCard({
             <SettingsRow
               asChild
               leading={
-                placement === "azure" ? undefined : (
+                placement === "azure" ? <MicrosoftAzureLogo decorative className="h-8 w-8" />
+                  : placement === "gcp" ? <GoogleCloudLogo decorative className="h-8 w-8" /> : (
                   <GeminiLogo className="h-8 w-8" />
                 )
               }
@@ -959,9 +972,9 @@ function OwnerRuntimeSettingsCard({
               disabled={managedChoiceDisabled}
               description={
                 placement === "azure"
-                  ? `${cloudAiVerified ? "AI verified" : "Check AI connection"} · your Azure deployment`
+                  ? `Azure AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
                   : placement === "gcp"
-                    ? `${cloudAiVerified ? "AI verified" : "Check AI connection"} · ${ownCloudProject ? "Vertex connection on your agent" : "Vertex connection"}`
+                    ? `Vertex AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
                     : placement === "shared"
                       ? "Managed Gemini. No key needed."
                       : placement === "pending"
@@ -1017,11 +1030,19 @@ function OwnerRuntimeSettingsCard({
             </SettingsRow>
 
             {!compactDefault ? geminiKeyChoice : null}
+            {!compactDefault ? otherProviderChoices : null}
           </SettingsGroup>
+          {placement === "azure" && cloudAiFailure && ["QUOTA_EXCEEDED", "MODEL_UNAVAILABLE", "KEY_REFUSED", "AI_DEFAULT_UNAVAILABLE"].includes(cloudAiFailure) ? (
+            <p role="status" className="px-[var(--settings-row-px)] text-sm text-muted-foreground">
+              Azure AI needs model access. Use a key below, or {" "}
+              <a href="https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsBlade"
+                target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-4">manage your subscription</a>
+              {" "}and check this connection again. Upgrading alone does not guarantee quota.
+            </p>
+          ) : null}
         </div>
       </RadioPrimitive.Root>
 
-      {!compactDefault ? otherProviderChoices : null}
     </div>
   );
 }

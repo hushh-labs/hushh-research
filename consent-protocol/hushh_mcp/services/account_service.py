@@ -1141,6 +1141,33 @@ class AccountService:
             and status == "unprovisioned"
             and not has_external_coordinates
         )
+        # Positive joined, zero-request Azure history is read-only setup, not
+        # external resources. Serialize with its worker before account erasure.
+        if (
+            byoc_row is not None
+            and registry_row is not None
+            and not erasure
+            and str((byoc_row.get("job") or {}).get("project_id") or "").startswith(
+                "/subscriptions/"
+            )
+            and not has_pending_deprovision
+            and not has_external_coordinates
+        ):
+            available = conn.execute(
+                text("SELECT to_regprocedure('public.azure_setup_no_effects(text)') IS NOT NULL")
+            ).scalar()
+            if (
+                available is True
+                and conn.execute(
+                    text(
+                        "SELECT pg_try_advisory_xact_lock(hashtextextended(:user_id,206)) "
+                        "AND public.azure_setup_no_effects(:user_id)"
+                    ),
+                    params,
+                ).scalar()
+                is True
+            ):
+                return table_presence
         if (
             (byoc_row is not None and not is_untouched_intent(byoc_row.get("job")))
             or migration_row is not None
@@ -2074,6 +2101,25 @@ class AccountService:
                 # cleanup terms. A failed ordinary account DELETE must not destroy
                 # pod keys before that review. The cleanup flow owns preparation.
                 return {**result, "cleanup_provider": (owner_row or {}).get("deployment_target")}
+            # A failed Azure setup can own resources before its pod coordinates
+            # publish. Only the SQL-qualified, fully joined original history
+            # enables the same owner-reviewed cleanup; never infer from an error.
+            from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+
+            if owner_row:
+                store = AzureTeardownStore(registry)
+                available = await store._value(
+                    "SELECT to_regprocedure('public.azure_setup_never_deployed(text,jsonb)') "
+                    "IS NOT NULL AS value",
+                    {},
+                )
+                snapshot = (
+                    ((owner_row or {}).get("backend_metadata") or {})
+                    .get("erasure", {})
+                    .get("registrySnapshot", owner_row or {})
+                )
+                if available is True and await store.never_deployed(user_id, snapshot):
+                    return {**result, "cleanup_provider": "user_azure"}
             await service.deprovision(user_id=user_id)
         except Exception as exc:
             logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)

@@ -342,6 +342,30 @@ turns and no completed tool turn, not a series, so nothing changes until a
 measured series says it must. Puppy keeps its own measured budgets
 (`consent-protocol/tests/test_timeout_ladder.py`).
 
+## Setup eligibility and account cleanup
+
+The local candidate checks the selected Azure model/version/SKU against the regional
+catalog and remaining subscription quota before creating cloud resources. Missing
+permission or incomplete quota evidence stays unverified; the actual deployment
+still enforces eligibility. A trial label alone is not a model-access verdict.
+A confirmed quota refusal links to subscription management and model quota, then
+retries the same setup through fresh Microsoft authorization. Existing resources
+and the selected model capacity are preserved.
+
+Choose your AI uses one **Bring your own AI** section: **Use existing cloud**,
+**Gemini**, and **OpenAI**, with the supported Azure custom-key editor retained.
+Cloud readiness and successful AI verification remain separate observations.
+
+The onboarding three-dot **Delete account** action reuses Profile's explicit
+Azure cleanup review. Account erasure waits for verified resource removal and
+retention receipts. For a never-deployed failure, complete original setup history
+and actual app absence may qualify resource-only cleanup without inventing a pod
+crypto-erasure receipt. Zero-effect account deletion additionally requires the
+original authenticated group-absence observation, joined workers and no ARM
+mutation request. An existing group, missing history, pending cleanup or unknown
+provider outcome refuses this shortcut. These changes require the dev-only 961/962
+schema and governed application release; local checks do not prove live cleanup.
+
 ## Erasure, heal and update recovery, as implemented
 
 Hussh can delete nothing in the person's subscription, so each lifecycle path is

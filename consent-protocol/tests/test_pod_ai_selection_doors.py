@@ -484,8 +484,9 @@ async def test_default_patch_requires_an_actual_response_and_no_configuration_bo
         assert pod_ai_selection.active_ai_selection().provider == "openai"
 
 
+@pytest.mark.parametrize("platform", ["gcp", "azure"])
 async def test_default_verification_cannot_clear_a_key_without_authorized_model_access(
-    pod, owner_session, monkeypatch
+    pod, owner_session, monkeypatch, platform
 ):
     from unittest.mock import Mock
 
@@ -494,7 +495,7 @@ async def test_default_verification_cannot_clear_a_key_without_authorized_model_
 
     await run_ai_selection_put(envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local())
     monkeypatch.setattr(azure_openai, "owner_azure_model", lambda: None)
-    monkeypatch.setattr("hushh_mcp.services.pod_platform.workload_platform", lambda: "gcp")
+    monkeypatch.setattr("hushh_mcp.services.pod_platform.workload_platform", lambda: platform)
     monkeypatch.setattr(runtime_settings, "pod_user_adc_enabled", lambda: False)
     monkeypatch.setattr(runtime_settings, "pod_managed_model_enabled", lambda: False)
     provider = Mock(side_effect=AssertionError("Unauthorized provider call"))

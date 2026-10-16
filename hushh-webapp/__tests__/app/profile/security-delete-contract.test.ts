@@ -51,6 +51,10 @@ describe("profile security deletion contract", () => {
   });
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
+    expect(topAppBarSource).toContain("needsCloudReview = azureAccountCleanupRequired(error)");
+    expect(topAppBarSource).toContain("if (!needsCloudReview) setDeleteConfirmOpen(false)");
+    expect(topAppBarSource).toContain("<AccountCloudCleanup");
+    expect(topAppBarSource).toContain("onFinish={handleDeleteAccount}");
     expect(profilePageSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("requestDeleteAccount");

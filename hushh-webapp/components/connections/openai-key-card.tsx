@@ -10,6 +10,8 @@ import {
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { OwnerKeyContent, type KeyNotice } from "./owner-key-content";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
+import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
+import { CaretDownIcon } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -65,6 +67,8 @@ export type OpenAiKeyCardProps = {
     provider: "openai" | "azure_openai",
   ) => void;
   provider?: "openai" | "azure_openai";
+  /** Reuse the connection rows inside the single AI selection section. */
+  ungrouped?: boolean;
 };
 
 type Notice = KeyNotice;
@@ -92,10 +96,12 @@ function OwnerOpenAiKeyCard({
   onAccepted,
   onPendingChange,
   provider = "openai",
+  ungrouped = false,
 }: OpenAiKeyCardProps) {
   const providerName = provider === "azure_openai" ? "Azure AI" : "OpenAI";
   const statusId = `${provider}-key-status`;
   const [endpoint, setEndpoint] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const [deployment, setDeployment] = useState("");
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -349,31 +355,34 @@ function OwnerOpenAiKeyCard({
       ? aiSelectionRefusalMessage(selection.lastFailure, providerName)
       : null;
 
-  return (
-    <SettingsGroup
-      title={providerName}
-      description="Available now"
-      testId={`profile-${provider}-runtime`}
-      separatorInset
-    >
+  const content = (
+    <>
       <SettingsRow
+        asChild={ungrouped}
         leading={
           provider === "openai" ? (
             <RuntimeProviderMark provider={OPENAI_MARK} className="!h-8 !w-8" />
-          ) : undefined
+          ) : <MicrosoftAzureLogo decorative className="h-8 w-8" />
         }
-        title="Use your own key"
+        title={ungrouped ? provider === "azure_openai" ? "Azure AI key" : providerName : "Use your own key"}
         description={
           inUse
             ? `Using ${providerName} on your agent${selection?.model ? ` (${selection.model})` : ""}.`
-            : "Your key stays locked to you and runs on your private agent."
+            : ungrouped ? "Use your own key." : "Your key stays locked to you and runs on your private agent."
         }
-        trailing={inUse ? <Badge variant="secondary">In use</Badge> : null}
+        trailing={inUse ? <Badge variant="secondary">In use</Badge> : ungrouped ? <CaretDownIcon aria-hidden className="h-4 w-4" /> : null}
         testId={`profile-${provider}-key-row`}
-      />
-      <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+      >
+        {ungrouped ? <button type="button" aria-expanded={expanded} disabled={busy !== null}
+          onClick={() => setExpanded((value) => !value)} /> : null}
+      </SettingsRow>
+      {!ungrouped || expanded ? <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
         <OwnerKeyContent readiness={readiness} providerName={providerName} busy={busy} vault={Boolean(vault)} needsVaultCreation={needsVaultCreation} lastFailure={lastFailure} provider={provider} endpoint={endpoint} deployment={deployment} draftKey={draftKey} notice={notice} defaultModel={defaultModel} statusId={statusId} hasSavedKey={hasSavedKey} inUse={inUse} load={load} approveUpdate={approveUpdate} requestVault={requestVault} setEndpoint={setEndpoint} setDeployment={setDeployment} setDraftKey={setDraftKey} setNotice={setNotice} checkAndUse={checkAndUse} remove={remove} />
-      </div>
-    </SettingsGroup>
+      </div> : null}
+    </>
+  );
+  return ungrouped ? content : (
+    <SettingsGroup title={providerName} description="Available now"
+      testId={`profile-${provider}-runtime`} separatorInset>{content}</SettingsGroup>
   );
 }
