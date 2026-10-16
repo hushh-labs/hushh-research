@@ -43,9 +43,12 @@ committed root intake `f3f1afd0e8`. Incoming managed-model policy preserves the
 serving 3.8/global bridge and unchanged readiness preload; a stale 3.6 candidate
 must not replace it. Independent review found no owner-key, placement or native
 browser-gate regression. Concurrent uncommitted PDF/config/native work is excluded.
-The integrated core passed in 857 seconds. Subsequent Azure onboarding/cleanup
-repairs require their final combined gate; exact-SHA hosted CI and serving
-readback remain release gates. Prior [de635 validation](https://github.com/hushh-labs/hushh-research/actions/runs/38835084481)
+The integrated core passed in 857 seconds. The repaired backend passes 20,641
+parallel and 976 serial database checks. A later unused UI prop was removed;
+remaining canonical web/package/integration checks passed. Concurrent Wallet
+commit `b8fa64b200` is preserved with four integrated Chromium/WebKit motion checks
+and unchanged arrival/overshoot budgets. Final combined web/governance checks,
+exact-SHA hosted CI and serving readback remain release gates. Prior [de635 validation](https://github.com/hushh-labs/hushh-research/actions/runs/38835084481)
 passed on attempt 2 after rerunning only an inherited WebKit Wallet height
 precondition failure. Unchanged local Chromium/WebKit checks pass, without
 relaxing the original timeout, geometry or frame budgets. Retain failed receipts.
@@ -124,7 +127,7 @@ probes do not establish owner-cloud acceptance.
 | --- | --- | --- |
 | Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
 | Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
-| Combined source | Integration `5df4525405`, root intake `f3f1afd0e8`, local ADK `2462c0bc6f` | New exact-SHA hosted approval is required; no application main merge |
+| Combined source | Integration `5df4525405`, root intake `b8fa64b200`, local ADK `2462c0bc6f` | New exact-SHA hosted approval is required; no application main merge |
 | Prior verification | 20,646 backend, 1,346 serial PostgreSQL and 396 PKM cases; build, contracts and authority checks pass for the preceding candidate | Final model/Calendar intake is being validated; preceding coverage is not its exact-SHA completion |
 | Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
 | Recovery fixtures | Existing GCP fixture's original synthetic owner recovered under its runtime identity; temporary Job removed and absence verified. Azure console failed before execution; key-based result readback was correctly refused | No keys exported or policy weakened. Retained Azure fixture remains intact; fresh isolated byte-recovery qualification is separate from background-job acceptance |
