@@ -54,7 +54,9 @@ def recipient():
     return VerifiedGoogleRecipient("recipient", "1234567", "b@example.invalid", datetime.now(UTC))
 
 
-async def new_request(sharing, *, client_id=None, expected_quote_version=1):
+async def new_request(
+    sharing, *, client_id=None, expected_quote_version=1, purpose_text="Portfolio reports"
+):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=recipient(),
@@ -62,7 +64,7 @@ async def new_request(sharing, *, client_id=None, expected_quote_version=1):
         client_request_id=client_id or str(uuid4()),
         expected_quote_version=expected_quote_version,
         purpose=ShareRequestPurpose(
-            purpose="Schwab brokerage statements",
+            purpose=purpose_text,
             periodStart=(today - timedelta(days=42)).isoformat(),
             periodEnd=today.isoformat(),
         ),
@@ -147,6 +149,15 @@ async def test_new_live_request_prepares_without_prior_trust_allow_price_or_payo
             == 0
         )
         assert connection.execute(text("SELECT count(*) FROM drive_bulk_shares")).scalar_one() == 0
+
+
+async def test_schwab_statement_request_stays_out_of_agent_packages_with_flag_enabled(
+    agent_flow, sharing
+):
+    created = await new_request(sharing, purpose_text="Schwab brokerage statements")
+    row, private = private_request(sharing, created["requestId"])
+    assert private.get("agent_package_required") is not True
+    assert row["agent_package_required"] is False
 
 
 async def test_allow_binds_exact_package_and_owner_cent_price_without_sending_files(

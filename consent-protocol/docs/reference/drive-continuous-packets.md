@@ -23,6 +23,9 @@ Checkout and delivery retain the exact approved sources, version and price.
 
 Brokerage-statement requests, including Chris's two recorded wordings, use a
 bounded deterministic search plan instead of calling the Gemini query planner.
+New non-catalog statement requests take this V1 path even when package enrollment
+is enabled for other topics. The owner must still select exact file candidates;
+the Allow/Deny-only verified statement packet belongs to V2.
 The selected dates describe statement coverage, so Drive creation/modification
 timestamps cannot qualify a file. Search first asks Drive for all stated concepts,
 then pages through a broader union query; the result rows are unverified candidates,

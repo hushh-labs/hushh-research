@@ -1180,6 +1180,17 @@ class DriveSharingStore(DriveDocumentStore):
             [owner_user_id, binding, purpose.model_dump()]
             + ([reusable_packet] if reusable_packet is not None else []),
         )
+        # V1 brokerage-statement requests use the deterministic Drive search
+        # and exact owner file review. Keep catalog purchases on their pinned
+        # packet path; a new request must not silently depend on the package
+        # model just because UAT enables package enrollment for other topics.
+        statement_search_v1 = False
+        if not owner_initiated and reusable_packet is None:
+            from hushh_mcp.services.drive_request_bulk_service import (
+                _deterministic_statement_plan,
+            )
+
+            statement_search_v1 = _deterministic_statement_plan(payload["purpose"]) is not None
 
         def operation(connection):
             lock_connection_graph_users(connection, user_ids=[owner_user_id, recipient.user_id])
@@ -1274,6 +1285,7 @@ class DriveSharingStore(DriveDocumentStore):
             )
             agent_package = bool(
                 not owner_initiated
+                and not statement_search_v1
                 and drive
                 and drive["status"] == "connected"
                 and drive["validation_state"] == "verified"
