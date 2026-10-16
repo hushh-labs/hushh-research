@@ -2281,38 +2281,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color-scheme: light;
 }
 
-.profile-pane-sheet[data-slot="sheet-content"]::after,
-[data-agent-history-drawer]::after {
-  content: "";
-  position: absolute;
-  z-index: 5;
-  inset: -35% -85%;
-  pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 40%,
-    rgba(255, 255, 255, 0.17) 49%,
-    rgba(255, 255, 255, 0.05) 54%,
-    transparent 62%
-  );
-  transform: translateX(-38%) rotate(2deg);
-  animation: profile-pane-sheen 11s ease-in-out infinite;
-}
-
-[data-agent-history-drawer][aria-hidden="true"]::after {
-  animation-play-state: paused;
-}
-
-@keyframes profile-pane-sheen {
-  0%,
-  38% {
-    transform: translateX(-38%) rotate(2deg);
-  }
-  72%,
-  100% {
-    transform: translateX(42%) rotate(2deg);
-  }
-}
+/* Pane material stays stationary. An oversized, continuously animated sheen
+ * adds no interaction feedback and forces WebKit to repaint during navigation. */
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark .profile-pane-sheet[data-slot="sheet-content"],
@@ -2345,6 +2315,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 /* WKWebView cannot reliably blur a transformed pane's own backdrop. */
 @supports (-webkit-backdrop-filter: blur(1px)) {
+  .profile-pane-sheet[data-slot="sheet-content"],
+  html.dark .profile-pane-sheet[data-slot="sheet-content"],
+  .dark .profile-pane-sheet[data-slot="sheet-content"],
   [data-app-side-pane],
   .dark [data-app-side-pane] {
     --profile-pane-surface: var(--background);
@@ -2376,7 +2349,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   --agent-history-shadow-clearance: 48px;
   right: auto !important;
   left: var(--app-side-pane-left-inset) !important;
-  /* Clip decorative sheen without creating a focus-scroll container. The
+  /* Clip panel corners without creating a focus-scroll container. The
      sidebar owns scrolling; rename must not scroll the entire frame. */
   overflow: clip;
   transition-duration: var(--motion-sheet-enter-duration), var(--motion-sheet-enter-duration), 0s;
@@ -2926,19 +2899,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-
-  .profile-pane-sheet[data-slot="sheet-content"]::after,
-  [data-agent-history-drawer]::after {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"]::after,
-  [data-agent-history-drawer]::after {
-    animation: none;
-  }
-
   .profile-pane-close,
   .app-side-pane-close,
   [data-agent-history-drawer] [data-agent-history-close],

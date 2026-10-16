@@ -317,7 +317,8 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
-    if (safeSidePane) reference.dataset.appSidePane = "";
+    // The real Profile frame uses this shared material/geometry marker too.
+    reference.dataset.appSidePane = "";
     if (safeSidePane) reference.dataset.chatDetailPane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     // Measure the authored leading inset independently: landscape safe-area
@@ -624,10 +625,15 @@ test("History tap motion and interrupted pulls move the entire panel without shi
       };
       requestAnimationFrame(sample);
     });
-    return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y] };
+    const style = getComputedStyle(panel);
+    return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
+      presentation: { translate: style.translate, transform: style.transform, visibility: style.visibility,
+        transition: style.transition, animations: panel.getAnimations().map(animation => ({
+          state: animation.playState, timing: animation.effect?.getComputedTiming(),
+        })) } };
   });
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
-  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1)).toBe(true);
+  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
   expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
@@ -669,7 +675,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
     });
     return { samples, width: panel.offsetWidth };
   });
-  expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
+  expect(exit.samples.some(x => x < -1 && x > -exit.width + 1), JSON.stringify(exit)).toBe(true);
   expect(exit.samples.at(-1)).toBeCloseTo(-exit.width - 48 + (await profileFrame(page)).x, 0);
 });
 
@@ -1040,11 +1046,16 @@ for (const width of [320, 390, 768, 1440])
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
     }
-    expect(
-      await drawer.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth + 1,
-      ),
-    ).toBe(true);
+    const overflow = await drawer.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return { scroll: element.scrollWidth, client: element.clientWidth,
+        children: [...element.querySelectorAll<HTMLElement>("*")].filter(child => {
+          const box = child.getBoundingClientRect();
+          return box.width > 0 && box.right > bounds.right + 1;
+        }).slice(0, 8).map(child => ({ tag: child.tagName, role: child.getAttribute("role"),
+          className: child.className, right: child.getBoundingClientRect().right - bounds.right })) };
+    });
+    expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.client + 1);
     await testInfo.attach("mounted connections", {
       body: await page.screenshot({
         path: testInfo.outputPath("connections.png"),
