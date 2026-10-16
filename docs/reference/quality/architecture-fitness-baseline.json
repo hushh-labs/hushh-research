@@ -24658,7 +24658,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/circle-member-row.layout.spec.ts",
       "symbol": null,
-      "value": 1269
+      "value": 1284
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -60999,5 +60999,16 @@
     "review": "The imported saved-statement regression now injects its synthetic admission port and asserts exact owner/purpose. Zero sharing and no-auto-share assertions remain; production placement enforcement is unchanged.95nearest checks include actualShared/BYOC/pending/unknown/failed-observation controls. Only this5line core-fixture growth (including2required Ruff wrapping lines) admitted; budgets unchanged.",
     "reviewer": "adk_authority_review",
     "source_sha256": "20ac2ab764aa8a3903f3c86115eb898c2e0f4ff9126def26fdd7ef870a3f36a9"
+  },
+  "scope_commerce_circle_accent_contract_review_20261016": {
+    "source_sha": "04efac3e87cad03e35ba92ee647a232c99c42de0",
+    "reviewer": "architecture_review",
+    "classification": "bounded existing browser-contract extension",
+    "source_sha256": "f26eb378583af69749bada69fef07141f6a3bbb44ab34bee26faea7e78e68f1b",
+    "replaced_occurrences": 1,
+    "appended_occurrences": 0,
+    "finding_count_preserved": 2798,
+    "unchanged_budgets": true,
+    "reason": "The existing Circle phone-sheet case verifies the canonical accent and a gold preference change. The temporary color probe is removed before unchanged geometry assertions. No production behavior changes."
   }
 }
