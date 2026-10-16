@@ -249,7 +249,7 @@ function WorkflowCard({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No matching information is available for an automatic
+              No matching private information is available for an automatic
               draft.
             </p>
           )}
@@ -287,7 +287,7 @@ function WorkflowCard({
               disabled={busy || !selectedScopes.length}
               onClick={onPrepareDraft}
             >
-              {busy && !draft ? "Preparing…" : "Prepare draft"}
+              {busy && !draft ? "Preparing…" : "Prepare private draft"}
             </Button>
           ) : null}
         </div>
@@ -298,7 +298,7 @@ function WorkflowCard({
             value={draft.body}
             onChange={(event) => onDraftChange(event.target.value)}
             className="min-h-36 w-full rounded-lg border border-border bg-background p-3 text-sm text-foreground"
-            aria-label="Information reply draft"
+            aria-label="Private information reply draft"
           />
           {draft.preview ? (
             <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -717,7 +717,7 @@ export default function GmailInformationRequestsSection({
       if (!userId || !idTokenProvider) return false;
       if (!vaultOwnerToken || (enabled && !vaultKey)) {
         setError(
-          "Open your vault before changing KYC monitoring. This keeps request history and any future drafts owner-controlled.",
+          "Open your private vault before changing KYC monitoring. This keeps request history and any future drafts owner-controlled.",
         );
         onRequestVaultUnlock();
         return false;
@@ -909,7 +909,7 @@ export default function GmailInformationRequestsSection({
         });
         if (!prepared.body) {
           throw new Error(
-            "No approved details were available for these fields.",
+            "No approved private details were available for these fields.",
           );
         }
         const body = prepared.body;
@@ -921,7 +921,7 @@ export default function GmailInformationRequestsSection({
         setError(
           draftError instanceof Error
             ? draftError.message
-            : "We could not prepare your reply draft.",
+            : "We could not prepare your private reply draft.",
         );
       } finally {
         setBusyWorkflowId(null);
@@ -1247,7 +1247,7 @@ export default function GmailInformationRequestsSection({
       {enabled && !vaultOwnerToken ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Unlock your vault to view KYC requests, check Gmail, or
+            Unlock your private vault to view KYC requests, check Gmail, or
             prepare a draft.
           </p>
           <Button
@@ -1256,7 +1256,7 @@ export default function GmailInformationRequestsSection({
             variant="muted"
             onClick={onRequestVaultUnlock}
           >
-            Unlock vault
+            Unlock private vault
           </Button>
         </div>
       ) : null}
@@ -1354,7 +1354,7 @@ export default function GmailInformationRequestsSection({
         }}
         eyebrow="KYC request"
         title="Review request"
-        description="Choose the exact details to include, then review the reply before sending."
+        description="Choose the exact private details to include, then review the reply before sending."
         mobilePresentation="fullscreen"
         bodyClassName="py-4"
       >

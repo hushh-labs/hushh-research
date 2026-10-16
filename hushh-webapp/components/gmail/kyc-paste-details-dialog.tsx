@@ -103,7 +103,7 @@ export function KycPasteDetailsDialog({
         </div>
         <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
           <Lock aria-hidden="true" className="size-3.5 shrink-0" />
-          Encrypted with 256-bit AES · Stored in your vault
+          Encrypted with 256-bit AES · Stored in your private vault
         </p>
       </DialogContent>
     </Dialog>

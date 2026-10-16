@@ -307,7 +307,7 @@ describe("personal Gmail information-request scope boundary", () => {
     expect(await screen.findByText("Gmail monitoring is on")).toBeVisible();
   });
 
-  it("opens the vault instead of issuing an invalid monitor opt-in", async () => {
+  it("opens the private vault instead of issuing an invalid monitor opt-in", async () => {
     const onRequestVaultUnlock = vi.fn();
     render(
       createElement(GmailInformationRequestsSection, {
@@ -329,7 +329,7 @@ describe("personal Gmail information-request scope boundary", () => {
     await waitFor(() => expect(onRequestVaultUnlock).toHaveBeenCalledOnce());
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Open your vault before changing KYC monitoring.",
+      "Open your private vault before changing KYC monitoring.",
     );
   });
 
