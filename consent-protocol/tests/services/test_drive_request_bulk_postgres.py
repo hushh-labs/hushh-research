@@ -2421,6 +2421,125 @@ async def test_legacy_request_search_refresh_is_idempotent_and_preserves_review(
 
 
 @pytest.mark.asyncio
+async def test_failed_request_replan_keeps_prior_terminal_job(request_bulk, sharing, monkeypatch):
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    prior_job = _search(request_bulk, request_id=request_id, count=1, incomplete=True)
+    store = DriveOwnerSearchStore(db=request_bulk.db)
+
+    def fail_compile(*_args, **_kwargs):
+        raise DriveReadError("invalid_argument")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_owner_search_service.compile_request_queries",
+        fail_compile,
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.create_for_request(
+            user_id="owner",
+            request_id=request_id,
+            request_revision=request["revision"],
+            purpose={
+                "purpose": "Standup notes from last 3 months",
+                "periodStart": "2026-07-01",
+                "periodEnd": "2026-10-01",
+            },
+            plan={},
+            require_current=AsyncMock(),
+        )
+
+    saved = await store.by_client(user_id="owner", client_request_id=request_id)
+    assert saved["jobId"] == prior_job and saved["status"] == "limited"
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_competing_active_job_cannot_erase_terminal_request(
+    request_bulk, sharing, monkeypatch
+):
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    prior_job = _search(request_bulk, request_id=request_id, count=1, incomplete=True)
+    store = DriveOwnerSearchStore(db=request_bulk.db)
+    checkpoint = {"arguments": {"orderBy": "modifiedTime desc"}}
+    competing, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Other active search"},
+        checkpoint=checkpoint,
+        confirmed=True,
+    )
+
+    with pytest.raises(DriveReadError, match="search_in_progress"):
+        await store.create(
+            user_id="owner",
+            client_request_id=request_id,
+            request={"query": "Standup notes from last 3 months"},
+            checkpoint=checkpoint,
+            confirmed=True,
+            replace_terminal_request=True,
+        )
+
+    saved = await store.by_client(user_id="owner", client_request_id=request_id)
+    assert saved["jobId"] == prior_job and saved["status"] == "limited"
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 1
+        )
+
+    await store.stop(user_id="owner", job_id=competing["jobId"])
+    original_seal = store._seal
+
+    def fail_seal(*_args, **_kwargs):
+        raise DriveReadError("invalid_argument")
+
+    monkeypatch.setattr(store, "_seal", fail_seal)
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await store.create(
+            user_id="owner",
+            client_request_id=request_id,
+            request={"query": "Standup notes from last 3 months"},
+            checkpoint=checkpoint,
+            confirmed=True,
+            replace_terminal_request=True,
+        )
+    monkeypatch.setattr(store, "_seal", original_seal)
+    assert (await store.by_client(user_id="owner", client_request_id=request_id))[
+        "jobId"
+    ] == prior_job
+
+    replacement, created = await store.create(
+        user_id="owner",
+        client_request_id=request_id,
+        request={"query": "Standup notes from last 3 months"},
+        checkpoint=checkpoint,
+        confirmed=True,
+        replace_terminal_request=True,
+    )
+    assert created is True and replacement["jobId"] != prior_job
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": prior_job},
+            ).scalar_one()
+            == 0
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "state,reason,can_retry",
     [

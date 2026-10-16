@@ -20,12 +20,13 @@ from hushh_mcp.one_adk.world_model import (
     run_world_model,
 )
 from hushh_mcp.one_adk.world_model_contracts import validated_facts_from_work
-from hushh_mcp.runtime_settings import one_profile_research_enabled
+from hushh_mcp.runtime_settings import get_app_runtime_settings, one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
 from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
 from hushh_mcp.services.world_model_preferences import (
+    azure_bing_consented,
     checkpoint_before_write,
     checkpoint_committed,
     draft_completed,
@@ -74,11 +75,19 @@ async def owner_identity(user_id, consent_token, *, conn=None):
 
 
 async def admission(user_id, consent_token):
+    if (
+        POLICY["provider"] == "azure_openai_web_search"
+        and get_app_runtime_settings().environment != "uat"
+    ):
+        # Only the UAT Cloud Run service identity is federated into Azure.
+        return {"status": "disabled", "pkm_written": False}, ""
     identity = await owner_identity(user_id, consent_token)
     if not one_profile_research_enabled():
         return {"status": "disabled", "pkm_written": False}, ""
     consent = await preferences(user_id)
     if not consent or not consent["enabled"]:
+        return {"status": "consent_required", "pkm_written": False}, ""
+    if POLICY["provider"] == "azure_openai_web_search" and not azure_bing_consented(consent):
         return {"status": "consent_required", "pkm_written": False}, ""
     if not await asyncio.wait_for(owner_setup_resolved(user_id), 5):
         return {"status": "not_ready", "pkm_written": False}, ""
@@ -121,11 +130,34 @@ async def offer(
         if (
             not consent
             or not consent["enabled"]
+            or (
+                POLICY["provider"] == "azure_openai_web_search"
+                and not azure_bing_consented(consent)
+            )
             or str(consent["generation"]) != authorized_generation
         ):
             raise PermissionError("Research authority changed")
 
-    result = await run_world_model(
+    runner = run_world_model
+    provider_args = {}
+    if POLICY["provider"] == "azure_openai_web_search":
+        from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
+        from hushh_mcp.one_adk.world_model_azure import run_world_model_azure
+
+        config = POLICY["azure"]
+        token_provider = azure_openai_token_provider(
+            tenant_id=config["tenant_id"], client_id=config["client_id"]
+        )
+        runner = run_world_model_azure
+        provider_args = {
+            "primary_endpoint": config["primary_endpoint"],
+            "primary_deployment": config["primary_deployment"],
+            "primary_token_supplier": token_provider,
+            "phi_endpoint": config["phi_endpoint"],
+            "phi_deployment": config["phi_deployment"],
+            "phi_token_supplier": token_provider,
+        }
+    result = await runner(
         identity=identity,
         user_id=user_id,
         consent_token=consent_token,
@@ -135,6 +167,7 @@ async def offer(
         work=work,
         on_progress=on_progress,
         owner_decisions=(inputs or {}).get("owner_decisions"),
+        **provider_args,
     )
     refused, current = await admission(user_id, consent_token)
     if refused:
@@ -203,16 +236,24 @@ class WorldModelJobs(ProfileResearchJobs):
 
     async def job_context(self, user_id, consent_token):
         consent = await preferences(user_id)
-        if not consent or not consent["enabled"]:
+        if (
+            not consent
+            or not consent["enabled"]
+            or (
+                POLICY["provider"] == "azure_openai_web_search"
+                and not azure_bing_consented(consent)
+            )
+        ):
             raise PermissionError("Research consent required")
         return {"consent_generation": str(consent["generation"])}
 
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
-        # Research is on by default once setup disclosed it. An existing row,
-        # including an explicit opt-out, is never changed here.
+        # Azure/Bing needs a fresh owner opt-in; existing Vertex preferences
+        # and default enrollment never grant it.
         enrolled = False
         if (
-            one_profile_research_enabled()
+            POLICY["provider"] != "azure_openai_web_search"
+            and one_profile_research_enabled()
             and await preferences(user_id) is None
             and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
         ):

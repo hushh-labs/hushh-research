@@ -32,6 +32,87 @@ vi.mock("@/lib/share/app-origin", () => ({
 }));
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
 
+it("accepts only matching display-only research provenance", () => {
+  const result = {
+    status: "offered",
+    pkm_written: false,
+    draft_id: "00000000-0000-4000-8000-000000000001",
+    report: {
+      match_status: "no_match",
+      name: "Alex Example",
+      summary: "No supported match was found.",
+      sections: [],
+    },
+    grounded_answers: [],
+    search_suggestions: [],
+    research: {
+      identity: {
+        state: "no_match",
+        reason: "No public contact match.",
+        probability: null,
+        selected_candidate_id: null,
+        supporting_anchor_ids: [],
+        next_step: "finish",
+      },
+      coverage: [
+        "business", "career", "education", "personal", "projects", "publications",
+        "achievements", "community", "interests", "preferences", "dislikes", "style",
+        "food", "travel", "entertainment", "shopping", "communication",
+        "digital_presence", "public_records", "security",
+      ].map((topic) => ({
+        topic,
+        status: "not_attempted",
+        attempt_ids: [],
+        explanation: "No search for this topic.",
+      })),
+      gaps: [],
+      checked_topics: [],
+      searches_used: 0,
+      candidates: [],
+      source_use: "google_grounded_display_only",
+      provider: "vertex_google_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(result).success).toBe(true);
+  const azure = {
+    ...result,
+    research: {
+      ...result.research,
+      source_use: "azure_web_grounded_display_only",
+      provider: "azure_openai_web_search",
+    },
+  };
+  expect(pwmResultSchema.safeParse(azure).success).toBe(true);
+  const answer = "Alex 🧭 appears on a public page.";
+  const citation = {
+    start_index: answer.indexOf("public page"),
+    end_index: answer.indexOf("public page") + "public page".length,
+    title: "Original Bing citation",
+    url: "https://example.test/source?ref=bing",
+  };
+  const citedAzure = {
+    ...azure,
+    grounded_answers: [{ answer, sources: [], citations: [citation], search_suggestions: [] }],
+  };
+  expect(pwmResultSchema.safeParse(citedAzure).success).toBe(true);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [{ ...citation, url: "javascript:alert(1)" }], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [citation, citation], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...azure,
+    research: { ...azure.research, provider: "vertex_google_search" },
+  }).success).toBe(false);
+});
+
 it("accepts a deep PWM draft with scored evidence but rejects padded duplicates", () => {
   const sections = [
     "business", "career", "education", "projects", "publications", "achievements", "community",
@@ -109,6 +190,28 @@ describe("PWM service authority and request recovery", () => {
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
+  it.each([
+    ["azure_openai_web_search", "pwm-azure-bing-v1"],
+    ["vertex_google_search", "pwm-native-v1"],
+  ] as const)("sends the %s consent marker for preference updates", async (research_provider, consent_version) => {
+    const response = { enabled: true, email_enabled: false, consent_version: "pwm-native-v1", research_provider };
+    api.mockResolvedValue(response);
+
+    await expect(WorldModelResearchService.updatePreferences(session, {
+      enabled: true,
+      email_enabled: false,
+      research_provider,
+    })).resolves.toEqual(response);
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api.mock.calls[0][0]).toBe("/api/one/world-model/preferences");
+    expect(api.mock.calls[0][1].method).toBe("PUT");
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({
+      enabled: true,
+      email_enabled: false,
+      consent_version,
+    });
+  });
   it("automatically ensures once, then reads the existing job", async () => {
     api
       .mockResolvedValueOnce({
