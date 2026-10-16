@@ -5156,12 +5156,7 @@ function ShareFlow({
           />
         }
         title={
-          <span className="flex min-w-0 items-start gap-1.5">
-            <span className="min-w-0 truncate">{label}</span>
-            {r.connectedFromContacts ? (
-              <ContactSourceBadge className="mt-px shrink-0" />
-            ) : null}
-          </span>
+          <span className="block min-w-0 truncate">{label}</span>
         }
         // Only says something when there is something to say. A row that is
         // ready needs no sentence explaining that it is ready — but a row whose
@@ -5183,21 +5178,24 @@ function ShareFlow({
           )
         }
         trailing={
-          ready && !alreadyHasLocationShare ? (
-            selected ? (
-              <SelectionDot selected />
-            ) : includedThroughCircle ? (
-              <span
-                aria-label={`Included through ${includedThroughCircle.circle.name}`}
-                className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-2 text-[11px] font-semibold text-[color:var(--app-accent)]"
-              >
-                <UsersRound className="h-3.5 w-3.5" aria-hidden="true" />
-                Circle
-              </span>
-            ) : (
-              <SelectionDot selected={false} />
-            )
-          ) : undefined
+          <span className="flex shrink-0 items-center gap-3">
+            {r.connectedFromContacts ? <ContactSourceBadge /> : null}
+            {ready && !alreadyHasLocationShare ? (
+              selected ? (
+                <SelectionDot selected />
+              ) : includedThroughCircle ? (
+                <span
+                  aria-label={`Included through ${includedThroughCircle.circle.name}`}
+                  className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-2 text-[11px] font-semibold text-[color:var(--app-accent)]"
+                >
+                  <UsersRound className="h-3.5 w-3.5" aria-hidden="true" />
+                  Circle
+                </span>
+              ) : (
+                <SelectionDot selected={false} />
+              )
+            ) : null}
+          </span>
         }
       />
     );
@@ -6313,7 +6311,6 @@ function AskFlow({
                 // trimming this screen to four cells must not take rungs off the
                 // owner's own "New time" editor, which has a card to itself.
                 rungs={REQUEST_DURATION_LADDER}
-                activeClassName="border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <ReasonChips
                 value={reason}

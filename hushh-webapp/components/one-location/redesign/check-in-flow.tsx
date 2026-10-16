@@ -182,9 +182,6 @@ function ContactRow({
           <MediumRowLabel as="span" className="min-w-0 flex-1 truncate">
             {label}
           </MediumRowLabel>
-          {fromContacts ? (
-            <ContactSourceBadge className="mt-px shrink-0" />
-          ) : null}
         </span>
         {completed ? (
           <StatusText
@@ -199,6 +196,7 @@ function ContactRow({
           </RowDescription>
         ) : null}
       </span>
+      {fromContacts ? <ContactSourceBadge /> : null}
       <span
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
