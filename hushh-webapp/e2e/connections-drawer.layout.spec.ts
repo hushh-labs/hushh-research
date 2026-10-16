@@ -1598,13 +1598,13 @@ test("Calendar card connects in place, clears, and a forged settlement is ignore
   await expectChatIntact(page, navigations);
 });
 
-test("Calendar card keeps a read-only grant as not connected for scheduling", async ({ page }) => {
+test("Calendar card reports missing scheduling permission for a read-only grant", async ({ page }) => {
   const { navigations } = await armChatConnect(page);
   const popupEvent = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Allow Calendar scheduling" }).click();
   const consent = await popupEvent;
   expect(await returnFromGoogle(consent, "google", "__settleGoogleOAuthCallback")).toBe(true);
-  await expect(page.getByTestId("chat-connect-notice")).toHaveText("Google Calendar was not connected.");
+  await expect(page.getByTestId("chat-connect-notice")).toHaveText("The requested Google Calendar permission was not enabled.");
   await expect(page.getByTestId("specialist-directive-card")).toBeVisible();
   await expectChatIntact(page, navigations);
 });

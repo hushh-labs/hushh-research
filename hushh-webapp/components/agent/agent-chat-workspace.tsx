@@ -3999,6 +3999,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           ? connectCalendarInPlace({
               owner,
               accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
+              includeCalendarList: payload.includeCalendarList === true,
               ...controls,
               isCurrent,
             })
@@ -10014,6 +10015,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           timeZone={calendarSlot?.selection.timeZone ?? (typeof payload.timeZone === "string" ? payload.timeZone : undefined)}
                           attendees={attendees}
                           location={typeof payload.location === "string" ? payload.location : null}
+                          description={typeof payload.description === "string" ? payload.description : null}
                           sendUpdates={payload.sendUpdates === true}
                           googleMeet={payload.googleMeet === true}
                           conflicts={conflicts}

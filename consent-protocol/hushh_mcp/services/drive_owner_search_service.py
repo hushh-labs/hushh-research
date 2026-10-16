@@ -63,6 +63,7 @@ DOCUMENT_MIMES = frozenset(
         "application/rtf",
     }
 )
+V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES = ("audio/", "video/")
 logger = drive_logger("drive_owner_search")
 _MONTH_WINDOW = re.compile(
     r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
@@ -99,7 +100,16 @@ _NOTE_TITLE = re.compile(r"\b(?:notes?|minutes)\b", re.I)
 _MEETING_SUBJECT = re.compile(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", re.I)
 # A bounded discovery expansion for common meeting-note titles. These are
 # candidates only; extracted content and its event date decide membership.
-_MEETING_NOTE_DISCOVERY = ("standup", "sync", "minutes", "huddle")
+_MEETING_NOTE_DISCOVERY = (
+    "meeting",
+    "notes",
+    "standup",
+    "stand up",
+    "stand-up",
+    "sync",
+    "minutes",
+    "huddle",
+)
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
 
 
@@ -533,9 +543,15 @@ def compile_request_queries(
         # only source of a verified match.
         if not v1_live_request or parsed.exact_title or not meeting_notes_v1:
             return
+        # A title sweep mirrors the owner's visible Drive result set without
+        # turning every incidental body mention of "sync" into a candidate.
+        # The precise first query still searches fullText, and topical folders
+        # bring their generic-named children into the content evaluator.
         aliases = (
             "("
-            + " or ".join(compile_search_terms([term]) for term in _MEETING_NOTE_DISCOVERY)
+            + " or ".join(
+                f"name contains {quote_literal(term)}" for term in _MEETING_NOTE_DISCOVERY
+            )
             + ")"
         )
         sweep = " and ".join([*([entity_subject] if entity_subject else []), aliases, *base])
@@ -550,11 +566,12 @@ def compile_request_queries(
     append_v1_meeting_note_sweep()
 
     def append_v1_structural_sweep() -> None:
-        # Drive fullText is a discovery hint, not a complete index of original
-        # bytes (notably scans). Search supported formats by MIME as well, then
-        # let the paged background reader decide issuer, type and content dates.
-        # No file timestamp or fixed top-N may discard a matching statement.
-        if not (financial_v1 or meeting_notes_v1) or parsed.exact_title:
+        # The whole-Drive MIME sweep is reserved for financial statements,
+        # whose exact issuer/period evidence may be absent from Drive text.
+        # Meeting-note requests use lexical aliases plus topical folder
+        # children. Sweeping every document for notes can hit the 10k-row
+        # work limit before any candidate receives content evaluation.
+        if not financial_v1 or parsed.exact_title:
             return
         mime_subject = (
             "("
@@ -587,7 +604,7 @@ def compile_request_queries(
             queries.append(entity_query)
         append_v1_structural_sweep()
         return queries, period
-    if broader_subject is not None:
+    if broader_subject is not None and not meeting_notes_v1:
         broader_query = " and ".join(
             [*([entity_subject] if entity_subject else []), broader_subject, *base]
         )
@@ -717,7 +734,9 @@ def _request_candidate_kind_matches(checkpoint: dict, kind: str, mime: str) -> b
     )
 
 
-def _v1_unsupported_candidate(checkpoint: dict, kind: str, mime: str) -> bool:
+def _v1_unsupported_candidate(
+    checkpoint: dict, kind: str, mime: str, *, mime_verified: bool = True
+) -> bool:
     authored = checkpoint.get("authored_plan")
     meeting_notes = _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
     return (
@@ -731,6 +750,15 @@ def _v1_unsupported_candidate(checkpoint: dict, kind: str, mime: str) -> bool:
         )
         and mime not in LIVE_SUPPORTED_TYPES
         and mime not in {FOLDER_MIME, SHORTCUT_MIME}
+        # A live video or audio file cannot satisfy a document request. Its
+        # incidental fullText hit must not make the whole search incomplete.
+        # A shortcut's targetMimeType is only a snapshot, so keep an
+        # unavailable target unresolved until its current MIME is verified.
+        and not (
+            mime_verified
+            and kind == "document"
+            and mime.startswith(V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES)
+        )
     )
 
 
@@ -1564,7 +1592,9 @@ class DriveOwnerSearchService:
                         _counter(checkpoint, "unavailableFolderCount")
                         continue
                     target_kind = details.get("targetMimeType")
-                    if target_kind and _v1_unsupported_candidate(checkpoint, kind, target_kind):
+                    if target_kind and _v1_unsupported_candidate(
+                        checkpoint, kind, target_kind, mime_verified=False
+                    ):
                         incomplete = True
                         _counter(checkpoint, "unsupportedCandidateCount")
                         continue

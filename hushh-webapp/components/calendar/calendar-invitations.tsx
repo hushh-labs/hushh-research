@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight } from "@/components/icons";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, ChevronLeft, ChevronRight } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useVault } from "@/lib/vault/vault-context";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -13,7 +14,7 @@ import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { CalendarInvitationActions, type InvitationDecision, type InvitationTerms } from "./calendar-invitation-actions";
 import { CalendarInvitationDetail, InvitationAvatar, InvitationDate, invitationDescription } from "./calendar-invitation-detail";
-import { calendarProviderDayUrl, calendarDate, shiftCalendarDate, eventTime } from "./calendar-schedule-presentation";
+import { calendarDate, shiftCalendarDate, eventTime } from "./calendar-schedule-presentation";
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
 import { invitationResourceKey, invitationSnapshot, loadInvitationResource } from "@/lib/calendar/calendar-invitations-resource";
@@ -38,13 +39,10 @@ export function CalendarInvitations(props: Props) {
 
 function Invitations({ workspaceLayout = false, userId, accountEmail, zone, getIdToken, initialFilter, initialEventId, initialCalendarId, initialDecision, initialTerms, startAt, endAt, connectionRevision, busy, onConnect, onMailConnect, onOfferTimes, onResult, onBusyChange, token }: Props & { token: string | null }) {
   const [date, setDate] = useState(() => calendarDate(Date.now(), zone));
-  const listPane = useRef<HTMLDivElement>(null);
-  const [detailOffset, setDetailOffset] = useState(0);
   // UTC padding covers the selected local day even across DST and extreme offsets.
   const queryStart = workspaceLayout ? `${shiftCalendarDate(date, -1)}T00:00:00Z` : startAt;
   const queryEnd = workspaceLayout ? `${shiftCalendarDate(date, 2)}T00:00:00Z` : endAt;
   const resourceKey = workspaceLayout ? invitationResourceKey(userId, [accountEmail?.toLowerCase(), snapshotVaultSessionEpoch(), connectionRevision, calendarDate(Date.now(), zone), zone, queryStart, queryEnd, initialCalendarId, initialEventId]) : "";
-  const detailPane = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState(initialFilter === "all" || initialFilter === "responded" ? initialFilter : "pending");
   const [snapshot, setSnapshot] = useState(() => ({ key: resourceKey, data: invitationSnapshot(resourceKey)?.data ?? null }));
   const data = snapshot.key === resourceKey ? snapshot.data : invitationSnapshot(resourceKey)?.data ?? null;
@@ -78,11 +76,6 @@ function Invitations({ workspaceLayout = false, userId, accountEmail, zone, getI
   useEffect(() => CacheService.getInstance().subscribe(event => { if (event.type === "set" && event.key === calendarRefreshKey(userId)) void load(true); }), [userId, load]);
   const selected = data?.events.find(event => `${event.calendar_id}:${event.id}` === selectedId);
   const close = useCallback(() => { if (actionBusyRef.current) return true; setSelectedId(null); requestAnimationFrame(() => trigger.current?.focus()); return true; }, []);
-  useEffect(() => {
-    if (workspaceLayout && selectedId && window.matchMedia("(max-width: 767px)").matches) {
-      detailPane.current?.scrollIntoView({ block: "start" });
-    }
-  }, [workspaceLayout, selectedId]);
   const pathname = usePathname();
   useBackLayer(pathname, selected ? 1 : 0, close);
   const invitationDay = (event: CalendarInvitation) => {
@@ -101,17 +94,6 @@ function Invitations({ workspaceLayout = false, userId, accountEmail, zone, getI
   const filtered = dayEvents.filter(event => filter === "all" || (event.response_status === "needsAction") === (filter === "pending"));
   const pendingCount = workspaceLayout ? dayEvents.filter(event => event.response_status === "needsAction").length : data?.pending_count;
   const navigateDate = (value: string) => { setSelectedId(null); setDate(value); };
-  useLayoutEffect(() => {
-    if (!workspaceLayout || !selectedId || !listPane.current) return;
-    const update = () => {
-      const row = listPane.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
-      if (row && listPane.current) setDetailOffset(row.getBoundingClientRect().top - listPane.current.getBoundingClientRect().top);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(listPane.current);
-    return () => observer.disconnect();
-  }, [workspaceLayout, selectedId, data]);
   const label = filter === "pending" ? "Needs your response" : filter === "responded" ? "Your responses" : "All invitations";
   const statusLabel = (event: CalendarInvitation) => event.response_status === "needsAction" ? null : event.response_status === "accepted" ? "Accepted" : event.response_status === "declined" ? "Declined" : "Tentative";
   return <section className={styles.invitations} data-workspace={workspaceLayout} data-detail={Boolean(selected)} aria-label="Invitations" aria-busy={loading}>
@@ -120,21 +102,26 @@ function Invitations({ workspaceLayout = false, userId, accountEmail, zone, getI
     {error ? <div role="alert" className="space-y-3"><p>Invitations could not be loaded.</p><p className={styles.muted}>{error.message}</p>{error instanceof GoogleCalendarError && error.recovery !== "retry" ? <Button disabled={busy} variant="outline" onClick={() => onConnect("read", error.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</Button> : <Button variant="outline" onClick={() => void load(true)}>Retry</Button>}</div> : !data ? <CalendarLoading label="Invitations loading" /> : <>
       {data.unreadable_calendars.length ? <p className={styles.muted}>Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.</p> : null}
       <div className={styles.workspace} data-selected={Boolean(selected)}>
-        <div ref={listPane} className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
+        <div className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
           {!filtered.length ? <p className={styles.empty}>No {filter === "all" ? "" : `${filter} `}invitations {workspaceLayout ? "on this date" : "in this window"}.</p> : <ul className={styles.list}>{filtered.map((event, index) => {
             const organizer = event.organizer?.displayName || event.organizer?.email || "Organizer";
             const response = statusLabel(event);
-            return <li key={`${event.calendar_id}:${event.id}`}><button type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); if (detailPane.current) detailPane.current.scrollTop = 0; }}>
+            return <li key={`${event.calendar_id}:${event.id}`}><button type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
               <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar name={organizer} index={index} /><span className={styles.copy}><span>{organizer}</span>{event.organizer?.displayName ? <span className={styles.muted}>{event.organizer.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
             </button></li>;
           })}</ul>}
-          <a className={styles.providerShortcut} href={calendarProviderDayUrl(workspaceLayout ? date : calendarDate(Date.now(), zone), accountEmail)} target="_blank" rel="noopener noreferrer"><span><CalendarDays aria-hidden className="size-5" /></span><span className={styles.copy}><strong>View all invitations</strong><small>See more in Google Calendar</small></span><ChevronRight aria-hidden className="size-5" /></a>
         </div>
-        {selected ? <div ref={detailPane} className={styles.detailPane} style={{ "--invitation-detail-offset": `${detailOffset}px` } as CSSProperties} aria-label="Selected invitation">
+        <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) close(); }}>
+          <DialogContent className={styles.calendarTypography} srDescription="Review this invitation and choose your response." onEscapeKeyDown={event => { if (actionBusyRef.current) event.preventDefault(); }} onInteractOutside={event => { if (actionBusyRef.current) event.preventDefault(); }} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }}>
+          <DialogTitle className="sr-only">Invitation details</DialogTitle>
+          {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" className={styles.back} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
           <CalendarInvitationDetail event={selected} zone={zone} />
           <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={onResult} />
-        </div> : initialEventId ? <p role="status" className={styles.muted}>This invitation is no longer in the current window. Ask One to check it again.</p> : null}
+        </div> : null}
+          </DialogContent>
+        </Dialog>
+        {!selected && initialEventId ? <p role="status" className={styles.muted}>This invitation is no longer in the current window. Ask One to check it again.</p> : null}
       </div>
     </>}
   </section>;

@@ -25,6 +25,7 @@ from hushh_mcp.one_adk.receipt_client_tools import (
 _EPHEMERAL = frozenset(
     {
         "hussh:pending_directive:calendar_invitations",
+        "hussh:pending_directive:calendar",
         STATE_EXECUTION_SURFACE,
         STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
@@ -45,7 +46,14 @@ _EPHEMERAL = frozenset(
     }
 )
 _PRIVATE_DRAFT_TOOLS = frozenset(
-    {"open_calendar_invitation", "open_gmail_email_draft", "open_gmail_information_request_reply"}
+    {
+        "open_calendar_invitation",
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "propose_calendar_cancellation",
+        "open_gmail_email_draft",
+        "open_gmail_information_request_reply",
+    }
 )
 
 

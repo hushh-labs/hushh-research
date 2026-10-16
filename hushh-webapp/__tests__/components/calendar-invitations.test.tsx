@@ -77,8 +77,8 @@ describe("shared page/chat Invitations with real typed transport", () => {
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm decline" }));
     expect(await screen.findByText("Your attendance was declined.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Invitations", exact: true }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
     expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
   });
