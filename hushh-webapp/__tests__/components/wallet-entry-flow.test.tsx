@@ -153,7 +153,7 @@ describe("Wallet visit introduction", () => {
     fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("TRAVEL");
     expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
     expect(screen.queryByLabelText("CVV")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

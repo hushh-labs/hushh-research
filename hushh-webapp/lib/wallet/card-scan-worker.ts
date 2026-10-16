@@ -2,7 +2,7 @@ import { mergeCardScanReadings, parseCardScanReading, type CardScanReading } fro
 import { spatialCardNumbers, type CardTextObservation } from "./card-scan-spatial";
 import { detectCardRegion } from "./card-scan-region";
 import { rasterCanvas, decodeCardPng, flattenCardTransparency, type CardRaster } from "./card-scan-raster";
-import { cardProjection, validCardCorners, type CardCorners, type CardImageBox } from "./card-scan-image";
+import { cardProjection, isFullCard, validCardCorners, type CardCorners, type CardImageBox } from "./card-scan-image";
 
 interface OcrLine { text?: string; confidence?: number; bbox: CardImageBox; words?: OcrLine[] }
 interface OcrData { text: string; confidence: number; blocks?: { paragraphs?: { lines?: OcrLine[] }[] }[] }
@@ -17,7 +17,7 @@ async function prepare(input: CardRaster, corners?: CardCorners) {
     flattenCardTransparency(input);
     const source = canvas(input.width, input.height);
     source.context.putImageData(input, 0, 0);
-    if (!corners) return source;
+    if (!corners || isFullCard(corners)) return source;
     if (!validCardCorners(corners)) throw new Error("Invalid crop");
     const pixels = source.context.getImageData(0, 0, source.value.width, source.value.height);
     const length = (a: number, b: number) => Math.hypot((corners[a]!.x - corners[b]!.x) * input.width, (corners[a]!.y - corners[b]!.y) * input.height);
@@ -91,7 +91,8 @@ scope.onmessage = async event => {
     if (event.data.detectOnly) { scope.postMessage(detectCardRegion(source.value.raster())); return; }
     if (event.data.prepareOnly) { scope.postMessage({ prepared: await source.value.convertToBlob({ type: "image/png" }) }); return; }
     importScripts("/vendor/wallet-ocr/tesseract.min.js");
-    worker = await Tesseract.createWorker("eng", 1, { workerPath: "/vendor/wallet-ocr/worker.min.js", corePath: "/vendor/wallet-ocr", langPath: "/vendor/wallet-ocr", cacheMethod: "none", workerBlobURL: false, logger: () => {}, errorHandler: () => scope.postMessage({ error: true }) });
+    // Only public language data is cached by Tesseract, never photos or OCR output.
+    worker = await Tesseract.createWorker("eng", 1, { workerPath: "/vendor/wallet-ocr/worker.min.js", corePath: "/vendor/wallet-ocr", langPath: "/vendor/wallet-ocr", cacheMethod: "write", cachePath: "wallet-ocr-eng-v1", workerBlobURL: false, logger: () => {}, errorHandler: () => scope.postMessage({ error: true }) });
     await worker.setParameters({ tessedit_pageseg_mode: "11" });
     const passReadings: CardScanReading[] = [];
     let best: CardScanReading = { fields: {}, states: { pan: "missing", expiry: "missing", cardholderName: "missing" } }, bestScore = -1;
@@ -103,10 +104,14 @@ scope.onmessage = async event => {
       const result = await worker.recognize(await current.value.convertToBlob({ type: "image/png" }), {}, { blocks: true });
       const reading = readingFor(result.data, current.value.height);
       passReadings.push(reading);
+      scope.postMessage({ reading: mergeCardScanReadings(passReadings), progress: true });
       const score = (reading.states.pan === "recognized" ? 10 : reading.fields.pan ? 1 : 0) + (reading.states.expiry === "recognized" ? 3 : reading.fields.expiry ? 1 : 0) + (reading.states.cardholderName === "recognized" ? 2 : reading.fields.cardholderName ? 1 : 0);
       if (score > bestScore) { bestScore = score; best = reading; source = current; geometry = boxes(result.data); }
-      complete = Object.values(reading.states).every(state => state === "recognized");
+      // A printed, unlabelled name is intentionally a review draft. It must not
+      // force four expensive rotations after the correct orientation was read.
+      complete = reading.states.pan === "recognized" && reading.states.expiry === "recognized" && Boolean(reading.fields.cardholderName);
       if (complete) break;
+      if (reading.states.pan === "recognized" && reading.states.expiry === "recognized") break;
     }
     const readings = [best, ...passReadings];
     if (!complete && !event.data.sanitizeOnly) {

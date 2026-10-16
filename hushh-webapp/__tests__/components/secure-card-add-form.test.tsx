@@ -56,7 +56,8 @@ it("submits the current card without a bank or design chooser so the service can
   expect(networkApi.banks).not.toHaveBeenCalled();
   expect(networkApi.artwork).not.toHaveBeenCalled();
   submit();
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan: "4242424242424242" })));
+  expect(screen.getByLabelText("Name on card")).toHaveAttribute("autoCapitalize", "characters");
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan: "4242424242424242", cardholderName: "TEST OWNER" })));
   expect(save.mock.calls[0][0]).not.toHaveProperty("artwork");
 });
 
@@ -84,14 +85,14 @@ it("fills readable scan details only after crop confirmation and never saves aut
   const save = vi.fn(); render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
   expect(screen.getByRole("button", { name: "Scan card" }).querySelector("img")).not.toBeNull();
   await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
-  expect(screen.getByLabelText("Name on card")).toHaveValue("Scanned Owner"); expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"); expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Name on card")).toHaveValue("SCANNED OWNER"); expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"); expect(save).not.toHaveBeenCalled();
   expect(scan.read).toHaveBeenCalledWith(expect.any(Blob), expect.any(AbortSignal), { corners: expect.any(Array) });
 });
 it("preserves manual corrections and partial scan fields during rescans", async () => {
   scan.read.mockResolvedValue(reading({ cardholderName: "Scanned Owner", expiry: "11/99" }));
   render(<SecureCardAddForm onSubmit={vi.fn()} />); fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Correct Owner" } });
   await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"));
-  expect(screen.getByLabelText("Name on card")).toHaveValue("Correct Owner"); expect(screen.getByLabelText("Card number")).toHaveValue("");
+  expect(screen.getByLabelText("Name on card")).toHaveValue("CORRECT OWNER"); expect(screen.getByLabelText("Card number")).toHaveValue("");
 });
 it.each([{}, { expiry: "11/99" }])("keeps toolbar scanning reachable after an unclear reading %j", async fields => {
   scan.read.mockResolvedValueOnce(reading(fields)).mockResolvedValueOnce(reading({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" }));

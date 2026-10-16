@@ -113,7 +113,7 @@ export function WalletCardFace({ summary, artwork, artworkPending = false, cardh
       <div data-slot="wallet-card-artwork-plane" data-artwork-orientation={imageRatio < 1 ? "portrait" : "landscape"} className={styles.artworkPlane} style={{ width: `${Math.min(1, imageRatio / cardRatio) * 100}%`, height: `${Math.min(1, cardRatio / imageRatio) * 100}%` }}>
         {/* Original approved pixels stay intact; owner details are a separate display layer. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={artwork.image} alt={title || "Your card design"} className="absolute inset-0 h-full w-full" style={{ opacity: imageReady ? 1 : 0, objectFit: overlayAllowed ? "fill" : "contain" }} onLoad={event => {
+        <img src={artwork.image} alt={title || "Your card design"} className="absolute inset-0 h-full w-full" style={{ objectFit: overlayAllowed ? "fill" : "contain" }} onLoad={event => {
           const image = event.currentTarget;
           if (image.naturalWidth && image.naturalHeight) setImageShape({ digest: artwork.digest, image: artwork.image, ratio: image.naturalWidth / image.naturalHeight, failed: false });
         }} onError={() => setImageShape({ digest: artwork.digest, image: artwork.image, ratio: cardRatio, failed: true })} />

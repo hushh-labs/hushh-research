@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
+import { cardCameraCaptureBox } from "@/lib/wallet/card-scan-image";
 
 /** Rear-camera capture in the current page, with no new browser tab or upload. */
 export function WalletLiveCardCapture({ onPhoto, onCancel, onChoosePhoto }: { onPhoto: (photo: Blob) => void; onCancel: () => void; onChoosePhoto?: () => void }) {
@@ -31,12 +32,15 @@ export function WalletLiveCardCapture({ onPhoto, onCancel, onChoosePhoto }: { on
     <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>{failed ? "Camera unavailable. Choose a photo or enter your card details." : "Place your card inside the frame."}</p>
     <div className="flex flex-wrap justify-center gap-2"><Button type="button" size="compact" disabled={!ready || failed || busy} onClick={() => {
       const element = video.current; if (!element?.videoWidth || !element.videoHeight || element.readyState < 2 || busy) return;
-      setBusy(true); const canvas = document.createElement("canvas"), scale = Math.min(1, 2400 / Math.max(element.videoWidth, element.videoHeight));
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const box = cardCameraCaptureBox(element.videoWidth, element.videoHeight, rect.width, rect.height);
+      setBusy(true); const canvas = document.createElement("canvas"), scale = Math.min(1, 2400 / Math.max(box.width, box.height));
       try {
-        canvas.width = Math.round(element.videoWidth * scale); canvas.height = Math.round(element.videoHeight * scale);
+        canvas.width = Math.round(box.width * scale); canvas.height = Math.round(box.height * scale);
         const context = canvas.getContext("2d");
         if (!context) throw new Error("Capture unavailable");
-        context.drawImage(element, 0, 0, canvas.width, canvas.height);
+        context.drawImage(element, box.x, box.y, box.width, box.height, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(blob => { canvas.width = canvas.height = 0; if (!active.current) return; if (blob) { stopCapture(); onPhoto(blob); } else { setFailed(true); setBusy(false); } }, "image/jpeg", .9);
       } catch {
         canvas.width = canvas.height = 0; setFailed(true); setBusy(false);
