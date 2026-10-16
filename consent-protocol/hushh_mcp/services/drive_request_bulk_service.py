@@ -117,6 +117,8 @@ def _deterministic_statement_plan(purpose: dict) -> LiveSearchPlan | None:
         mode="find",
         terms=terms,
         term_groups=groups,
+        semantic_intent="institutional_statement",
+        required_entities=["Schwab"] if schwab else [],
         subject_scope="specific_records",
         subject_complete=True,
         file_kind="document",

@@ -58,6 +58,36 @@ def test_generic_filename_can_match_when_issuer_type_and_period_are_cited():
     assert checked.documents[0].weightage_out_of_10 == 8.5
 
 
+def test_punctuated_issuer_and_estmt_in_generic_file_are_valid_content_evidence():
+    body = "Charles-Schwab Brokerage Account eStmt. Period: September 1 to October 9, 2026."
+    checked = verify_v1_document_batch(
+        _batch(body),
+        request={**REQUEST, "requiredEntities": ["Schwab"]},
+        retrieved=_retrieved(body, name="IMG_0926.pdf"),
+    )
+    assert checked.documents[0].decision == "include"
+
+
+def test_multiword_issuer_requires_full_name_in_one_citation():
+    body = "Charles River Brokerage Account Statement. Period: September 1 to October 9, 2026."
+    checked = verify_v1_document_batch(_batch(body), request=REQUEST, retrieved=_retrieved(body))
+    assert checked.documents[0].decision == "uncertain"
+    assert checked.documents[0].confidence == 0
+
+    split = "Charles\nSchwab Brokerage Account Statement. Period: September 1 to October 9, 2026."
+    split_payload = _batch(split).model_dump()
+    split_payload["documents"][0]["citations"] = [
+        {"source_ref": "s1", "quote": "Charles"},
+        {
+            "source_ref": "s1",
+            "quote": "Schwab Brokerage Account Statement. Period: September 1 to October 9, 2026.",
+        },
+    ]
+    batch = BoundDocumentBatchAssessment.model_validate(split_payload)
+    checked = verify_v1_document_batch(batch, request=REQUEST, retrieved=_retrieved(split))
+    assert checked.documents[0].decision == "uncertain"
+
+
 def test_recent_drive_edit_cannot_make_old_transaction_history_a_2026_statement():
     body = "Charles Schwab Transaction History from January 1, 2014 to December 31, 2016."
     checked = verify_v1_document_batch(_batch(body), request=REQUEST, retrieved=_retrieved(body))
@@ -117,14 +147,18 @@ def test_security_bulletin_cannot_pose_as_statement_by_mentioning_statements():
 
 def test_month_name_supports_exact_calendar_month_not_arbitrary_days():
     body = "Schwab Account Statement: September 2026. Account holdings and balance."
+    batch = _batch(body, start="2026-09-01", end="2026-09-30")
+    batch.documents[0].entity_claim = "Schwab"
     checked = verify_v1_document_batch(
-        _batch(body, start="2026-09-01", end="2026-09-30"),
+        batch,
         request=REQUEST,
         retrieved=_retrieved(body),
     )
     assert checked.documents[0].decision == "include"
+    batch = _batch(body, start="2026-09-03", end="2026-09-29")
+    batch.documents[0].entity_claim = "Schwab"
     invalid = verify_v1_document_batch(
-        _batch(body, start="2026-09-03", end="2026-09-29"),
+        batch,
         request=REQUEST,
         retrieved=_retrieved(body),
     )

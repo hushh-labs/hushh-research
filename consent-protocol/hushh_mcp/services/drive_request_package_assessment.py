@@ -191,16 +191,18 @@ _CLAIM_GENERIC = frozenset(
 
 
 def _entity_cited(claim: str | None, quotation: str) -> bool:
-    """Require the model's issuer/subject claim to appear in its own citations."""
+    """Require the full issuer/subject name in one cited quotation."""
     if not claim:
         return False
-    terms = [
-        token.casefold()
-        for token in re.findall(r"[^\W_]+", claim, re.UNICODE)
-        if len(token) >= 3 and token.casefold() not in _CLAIM_GENERIC
-    ]
-    cited = {token.casefold() for token in re.findall(r"[^\W_]+", quotation, re.UNICODE)}
-    return bool(terms and any(term in cited for term in terms))
+    terms = [token.casefold() for token in re.findall(r"[^\W_]+", claim, re.UNICODE)]
+    while terms and terms[0] in _CLAIM_GENERIC:
+        terms.pop(0)
+    while terms and terms[-1] in _CLAIM_GENERIC:
+        terms.pop()
+    if not any(len(token) >= 3 and token not in _CLAIM_GENERIC for token in terms):
+        return False
+    cited = [token.casefold() for token in re.findall(r"[^\W_]+", quotation, re.UNICODE)]
+    return any(cited[index : index + len(terms)] == terms for index in range(len(cited)))
 
 
 def _record_type_cited(claim: str, quotation: str, *, institutional_statement: bool) -> bool:
@@ -286,8 +288,14 @@ def verify_v1_document_batch(
             and _record_type_cited(
                 item.record_type_claim, joined, institutional_statement=institutional
             )
-            and (not item.entity_claim or _entity_cited(item.entity_claim, joined))
-            and all(_entity_cited(entity, joined) for entity in required_entities)
+            and (
+                not item.entity_claim
+                or any(_entity_cited(item.entity_claim, cite.quote) for cite in citations)
+            )
+            and all(
+                any(_entity_cited(entity, cite.quote) for cite in citations)
+                for entity in required_entities
+            )
             and (
                 item.period_role == "statement_coverage"
                 if institutional
