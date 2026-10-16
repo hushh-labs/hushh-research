@@ -1557,7 +1557,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights remains Coming soon. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights shows the live weekly overview and meeting library. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
@@ -3687,3 +3687,57 @@ and `/one/calendar` use the same invitation components and attendance routes. Re
 Talk to One's `calendar.invitation.review` handoff forwards the original request (or
 an explicitly selected, current offered event) into the existing conversation. It
 grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.
+
+### Calendar Insights and meeting artifacts
+
+Calendar's existing `/one/calendar` shell has an Insights state and nested meeting
+library/detail states. `POST /api/one/calendar/insights` and `/meetings` accept
+`date` and `time_zone`; first-party Firebase identity plus the live owner-bound
+Calendar grant authorize these read-only calls. The library checks six recent
+candidates per page in a 30-day window (`page`, zero-based; `next_page` in the
+response), and declares incomplete provider coverage. Filters
+use verified Meet artifact kinds, not filename guesses. Calendar attachments
+remain explicitly labelled linked files until a Meet resource verifies their kind.
+
+`POST /api/one/calendar/meetings/detail` accepts `calendar_id`, `event_id` and
+`expected_account_email`. It re-reads that exact Calendar event, uses only its
+provider conference ID/attachment IDs, refuses ambiguous conference matches, and
+rechecks the current Drive subject, generation, policy and each file's access.
+`/meetings/context` additionally requires matching vault-owner authority through
+`X-Hushh-Consent`; it freshly reads source text and references for one existing-chat
+turn. The handoff carries IDs only. The chat turn attaches authorized source text,
+disables automatic PKM capture and refuses `pkm.add` for this context. Retry retains
+meeting provenance and rechecks source access; restored attachments without live
+selection provenance require reopening Calendar. These reads
+perform no ingestion, Memory write, schema change or scheduling action.
+
+Detail availability is per artifact kind: available, processing, not generated
+(only after a successful complete Meet list), permission required, unavailable,
+or provider error. Drive 403 is permission required; 404/410 may mean deleted or
+not shared and never proves that a meeting was not recorded. Supported text is
+read from Drive afresh; explicit Decisions/Follow-ups sections are quoted with
+source links, never invented. Account/generation changes discard read content.
+
+Opening Insights, returning to the tab, window focus, network reconnection and
+manual Refresh fetch fresh provider state. Library/detail polls at one-minute
+intervals, at most five times per entry/resume/manual refresh; hidden/offline
+pages stop and abort pending reads. Refresh clears displayed source content and
+replaces page one, removing stale, revoked or deleted artifacts. Chat unlock
+retries retain owner/conversation identity and await that conversation's restore;
+meeting source attachments cannot enter generic edit/resend or draft recovery.
+
+All responses use `private, no-store`. The existing catch-all One proxy and
+platform-aware `ApiService` own web/native transport. No new native bridge is
+introduced. Back unwinds detail → library → Insights within the Calendar shell.
+
+Live-provider acceptance remains necessary: existing Calendar OAuth does not
+request Meet scopes. Actual bearer scopes are inspected; missing Meet access
+shows permission-required without claiming an ordinary Calendar reconnect fixes
+it. Drive uses the separate existing connector and must have the same verified
+Google subject. Workspace recording/notes availability, per-file sharing,
+`canDownload`/`canAccessViaGenAi`, revoked grants and processing/expired artifacts
+must be exercised on authorized provider accounts. No real provider credentials
+or private meetings are part of the synthetic regression fixtures.
+
+Provider contracts: [Meet conferences](https://developers.google.com/workspace/meet/api/reference/rest/v2/conferenceRecords/list)
+and [Meet artifacts](https://developers.google.com/workspace/meet/api/guides/artifacts).
