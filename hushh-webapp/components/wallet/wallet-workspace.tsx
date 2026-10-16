@@ -523,11 +523,12 @@ export function WalletWorkspace() {
       if (!context || before?.ownerId !== context.userId) return;
       if (!before.cards.length) return;
       inFlight = true;
-      const revision = ++cardReadRevision.current;
+      // Cosmetic work cannot invalidate an authoritative card load or mutation.
+      const revision = cardReadRevision.current;
       setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
       try {
         const rows = await WalletService.listCardPresentations(context, { recoverArtwork: true });
-        if (disposed || revision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        if (disposed || revision !== cardReadRevision.current || cardSnapshotRef.current?.cards !== before.cards || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
       } catch { /* Approval is unknown: keep the neutral presentation. */ }
       finally { inFlight = false; }

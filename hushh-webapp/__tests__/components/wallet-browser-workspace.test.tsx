@@ -175,6 +175,23 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByText("Opening your wallet…")).toBeNull();
     await act(async () => finish(makeCards(2)));
   });
+  it("keeps a post-delete reload authoritative when focus starts artwork recovery", async () => {
+    await open();
+    let finishReload!: (cards: ReturnType<typeof makeCards>) => void;
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise(resolve => { finishReload = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() => expect(finishReload).toBeTypeOf("function"));
+    const readsBeforeFocus = serviceMock.listCardSummaries.mock.calls.length;
+    fireEvent.focus(window);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(readsBeforeFocus + 1));
+    expect(serviceMock.listCardSummaries.mock.calls.at(-1)?.[1]).toEqual({ recoverArtwork: true });
+    await act(async () => {});
+    await act(async () => finishReload([{ ...makeCards(2)[1]!, nickname: "Updated card" }]));
+    expect(await screen.findByRole("button", { name: "Open Updated card, ending 1001" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open Card 0, ending 1000" })).toBeNull();
+  });
   it("preloads history with a session context that survives tab changes but never lock or epoch changes", async () => {
     const view = await open();
     const context = historyProbe.getContext?.("");
