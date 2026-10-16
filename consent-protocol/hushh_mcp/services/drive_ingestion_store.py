@@ -137,20 +137,30 @@ class DriveIngestionStore(DriveDocumentStore):
         targets = document_targets(document_ids)
         if type(prefer_profile_upgrade) is not bool:
             raise DriveReadError("invalid_argument")
-        if not connector_feature_enabled("drive_document_indexing", user_id):
-            return None
-        self.cipher._key()
 
         def operation(connection):
             current = self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
-            from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+            from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, POLICY_HASH
 
+            # Validate the owner and generation before a rollout switch can
+            # return idle. A different owner is outside the staging cohort,
+            # but must never look like a valid empty claim.
+            if (
+                current["connection_generation"] != generation
+                or current["status"] != "connected"
+                or current["validation_state"] != "verified"
+                or current["verified_policy_hash"] not in {POLICY_HASH, LIVE_POLICY_HASH}
+            ):
+                raise DriveReadError("connection_changed")
             profile = "live" if current["verified_policy_hash"] == LIVE_POLICY_HASH else "selected"
+            if not connector_feature_enabled("drive_document_indexing", user_id):
+                return None
             if (
                 profile == "live"
                 and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
             ):
                 return None
+            self.cipher._key()
             self._admit(connection, user_id, generation, profile=profile)
             background_revision = None
             if profile == "live":
