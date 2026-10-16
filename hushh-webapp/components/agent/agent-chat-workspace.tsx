@@ -2995,10 +2995,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const onePresenceState = resolveOnePresenceState({
     drafting: isEmailDrafting,
-    working: ((isChatLoading || isStreaming) && activeToolCalls.length > 0) ||
+    working: (isStreaming && hasResponseOutput) ||
+      ((isChatLoading || isStreaming) && activeToolCalls.length > 0) ||
       isToolWorking || appActionBusy || (specialistBusy && !directiveConnectWaiting) ||
       activeActionRun?.phase === "executing" || activeActionRun?.phase === "navigating",
-    answering: (isStreaming && hasResponseOutput) || voiceState === "speaking",
+    answering: voiceState === "speaking",
     thinking: isChatLoading || isStreaming || voiceState === "thinking",
   });
   const rootChatReady = useRootChatDeferredReady();
