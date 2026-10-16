@@ -374,6 +374,9 @@ export function ReasonChips({
           <SelectContent
             align="start"
             position="popper"
+            side="top"
+            avoidCollisions={false}
+            collisionPadding={12}
             className="rounded-[14px]"
           >
             {REASON_CHIPS.map((reason) => (
@@ -407,6 +410,11 @@ export function ReasonChips({
       <SelectContent
         align="start"
         position="popper"
+        // Keep the menu above the field instead of flipping over Send request.
+        // Radix still limits its height to the available space and scrolls it.
+        side="top"
+        avoidCollisions={false}
+        collisionPadding={12}
         className="rounded-[14px]"
       >
         {REASON_CHIPS.map((reason) => (

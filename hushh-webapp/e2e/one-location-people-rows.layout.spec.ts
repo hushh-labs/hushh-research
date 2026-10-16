@@ -269,8 +269,6 @@ for (const dark of [false, true]) {
                 "[data-location-action-surface]",
               )!;
               const surfaceBox = surface.getBoundingClientRect();
-              const icon = action.querySelector<SVGElement>("svg");
-              const iconBox = icon?.getBoundingClientRect();
               return {
                 label: action.textContent?.trim(),
                 background: getComputedStyle(surface).backgroundColor,
@@ -280,15 +278,13 @@ for (const dark of [false, true]) {
                 weight: getComputedStyle(action).fontWeight,
                 shadow: getComputedStyle(action).boxShadow,
                 radius: getComputedStyle(surface).borderRadius,
+                cornerShape: getComputedStyle(surface).getPropertyValue("corner-shape"),
                 surfaceHeight: surfaceBox.height,
                 surfaceTopInset: surfaceBox.top - box.top,
                 surfaceBottomInset: box.bottom - surfaceBox.bottom,
                 surfaceWidth: surfaceBox.width,
-                iconColor: icon ? getComputedStyle(icon).color : null,
-                iconFills: icon
-                  ? Array.from(icon.querySelectorAll('[fill="currentColor"]'))
-                      .map((path) => getComputedStyle(path).fill)
-                  : [],
+                surfaceFits: surface.scrollWidth <= surface.clientWidth + 1,
+                iconCount: action.querySelectorAll("svg").length,
                 left: box.left,
                 right: box.right,
                 top: box.top,
@@ -298,12 +294,6 @@ for (const dark of [false, true]) {
                 center: (box.top + box.bottom) / 2,
                 inside:
                   box.left >= rowBox.left - 1 && box.right <= rowBox.right + 1,
-                iconVisible: Boolean(
-                  iconBox &&
-                  iconBox.width > 0 &&
-                  iconBox.height > 0 &&
-                  getComputedStyle(icon!).display !== "none",
-                ),
               };
             }),
           };
@@ -346,16 +336,16 @@ for (const dark of [false, true]) {
         expect(Math.abs(row.actions.at(-1)!.right - (row.rowRight - row.paddingRight))).toBeLessThanOrEqual(1);
         for (const action of row.actions) {
           expect(action.weight).toBe("500");
-          expect(action.radius).toBe("16px");
+          expect(parseFloat(action.radius)).toBeGreaterThanOrEqual(action.surfaceHeight / 2);
+          expect(action.cornerShape).not.toContain("superellipse");
           expect(action.targetBackground).toBe("rgba(0, 0, 0, 0)");
           expect(action.surfaceHeight).toBe(40);
           expect(action.surfaceTopInset).toBe(2);
           expect(action.surfaceBottomInset).toBe(2);
           expect(action.surfaceWidth).toBe(action.width);
+          expect(action.surfaceFits).toBe(true);
           expect(action.surfaceColor).toBe(action.color);
-          expect(action.iconColor).toBe(action.color);
-          expect(action.iconFills.length).toBeGreaterThan(0);
-          expect(action.iconFills.every((fill) => fill === action.color)).toBe(true);
+          expect(action.iconCount).toBe(0);
           // Tailwind's empty focus-ring layers serialize as transparent
           // shadows even when the control has no visible shadow.
           const shadowColors = action.shadow.match(/rgba?\([^)]+\)/g) ?? [];
@@ -364,8 +354,10 @@ for (const dark of [false, true]) {
           )).toBe(true);
           expect(action.height).toBe(44);
           expect(action.width).toBeGreaterThanOrEqual(44);
+          expect(action.width).toBeLessThanOrEqual(
+            width < 640 ? (action.label === "Share" ? 70 : 56) : 104,
+          );
           expect(action.inside).toBe(true);
-          expect(action.iconVisible).toBe(true);
           expect(action.left).toBeGreaterThanOrEqual(row.personRight);
           expect(Math.abs(action.center - row.personCenter)).toBeLessThanOrEqual(6);
         }

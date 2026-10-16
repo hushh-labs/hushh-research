@@ -239,12 +239,7 @@ describe("PeopleHub requests sent manage surface", () => {
       name: "Share your location with Roopmann V",
     }));
 
-    const askIcon = group.querySelector('[data-location-menu-icon="ask"]');
-    const shareIcon = group.querySelector('[data-location-menu-icon="share"]');
-    expect(askIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
-    expect(shareIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
-    expect(askIcon?.parentElement).not.toHaveClass("hidden");
-    expect(shareIcon?.parentElement).not.toHaveClass("hidden");
+    expect(group.querySelector("svg")).toBeNull();
     expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(onStartShare).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(peopleList.querySelector("button button")).toBeNull();

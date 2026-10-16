@@ -3691,7 +3691,7 @@ export function PersonRow({
               onClick={onShare}
               disabled={!shareReady}
               className={cn(
-                "h-11 min-h-11 min-w-0 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline sm:min-w-[104px]",
+                "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline",
                 LOCATION_COMPACT_ACTION_SHAPE,
               )}
               aria-label={`Share your location with ${name}`}
@@ -3700,13 +3700,10 @@ export function PersonRow({
               <span
                 data-location-action-surface
                 className={cn(
-                  "inline-flex h-10 w-full items-center justify-center gap-1 bg-[color:var(--app-accent)] px-2 sm:gap-1.5 sm:px-3",
+                  "inline-flex h-10 w-full items-center justify-center bg-[color:var(--app-accent)] px-3",
                   LOCATION_COMPACT_ACTION_SHAPE,
                 )}
               >
-                <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
-                  <LocationMenuGlyph name="share" size={17} />
-                </span>
                 Share
               </span>
             </Button>
@@ -3718,7 +3715,7 @@ export function PersonRow({
               size="compact"
               onClick={onAsk}
               className={cn(
-                "h-11 min-h-11 min-w-0 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent sm:min-w-[104px]",
+                "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent",
                 LOCATION_COMPACT_ACTION_SHAPE,
               )}
               aria-label={`Ask ${name} for their location`}
@@ -3726,13 +3723,10 @@ export function PersonRow({
               <span
                 data-location-action-surface
                 className={cn(
-                  "inline-flex h-10 w-full items-center justify-center gap-1 bg-[#F2F2F7] px-2 sm:gap-1.5 sm:px-3",
+                  "inline-flex h-10 w-full items-center justify-center bg-[#F2F2F7] px-3",
                   LOCATION_COMPACT_ACTION_SHAPE,
                 )}
               >
-                <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
-                  <LocationMenuGlyph name="ask" size={17} />
-                </span>
                 Ask
               </span>
             </Button>
@@ -5653,7 +5647,7 @@ function ShareFlow({
             Boolean(vm.pendingShareCircleIds.length) ||
             vm.shareDeliveryPending
           }
-          className="w-full rounded-full text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="mx-auto flex h-[50px] min-h-[50px] w-[244px] max-w-full rounded-full text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           {vm.shareDeliveryPending
             ? "Sharing…"
@@ -6554,7 +6548,7 @@ function AskFlow({
           size="prominent"
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
-          className="w-full rounded-full text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="mx-auto flex h-[50px] min-h-[50px] w-[244px] max-w-full rounded-full text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           Continue
         </Button>
