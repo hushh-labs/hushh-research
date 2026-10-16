@@ -15,6 +15,7 @@ export const pwmPreferencesSchema = z
     enabled: z.boolean(),
     email_enabled: z.boolean(),
     consent_version: z.literal("pwm-native-v1"),
+    research_provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
   })
   .strict();
 export type PwmPreferences = z.infer<typeof pwmPreferencesSchema>;
@@ -120,6 +121,50 @@ export const pwmReportSchema = z
       new Set(facts.map((fact) => fact.statement.trim().replace(/\s+/g, " ").toLowerCase())).size === facts.length
     );
   });
+
+const azureGroundedCitationSchema = z
+  .object({
+    start_index: z.number().int().min(0),
+    end_index: z.number().int().positive(),
+    title: z.string().min(1).max(1024),
+    url: z.string().url().max(2048).refine((value) => {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+    }),
+  })
+  .strict();
+
+const groundedAnswerSchema = z
+  .object({
+    answer: z.string().max(100_000),
+    sources: z
+      .array(
+        z
+          .object({
+            title: z.string().max(160),
+            url: z.string().url(),
+          })
+          .strict(),
+      )
+      .max(200),
+    citations: z.array(azureGroundedCitationSchema).max(200).optional(),
+    search_suggestions: z.array(z.string().max(40_000)).max(2),
+  })
+  .strict()
+  .superRefine(({ answer, citations }, context) => {
+    let previousEnd = 0;
+    for (const citation of citations ?? []) {
+      if (
+        citation.start_index < previousEnd ||
+        citation.end_index <= citation.start_index ||
+        citation.end_index > answer.length
+      ) {
+        context.addIssue({ code: "custom", message: "Invalid or overlapping Azure citation span" });
+      }
+      previousEnd = citation.end_index;
+    }
+  });
+
 export const pwmResultSchema = z.discriminatedUnion("status", [
   z
     .object({
@@ -127,26 +172,7 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
       pkm_written: z.literal(false),
       draft_id: z.string().uuid(),
       report: pwmReportSchema,
-      grounded_answers: z
-        .array(
-          z
-            .object({
-              answer: z.string().max(100_000),
-              sources: z
-                .array(
-                  z
-                    .object({
-                      title: z.string().max(160),
-                      url: z.string().url(),
-                    })
-                    .strict(),
-                )
-                .max(200),
-              search_suggestions: z.array(z.string().max(40_000)).max(2),
-            })
-            .strict(),
-        )
-        .max(32),
+      grounded_answers: z.array(groundedAnswerSchema).max(32),
       search_suggestions: z.array(z.string().max(40_000)).max(64),
       research: z
         .object({
@@ -167,12 +193,28 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
                 .strict(),
             )
             .max(6),
-          source_use: z.literal("google_grounded_display_only"),
-          provider: z.literal("vertex_google_search"),
+          source_use: z.enum([
+            "google_grounded_display_only",
+            "azure_web_grounded_display_only",
+          ]),
+          provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
         })
-        .strict(),
+        .strict()
+        .refine(
+          ({ source_use, provider }) =>
+            (source_use === "google_grounded_display_only" &&
+              provider === "vertex_google_search") ||
+            (source_use === "azure_web_grounded_display_only" &&
+              provider === "azure_openai_web_search"),
+        ),
     })
-    .strict(),
+    .strict()
+    .refine(
+      ({ research, grounded_answers }) =>
+        research.provider !== "azure_openai_web_search" ||
+        grounded_answers.every((answer) => answer.citations && answer.citations.length > 0),
+      { message: "Azure web research requires original citation spans" },
+    ),
   z
     .object({
       status: z.enum(["pending", "paused"]),
@@ -599,12 +641,15 @@ export const WorldModelResearchService = {
   },
   async updatePreferences(
     input: PwmAuthority,
-    value: Pick<PwmPreferences, "enabled" | "email_enabled">,
+    value: Pick<PwmPreferences, "enabled" | "email_enabled" | "research_provider">,
   ) {
+    const { research_provider, ...preferences } = value;
     return pwmPreferencesSchema.parse(
       await request(input, "preferences", "PUT", {
-        ...value,
-        consent_version: "pwm-native-v1",
+        ...preferences,
+        consent_version: research_provider === "azure_openai_web_search"
+          ? "pwm-azure-bing-v1"
+          : "pwm-native-v1",
       }),
     );
   },

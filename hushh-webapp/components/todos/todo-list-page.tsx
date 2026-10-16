@@ -933,6 +933,8 @@ export function TodoListPage() {
             day: "numeric",
           }).format(new Date())}
           title="Your tasks"
+          titleRole="agent"
+          className="[--foundation-title1-size:var(--type-agent-title-size)] [--foundation-title1-line:var(--type-agent-title-line)] [--foundation-title1-weight:var(--type-agent-title-weight)] [--foundation-title1-tracking:var(--type-agent-title-tracking)]"
           actionsInlineMobile
           actions={
             <AddItemButton

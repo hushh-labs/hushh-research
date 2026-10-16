@@ -1207,12 +1207,9 @@ class DriveOwnerSearchService:
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         request = self._request(query, timezone)
-        await self.store.clear_legacy_completed_request(user_id=user_id, request_id=request_id)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
-        if existing is not None:
-            if existing["status"] not in {"failed", "limited", "stopped"}:
-                return existing
-            await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
+        if existing is not None and existing["status"] in {"queued", "running"}:
+            return existing
         if indexed:
             period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
             queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
@@ -1250,6 +1247,8 @@ class DriveOwnerSearchService:
             request=request,
             confirmed=True,
             v1_statement_search=v1_statement_search,
+            replace_terminal_request=True,
+            replace_legacy_completed_request=True,
             checkpoint={
                 "request": request,
                 "arguments": queries[0]["arguments"],
@@ -1343,17 +1342,18 @@ class DriveOwnerSearchService:
                 "drive_tokens": [],
             },
         )
+        if not created:
+            return state
         await self.store.align_request_expiry(user_id=user_id, request_id=request_id)
-        if created:
-            await self.run_one(
-                user_id=user_id,
-                job_id=state["jobId"],
-                max_pages=1,
-                deadline_seconds=15,
-                **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
-                require_current=require_current,
-                **({"after_page": after_page} if after_page is not None else {}),
-            )
+        await self.run_one(
+            user_id=user_id,
+            job_id=state["jobId"],
+            max_pages=1,
+            deadline_seconds=15,
+            **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
+            require_current=require_current,
+            **({"after_page": after_page} if after_page is not None else {}),
+        )
         await wake_drive_work("v1" if v1_statement_search else "suggestions")
         return await self.status(
             user_id=user_id, job_id=state["jobId"], require_current=require_current
