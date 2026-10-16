@@ -3203,11 +3203,10 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             return {"ownerGrants": [{"id": "g-1", "latestEnvelopeId": "env-1"}]}
 
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    card = await transport.wait_for_frame("pending_action")
     session.ctx.services["location"] = _LocationDouble()
-    card = transport.frames("pending_action")[0]
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
-    await asyncio.sleep(0.05)
+    await _until(lambda: pending.rows[card["pending_action_id"]].shown_at is not None)
     await session.executor.call(
         session.ctx, "confirm_pending_action", {"pending_action_id": card["pending_action_id"]}
     )
@@ -3236,15 +3235,13 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             "payload": {"published": ["g-1"]},
         }
     )
-    await asyncio.sleep(0.1)
+    await _finish(transport, task)
     event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
     assert event["kind"] == "client_step" and event["verification"] == {
         "status": "published",
         "published": ["g-1"],
         "unpublished": [],
     }
-    transport.push({"type": "end"})
-    await asyncio.wait_for(task, 3)
 
 
 async def test_go_away_asks_the_client_to_reconnect_and_saves_the_handle():
