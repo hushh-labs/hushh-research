@@ -796,20 +796,22 @@ test.describe("Empty One chat: welcome spacing", () => {
   });
 
   test("keeps the greeting close to the identity at every viewport height", async ({ page }) => {
-    const gaps: number[] = [];
-    for (const height of [600, 1080]) {
-      await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, welcomeName: "Smirthika" }, 1920);
-      await page.setViewportSize({ width: 1920, height });
-      const identity = await box(page, "agent-identity");
-      const heading = await box(page, "welcome-heading");
-      const gap = heading.y - identity.y - identity.height;
-      gaps.push(gap);
-      expect(gap).toBeGreaterThanOrEqual(16);
-      expect(gap).toBeLessThanOrEqual(64);
-      await page.screenshot({ path: test.info().outputPath(`welcome-${height}px.png`) });
+    for (const width of [390, 1920]) {
+      const gaps: number[] = [];
+      for (const height of [390, 600, 1080]) {
+        await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, safeTop: width < 768 ? 44 : 0, welcomeName: "Smirthika" }, width);
+        await page.setViewportSize({ width, height });
+        const identity = await box(page, "agent-identity");
+        const heading = await box(page, "welcome-heading");
+        const gap = heading.y - identity.y - identity.height;
+        gaps.push(gap);
+        expect(gap).toBeGreaterThanOrEqual(16);
+        expect(gap).toBeLessThanOrEqual(64);
+        await page.screenshot({ path: test.info().outputPath(`welcome-${width}x${height}px.png`) });
+      }
+      expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+      await test.info().attach(`welcome-gaps-${width}px`, { body: JSON.stringify({ width, heights: [390, 600, 1080], gaps }), contentType: "application/json" });
     }
-    expect(Math.abs(gaps[1] - gaps[0])).toBeLessThanOrEqual(1);
-    await test.info().attach("welcome-gaps", { body: JSON.stringify({ heights: [600, 1080], gaps }), contentType: "application/json" });
   });
 
   test("keeps welcome text within the reading column on small and large screens", async ({ page }) => {
