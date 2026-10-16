@@ -92,6 +92,7 @@
     "one_referral_record_completed_reply",
     "one_referral_rebuild_network",
     "one_referral_record_confirmed_memory_reward",
+    "guard_wallet_card_request",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -3670,6 +3671,19 @@
       "source_projection",
       "source_projection_revision",
       "state"
+    ],
+    "wallet_card_requests": [
+      "id",
+      "requester_user_id",
+      "target_user_id",
+      "client_request_id",
+      "message_id",
+      "status",
+      "created_at",
+      "expires_at",
+      "resolved_at",
+      "payment_grant_id",
+      "profile_grant_id"
     ],
     "wallet_card_share_requests": [
       "expires_at",

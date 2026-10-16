@@ -114,6 +114,309 @@ def refs(db):
     ]
 
 
+@pytest.fixture
+def incoming_requests(cards_db):
+    from hushh_mcp.services.wallet_card_request_service import WalletCardRequestService
+
+    db, shares = cards_db
+    db.apply_migrations(["351_wallet_card_requests.sql"])
+    db.apply_migrations(["351_wallet_card_requests.sql"])
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE feed_events ADD COLUMN IF NOT EXISTS dismissed_at timestamptz")
+        )
+    return db, shares, WalletCardRequestService(db=db)
+
+
+def test_card_request_is_metadata_only_targeted_and_not_folded_into_later_messages(
+    incoming_requests,
+):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesService
+    from hushh_mcp.services.feed_service import FeedService
+
+    db, _, requests = incoming_requests
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    client_id = str(uuid.uuid4())
+    result = requests.create("bob", target, client_id)
+    assert requests.create("bob", target, client_id) == result
+    with pytest.raises(WalletCardAccessError, match="PENDING"):
+        requests.create("bob", target, str(uuid.uuid4()))
+    assert result["role"] == "requester"
+    assert requests.get("alice", result["id"])["role"] == "owner"
+    with pytest.raises(WalletCardAccessError, match="NOT_FOUND"):
+        requests.get("charu", result["id"])
+    assert (
+        db.execute_raw("SELECT count(*) AS n FROM wallet_card_access_grants", {}).data[0]["n"] == 0
+    )
+    DirectMessagesService(db=db).send_message(
+        "bob", recipient_user_id="alice", content="Later ordinary message"
+    )
+    feed = FeedService()
+    feed._db = db
+    rows = db.execute_raw(
+        feed._grouped_feed_sql(count=False), {"user_id": "alice", "page_size": 20, "cursor": None}
+    ).data
+    items = [feed._to_item(row) for row in feed._with_wallet_card_requests("alice", rows)]
+    assert len(items) == 2
+    assert (
+        sum(item["metadata"].get("wallet_card_request_id") == result["id"] for item in items) == 1
+    )
+    # A forged marker/metadata is a locator only, never an authenticated ask.
+    fake = dict(
+        rows[0],
+        metadata={
+            "wallet_card_request_id": str(uuid.uuid4()),
+            "wallet_card_request_status": "pending",
+        },
+    )
+    assert "wallet_card_request_id" not in feed._to_item(fake)["metadata"]
+    assert all(
+        "wallet_card_request_id" not in feed._to_item(row)["metadata"]
+        for row in feed._with_wallet_card_requests("charu", rows)
+    )
+
+
+@pytest.mark.parametrize("source", ["payment", "profile"])
+def test_card_response_binds_owner_recipient_and_retry_and_keeps_existing_verification(
+    incoming_requests,
+    source,
+):
+    db, shares, requests = incoming_requests
+    from test_wallet_universal_sharing_postgres import profile
+
+    card = active_card(db, shares) if source == "payment" else profile(db)
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    result = requests.create("bob", target, str(uuid.uuid4()))
+    bob, charu = refs(db)
+    for owner, recipients in [("charu", [bob]), ("alice", [charu]), ("alice", [bob, charu])]:
+        with pytest.raises(WalletCardAccessError):
+            shares.create_grants(
+                owner, card, str(uuid.uuid4()), recipients, 15, card_request_id=result["id"]
+            )
+    replay = str(uuid.uuid4())
+    sent = shares.create_grants("alice", card, replay, [bob], 15, card_request_id=result["id"])
+    assert (
+        shares.create_grants("alice", card, replay, [bob], 15, card_request_id=result["id"]) == sent
+    )
+    assert requests.get("alice", result["id"])["status"] == "fulfilled"
+    assert shares.view_grant("bob", sent["grants"][0]["id"])["status"] == "verification_required"
+    with pytest.raises(WalletCardAccessError, match="RETRY_CONFLICT"):
+        shares.create_grants("alice", card, replay, [bob], 15)
+    with pytest.raises(WalletCardAccessError, match="CLOSED"):
+        shares.create_grants(
+            "alice", card, str(uuid.uuid4()), [bob], 15, card_request_id=result["id"]
+        )
+    assert (
+        db.execute_raw(
+            "SELECT count(*) AS n FROM "
+            + (
+                "wallet_card_access_grants"
+                if source == "payment"
+                else "wallet_profile_access_grants"
+            ),
+            {},
+        ).data[0]["n"]
+        == 1
+    )
+    assert (
+        db.execute_raw("SELECT read_at FROM feed_events WHERE user_id='alice'", {}).data[0][
+            "read_at"
+        ]
+        is not None
+    )
+
+
+def test_failed_response_rolls_back_request_grant_message_feed_and_outbox(
+    incoming_requests, monkeypatch
+):
+    import hushh_mcp.services.wallet_card_request_service as request_module
+
+    db, shares, requests = incoming_requests
+    card = active_card(db, shares)
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    result = requests.create("bob", target, str(uuid.uuid4()))
+    tables = (
+        "messages",
+        "feed_events",
+        "direct_message_push_outbox",
+        "wallet_card_access_grants",
+        "wallet_card_share_requests",
+    )
+    before = [
+        db.execute_raw(f"SELECT count(*) AS n FROM {table}", {}).data[0]["n"] for table in tables
+    ]
+
+    def fail(*_):
+        raise RuntimeError("synthetic transaction failure")
+
+    monkeypatch.setattr(request_module, "resolve_request_feed", fail)
+    with pytest.raises(RuntimeError, match="synthetic"):
+        shares.create_grants(
+            "alice", card, str(uuid.uuid4()), [refs(db)[0]], 15, card_request_id=result["id"]
+        )
+    assert requests.get("alice", result["id"])["status"] == "pending"
+    assert [
+        db.execute_raw(f"SELECT count(*) AS n FROM {table}", {}).data[0]["n"] for table in tables
+    ] == before
+
+
+def test_card_request_decisions_are_participant_specific_terminal_and_revocable_by_requester(
+    incoming_requests,
+):
+    from sqlalchemy.exc import DBAPIError
+
+    db, shares, requests = incoming_requests
+    card = active_card(db, shares)
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    for action, actor in [("declined", "alice"), ("cancelled", "bob")]:
+        result = requests.create("bob", target, str(uuid.uuid4()))
+        with pytest.raises(WalletCardAccessError):
+            requests.decide("charu", result["id"], action)
+        with pytest.raises(WalletCardAccessError):
+            requests.decide("bob" if actor == "alice" else "alice", result["id"], action)
+        assert requests.decide(actor, result["id"], action)["status"] == action
+        assert requests.decide(actor, result["id"], action)["status"] == action
+        with pytest.raises(WalletCardAccessError, match="CLOSED"):
+            shares.create_grants(
+                "alice", card, str(uuid.uuid4()), [refs(db)[0]], 15, card_request_id=result["id"]
+            )
+        with pytest.raises(DBAPIError, match="IMMUTABLE"):
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE wallet_card_requests SET status='pending',resolved_at=NULL WHERE id=CAST(:id AS uuid)"
+                    ),
+                    {"id": result["id"]},
+                )
+
+
+def test_deleting_a_request_prevents_fulfillment_and_allows_a_replacement(incoming_requests):
+    from hushh_mcp.services.direct_messages_service import DirectMessagesService
+
+    db, shares, requests = incoming_requests
+    card = active_card(db, shares)
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    previous = requests.create("bob", target, str(uuid.uuid4()))
+    row = db.execute_raw(
+        "SELECT m.id,m.conversation_id FROM messages m JOIN wallet_card_requests r ON r.message_id=m.id WHERE r.id=CAST(:id AS uuid)",
+        {"id": previous["id"]},
+    ).data[0]
+    DirectMessagesService(db=db).delete_message(
+        "bob", str(row["conversation_id"]), str(row["id"]), scope="everyone"
+    )
+    with pytest.raises(WalletCardAccessError, match="NOT_FOUND"):
+        shares.create_grants(
+            "alice", card, str(uuid.uuid4()), [refs(db)[0]], 15, card_request_id=previous["id"]
+        )
+    replacement = requests.create("bob", target, str(uuid.uuid4()))
+    assert replacement["id"] != previous["id"] and replacement["status"] == "pending"
+    assert (
+        db.execute_raw(
+            "SELECT status FROM wallet_card_requests WHERE id=CAST(:id AS uuid)",
+            {"id": previous["id"]},
+        ).data[0]["status"]
+        == "cancelled"
+    )
+
+
+@pytest.mark.parametrize("deletion", ["hard", "everyone", "recipient"])
+def test_source_deletion_waits_for_a_response_that_already_locked_the_message(
+    incoming_requests, monkeypatch, deletion
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    import hushh_mcp.services.wallet_card_request_service as request_module
+
+    db, shares, requests = incoming_requests
+    card = active_card(db, shares)
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    pending = requests.create("bob", target, str(uuid.uuid4()))
+    locked, resume, deleting, deleted = Event(), Event(), Event(), Event()
+    original = request_module.lock_card_request
+
+    def hold(*args):
+        result = original(*args)
+        locked.set()
+        assert resume.wait(5)
+        return result
+
+    monkeypatch.setattr(request_module, "lock_card_request", hold)
+
+    def delete_source():
+        with db.engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout='4s'"))
+            deleting.set()
+            conn.execute(
+                text(
+                    (
+                        "DELETE FROM messages"
+                        if deletion == "hard"
+                        else "UPDATE messages SET "
+                        + (
+                            "deleted_for_everyone_at"
+                            if deletion == "everyone"
+                            else "deleted_for_recipient_at"
+                        )
+                        + "=clock_timestamp()"
+                    )
+                    + " WHERE id=(SELECT message_id FROM wallet_card_requests WHERE id=CAST(:id AS uuid))"
+                ),
+                {"id": pending["id"]},
+            )
+        deleted.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future = pool.submit(
+            shares.create_grants,
+            "alice",
+            card,
+            str(uuid.uuid4()),
+            [refs(db)[0]],
+            15,
+            card_request_id=pending["id"],
+        )
+        assert locked.wait(5)
+        removal = pool.submit(delete_source)
+        try:
+            assert deleting.wait(5)
+            assert not deleted.wait(0.25), "source deletion must serialize behind fulfillment"
+        finally:
+            resume.set()
+        assert len(future.result(timeout=5)["grants"]) == 1
+        removal.result(timeout=5)
+    resolved = db.execute_raw(
+        "SELECT status,message_id FROM wallet_card_requests WHERE id=CAST(:id AS uuid)",
+        {"id": pending["id"]},
+    ).data[0]
+    assert resolved["status"] == "fulfilled"
+    assert (resolved["message_id"] is None) == (deletion == "hard")
+
+
 def test_connections_query_loads_owner_recipients_and_filters_blocks(cards_db, monkeypatch):
     db, service = cards_db
     monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "false")
@@ -324,3 +627,47 @@ def test_rollback_refuses_history_and_empty_schema_can_be_reinstalled(legacy_car
         with db.engine.connect() as conn:
             conn.exec_driver_sql(rollback)
     assert len(db.execute_raw("SELECT card_id FROM wallet_card_registrations", {}).data) == 1
+
+
+def test_request_expiry_and_empty_only_rollback_are_enforced_by_postgres(
+    incoming_requests, monkeypatch
+):
+    from sqlalchemy.exc import DBAPIError
+
+    import hushh_mcp.services.wallet_card_request_service as request_module
+
+    db, shares, requests = incoming_requests
+    rollback = (
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/rollback/351_wallet_card_requests.rollback.sql"
+    ).read_text(encoding="utf-8")
+    with db.engine.connect() as conn:
+        conn.exec_driver_sql(rollback)
+    db.apply_migrations(["351_wallet_card_requests.sql"])
+    target = str(
+        db.execute_raw(
+            "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
+        ).data[0]["public_person_ref"]
+    )
+    query = request_module.one
+
+    def old_creation(conn, sql, values=None):
+        return query(
+            conn,
+            sql.replace(
+                "SELECT clock_timestamp() AS t", "SELECT clock_timestamp()-interval '8 days' AS t"
+            ),
+            values,
+        )
+
+    monkeypatch.setattr(request_module, "one", old_creation)
+    pending = requests.create("bob", target, str(uuid.uuid4()))
+    card = active_card(db, shares)
+    with pytest.raises(WalletCardAccessError, match="CLOSED"):
+        shares.create_grants(
+            "alice", card, str(uuid.uuid4()), [refs(db)[0]], 15, card_request_id=pending["id"]
+        )
+    assert requests.get("alice", pending["id"])["status"] == "expired"
+    with pytest.raises(DBAPIError, match="wallet_card_requests_rollback_requires_empty_table"):
+        with db.engine.connect() as conn:
+            conn.exec_driver_sql(rollback)

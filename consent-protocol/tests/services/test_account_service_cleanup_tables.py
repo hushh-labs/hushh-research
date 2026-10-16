@@ -31,6 +31,7 @@ def _assert_wallet_grants_erased_before_sources(conn):
     statements = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     for table in (
         "wallet_profile_access_grants",
+        "wallet_card_requests",
         "wallet_card_access_grants",
         "wallet_profile_share_requests",
         "wallet_card_share_requests",

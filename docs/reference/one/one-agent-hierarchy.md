@@ -421,3 +421,27 @@ When adding or changing a runtime agent, update these surfaces together:
 - [Agent Delegation Boundary](../iam/agent-delegation-boundary.md)
 - [Agent Development](../../../consent-protocol/docs/reference/agent-development.md)
 - [Kai Agents](../../../consent-protocol/docs/reference/kai-agents.md)
+
+
+### Card requests between connections
+
+A connected person's profile offers **Request cards**. The requester unlocks
+Wallet and confirms **Send request**; this establishes the existing receiving
+key and creates a metadata-only, seven-day request. The recipient receives an
+independent Feed notification and a Messages entry. Later messages do not fold
+away the request.
+
+Opening the request authenticates its participants. The owner chooses a saved
+payment card or Agent One Profile, selects a duration, and confirms **Share card**.
+The existing grant transaction binds the sole recipient to the requester, sends
+the encrypted response, and records fulfillment atomically. Existing verification,
+Trusted Circle, expiry, card removal and revoke rules continue to govern access.
+Requesting grants no access and exposes no card inventory or credentials.
+The owner may decline; the requester may withdraw. Expired or deleted requests
+cannot be fulfilled. Retrying the same confirmed response cannot create another
+grant. Back closes the review and clears its query before leaving Wallet.
+
+Migration 351 must precede enabling this request flow. Request metadata stays
+outside Live Memory and is removed for either participant on account reset or
+erasure. Expiration ends eligibility; request history has no scheduled purge.
+Rollback deliberately refuses nonempty request history.

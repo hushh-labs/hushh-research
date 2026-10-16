@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { walletMessagePreview } from "@/lib/wallet/wallet-card-share";
+import { isCardRequestId, walletCardRequestHref } from "@/lib/wallet/card-request";
 import {
   AlertTriangle,
   Bot,
@@ -1771,6 +1772,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "direct_message_received": {
       const hasWho = who !== "Someone";
+      const cardRequest = metadataString(item.metadata, "wallet_card_request_id");
+      if (isCardRequestId(cardRequest)) {
+        const status = metadataString(item.metadata, "wallet_card_request_status");
+        return { icon: ShieldCheck, domainLabel: "Wallet", label: `${who} requested a card`,
+          person: counterpartPerson(item.metadata, who),
+          description: status === "pending" ? "Choose card" : status === "fulfilled" ? "Card sent" : "View request",
+          href: walletCardRequestHref(cardRequest) };
+      }
       const cardGrant = metadataString(item.metadata, "wallet_card_grant_id");
       if (cardGrant && /^[a-f0-9-]{36}$/i.test(cardGrant)) {
         return {

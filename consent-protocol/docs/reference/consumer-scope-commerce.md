@@ -4162,7 +4162,7 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-The existing branch integrates main through `dec7043e3308` without rewriting
+The existing branch integrates main through `39f4c75fa0a1` without rewriting
 shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
 core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
 predates the owner-approved identifier extension and latest main composition;
@@ -4195,6 +4195,34 @@ regression. The follow-up restores the existing no-halo and keyboard-focus
 contracts, corrects the contradictory inline-name assertion and narrows Wallet's
 recipient locator without dropping history or revocation checks. Its final core,
 hosted CI and Dev acceptance remain required; no paid delivery is inferred.
+The next main union preserves Wallet card requests and SSO profile names,
+including migration 351 alongside unchanged 400–406 SQL and rollback bodies.
+It retains the visit/owner attachment fence and exact-recipient card review.
+The existing one-time UAT exception keeps its exact target and expiry; its
+matched deployment helpers survive the older checkout. Forty-two deployment
+contracts, 54 frontend cases and 16 Wallet browser cases pass. The merged
+candidate still requires its own full core and CI; the separate `67aacf0098`
+candidate does not establish this merge's deployment or paid acceptance.
+
+Concurrent infrastructure work through `9b54e8f566` is preserved in the same
+normal merge, including owner cleanup admission, private-pod recovery and native
+presentation. Generated projections are rebuilt from the combined authored
+contracts. The exact main-revision rejection for account deletion preserves the
+new staged cleanup review; it does not authorize a deletion or cloud teardown.
+Three independently inspected source-size observations record only the additive
+cleanup/wallet-request union, retaining the scanner and existing budgets. These
+are source integration results, not completed payment acceptance. The superseded
+`67aacf0098` workflow was requested to stop; its earlier successful local core
+does not qualify the combined source. Shared Chrome remains untouched, no
+funding or operating capital is repeated, and the Dev 20 private-image recovery
+and upgrade qualification hold remains in force.
+
+The combined core run passes 20,645 backend cases and identifies four incoming
+Wallet request endpoints missing from the hub route inventory. They carry only
+authenticated person-to-person request metadata and now join the existing
+`NETWORK` inventory; no content guard, owner authorization or handler changes.
+The existing inventory test fails before this correction. Final core and hosted
+CI remain required after the correction.
 
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled

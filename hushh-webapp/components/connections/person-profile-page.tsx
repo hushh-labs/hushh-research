@@ -33,6 +33,7 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
+import { RequestCardsButton } from "@/components/wallet/request-cards-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
@@ -679,6 +680,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "pending_outgoing") {
       actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
     } else if (viewerProfile.relationship.status === "connected") {
+      actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
       if (isVaultUnlocked) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
@@ -806,7 +808,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               {viewerProfile.contactPhoneNumber}
             </a>
           ) : null}
-          <div className={styles.actions} aria-label="Relationship actions">
+          <div className={styles.actions} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
             {viewerProfile ? (
               <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
@@ -864,6 +866,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </Button>
                 ) : null}
                 {viewerProfile.relationship.status === "connected" ? <><DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} />
+                  <RequestCardsButton key={`${user?.uid}:${resolvedPersonRef}`} personRef={resolvedPersonRef} personName={profile.displayName || "this person"} className={styles.requestCards} />
                   {isVaultUnlocked && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
                 </> : null}
               </>

@@ -36,6 +36,7 @@ const BOUNDARY_MODULES = [
   "@/lib/services/wallet-service",
   "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
+  "@/lib/cache/cache-sync-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",
@@ -128,7 +129,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -1378,4 +1379,48 @@ test("a failed default QR revoke retains the existing link and scans", async ({ 
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
   expect(await qr.evaluate(el => el.innerHTML)).toBe(originalQr);
+});
+
+for (const width of [320, 390, 714, 1440]) {
+  test(`Wallet Add footer has balanced insets and separate left/right actions at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 1 });
+    await mount(page);
+    await page.getByRole("tab", { name: "Add", exact: true }).click();
+    const add = page.getByRole("button", { name: "Add to Wallet", exact: true });
+    const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+    await expect(add).toBeVisible(); await expect(cancel).toBeVisible();
+    // Capture all geometry in one frame; the tab's entering motion translates
+    // the whole form and cannot change the footer's relative alignment.
+    const geometry = await add.evaluate(el => {
+      const form = el.closest("form")!;
+      const f = form.getBoundingClientRect(), a = el.getBoundingClientRect();
+      const c = form.querySelector('[data-action-priority="secondary"] button')!.getBoundingClientRect();
+      return { left: c.left - f.left, right: f.right - a.right, gap: a.left - c.right, y: a.top - c.top };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(19);
+    expect(geometry.right).toBeGreaterThanOrEqual(19);
+    expect(geometry.gap).toBeGreaterThanOrEqual(11);
+    expect(Math.abs(geometry.y)).toBeLessThan(1);
+    expect(Math.abs(geometry.left - geometry.right)).toBeLessThan(2);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("Card request review selects a card, sends only to the requester, and clears its route on dismissal", async ({ page }) => {
+  const errors = await open(page, 390, "light", { cards: 2, cardRequest: true });
+  await mount(page);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Choose a card to share" })).toBeVisible();
+  const send = dialog.getByRole("button", { name: "Share card", exact: true });
+  await expect(send).toBeDisabled();
+  await dialog.getByRole("radio", { name: /Everyday/ }).check();
+  await send.click();
+  await expect(dialog.getByText("Card sent", { exact: true })).toBeVisible();
+  const sent = await page.evaluate(() => window.__walletEvents?.filter(e => e.startsWith("request-response:")) ?? []);
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(sent[0].slice("request-response:".length))).toMatchObject({ cardRequestId: "33333333-3333-4333-8333-333333333333", recipientPersonRefs: ["11111111-1111-4111-8111-111111111111"], durationMinutes: 15 });
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.evaluate(() => window.__walletEvents?.includes("navigate:/one/wallet"))).toBe(true);
+  await expect(dialog).not.toBeVisible();
+  expect(errors).toEqual([]);
 });
