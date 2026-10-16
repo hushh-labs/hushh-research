@@ -1,4 +1,4 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor as realWaitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
@@ -29,6 +29,7 @@ const viewportCallbacks = new Set<ViewportCallback>();
 const enterViewport: ViewportCallback = entries => viewportCallbacks.forEach(callback => callback(entries));
 const originalDecode = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
 beforeEach(() => {
+  vi.useFakeTimers();
   Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, writable: true, value: vi.fn().mockResolvedValue(undefined) });
   vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
   vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1254);
@@ -48,10 +49,21 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 });
 afterEach(() => {
-  cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   if (originalDecode) Object.defineProperty(HTMLImageElement.prototype, "decode", originalDecode);
   else Reflect.deleteProperty(HTMLImageElement.prototype, "decode");
 });
+
+// Advance presentation time in separate React commits, as browser frames do.
+async function waitFor(assertion: () => void) {
+  if (!vi.isFakeTimers()) return realWaitFor(assertion);
+  let failure: unknown;
+  for (let elapsed = 0; elapsed <= 8000; elapsed += 50) {
+    try { assertion(); return; } catch (error) { failure = error; }
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+  }
+  throw failure;
+}
 
 async function loadVisibleAvatar(view: ReturnType<typeof render>) {
   act(() => enterViewport([{ isIntersecting: true }]));
@@ -62,9 +74,112 @@ async function loadVisibleAvatar(view: ReturnType<typeof render>) {
 }
 
 describe("OnePresenceAvatar playback lifecycle", () => {
+  it.each([
+    ["connected", "thinking"], ["thinking", "working"],
+    ["working", "answering"], ["answering", "connected"],
+  ] as const)("keeps painted %s artwork visible for three seconds before %s", async (initial, next) => {
+    vi.useFakeTimers();
+    const view = render(<OnePresenceAvatar state={initial} />);
+    act(() => enterViewport([{ isIntersecting: true }]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    view.rerender(<OnePresenceAvatar state={next} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe(initial);
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe(next);
+  });
+
+  it("retains brief Working and Answering phases, bounds repeated requests, then catches up", async () => {
+    const view = render(<OnePresenceAvatar state="thinking" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    act(() => enterViewport([{ isIntersecting: true }]));
+    const shown: string[] = [];
+    for (const state of ["working", "answering", "working", "thinking", "answering", "connected"] as const) {
+      view.rerender(<OnePresenceAvatar state={state} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    }
+    // Task state is already idle while its brief activities remain perceptible.
+    expect(view.container.firstElementChild).toHaveAttribute("data-one-presence-state", "connected");
+    for (const state of ["working", "answering", "thinking", "connected"]) {
+      await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", state));
+      shown.push(state);
+      expect(view.container.querySelectorAll("canvas").length).toBeLessThanOrEqual(2);
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    expect(view.container.querySelectorAll("canvas")).toHaveLength(1);
+    expect(shown).toEqual(["working", "answering", "thinking", "connected"]);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("starts the minimum interval after delayed artwork is painted, including reduced motion", async () => {
+    media.matches = true;
+    let decode!: () => void;
+    vi.mocked(HTMLImageElement.prototype.decode).mockImplementationOnce(() => new Promise<void>(resolve => { decode = resolve; }));
+    const view = render(<OnePresenceAvatar state="working" />);
+    act(() => enterViewport([{ isIntersecting: true }]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await act(async () => decode());
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    view.rerender(<OnePresenceAvatar state="answering" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2800); });
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering"));
+    expect(runtime.instances).toHaveLength(0);
+  });
+
+  it("retains outgoing pixels when both incoming assets fail and recovers on a later state", async () => {
+    const view = render(<OnePresenceAvatar state="thinking" />);
+    await loadVisibleAvatar(view);
+    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(false);
+    view.rerender(<OnePresenceAvatar state="working" />);
+    act(() => enterViewport([{ isIntersecting: true }]));
+    await waitFor(() => expect(runtime.instances).toHaveLength(2));
+    act(() => runtime.instances[1].options.onLoadError());
+    view.rerender(<OnePresenceAvatar state="answering" />);
+    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(true);
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering"));
+    view.rerender(<OnePresenceAvatar state="working" />);
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working"));
+  });
+
+  it("does not duplicate the current runtime when an unavailable queued state returns to it", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const view = render(<OnePresenceAvatar state="thinking" />);
+    const original = await loadVisibleAvatar(view);
+    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(false);
+    view.rerender(<OnePresenceAvatar state="working" />);
+    view.rerender(<OnePresenceAvatar state="thinking" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
+    expect(view.container.querySelectorAll("canvas")).toHaveLength(1);
+    expect(original.cleanup).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("does not count background time as a visible interval and cancels pending work on disposal", async () => {
+    const view = render(<OnePresenceAvatar state="working" />);
+    await loadVisibleAvatar(view);
+    view.rerender(<OnePresenceAvatar state="answering" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    act(() => { lifecycle.state = "background"; lifecycle.listeners.forEach(listener => listener()); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    act(() => { lifecycle.state = "active"; lifecycle.listeners.forEach(listener => listener()); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering"));
+    view.unmount();
+    expect(lifecycle.listeners.size).toBe(0);
+    expect(viewportCallbacks.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("retains one live instance across StrictMode preflight and size changes", async () => {
     const view = render(<StrictMode><OnePresenceAvatar state="connected" className="size-13" /></StrictMode>);
-    expect(viewportCallbacks.size).toBe(1);
+    expect(viewportCallbacks.size).toBe(2);
     const instance = await loadVisibleAvatar(view);
     const canvas = view.container.querySelector("canvas");
     view.rerender(<StrictMode><OnePresenceAvatar state="connected" className="size-22" /></StrictMode>);
@@ -122,7 +237,7 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
   });
 
-  it("retains the outgoing runtime until replacement artwork is ready, and ignores superseded loads", async () => {
+  it("retains painted outgoing artwork while queued assets load and ignores disposed callbacks", async () => {
     const view = render(<OnePresenceAvatar state="thinking" />);
     const old = await loadVisibleAvatar(view);
     // Both replacement portraits are unavailable, so native paint owns readiness.
@@ -137,17 +252,16 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("style")).toContain("opacity: 1");
     expect(view.container.querySelector('[data-one-presence-layer="current"] canvas')?.getAttribute("style")).toContain("visibility: visible");
     view.rerender(<OnePresenceAvatar state="working" />);
-    expect(pending.cleanup).toHaveBeenCalledOnce();
+    expect(pending.cleanup).not.toHaveBeenCalled();
     act(() => pending.options.onLoad());
-    expect(old.cleanup).not.toHaveBeenCalled();
-    expect(view.container.querySelector('[data-one-presence-layer="incoming"]')?.getAttribute("style")).toContain("opacity: 0");
+    await waitFor(() => expect(old.cleanup).toHaveBeenCalledOnce());
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("answering");
     act(() => enterViewport([{ isIntersecting: true }]));
     await waitFor(() => expect(runtime.instances).toHaveLength(3));
     const replacement = runtime.instances[2];
     act(() => replacement.options.onLoad());
-    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="incoming"]')?.getAttribute("style")).toContain("opacity: 1"));
-    expect(old.cleanup).not.toHaveBeenCalled();
-    await waitFor(() => expect(old.cleanup).toHaveBeenCalledOnce());
+    await waitFor(() => expect(pending.cleanup).toHaveBeenCalledOnce());
+    act(() => pending.options.onLoad());
     expect(view.container.querySelectorAll("canvas")).toHaveLength(1);
     expect(view.container.querySelector('[data-one-presence-artwork]')?.getAttribute("data-one-presence-artwork")).toBe("working");
     view.unmount();
@@ -213,11 +327,11 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     act(() => enterViewport([{ isIntersecting: true }]));
     await waitFor(() => expect(runtime.instances).toHaveLength(1));
     await act(async () => runtime.instances[0].options.onLoad());
-    expect(frames.size).toBe(1);
+    expect(frames.size).toBe(2);
     const unpainted = [...frames.values()]; frames.clear();
     act(() => unpainted.forEach(callback => callback(performance.now())));
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
-    expect(frames.size).toBe(1);
+    expect(frames.size).toBe(2);
     act(() => { lifecycle.state = "background"; lifecycle.listeners.forEach(listener => listener()); });
     expect(frames.size).toBe(0);
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
@@ -247,7 +361,7 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(old.cleanup).not.toHaveBeenCalled();
     // Passive disposal follows the DOM commit; wait for both lifecycle facts.
     await waitFor(() => expect(answering.cleanup).toHaveBeenCalledOnce());
-    expect(runtime.instances).toHaveLength(2);
+    expect(view.container.querySelectorAll("canvas")).toHaveLength(1);
   });
 
   it("freezes painted playback when backgrounded before its HD fallback loads", async () => {
