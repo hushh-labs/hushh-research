@@ -287,6 +287,8 @@ Live head keeps an explicit pin.
   Routine welcome-back, sign-out, phone-conflict, and client-inferred connector
   emails are retired. The separate `hushh-mail-api` frontend binding remains
   only for user-requested Save my Soul email; it must not send account notices.
+  Independent OTP adds a separate backend consumer binding and delegated One
+  transport to that same API; the frontend SOS binding never receives a One bearer.
   A green branch check or local commit does not publish this policy: verify the
   landed source SHA, serving web/backend revisions, sender secrets, and live
   event behavior at each authorized release gate.
@@ -525,6 +527,25 @@ See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
 ---
 
 ## Backend (consent-protocol) — reference
+
+### Independent email authentication
+
+The default-off OTP subsystem binds `EMAIL_AUTH_VERIFIER_KEY`,
+`EMAIL_AUTH_PAYLOAD_KEY` and stable `EMAIL_AUTH_LOOKUP_KEY` as distinct server
+secrets, plus `EMAIL_AUTH_MAIL_API_KEY` for the existing mail API. These are
+separate backend bindings; the existing frontend `MAIL_API_KEY` SOS contract
+does not provision them automatically. Never publish these as `NEXT_PUBLIC_*`.
+
+`EMAIL_AUTH_ENABLED`, `EMAIL_AUTH_RISK_MANIFEST`, `EMAIL_AUTH_MAIL_API_ENDPOINT`
+and `EMAIL_AUTH_MAIL_FROM` are server configuration. The exact endpoint is fixed
+to the existing service. `EMAIL_AUTH_MAIL_FROM` must be `one@hushh.ai` only after
+the API's authorized sender is configured and its From identity observed; this
+local assertion cannot change the remote service. Keep issuance off otherwise.
+The OTP use of this API is an explicit addition to its existing SOS use.
+
+See [Independent Email Authentication](../iam/independent-email-auth.md). Hosted
+secret bindings, service configuration and deployment remain release work; an
+example file or local Secret Manager read does not establish deployed parity.
 
 | Variable | Required | Secret | Where set | Notes |
 |----------|----------|--------|-----------|--------|

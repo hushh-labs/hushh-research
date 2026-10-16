@@ -47,6 +47,24 @@ and backend configuration, a migrated database and a fresh invitee account.
 
 ## Token Hierarchy
 
+### Independent web email login
+
+`/api/auth/email/*` uses browser-bound public authentication challenges, separately
+from vault/consent access. Thin Next proxies preserve the same paths and no-store
+responses. See [Independent Email Authentication](../iam/independent-email-auth.md).
+
+| Endpoint | Request and result |
+| --- | --- |
+| `GET /api/auth/email/capabilities` | Runtime availability; no credentials or private policy evidence. |
+| `POST /api/auth/email/request` | `email`, memory-held `browser_binding`, idempotent `request_key`; current domain approval creates an opaque challenge and encrypted outbox. |
+| `POST /api/auth/email/resend` | Same bounded request shape with a new request key after cooldown; aggregate budgets remain. |
+| `POST /api/auth/email/verify` | `challenge_id`, six-digit `code`, `browser_binding`; atomic proof returns a Firebase custom token for the same verified primary-email UID; no second provider login. |
+
+Pending domain review returns `202` with no sendable challenge, a denied domain `403`,
+rate limits `429` and unavailable dependencies `503`. No response before mailbox proof
+reveals account existence. Validation errors never echo input secrets. Successful
+login grants identity only; the vault and scoped consent retain their own gates.
+
 All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
 
 Founder-language note:

@@ -36,6 +36,18 @@
       "file": "app/api/app-config/review-mode/session/route.ts"
     },
     {
+      "template": "/api/auth/email/capabilities",
+      "file": "app/api/auth/email/capabilities/route.ts"
+    },
+    {
+      "template": "/api/auth/email/request",
+      "file": "app/api/auth/email/request/route.ts"
+    },
+    {
+      "template": "/api/auth/email/verify",
+      "file": "app/api/auth/email/verify/route.ts"
+    },
+    {
       "template": "/api/auth/session",
       "file": "app/api/auth/session/route.ts"
     },
@@ -10369,5 +10381,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "4a99141338b3d74ba578e1f75b8316234b682867e327b63211a4dfc3a61d8347"
+  "content_sha256": "7d1ac0665dd54154a961cf536a7e23e1493925b0861d9132c4c3ea2f99f7a188"
 }
