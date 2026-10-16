@@ -138,7 +138,7 @@ const STATUS_LABELS: Record<string, string> = {
   expired: "Request expired",
   completed: "Sharing results",
   partial: "Sharing incomplete",
-  no_match: "No matching files found",
+  no_match: "No file candidates in this search",
   no_files_shared: "No files were shared",
   management_only: "Manage recorded access",
 };
@@ -1113,31 +1113,31 @@ function UnlockedDocumentReview({
 
   const durableStatus = snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "no_match"
-    ? "No matching files found"
+    ? "No file candidates in this search"
     : automaticSharing
     ? review?.preparationError === "date_range_required"
       ? "Exact dates needed"
       : review?.preparationError === "background_preparation_required"
       ? "Background Drive access needed"
       : bulkShare && ["queued", "running"].includes(bulkShare.status)
-        ? "Sharing matching files"
+        ? "Sharing selected files"
         : search && ["queued", "running"].includes(search.status)
-          ? `Finding matching files · ${search.matched.toLocaleString()} found`
+          ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
           : bulkShare ? BULK_STATUS_LABELS[bulkShare.status]
             : ["completed", "partial"].includes(snapshot?.status.status ?? "") ? "Sharing finished"
               : "Preparing automatic sharing"
     : progressive && search && ["queued", "running"].includes(search.status)
-    ? `Searching Drive · ${search.matched.toLocaleString()} found${batchCount ? ` · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started` : ""}`
+    ? `Searching Drive · ${search.matched.toLocaleString()} file candidates${batchCount ? ` · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started` : ""}`
     : bulkShare
     ? bulkShare.status === "review_ready"
-      ? `Ready to share ${bulkShare.fileCount.toLocaleString()} files`
+      ? `${bulkShare.fileCount.toLocaleString()} files selected for sharing`
       : BULK_STATUS_LABELS[bulkShare.status]
     : legacySearch
       ? "Updating file access checks"
     : !search && searchStartFailed.current
       ? "Search unavailable"
       : searchReady
-      ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "files found"}`
+      ? `${search.matched.toLocaleString()} file candidates to review`
         : search?.status === "failed"
           ? "Search failed"
           : search?.status === "limited" || search?.incompleteSearch
@@ -1145,7 +1145,7 @@ function UnlockedDocumentReview({
           : search?.status === "stopped"
             ? "Search stopped"
           : search
-            ? `Searching Drive · ${search.matched.toLocaleString()} found`
+            ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
             : null;
   const statusLine =
     activity === "loading"
@@ -1163,7 +1163,7 @@ function UnlockedDocumentReview({
             : agentPackage && UNDECIDED.has(snapshot.status.status)
               ? ({ preparing: "Preparing your file package", ready: agentPackage.coverageStatus === "partial" ? "Incomplete package"
                   : agentPackage.coverageStatus === "unknown" ? "Unable to verify" : "Package ready for your decision",
-                  no_match: "No matching package found", unavailable: "Package preparation unavailable",
+                  no_match: "No packet prepared for this request", unavailable: "Package preparation unavailable",
                   stale: "Package needs a fresh assessment", allowed: "Package allowed" } as const)[agentPackage.status]
             : setup && !ownerDecision
               ? documentRequestSetupLabel(setup, snapshot.status.direction === "incoming")
@@ -1362,7 +1362,7 @@ function UnlockedDocumentReview({
           : agentPackage.status === "ready"
             ? "Allow this packet at the suggested price, or edit it."
           : agentPackage.status === "no_match"
-            ? "Agent One found no matching packet."
+            ? "Agent One could not prepare a packet for this request."
           : agentPackage.status === "stale"
             ? "This packet needs a fresh assessment."
             : "Agent One couldn’t finish checking this request."}</HelperText>}
@@ -1404,8 +1404,8 @@ function UnlockedDocumentReview({
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.paymentRequired === true
-          ? "Allow to set a price. Matching files are found automatically and shared after they pay."
-          : "Allow to find and share matching files automatically."}</HelperText>
+          ? "Allow to set a price. Agent One searches Drive and shares selected files after payment."
+          : "Allow Agent One to search Drive and share selected files."}</HelperText>
         <FlowActionGroup
           primary={
             <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
@@ -1459,9 +1459,9 @@ function UnlockedDocumentReview({
           <BodyText>Turn on background access so Agent One can resume this request.</BodyText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
-          Matching files are found and shared automatically. You can close this window; the requester sees each original only after Google Drive confirms access.
+          Agent One searches Drive and shares selected files. You can close this window; the requester sees each original only after Google Drive confirms access.
         </HelperText>}
-        {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} matching files found so far
+        {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} file candidates so far
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
         {/* An Allow can be withdrawn until a batch is frozen: nothing is charged or shared before that. */}
         {review.ownerAllowed === true && snapshot?.status.status === "pending" &&
@@ -1507,16 +1507,18 @@ function UnlockedDocumentReview({
 
           {search?.coverage ? <div className="space-y-1" aria-label="Search coverage">
             <HelperText>{searchReady
-              ? "All returned Drive pages checked."
+              ? search?.coverage?.providerPagesExhausted
+                ? "Search finished; file contents and dates not checked."
+                : "Selected candidates available; more files may exist."
               : legacySearch
                 ? "Earlier results need a new sharing permission check."
               : progressive
                 ? "Drive is still finding files. You can share a reviewed batch while it continues."
                 : "Search is not complete. Additional matching files may exist."}</HelperText>
             <HelperText>{search.coverage.corpora.includes("member_shared_drives") ? "Your files and shared drives" : "Your files"}
-              {` · ${search.coverage.providerRowsScanned.toLocaleString()} results checked`}</HelperText>
+              {` · ${search.coverage.providerRowsScanned.toLocaleString()} Drive results scanned`}</HelperText>
             {search.coverage.excludedByDateCount || search.coverage.deduplicatedCount ? <HelperText>
-              {[search.coverage.excludedByDateCount > 0 ? `${search.coverage.excludedByDateCount.toLocaleString()} outside the requested dates` : null,
+              {[search.coverage.excludedByDateCount > 0 ? `${search.coverage.excludedByDateCount.toLocaleString()} excluded by file dates` : null,
                 search.coverage.deduplicatedCount > 0 ? `${search.coverage.deduplicatedCount.toLocaleString()} duplicate matches omitted` : null].filter(Boolean).join(" · ")}
             </HelperText> : null}
             {(search.coverage.excludedByTopicCount ?? 0) > 0 ? <HelperText>
@@ -1530,30 +1532,30 @@ function UnlockedDocumentReview({
           </div> : null}
           {search && bulkShare ? <div className="space-y-1">
             <HelperText>{progressive
-              ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files found"}${search.status === "completed" ? "" : " so far"} · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started`
-              : `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files found"} · ${bulkShare.fileCount.toLocaleString()} selected for sharing`}</HelperText>
+              ? `${search.matched.toLocaleString()} file candidates${search.status === "completed" ? "" : " so far"} · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started`
+              : `${search.matched.toLocaleString()} file candidates · ${bulkShare.fileCount.toLocaleString()} selected for sharing`}</HelperText>
             {(search.unshareableCount ?? 0) > 0 ? <HelperText>
-              {search.unshareableCount?.toLocaleString()} unavailable matches were not included.
+              {search.unshareableCount?.toLocaleString()} unavailable file candidates were not included.
             </HelperText> : null}
           </div> : null}
 
           {(!bulkShare || progressive) && search ? (
             <>
               <HelperText>{progressive
-                ? `${search.matched.toLocaleString()} found${search.status === "completed" ? "" : " so far"}. Review and share up to 25 files from this page${search.status === "completed" ? "." : "; more can arrive while you work."}`
+                ? `${search.matched.toLocaleString()} file candidates${search.status === "completed" ? "" : " so far"}. Review and share up to 25 files from this page${search.status === "completed" ? "." : "; more can arrive while you work."}`
                 : searchReady
-                ? `${search.matched.toLocaleString()} ${ownerReviewRequired ? "files to review" : "matching files"}. Select the files to share.`
+                ? `${search.matched.toLocaleString()} file candidates. Select the files to share.`
                 : legacySearch
                   ? "Checking this request's Drive files again before sharing."
                 : ["limited", "failed", "stopped"].includes(search.status) || search.incompleteSearch
-                  ? `${search.matched.toLocaleString()} found. Some files may be missing.`
-                  : `${search.matched.toLocaleString()} found so far. Search continues after you leave.`}</HelperText>
+                  ? `${search.matched.toLocaleString()} file candidates. More files may exist.`
+                  : `${search.matched.toLocaleString()} file candidates so far. Search continues after you leave.`}</HelperText>
               {(search.unshareableCount ?? 0) > 0 ? <HelperText>
                 {search.unshareableCount?.toLocaleString()} files have no confirmed sharing permission and won&apos;t be included.
               </HelperText> : null}
               {legacySearch ? <HelperText>Earlier files cannot be selected while the new check runs.</HelperText> :
-              <div aria-label="Matching Drive files" aria-busy={searchPageLoading}>
-                <SettingsGroup embedded title={ownerReviewRequired ? "Files to review" : progressive ? "Files found so far" : "Files"}
+              <div aria-label="Drive file candidates" aria-busy={searchPageLoading}>
+                <SettingsGroup embedded title={ownerReviewRequired ? "Files to review" : progressive ? "File candidates so far" : "File candidates"}
                   description={progressive ? `Choose from this page. Shared and queued files cannot be selected again.${recoverablePositions.length ? " Files skipped by automatic sharing need your selection." : ""}` : undefined}
                   {...groupSurface}>
                   {searchPage?.files.map(file => {
@@ -1696,7 +1698,7 @@ function UnlockedDocumentReview({
                 : <HelperText>{bulkShare.fileCount.toLocaleString()} files selected for this batch. Review the originals, then share.</HelperText> : null}
               {bulkShare.status === "review_ready" && ownerReviewRequired && review.paymentRequired === true ?
                 <HelperText>The requester pays after you approve these files.</HelperText> : null}
-              <div aria-label={bulkShare.status === "review_ready" ? "Files ready to share" : "Original file outcomes"} aria-busy={bulkPageLoading}>
+              <div aria-label={bulkShare.status === "review_ready" ? "Files selected for sharing" : "Original file outcomes"} aria-busy={bulkPageLoading}>
                 <SettingsGroup embedded title="Original files" description="Originals stay in Drive. The recipient sees later edits." {...groupSurface}>
                   {bulkPage?.files.map(file => <SettingsRow key={file.position} title={file.name}
                     description={file.outcomes?.length ? <FileOutcomes outcomes={file.outcomes} /> : undefined}
@@ -1891,8 +1893,8 @@ function UnlockedDocumentReview({
           {!finding && review.files.length === 0 ? (
             review.preparationError === "no_relevant_files" ? (
               <div>
-                <BodyText>Your private agent found no matching files.</BodyText>
-                <HelperText>Add them to Drive, then refresh.</HelperText>
+                <BodyText>This search found no file candidates.</BodyText>
+                <HelperText>Try a broader request or add files to Drive.</HelperText>
               </div>
             ) : review.preparationError === "no_ready_files" ? (
               <BodyText>

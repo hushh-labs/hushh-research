@@ -50,6 +50,17 @@ def _bounded_selection(checkpoint):
     return limit, field
 
 
+def _legacy_single_query(checkpoint):
+    queries = checkpoint.get("queries")
+    return (
+        isinstance(queries, list)
+        and len(queries) == 1
+        and isinstance(queries[0], dict)
+        or "queries" not in checkpoint
+        and isinstance(checkpoint.get("arguments"), dict)
+    )
+
+
 def _selection_ready(row, checkpoint):
     return _bounded_selection(checkpoint) is None or (
         row["status"] == "completed"
@@ -355,6 +366,160 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
             return self._view(row)
+
+        return await self._transaction(operation)
+
+    async def replan_legacy_statement_request(
+        self,
+        *,
+        user_id,
+        request_id,
+        request_revision,
+        purpose,
+        queries,
+        period,
+        terms,
+        expected_lease=None,
+    ):
+        """Retry an unfrozen one-query statement job without changing result positions.
+
+        The connector lock serializes this with a concurrent page commit or
+        progressive batch freeze. Revoking the lease fences any provider read
+        already in flight; preserving rows keeps issued result cursors bound to
+        the same file at every position.
+        """
+        client = _identity(request_id)
+        if len(queries) != 2 or not period:
+            raise DriveReadError("invalid_argument")
+
+        def operation(connection):
+            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            current = self._access(connection, user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests WHERE request_id=:request
+                  AND user_id=:user FOR UPDATE""",
+                {"request": client, "user": user_id},
+            )
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs
+                  WHERE user_id=:user AND client_request_id=:request
+                    AND expires_at>clock_timestamp() FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            if row is None:
+                return None, False
+            if row["connection_generation"] != current["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            checkpoint = self._checkpoint(row)
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["revision"] != request_revision
+                or request["bulk_search_started_at"] is None
+                or request["access_stop_requested_at"] is not None
+                or request["expires_at"]
+                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+                or checkpoint.get("request_origin_id") != client
+                or checkpoint.get("request_revision") != request_revision
+                or checkpoint.get("evidence_route", "provider") != "provider"
+                or checkpoint.get("agent_package_required") is True
+                or checkpoint.get("request_coverage_query_version") == 1
+                or not _legacy_single_query(checkpoint)
+                or row["status"] not in {"queued", "running", "completed"}
+                or expected_lease is not None
+                and str(row["lease_id"]) != expected_lease
+            ):
+                return self._view(row), False
+            private = self.search_cipher.open(
+                request["request_envelope"],
+                user_id=user_id,
+                resource_id=client,
+                purpose="request",
+            )
+            if private.get("purpose") != purpose or private.get("agent_package_required") is True:
+                return self._view(row), False
+            if self._row(
+                connection,
+                """SELECT share_id FROM drive_bulk_shares
+                  WHERE origin_request_id=:request OR search_job_id=:job LIMIT 1""",
+                {"request": client, "job": row["job_id"]},
+            ):
+                # Frozen selections, approvals and paid receipts are immutable.
+                return self._view(row), False
+            if self._row(
+                connection,
+                """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+                  AND job_id<>:job AND status IN ('queued','running') LIMIT 1""",
+                {"user": user_id, "job": row["job_id"]},
+            ):
+                raise DriveReadError("search_in_progress")
+            checkpoint.update(
+                arguments=queries[0]["arguments"],
+                queries=queries,
+                query_index=0,
+                request_coverage_query_version=1,
+                request_shareability_version=1,
+                request_selection_version=2,
+                request_time_intent="document_coverage",
+                request_owner_review_required=True,
+                request_file_kind="document",
+                request_subject_terms=terms,
+                request_exact_title=None,
+                request_result_limit=None,
+                request_order_field="modifiedTime",
+                request_direct_originals=False,
+                requested_period=period,
+                coverage_manifest={
+                    "corpora": ["user", "member_shared_drives"],
+                    "retrievalSource": "google_drive",
+                    "retrievalCompleteness": "provider_candidates",
+                    "fileKind": "document",
+                    "requestedPeriod": period,
+                    "timeIntent": "document_coverage",
+                    "ownerReviewRequired": True,
+                    "dateBasis": "content_period_unverified",
+                    "contentPeriodVerified": False,
+                    "folderDiscovery": "matching_topic_folders_and_descendants",
+                    "shortcutDiscovery": "resolve_targets",
+                    "resultLimit": None,
+                    "orderBy": "modifiedTime desc",
+                },
+                coverage_counts={},
+                folder_queue=[],
+                folder_digests=[],
+                phase="user",
+                page_token=None,
+                drive_page_token=None,
+                drives=[],
+                drive_index=0,
+                seen_tokens=[],
+                drive_tokens=[],
+            )
+            for stale in (
+                "request_rank_pruned",
+                "request_results_finalized",
+                "request_candidate_count",
+                "request_candidate_pool_pruned",
+            ):
+                checkpoint.pop(stale, None)
+            updated = self._row(
+                connection,
+                """UPDATE drive_owner_search_jobs SET
+                  checkpoint_envelope=CAST(:checkpoint AS jsonb),status='queued',
+                  incomplete_search=FALSE,lease_id=NULL,lease_expires_at=NULL,
+                  error_code=NULL,retry_count=0,next_at=clock_timestamp(),
+                  revision=revision+1,updated_at=clock_timestamp()
+                  WHERE job_id=:job RETURNING *""",
+                {
+                    "job": row["job_id"],
+                    "checkpoint": self._seal(
+                        checkpoint, user_id, str(row["job_id"]), "owner-search-checkpoint"
+                    ),
+                },
+            )
+            return self._view(updated), True
 
         return await self._transaction(operation)
 

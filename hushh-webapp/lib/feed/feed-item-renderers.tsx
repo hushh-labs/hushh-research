@@ -231,7 +231,7 @@ function driveFeedLine(
       if (status === "no_match")
         return sharedWithMe
           ? "No files were shared"
-          : "No matching files found; nothing was shared";
+          : "No file candidates in this search; nothing was shared";
       if (sharedWithMe) {
         return status === "partial"
           ? "Sharing finished with some files unavailable"

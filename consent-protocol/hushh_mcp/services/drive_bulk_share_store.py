@@ -1938,6 +1938,16 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if _request_missing_dates(private):
                     raise DriveSharingError("date_range_required")
+                if (
+                    approval_source == "trusted_auto"
+                    and private.get("agent_package_required") is not True
+                ):
+                    from hushh_mcp.services.drive_request_bulk_service import (
+                        _deterministic_statement_plan,
+                    )
+
+                    if _deterministic_statement_plan(private.get("purpose", {})) is not None:
+                        raise DriveSharingError("trusted_request_unavailable")
                 search = self._row(
                     connection,
                     """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope

@@ -235,7 +235,18 @@ class DriveRequestBulkService:
         # or an owner in a different timezone can reinterpret it.
         timezone = context.get("requestTimeZone") or timezone
         requested_at = context.get("requestCreatedAt")
+        statement_plan = (
+            _deterministic_statement_plan(purpose) if authority_mode != "agent_package" else None
+        )
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        if existing is not None and statement_plan is not None:
+            replanned, changed = await self.search.replan_legacy_statement_request(
+                user_id=user_id, request_id=request_id, context=context
+            )
+            if replanned is not None:
+                existing = replanned
+            if changed:
+                await self.wake("suggestions")
         if (
             existing is not None
             and existing["status"] == "completed"
@@ -278,7 +289,6 @@ class DriveRequestBulkService:
                 "time_intent": "document_coverage",
             }
         else:
-            statement_plan = _deterministic_statement_plan(context["purpose"])
             plan = (
                 statement_plan
                 if statement_plan is not None

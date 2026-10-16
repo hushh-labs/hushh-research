@@ -21,6 +21,7 @@ from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, 
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
+    _legacy_single_query,
     validate_reusable_packet,
 )
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
@@ -851,6 +852,42 @@ class DriveOwnerSearchService:
             raise DriveReadError("invalid_argument")
         return {"query": query, "timezone": timezone}
 
+    async def replan_legacy_statement_request(
+        self,
+        *,
+        user_id,
+        request_id,
+        context,
+        expected_lease=None,
+    ):
+        """Install the current deterministic plan on an unfrozen legacy job."""
+        # Imported here because request orchestration already imports this
+        # search service. The same planner is used for fresh and saved jobs.
+        from hushh_mcp.services.drive_request_bulk_service import (
+            _deterministic_statement_plan,
+        )
+
+        purpose = context["purpose"]
+        plan = _deterministic_statement_plan(purpose)
+        if plan is None or context.get("agentPackageRequired"):
+            return None, False
+        queries, period = compile_request_queries(
+            plan.model_dump(mode="json"),
+            purpose,
+            context.get("requestTimeZone") or "UTC",
+            requested_at=context.get("requestCreatedAt"),
+        )
+        return await self.store.replan_legacy_statement_request(
+            user_id=user_id,
+            request_id=request_id,
+            request_revision=context["revision"],
+            purpose=purpose,
+            queries=queries,
+            period=period,
+            terms=plan.terms,
+            expected_lease=expected_lease,
+        )
+
     async def existing(self, *, user_id, client_request_id, query, require_current, timezone="UTC"):
         await require_current()
         result = await self.store.existing(
@@ -1002,6 +1039,9 @@ class DriveOwnerSearchService:
                 "agent_package_required": authority_mode == "agent_package",
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
+                "request_coverage_query_version": 1
+                if len(queries) == 2 and time_intent == "document_coverage"
+                else None,
                 "request_time_intent": time_intent,
                 "request_owner_review_required": owner_review_required,
                 "request_file_kind": plan.get("file_kind", "any"),
@@ -1780,6 +1820,45 @@ class DriveOwnerSearchService:
             return status
 
         try:
+            checkpoint = job["checkpoint"]
+            saved_request = checkpoint.get("request")
+            from hushh_mcp.services.drive_request_bulk_service import (
+                _deterministic_statement_plan,
+            )
+
+            if (
+                checkpoint.get("request_origin_id")
+                and checkpoint.get("evidence_route", "provider") == "provider"
+                and checkpoint.get("request_coverage_query_version") != 1
+                and _legacy_single_query(checkpoint)
+                and isinstance(saved_request, dict)
+                and _deterministic_statement_plan({"purpose": saved_request.get("query")})
+                is not None
+            ):
+                if require_current:
+                    await require_current()
+                await self.store.require_current(job)
+                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+                sharing = self.sharing or DriveSharingStore(db=self.store.db)
+                from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+                try:
+                    context = await sharing.request_bulk_context(
+                        user_id=user_id, request_id=checkpoint["request_origin_id"]
+                    )
+                except DriveSharingError:
+                    await self.store.release(job, error="connection_changed")
+                    return finish("superseded")
+                _, changed = await self.replan_legacy_statement_request(
+                    user_id=user_id,
+                    request_id=checkpoint["request_origin_id"],
+                    context=context,
+                    expected_lease=job["lease_id"],
+                )
+                if changed:
+                    await wake_drive_work("suggestions")
+                    return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):

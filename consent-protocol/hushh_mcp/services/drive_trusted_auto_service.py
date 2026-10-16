@@ -12,7 +12,10 @@ import asyncio
 
 from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_statement_plan,
+)
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_store import OWNER_SETUP_CODES, DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -223,6 +226,10 @@ class DriveTrustedAutoService:
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             await self._undated_packet_current(user_id=user_id, context=context)
+        if not context.get("agentPackageRequired") and _deterministic_statement_plan(purpose):
+            # A saved one-query job may still carry the older file-activity
+            # marker until its lease is replanned. It cannot auto-select files.
+            return 0
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its
             # candidates need exact owner review before a batch or order exists.
