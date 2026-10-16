@@ -3,7 +3,7 @@ export function createReviewerArrival({
   redirectUrl, requireVaultUnlocked, allowQueryMutation,
   allowFirstRunSetupRedirect, reviewerUid,
 }) {
-  const firstRunPaths = ["/one/setup", "/one/setup/connections"];
+  const firstRunPaths = ["/one/setup", "/one/setup/cloud", "/one/setup/connections"];
   if (allowFirstRunSetupRedirect &&
       (requireVaultUnlocked || !firstRunPaths.includes(redirectUrl.pathname))) {
     throw new Error("First-run arrival requires a setup entry without vault admission.");
@@ -32,7 +32,7 @@ export function createReviewerArrival({
           !["authenticated", "vault_unlocked"].includes(bridge?.bootstrapState)) return false;
       const selector = path === "/one/setup"
         ? '[data-native-route-marker="true"][data-native-route-id="/one/setup"][data-native-auth-default="authenticated"][data-native-data-default="loaded"]'
-        : '[data-native-test-beacon="true"][data-native-route-id="/one/setup/connections"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]';
+        : `[data-native-test-beacon="true"][data-native-route-id="${path}"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]`;
       return !!document.querySelector(selector);
     }, admission, { timeout: timeoutMs });
   };

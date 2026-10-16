@@ -20,9 +20,13 @@ async function harness(authMode = "custom_token") {
 function browser(state = "authenticated", arrival?: string, loaded = true) {
   const window = { location: { origin: "https://synthetic.example", pathname: "/one/setup", search: "" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
   const document = { querySelector: (selector: string) => {
-    const expected = window.location.pathname === "/one/setup"
-      ? '[data-native-route-marker="true"][data-native-route-id="/one/setup"][data-native-auth-default="authenticated"][data-native-data-default="loaded"]'
-      : '[data-native-test-beacon="true"][data-native-route-id="/one/setup/connections"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]';
+    // Match the authored hub NativeRouteMarker and cloud/Connections NativeTestBeacon.
+    const markers: Record<string, string> = {
+      "/one/setup": '[data-native-route-marker="true"][data-native-route-id="/one/setup"][data-native-auth-default="authenticated"][data-native-data-default="loaded"]',
+      "/one/setup/cloud": '[data-native-test-beacon="true"][data-native-route-id="/one/setup/cloud"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]',
+      "/one/setup/connections": '[data-native-test-beacon="true"][data-native-route-id="/one/setup/connections"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]',
+    };
+    const expected = markers[window.location.pathname];
     return loaded && selector === expected ? {} : null;
   } };
   const fill = vi.fn();
@@ -43,14 +47,14 @@ function browser(state = "authenticated", arrival?: string, loaded = true) {
   return { newContext: async () => context, page, window, fill, context };
 }
 describe("reviewer session authority", () => {
-  it("admits normal loaded first-run routing only with explicit opt-in", async () => {
+  it.each(["/one/setup/connections", "/one/setup/cloud"])("admits normal loaded first-run routing only with explicit opt-in (%s)", async (arrival) => {
     const reviewer = await harness("operator_issued_token");
-    const b = browser("authenticated", "/one/setup/connections");
+    const b = browser("authenticated", arrival);
     await expect(reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false })).rejects.toThrow();
     await expect(reviewer.openSession(b, "/one/setup", {
       requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
     })).resolves.toBeDefined();
-    expect(b.window.location.pathname).toBe("/one/setup/connections");
+    expect(b.window.location.pathname).toBe(arrival);
     expect(b.fill).not.toHaveBeenCalled();
     await expect(reviewer.openSession(browser(), "/one/setup", {
       requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
@@ -61,6 +65,8 @@ describe("reviewer session authority", () => {
     ["/one/setup/connections", "uid_mismatch", true],
     ["/one/setup/connections", "auth_error", true],
     ["/one/setup/connections", "authenticated", false],
+    ["/one/setup/cloud", "uid_mismatch", true],
+    ["/one/setup/cloud", "authenticated", false],
   ])("rejects unrelated, untrusted or unloaded first-run arrival (%s/%s/%s)", async (arrival, state, loaded) => {
     const reviewer = await harness("operator_issued_token");
     const b = browser(state, arrival, loaded);

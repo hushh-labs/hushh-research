@@ -101,8 +101,9 @@ For the schema-only preview, authorized synthetic preparation must use ordinary
 browser encryption and narrowly admitted fixture writes. Physical iOS uses the
 existing native reviewer flow; this web-only provider is not native admission.
 
-For a new isolated owner, normal post-auth routing may choose the setup hub or
-Connections instead of the requested setup entry. `openSession` accepts explicit
+For a new isolated owner, normal post-auth routing may choose hosting
+(`/one/setup/cloud`), the setup hub or Connections instead of the requested setup
+entry. `openSession` accepts explicit
 `allowFirstRunSetupRedirect:true` only for those setup entries with
 `requireVaultUnlocked:false`. It still requires the exact authenticated owner,
 exact origin and loaded authenticated route marker; it never navigates or records
