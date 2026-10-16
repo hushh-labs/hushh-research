@@ -71,6 +71,25 @@ for requested in "${requested_names[@]}"; do
     -o "$PAYLOAD_DIR/$index.json"
 done
 
+# Dev may explicitly accept a full manual branch verdict. Bind that new label
+# to the canonical Actions workflow/event and check suite; never trust its name
+# or follow a caller-controlled details_url. Other release names stay unchanged.
+for requested in "${requested_names[@]}"; do
+  name="$(printf '%s' "$requested" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [ "$name" = "Branch Validation Gate" ] || continue
+  mkdir -p "$PAYLOAD_DIR/provenance"
+  curl -fsSL -G \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    --data-urlencode "event=workflow_dispatch" \
+    --data-urlencode "head_sha=${TARGET_SHA}" \
+    --data-urlencode "per_page=100" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+    -o "$PAYLOAD_DIR/provenance/branch.json"
+  break
+done
+
 python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_DIR" <<'PY'
 import json
 import sys
@@ -96,7 +115,38 @@ if not matches:
         f"Available checks: {available}"
     )
 
-successful = [run for run in matches if run.get("conclusion") == "success"]
+def verified_branch_check(check):
+    if check.get("name") != "Branch Validation Gate":
+        return True
+    if (
+        check.get("head_sha") != sha
+        or check.get("status") != "completed"
+        or check.get("app", {}).get("id") != 15368
+        or check.get("app", {}).get("slug") != "github-actions"
+    ):
+        return False
+    suite = check.get("check_suite", {}).get("id")
+    if type(suite) is not int or suite <= 0:
+        return False
+    payload = Path(payload_dir) / "provenance/branch.json"
+    # A bounded API page can refuse an old run, never authorize an unobserved
+    # one. A fresh full dispatch supplies a current receipt if the page is full.
+    runs = json.loads(payload.read_text(encoding="utf-8")).get("workflow_runs", [])
+    return any(
+        run.get("head_sha") == sha
+        and run.get("check_suite_id") == suite
+        and run.get("path") == ".github/workflows/ci.yml"
+        and run.get("event") == "workflow_dispatch"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+        for run in runs
+    )
+
+
+successful = [
+    run for run in matches
+    if run.get("conclusion") == "success" and verified_branch_check(run)
+]
 if not successful:
     conclusions = ", ".join(
         f"{run.get('name')}={run.get('conclusion') or 'unknown'}" for run in matches
