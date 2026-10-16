@@ -24,8 +24,15 @@ def bank_designs(
     if network not in NETWORK_ORDER or offset < 0 or offset > 10000 or (automatic and bank_key):
         raise ValueError("invalid_bank_request")
     catalog = catalog or load_catalog()[0]
+    approved = approved_assets(catalog)
+    replacements = {}
+    for asset in approved:
+        if asset.replacement_asset_id:
+            replacements.setdefault(asset.replacement_asset_id, []).append(
+                {"assetId": asset.asset_id, "digest": asset.digest}
+            )
     groups = {}
-    for asset in approved_assets(catalog):
+    for asset in approved:
         if (
             not asset.bank_design
             or not asset.selectable
@@ -74,6 +81,10 @@ def bank_designs(
         **({"network": network} if automatic else {}),
         "banks": [] if automatic else banks,
         "bankKey": bank_key,
-        "variants": [artwork_variant(asset) for asset in assets[offset : offset + 24]],
+        "variants": [
+            artwork_variant(asset)
+            | ({"replaces": replacements[asset.asset_id]} if asset.asset_id in replacements else {})
+            for asset in assets[offset : offset + 24]
+        ],
         "nextOffset": offset + 24 if len(assets) > offset + 24 else None,
     }

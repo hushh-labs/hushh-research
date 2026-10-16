@@ -71,6 +71,9 @@ describe("WalletService", () => {
     mockLoadDomainData.mockResolvedValue(domain); networkApi.fetch.mockClear();
     expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4000000000011111", variants: [blue, { ...blue, assetId: "blue-alias" }, gold] })).toEqual(gold);
     expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4111 1111 1111 1111", variants: [gold, blue] })).toEqual(blue);
+    const cleaned = { ...blue, assetId: "clean-blue", digest: "c".repeat(64), replaces: [{ assetId: blue.assetId, digest: blue.digest }] };
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4111111111111111", variants: [gold, cleaned] })).toEqual(cleaned);
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4242424242424242", variants: [gold, cleaned] })).toEqual(gold);
     // A retired alias still occupies blue's pixels, but cannot be restored.
     mockLoadDomainData.mockResolvedValue({ ...domain, artwork: { [CARD_ID]: { ...saved, assetId: "retired-blue" } } });
     expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4111111111111111", variants: [blue, gold] })).toEqual(gold);
@@ -121,17 +124,54 @@ describe("WalletService", () => {
       expect(options.signal.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
   });
-  it("revalidates saved immutable references separately and changes only artwork under the existing ID", async () => {
-    const artwork = approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "previous-version", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" }, CONTEXT.userId, snapshotVaultSessionEpoch());
+  it.each([true, false])("adopts current overlay permission %s without rewriting saved records", async currentOverlay => {
+    const artwork = approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "previous-version", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: !currentOverlay, evidence: "owner_selected" }, CONTEXT.userId, snapshotVaultSessionEpoch());
     const original = { ...DOMAIN_DATA, artwork: { [CARD_ID]: artwork }, sharing: { preserved: true } };
     mockLoadDomainData.mockResolvedValue(original);
-    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: true, allowOverlay: false }] })));
-    expect((await WalletService.listCardPresentations(CONTEXT))[0]!.artwork).toMatchObject({ source: "catalog", catalogVersion: "previous-version" });
+    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: true, allowOverlay: currentOverlay }] })));
+    expect((await WalletService.listCardPresentations(CONTEXT))[0]!.artwork).toMatchObject({ source: "catalog", catalogVersion: "previous-version", allowOverlay: currentOverlay });
     expect(JSON.parse(networkApi.fetch.mock.calls[0]![1].body).purpose).toBe("saved");
+    expect(original.artwork[CARD_ID].allowOverlay).toBe(!currentOverlay);
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
     await WalletService.updateCardArtwork({ ...CONTEXT, cardId: CARD_ID, artwork: { source: "neutral", version: 1 } });
     const changed = mockStoreWalletDomain.mock.calls[0]![0].applyMutation(original);
     expect(changed.summary).toBe(original.summary); expect(changed.secrets).toBe(original.secrets); expect(changed.sharing).toBe(original.sharing);
     expect(changed.artwork).toEqual({ [CARD_ID]: { source: "neutral", version: 1 } });
+  });
+  it.each(["current", "overlay-withdrawn", "source-withdrawn", "target-withdrawn", "mapping-changed", "owner-changed"])("loads a reviewed cleaned revision only while both approvals remain current: %s", async state => {
+    vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto);
+    try {
+      const blob = await encodeCardPng({ width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) });
+      const bytes = await blob.arrayBuffer(), digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("");
+      const original = { ...DOMAIN_DATA, artwork: { [CARD_ID]: { source: "catalog", version: 1, assetId: "previous", issuerId: "issuer", productId: "product", variantId: "blue", digest: "a".repeat(64), catalogVersion: "old", image: "data:image/png;base64,c3ludGhldGlj", evidence: "network_assigned", allowOverlay: false } } };
+      const before = JSON.stringify(original);
+      const variant = { assetId: "cleaned", issuerId: "issuer", productId: "product", variantId: "blue", label: "Cleaned", digest, image: `/api/one/wallet/card-access/artwork/assets/${digest}`, allowOverlay: true };
+      let downloaded = false;
+      mockLoadDomainData.mockResolvedValue(original);
+      networkApi.fetch.mockImplementation(async (url, options) => {
+        if (!url.endsWith("/validate")) {
+          downloaded = true;
+          if (state === "owner-changed") advanceVaultSessionEpoch();
+          return new Response(bytes, { headers: { "Content-Type": "image/png" } });
+        }
+        const input = JSON.parse(options.body), source = input.selections[0].assetId === "previous";
+        const approved = !(downloaded && ((source && state === "source-withdrawn") || (!source && state === "target-withdrawn")));
+        const allowOverlay = approved && !(downloaded && state === "overlay-withdrawn");
+        return new Response(JSON.stringify({ selections: [{ assetId: source ? "previous" : "cleaned", approved, allowOverlay,
+          ...(source && approved ? { replacement: { catalogVersion: "current", variant: { ...variant, allowOverlay, ...(downloaded && state === "mapping-changed" ? { assetId: "different-cleaned" } : {}) } } } : {}) }] }));
+      });
+      const pending = WalletService.listCardPresentations(CONTEXT);
+      if (state === "owner-changed") await expect(pending).rejects.toThrow("Wallet changed");
+      else {
+        const card = (await pending)[0]!;
+        expect(card.artwork).toMatchObject(["current", "overlay-withdrawn"].includes(state) ? { source: "catalog", assetId: "cleaned", digest, allowOverlay: state === "current" } : { source: "neutral" });
+        if (state === "current") await expect(WalletService.updateCardArtwork({ ...CONTEXT, cardId: CARD_ID, artwork: card.artwork! })).rejects.toThrow();
+      }
+      expect(JSON.stringify(original)).toBe(before);
+      expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+      const wire = JSON.stringify(networkApi.fetch.mock.calls.map(([, options]) => options.body));
+      for (const secret of [DOMAIN_DATA.secrets[CARD_ID].pan, "A Person", "data:image", CARD_ID]) expect(wire).not.toContain(secret);
+    } finally { vi.unstubAllGlobals(); }
   });
   it("retains one fallback identity when an uncertain save is retried after registration recovers", async () => {
     const draftId = "123E4567-E89B-12D3-A456-426614174088", reserveCardId = vi.fn().mockResolvedValueOnce(null).mockResolvedValue("card_registered_later");
