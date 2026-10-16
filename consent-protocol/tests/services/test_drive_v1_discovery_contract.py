@@ -256,6 +256,9 @@ async def test_v1_named_unsupported_document_reports_incomplete_instead_of_disap
 async def test_v1_unsupported_term_hit_cannot_complete_search(store):
     plan = _v1_statement_plan()
     checkpoint = _v1_structural_checkpoint(plan, [{"arguments": {"query": "issuer hit"}}])
+    # This fixture provisions search tables only; request-origin checks need
+    # the separate sharing schema and are outside this search-state assertion.
+    checkpoint.pop("request_origin_id")
     checkpoint["coverage_manifest"] = {"corpora": ["user"], "formatScope": "supported_live_formats"}
     client_request_id = str(uuid4())
     state, created = await store.create(
