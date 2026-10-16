@@ -243,10 +243,21 @@ readiness or model calls caused by an explicitly exercised product journey.
 **Path filters:** `PR Validation` runs jobs only when relevant paths change. A dispatched run with scope `auto` applies the same filters to the dispatched commit's changes against the default branch; `all`, `frontend` and `backend` choose the lanes by hand. `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
-- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
+- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or backend/shared `scripts/ci/**` files change. Dedicated web-only lane scripts are excluded; `web-common.sh` also schedules the backend contracts that exercise its build defaults.
 - **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`, into a Swift package clone directory restored from `main` when `main` already resolved the same package graph (see [Build Caches](#build-caches)).
 - **Editor performance job** (`web-editor-performance-check`, `Web Editor Performance (macOS)`) runs when the `editor` filter matches, not on every frontend change. The filter lists what `npm run test:layout-editor-performance` builds and reads: the spec, the fixture it bundles and their transitive imports, `app/globals.css`, the inlined Plus Jakarta Sans font files, and the Playwright, TypeScript, Tailwind and PostCSS configs, `package.json` and `package-lock.json`. It took one of the org's five macOS slots on every frontend run, while its inputs changed in 78 of the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py` derives those inputs from the job itself and fails when one would not schedule it, and `.github/workflows/editor-performance-nightly.yml` runs the same steps on `main` every night at 23:17 UTC and opens (or comments on) one `Editor performance nightly failed on main` issue when it fails.
 - **Integration job** runs when either frontend or backend paths change.
+
+The existing macOS performance job also runs the shared History motion contract
+in both Chromium and WebKit: first visibility under 100 ms, intermediate opening
+and exit frames, interrupted-drag alignment and unchanged surrounding layout.
+Its focused fixture mounts the real drawer/sidebar without unrelated agent or
+connector workflows. The Linux Connections pack keeps the other layout and
+interaction checks. Native collection verifies both timing identities reach
+macOS and that the remaining Connections identities still reach Linux. Disabling
+transitions or delaying opening beyond 100 ms must fail the timing test; dropping
+a drawer input from the path filter must fail its dependency guard. These browser
+checks do not replace physical Release frame-pacing qualification.
 
 **How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
 actually run it, instead of every lane:
@@ -254,11 +265,12 @@ actually run it, instead of every lane:
 | `scripts/ci/` file | Schedules | Why |
 |---|---|---|
 | `orchestrate.sh` | frontend and backend | dispatches every stage |
-| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
+| `web-common.sh` | frontend and backend | shared web helper plus backend contracts for build-origin defaults |
+| `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh` | frontend | dedicated web lane execution |
 | every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
 
-The backend side is written as `scripts/ci/**` minus `!scripts/ci/web-*.sh`, so
-a new script is backend by default rather than scheduling nothing. The filter
+The backend side includes `scripts/ci/**` and excludes the named web-only lane
+scripts, so a new script is backend by default rather than scheduling nothing. The filter
 step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
 filters without a `!` pattern behave exactly as before. The iOS filter uses
 the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,

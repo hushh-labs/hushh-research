@@ -18,7 +18,7 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Main integration and shared-pane repair — 2026-10-16
 
-Main through `4f60e5bc73` is merged locally, retaining current Calendar meeting
+Main through `745911d536` is merged locally, retaining current Calendar meeting
 recovery, semantic name saving, presence sequencing and Wallet behavior alongside
 ADK draft, Retry and owner/vault fences. Ordinary custom controls remain React;
 the native-shell qualification policy and independent UITabBar are unchanged.
@@ -26,8 +26,15 @@ the native-shell qualification policy and independent UITabBar are unchanged.
 PR CI at `2462c0bc6f` passed iOS, Android, protocol and the full Vitest shards,
 but failed browser layouts. Shared material specificity and oversized animated
 pane decoration were reproduced and corrected; twelve focused Linux WebKit
-cases pass, including repeated Accent selection and provider handoffs. History
-wall-clock motion remains unresolved. The combined merge passes 150 focused
+cases pass, including repeated Accent selection and provider handoffs. History's
+unchanged timing assertions use the existing required macOS performance lane,
+with a focused real-drawer/sidebar fixture rather than the entire Chat workflow.
+Six focused runs across both engines pass locally; disabled transitions and
+delayed-opening negative controls fail. The combined editor/motion command
+failed latency assertions during concurrent game load and was interrupted; it
+is not acceptance evidence. The path/dependency and native-collection guards
+preserve lane coverage. Hosted macOS confirmation and Linux/WPE frame pacing remain unverified;
+moving this test is not a claim that WPE timing is fixed. The combined merge passes 150 focused
 tests, typecheck, design-system and UI-contract checks; its native source builds.
 These are bounded source checks, not an installed current web bundle, physical
 transition/performance acceptance, complete Profile adoption or release approval.

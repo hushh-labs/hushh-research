@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { HUSHH_MARK_PATH } from "../lib/brand/hushh-mark";
+import { mountAppChrome } from "./fixtures/app-chrome-layer";
 import {
   productFontStyle,
   stripAppFontFaces,
@@ -578,120 +579,6 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     await close.click();
     await expect(opener).toBeFocused();
   });
-
-/**
- * The real app, reduced to the two things that decide this drawer's stacking:
- * the routed content (the chat workspace, header included) sits in a
- * `relative z-10` wrapper (app/providers.tsx), and the bottom bar is a fixed
- * sibling on the chrome tier (components/app-ui/app-bottom-shell.tsx, z-118).
- * A drawer left inside the workspace can never rise above that bar.
- */
-async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
-  // createRoot commits asynchronously after the fixture script is inserted.
-  await page.locator("main").waitFor({ state: "attached" });
-  await page.evaluate((height) => {
-    document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
-    const main = document.querySelector("main")!;
-    main.style.position = "relative";
-    main.style.zIndex = "10";
-    const bar = document.createElement("nav");
-    bar.setAttribute("data-fixture-bottom-bar", "");
-    bar.style.cssText = `position:fixed;left:0;right:0;bottom:0;height:${height}px;z-index:var(--z-chrome);background:var(--background)`;
-    document.body.append(bar);
-  }, barHeight);
-}
-
-test("History tap motion and interrupted pulls move the entire panel without shifting Chat", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 852 });
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  await mountAppChrome(page, 74);
-  await page.locator("[data-agent-history-drawer]").waitFor({ state: "attached" });
-  // Changing this retained fixture's viewport can itself animate its closed
-  // percentage translate. Measure the tap from the authored closed position,
-  // not from a desktop-to-phone resize that is still settling.
-  await expect.poll(() => page.locator("[data-agent-history-drawer]").evaluate(panel =>
-    panel.getBoundingClientRect().x + (panel as HTMLElement).offsetWidth +
-      parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")),
-  )).toBeCloseTo(0, 0);
-  const motion = await page.evaluate(async () => {
-    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-    const main = document.querySelector("main")!;
-    const nav = document.querySelector("[data-fixture-bottom-bar]")!;
-    const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
-    const width = panel.offsetWidth;
-    const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-      .find(button => button.textContent === "Open drawer")!;
-    trigger.click();
-    const frames: { elapsed: number; x: number }[] = [];
-    const start = performance.now();
-    await new Promise<void>(resolve => {
-      const sample = () => {
-        const elapsed = performance.now() - start;
-        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
-        if (elapsed < 360) requestAnimationFrame(sample); else resolve();
-      };
-      requestAnimationFrame(sample);
-    });
-    const style = getComputedStyle(panel);
-    return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
-      presentation: { translate: style.translate, transform: style.transform, visibility: style.visibility,
-        coarse: matchMedia("(pointer: coarse)").matches,
-        scrimFilter: getComputedStyle(document.querySelector("[data-agent-history-scrim]")!).backdropFilter,
-        documentAnimations: document.getAnimations().filter(animation => animation.playState === "running").map(animation => ({
-          target: (animation.effect as KeyframeEffect | null)?.target instanceof Element
-            ? ((animation.effect as KeyframeEffect).target as Element).className : null,
-          timing: animation.effect?.getComputedTiming(),
-        })),
-        transition: style.transition, animations: panel.getAnimations().map(animation => ({
-          state: animation.playState, timing: animation.effect?.getComputedTiming(),
-        })) } };
-  });
-  // An instantaneous endpoint jump passes a settled screenshot but fails here.
-  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
-  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed, JSON.stringify(motion)).toBeLessThan(100);
-  expect(Math.abs(motion.frames.at(-1)!.x)).toBeLessThanOrEqual(1);
-  expect(motion.after).toEqual(motion.before);
-  const dialog = page.locator("[data-agent-history-drawer]");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
-  const measured = await dialog.evaluate(frame => {
-    const title = frame.querySelector("h2")!;
-    const body = frame.querySelector<HTMLElement>("aside")!;
-    const before = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
-    const dispatch = (type: string, x: number, time: number) => {
-      const point = { identifier: 1, clientX: x, clientY: 320 };
-      const event = new Event(type, { bubbles: true });
-      Object.defineProperties(event, { touches: { value: [point] }, changedTouches: { value: [point] }, timeStamp: { value: time } });
-      body.dispatchEvent(event);
-    };
-    dispatch("touchstart", 160, 100); dispatch("touchmove", 110, 220);
-    const after = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
-    dispatch("touchcancel", 110, 240);
-    return { before, after, frameTransform: (frame as HTMLElement).style.transform };
-  });
-  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(-50, 0);
-  expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
-  expect(measured.frameTransform).toContain("translate3d");
-  await expect(dialog).toHaveAttribute("aria-hidden", "false");
-  await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo((await profileFrame(page)).x, 0);
-  const exit = await page.evaluate(async () => {
-    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-    // The authored Escape handler closes History without another navigation owner.
-    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    const samples: number[] = [];
-    const start = performance.now();
-    await new Promise<void>(resolve => {
-      const sample = () => {
-        samples.push(panel.getBoundingClientRect().x);
-        if (performance.now() - start < 260) requestAnimationFrame(sample); else resolve();
-      };
-      requestAnimationFrame(sample);
-    });
-    return { samples, width: panel.offsetWidth };
-  });
-  expect(exit.samples.some(x => x < -1 && x > -exit.width + 1), JSON.stringify(exit)).toBe(true);
-  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width - 48 + (await profileFrame(page)).x, 0);
-});
 
 /** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
 function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
