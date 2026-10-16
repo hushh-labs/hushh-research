@@ -58,6 +58,18 @@ export function ByocSetupFailedCard({
           : job.errorMessage || "The setup could not finish."}
       </p>
       {!azure && job.errorCode === "NEEDS_BILLING" ? <GoogleBillingLinks /> : null}
+      {azure && job.errorCode === "AZURE_OPENAI_QUOTA_REFUSED" ? (
+        <div className="flex flex-wrap gap-x-5 text-sm">
+          <a href="https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsBlade"
+            target="_blank" rel="noreferrer" className="min-h-11 content-center underline underline-offset-4">
+            Manage subscription
+          </a>
+          <a href="https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/overview"
+            target="_blank" rel="noreferrer" className="min-h-11 content-center underline underline-offset-4">
+            Check model quota
+          </a>
+        </div>
+      ) : null}
       {retry ? (
         <button
           type="button"
@@ -66,7 +78,7 @@ export function ByocSetupFailedCard({
           onClick={() => onRetry(retry)}
           data-testid="byoc-setup-retry"
         >
-          {azure ? "Sign in with Microsoft again" : "Deploy to your cloud"}
+          {azure ? job.errorCode === "AZURE_OPENAI_QUOTA_REFUSED" ? "Check again with Microsoft" : "Sign in with Microsoft again" : "Deploy to your cloud"}
         </button>
       ) : (
         <button

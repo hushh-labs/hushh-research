@@ -48,9 +48,10 @@ class AzureTeardownStore:
     async def candidate_digest(self, owner: str, row: dict) -> str:
         value = await self._value(
             "SELECT public.azure_cleanup_candidate_digest(to_jsonb(p)) AS value "
-            "FROM public.personal_agent_registry p WHERE user_id=:owner AND status='provisioned' "
+            "FROM public.personal_agent_registry p WHERE user_id=:owner AND ((status='provisioned' "
             "AND deployment_target='user_azure' AND backend_metadata->>'serviceUid'=:uid "
-            "AND coalesce(backend_metadata->>'image_digest','')=:image",
+            "AND coalesce(backend_metadata->>'image_digest','')=:image) "
+            "OR public.azure_setup_never_deployed(:owner,to_jsonb(p)) IS TRUE)",
             {
                 "owner": owner,
                 "uid": (row.get("backend_metadata") or {}).get("serviceUid"),
@@ -60,6 +61,27 @@ class AzureTeardownStore:
         if not isinstance(value, str):
             raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
         return value
+
+    async def can_offer_failed_setup_cleanup(self, owner: str, row: dict) -> bool:
+        """Read an optional admission hint; reservation still owns cleanup authority."""
+        available = await self._value(
+            "SELECT to_regprocedure('public.azure_setup_never_deployed(text,jsonb)') "
+            "IS NOT NULL AS value",
+            {},
+        )
+        snapshot = (
+            (row.get("backend_metadata") or {}).get("erasure", {}).get("registrySnapshot", row)
+        )
+        return available is True and await self.never_deployed(owner, snapshot)
+
+    async def never_deployed(self, owner: str, snapshot: dict) -> bool:
+        return (
+            await self._value(
+                "SELECT public.azure_setup_never_deployed(:owner,CAST(:snapshot AS jsonb)) AS value",
+                {"owner": owner, "snapshot": json.dumps(snapshot)},
+            )
+            is True
+        )
 
     async def reserve(self, owner: str, snapshot_digest: str | None) -> dict:
         value = await self._value(

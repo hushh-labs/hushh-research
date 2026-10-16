@@ -186,6 +186,7 @@ def _setup_boundary(
             "resourceGroup": inputs.resource_group,
             "location": inputs.location,
             "setupNonce": inputs.nonce,
+            "groupInitiallyAbsent": inputs.group_initially_absent,
         }
         retained = asyncio.run_coroutine_threadsafe(
             jobs.retain_azure_setup_intent(user_id=user_id, job_id=job_id, intent=intent), loop

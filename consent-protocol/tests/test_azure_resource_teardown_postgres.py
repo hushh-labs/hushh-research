@@ -12,69 +12,11 @@ from pathlib import Path
 import asyncpg
 import pytest
 
-
-def _seed_qualified_history(pg, owner, hushh_id, subscription, tenant, group):
-    pg.execute(
-        "INSERT INTO personal_agent_registry(user_id,hushh_id,status) VALUES (%s,%s,'unprovisioned')",
-        (owner, hushh_id),
-    )
-    target = f"/subscriptions/{subscription}/resourceGroups/{group}"
-    pg.execute(
-        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES (%s,'setup-1',%s,'running')",
-        (owner, target),
-    )
-    intent = {
-        "version": 1,
-        "jobId": "setup-1",
-        "hushhId": hushh_id,
-        "tenantId": tenant,
-        "subscriptionId": subscription,
-        "resourceGroup": group,
-        "location": "eastus2",
-        "setupNonce": "0123456789abcdef",
-    }
-    assert (
-        pg.execute(
-            "SELECT retain_byoc_azure_setup_intent(%s,'setup-1',%s::jsonb)",
-            (owner, json.dumps(intent)),
-        )[0][0]
-        is True
-    )
-    execution, request_id = str(uuid.uuid4()), str(uuid.uuid4())
-    assert (
-        pg.execute("SELECT begin_byoc_azure_worker(%s,'setup-1',%s)", (owner, execution))[0][0]
-        is True
-    )
-    events = [
-        {
-            "stage": "azure_provider_request",
-            "requestId": request_id,
-            "method": "PUT",
-            "path": target,
-            "apiVersion": "2021-04-01",
-            "purpose": "creating_resource_group",
-        },
-        {
-            "stage": "azure_provider_ack",
-            "requestId": request_id,
-            "status": 201,
-            "operationUrl": None,
-            "operationUrlSha256": None,
-        },
-        {"stage": "azure_provider_terminal", "requestId": request_id, "outcome": "succeeded"},
-        {"stage": "azure_worker_exited"},
-    ]
-    for event in events:
-        value = {"jobId": "setup-1", "executionId": execution, **event}
-        assert (
-            pg.execute(
-                "SELECT retain_byoc_azure_worker_event(%s,'setup-1',%s::jsonb)",
-                (owner, json.dumps(value)),
-            )[0][0]
-            is True
-        )
-    pg.execute("SELECT pg_advisory_unlock(hashtextextended(%s,206))", (owner,))
-    pg.execute("UPDATE byoc_setup_jobs SET status='recorded' WHERE user_id=%s", (owner,))
+from tests.fixtures.azure_teardown import (
+    partial_setup_state,
+    retain_provider_checkpoint,
+    seed_qualified_history,
+)
 
 
 @pytest.fixture
@@ -85,10 +27,8 @@ def cleanup_pg(monkeypatch, request):
         OWNER,
         SUB,
         TENANT,
-        _checkpoint,
         _reserve,
         _resource_group,
-        _retain_checkpoint,
     )
     from tests.test_personal_agent_notification_checkpoint import _notification_server
 
@@ -106,7 +46,19 @@ def cleanup_pg(monkeypatch, request):
             server.apply_file(parked / name)
         group = f"/subscriptions/{SUB}/resourceGroups/{_resource_group()}"
         if getattr(request, "param", True):
-            _seed_qualified_history(server, OWNER, HUSHH_ID, SUB, TENANT, _resource_group())
+            seed_qualified_history(
+                server,
+                OWNER,
+                HUSHH_ID,
+                SUB,
+                TENANT,
+                _resource_group(),
+                getattr(request, "param", True),
+            )
+            partial = partial_setup_state(server, getattr(request, "param", True), OWNER, HUSHH_ID)
+            if partial is not None:
+                yield partial
+                return
             if getattr(request, "param", True) == "untracked_hosted":
                 # The trigger preserves original setup receipts across job
                 # replacement; they cannot prove this later worker exited.
@@ -133,15 +85,7 @@ def cleanup_pg(monkeypatch, request):
             reservation = server.execute(
                 "SELECT reserve_personal_agent_erasure(%s,'attempt-1')", (OWNER,)
             )[0][0]
-            checkpoint = _checkpoint()
-            provider_case = getattr(request, "param", True)
-            if provider_case == "provider_legacy":
-                checkpoint["agentErased"].pop("providerCoverage")
-            elif provider_case == "provider_pending":
-                checkpoint["agentErased"]["providerUnconfirmed"] = 1
-            elif provider_case == "provider_unavailable":
-                checkpoint["agentErased"].update(providerRevoked=0, providerUnavailable=1)
-            assert _retain_checkpoint(server, reservation, checkpoint) is True
+            retain_provider_checkpoint(server, reservation, getattr(request, "param", True))
         else:
             server.execute(
                 "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES (%s,'setup-1',%s,'recorded')",
@@ -653,6 +597,11 @@ async def settled_cleanup(cleanup_state, cleanup_connection, request):
     pg, owner, reservation, prior, state, retain = cleanup_state
     inputs, resources, plan = _canonical_cleanup_plan(prior["context"])
     state["plan"] = plan
+    if plan["context"].get("neverDeployed") is True:
+        forged = copy.deepcopy(state)
+        app = next(p for p in plan["resources"] if p.endswith("/containerApps/ca-hussh-one-pod"))
+        forged["plan"]["resources"][app]["identity"] = {"id": app}
+        assert retain(forged) is False
     assert retain(state) is True
     assert _approve_cleanup(pg, owner, reservation, plan)
     current = pg.execute(

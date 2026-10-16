@@ -121,6 +121,15 @@ beforeEach(() => {
 });
 
 describe("OpenAiKeyCard", () => {
+  it("opens its existing key editor from the unified connection row", async () => {
+    renderCard({ ungrouped: true });
+    const choice = screen.getByRole("button", { name: /OpenAI/ });
+    expect(choice).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
+    fireEvent.click(choice);
+    expect(await screen.findByLabelText("OpenAI API key")).toBeVisible();
+    expect(choice).toHaveAttribute("aria-expanded", "true");
+  });
   it("explains that an own key needs a private agent and links to setting one up", async () => {
     mocks.loadAgentAiState.mockResolvedValue({
       readiness: { kind: "no_agent" },

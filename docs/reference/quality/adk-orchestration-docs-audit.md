@@ -6,10 +6,10 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-15 UTC
+## Decision — 2026-10-16 UTC
 
 **Hold the application merge and production BYOC rollout.** The hub and frontend
-currently serve verified `5c2d1483aa`; the personal Azure pod completed its Dev 19
+serve backend `439f181304` and frontend `5c2d1483aa`; the personal Azure pod completed its Dev 19
 Settings-approved installation. Recovery,
 installed digest, unchanged hosting, post-update Puppy streaming/Stop and
 byte-exact interrupted Files transfer passed. Dev 19's active-at-handoff overlap
@@ -31,45 +31,48 @@ not cold-start acceptance. Its synthetic Files fixture is retained for update co
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**Serving:** dev remains at `5c2d1483aa`, backend `00172-7q4` and frontend
-`00146-l8q`, both 100% traffic. The [15 October deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38709401259)
-passed schema 355 but refused misplaced optional Cloud Build defaults; governed
-rollback retained the prior application. Files 959 is applied; history cleanup
-249 stays deferred. No owner image changed.
+**Serving, 16 October 02:07 UTC:** verified ADC readback shows backend
+`439f181304` / `00173-w2c` and frontend `5c2d1483aa` / `00146-l8q`, each at
+100% traffic. Backend [deployment 38826621789](https://github.com/hushh-labs/hushh-research/actions/runs/38826621789)
+installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 are
+pending and history cleanup 249 remains deferred. No failed ledger row or checksum
+drift was found; no setup worker was running at this observation.
 
-**Candidate:** the isolated integration includes frozen infrastructure `7058898726`,
-local ADK `2462c0bc6f` and the concurrent UI corrections through `67aacf0098`.
-The subsequently published root `ce60384255` is preserved in the same candidate;
-no later ADK changes are being chased during validation.
-Root edits, PDF work and existing browser/device connections remain preserved.
-The resumed core run passed 20,579 backend cases but exposed route-inventory
-merge duplicates, missing accounting for two already-bounded Azure connection
-consumers and a status extractor that misread a read-only receipt probe. Targeted
-repairs pass 26 route, 36 connection/status and 27 status/pool checks; the original
-extractor fails its new regression control. The global connection cap stays three.
-Six canonical native icons were regenerated at the merged generator's 28-point
-size. The remaining canonical stages pass: 1,336 serial PostgreSQL cases,
-all-test import collection, MCP packaging, integration and the PKM upgrade gate,
-web typecheck/lint and the production build. The concurrent UI delta passes 36
-focused cases and two Chromium geometry/interaction cases. These are resumed
-local receipts with targeted repairs, not a single clean full-suite invocation.
-Exact-head hosted CI and live acceptance remain required; this candidate has not
-been deployed. The [exact `9b54e8f566` validation](https://github.com/hushh-labs/hushh-research/actions/runs/38824316099)
-refused stale setup/header/drawer assertions and one legacy Payments glyph.
-The bounded repair retains the authored WebKit fallback, full-row hit targets,
-one-pixel alignment and Back/Search gates; 25 focused unit cases, 26 Chromium/WebKit
-layout cases and 466 Back cases pass locally. A fresh exact-SHA hosted result is
-required before deployment. [Validation of `c8015dff7a`](https://github.com/hushh-labs/hushh-research/actions/runs/38828983524)
-also found a premature AI-choice control during hosting verification. Both radio
-and button now retain the existing disabled predicate. The original code fails
-the readiness assertions; all 31 nearest cases pass after repair, including the
-unchanged owner-generation refusal. The affected web-core and generated UI
-contracts pass; unaffected backend receipts are retained. This repair is not yet
-deployed. The same run found one stale iOS Payments accent assertion; its fixture
-now matches the canonical emerald glyph and generator, with no native runtime change.
-Published concurrent head `9780c580ee` is included; its reviewer permission and
-UAT-only paused-Drive changes retain their authority fences. The prior [exact `15d83d5bab` passed all 25 hosted
-checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
+**Candidate:** frozen local ADK `2462c0bc6f` and infrastructure work now include
+committed root intake `f3f1afd0e8`. Incoming managed-model policy preserves the
+serving 3.8/global bridge and unchanged readiness preload; a stale 3.6 candidate
+must not replace it. Independent review found no owner-key, placement or native
+browser-gate regression. Concurrent uncommitted PDF/config/native work is excluded.
+The integrated core passed in 857 seconds. The repaired backend passes 20,641
+parallel and 976 serial database checks. A later unused UI prop was removed;
+remaining canonical web/package/integration checks passed. Concurrent Wallet
+commit `b8fa64b200` is preserved with four integrated Chromium/WebKit motion checks
+and unchanged arrival/overshoot budgets. Final combined web/governance checks,
+exact-SHA hosted CI and serving readback remain release gates. Prior [de635 validation](https://github.com/hushh-labs/hushh-research/actions/runs/38835084481)
+passed on attempt 2 after rerunning only an inherited WebKit Wallet height
+precondition failure. Unchanged local Chromium/WebKit checks pass, without
+relaxing the original timeout, geometry or frame budgets. Retain failed receipts.
+
+**New Azure signup:** the pod, storage and signed direct access completed in
+20m51s; Azure environment creation accounted for 14m26s. Optional model quota was
+refused, so cloud readiness does not imply working AI. The local setup UI now uses
+three core phases and avoids a false model-ready tick; 73 focused checks, an
+original-code negative control, generated UI contracts and typecheck pass. An
+Azure upgrade retains remaining trial credit only until the original 30-day expiry;
+model quota must still be verified. See [Microsoft's upgrade policy](https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/upgrade-azure-subscription).
+
+**Onboarding repair — local:** three-dot account deletion now opens the existing
+Azure cleanup review instead of closing on refusal. The AI picker uses one
+provider-aware section and retains cloud-provider quota errors. Before cloud
+creation, the chosen model's real quota is checked; unknown evidence is never
+converted to zero. Failed setup cleanup separates journal-qualified resources
+from positively proved zero-effect attempts. An old group, missing original
+absence observation, active worker, stale custody or unresolved request cannot
+qualify automatic erasure. Focused PostgreSQL and UI checks are recorded with the
+candidate. Bounded cleanup and presentation extractions pass the architecture
+ratchet without a baseline waiver; 174 backend checks plus the corrected 42-case
+boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
+Live disposable cleanup remains a release acceptance requirement.
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported
@@ -120,25 +123,14 @@ probes do not establish owner-cloud acceptance.
 
 ## Source and serving evidence
 
-| Surface | Verified evidence | Limit |
+| Surface | Current evidence | Limit |
 | --- | --- | --- |
-| Frozen implementation | Dev 19 metadata `49074b1f72a1` serves the exact qualified `e04b76c61433` executable image. Frozen integration `22c7d3cac422` includes main `1d691714135e` and local ADK `63b4b60aac89`. Local browser/scheduling implementation `5a02603976ff`, integration repairs `ce4bdfb7ef` and final fixture/UI repair `cf3a2e9737` are committed; command/MCP restart recovery has local evidence | Concurrent root/ADK/PDF edits are preserved. Candidate changes are not installed on owner pods. |
-| Current hub/frontend — Oct 14 | Verified ADC readback: `5c2d1483aa`, backend `00172-7q4`, frontend `00146-l8q`, 100% traffic; governed [run 38563449251](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251) healthy | Shared Files is not enabled yet; new local upload/label corrections are unserved. Owner Dev 19 evidence remains separate. |
-| Exact-SHA CI | [Run 38324970426](https://github.com/hushh-labs/hushh-research/actions/runs/38324970426) passed for exact Dev 19 `49074b1f72a1`; [runtime run 38319211087](https://github.com/hushh-labs/hushh-research/actions/runs/38319211087) passed for `e04b76c61433` | Failed receipts remain. The next executable candidate requires its own core mirror and exact-SHA hosted CI. |
-| Local verification | Exact `e04b76c61433` canonical core passed in 687.9 s, including 18,113 backend and 860 isolated PostgreSQL cases, web-core, MCP, integration and PKM | Local and disposable-fixture evidence is not personal-owner acceptance. |
-| Browser/scheduling local verification — Oct 13 | Frozen `ce4bdfb7ef` passed 18,614 non-DB backend cases. Its retained core failure exposed one Shared fixture dependency and three lint issues, repaired in `cf3a2e9737`: 179 affected PostgreSQL/authority cases, 73 UI cases, regenerated UI contracts, web-core production build, MCP verification, integration (388 PKM cases) and unchanged architecture ratchet pass | Stage-specific recovery evidence, not an exact-SHA green canonical core or hosted run. Root integration is concurrently in progress; reconcile before the final release freeze. No new browser/scheduling source serves. |
-| Reconnect correction | Serving chat separates detachment from Stop, retains the original key lifetime/update permit and reconciles sealed history. The local candidate adds encrypted command journals and native MCP recovery through the existing approval ledger | Native ADK/PostgreSQL lost-acknowledgement and second-restart rehearsal passes with exactly one dispatch. No universal background completion or automatic effect replay is claimed. |
-| Governed dev deployment | [Run 38326276722](https://github.com/hushh-labs/hushh-research/actions/runs/38326276722) passed in 14 minutes, including schema, health, provenance and selected acceptance gates | GitHub Actions governs; Cloud Build builds. Application remains unmerged. |
-| Actual serving state — Oct 13, 00:33 UTC | Backend `00169-92j`, digest `223018d7cf26`, labels `49074b1f72a1`; frontend `00144-hvt`, digest `012ccf8f6641`, labels `e04b76c61433`. Both 100% traffic | Independent ADC readback confirms immutable images. Backend rollback `00168-nlx`; frontend remains `00144-hvt`. |
-| Dev access repair | Request-slot exhaustion was measured independently of CPU, RAM and database load. Messages cancels open and late stream bodies; both old-code negative controls fail. Serving concurrency is now 40, with the same maximum three instances, worker and pools. The normal owner session is reachable and unlocked | This is a bounded mitigation, not a sustainable capacity or production-load claim. Owner-pod resources are unchanged. |
-| Schema | Governed pre/post schema guards pass without missing required tables, columns or functions; selected canonical head 320 | Destructive history cleanup 249 remains deferred. No production schema acceptance or SQL rollback recovery claim. |
-| Exact target recovery | Dev 18 image `fa018342ab72`, source `e04b76c61433`, passed exact `47bb9a718063` → target recovery on disposable GCP and Azure pods. Keys, encrypted history, byte-exact Files, metadata, preferences and configuration are preserved. Azure retained the personal-size 0.5 vCPU/1 GiB configuration | The first GCP transition hit a platform-capacity 429. Its failed receipt remains; the repeat proved reverse and forward continuity with retained snapshots and capacity-only admission retry. No personal maintenance, configuration change or production rollback acceptance is implied. |
-| Qualified offer | Published Dev 19 pins exact `fa018342ab72` bytes and only the isolated-qualified `47bb9a718063` predecessor. Normal owner Settings installation completed and installed digest was read back | No automatic install, stable publication or wildcard compatibility. A future target requires its own exact-predecessor recovery proof. |
-| Personal pod | Dev 19 installed and verified Oct 13, 00:34 UTC, Azure revision `u633683c19958`, digest `fa018342ab72`. Identity/configuration hashes match. Min 0/max 1, one worker, 0.5 vCPU/1 GiB, HTTP threshold eight, queue scaler and 600-second relay grace retained | Active chat existed at approval but settled before handoff. Dev 17 independently proved accepting → draining active work → durable idle → replacement. Do not merge those receipts into a Dev 19 drain pass. |
-
-The original failed deployment and CI receipts remain available in GitHub and
-private operational evidence. Private owner identifiers, cloud receipts and
-credentials remain outside this memo.
+| Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
+| Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
+| Combined source | Integration `5df4525405`, root intake `b8fa64b200`, local ADK `2462c0bc6f` | New exact-SHA hosted approval is required; no application main merge |
+| Prior verification | 20,646 backend, 1,346 serial PostgreSQL and 396 PKM cases; build, contracts and authority checks pass for the preceding candidate | Final model/Calendar intake is being validated; preceding coverage is not its exact-SHA completion |
+| Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
+| Recovery fixtures | Existing GCP fixture's original synthetic owner recovered under its runtime identity; temporary Job removed and absence verified. Azure console failed before execution; key-based result readback was correctly refused | No keys exported or policy weakened. Retained Azure fixture remains intact; fresh isolated byte-recovery qualification is separate from background-job acceptance |
 
 ## Acceptance matrix
 
@@ -208,106 +200,11 @@ Operational owners: [Files](../operations/private-files-library.md),
 
 ## Reviewed integration debt
 
-The [architecture baseline](./architecture-fitness-baseline.json) retains exact
-reviewed spans, source hashes, parent revisions and rationale. Budgets
-500/250/80, scanner and exclusions remain unchanged. Reviewed inherited debt is
-not deployment acceptance; chronology remains in Git history.
-
-The Oct 12 scope-commerce reconciliation reviews exactly 45 finding slots:
-14 unchanged incoming-main spans, 27 compatibility compositions, three private
-`one_memory` guards and the nearest provider-intent regression test extension.
-Independent review found and repaired a lost main session-persistence timing
-wrapper before accepting its revised module/class spans. The real repository
-test fails on frozen `02989d1c2fc4` and passes after repair, including failure
-timing, owner binding and ciphertext assertions. Exact hashes, both parents,
-before/after values and qualifications are retained in the baseline's
-`scope_main_and_hosted_return_20261012` entry. Every other finding slot and all
-future-growth enforcement remain unchanged; full core and hosted CI are still
-release gates.
-
-The subsequent fake-provider recovery test isolates configuration explicitly,
-adding two lines to its existing module span (530 to 532). Independent backend
-review qualifies only that finding; the baseline records its source hash and
-focused verification under `scope_commerce_recovery_test_isolation_20261012`.
-Invalid ambient provider configuration cannot affect this fake-adapter test.
-Production configuration validation, immutable provider requests and all other
-finding slots remain unchanged.
-
-The latest main sync at `9c4e1cb045` adds nine notification size findings:
-eight spans are byte-identical incoming source, and the Capacitor index retains
-root registration/listener contracts while adding three emergency-cue lines.
-Backend and frontend review qualify only those spans, with hashes and provenance
-in `scope_commerce_latest_main_notifications_20261012`. Finite-lived SMS delivery
-does not change scope-commerce authority or strict hosted-return admission.
-This is source qualification; audible cues and physical delivery remain separate
-acceptance work. Every other finding and future-growth enforcement is preserved.
-
-The main `1056ed5652` union qualifies exactly 41 additional size slots through
-independent backend, frontend and operations review. It preserves lazy pod
-imports, recipient/owner admission and extracted deployment packaging. Review
-found a shared specialist still selecting the legacy client; default turns now
-use per-turn ADK project routing while injected owner models and explicit legacy
-callbacks retain their contracts. Actual `handle_turn` tests cover both caller
-orders and the callback negative control. The Information class remains 337;
-its ceiling is unchanged. Exact hashes and parent revisions are retained in
-`scope_commerce_main_project_and_location_20261012`. Budgets, scanner, exclusions
-and every unrelated finding remain unchanged. Source qualification does not
-establish deployed behavior or successful provider-job cleanup.
-
-The continuation at `b12cd078` qualifies one existing capability-graph generator
-module slot, 947 to 960 lines, after independent `ci_registry_review` inspection.
-Bounded committed ancestry now retains both branches' workflow histories when
-they independently integrate the same base, including later and second-parent
-verification merges. The existing 18 graph-gate cases pass; the actual committed
-predecessor function fails the strengthened real-Git regression. Semantic,
-deprecation and revision-policy admission, the eight authored-ref cap and every
-other fitness finding remain unchanged. Exact evidence is recorded in
-`scope_commerce_parallel_history_20261012`; this is source qualification.
-
-The main `ee67770aeb` union qualifies exactly three frontend module slots through
-independent `client_context` review: Consent Center routing, its existing
-cold-link suite and Feed presentation. Recognized answer rows preserve their
-lane even with a missing prefix; answer pricing describes one written answer,
-while Drive retains its Viewer term. The corrected union passes 109 focused UI
-cases. Backend review found raw owner/exception logging; class-only diagnostics
-now retain strict failure admission and resilient fallback. All 30 nearest
-source-completeness cases pass, and actual incoming methods fail the protected
-diagnostic negative control. This correction reduces the backend below existing
-ceilings. `scope_commerce_request_lane_main_20261012` records the three exact
-hashes; no other allowance, budget, scanner or payment authority changes.
-
-The subsequent main `f7b76b5d4f` union qualifies two existing backend slots:
-the wallet access class, 395 to 431 lines, and the encrypted-session test module,
-804 to 808. Independent `backend_context` review verifies owner/exact-card cursor
-binding and current-call-bound presentation completion; the nearest combined
-backend suite passes 68 cases. `client_context` review catches lost inspection
-of historical sent copies: their encrypted receipts remain in a conditional,
-collapsed section, fenced to the current owner, card and vault session. These
-copies never establish revocable access. Independent `merge_security_review`
-finds same-line checksum/signature/error denial missing from the imported
-SwiftPM helper; denial now applies independently of collision recognition.
-The actual predecessor fails all three strengthened denial cases. Exactly two
-reviewed backend values change in `scope_commerce_wallet_history_main_20261012`;
-all other findings, scanner rules and 500/250/80 budgets remain unchanged.
-Actual PostgreSQL pagination and hosted native resolution remain separate
-runtime evidence, not claims established by this source review.
-
-The main `4277558db7` union qualifies 98 size slots over 96 keys through
-independent `ci_registry_review`: 94 matching main spans and four composed
-modules retain exact existing-parent blocks. The payment suite preserves five
-constraint-assertion lines (3350 to 3355); sharing routes retain six placement
-fixture lines (1013 to 1019); wallet tests retain twelve connector-erasure race
-lines (1361 to 1373); Feed retains the existing profile/recipient/private-agent
-cases (1685 to 1826). No added block is novel relative to kept parent
-`79856d1f1b`. Exactly 63 existing slots grow and 35 main-owned size slots are
-added; all 2,424 previous slots/maxima survive, yielding 2,459 retained slots.
-Exact hashes and per-slot evidence live in
-`scope_commerce_main_document_payout_union_20261012`. No dependency-direction,
-initialization or parse finding is accepted, and budgets/scanner rules remain
-unchanged. Backend review separately verifies pinned migration replay and the
-byte-preserved 322–327 registration repair; accepted environment rows and
-financial obligations remain untouched. This is source lineage qualification,
-not deployed payment or payout acceptance.
+The [architecture baseline](./architecture-fitness-baseline.json) owns exact
+reviewed spans, source hashes, parents, rationale and negative-control evidence.
+Global budgets 500/250/80, scanner rules and exclusions remain unchanged; CI still
+rejects new or worsened findings. Historical integration chronology remains in Git.
+Reviewed inherited debt is source qualification, not deployed acceptance.
 
 ## GCP-only pod deployment correction — 2026-09-25
 

@@ -7,6 +7,7 @@
  * hub-signed key (`pod-app-access.ts`), so no plaintext key reaches the hub.
  */
 import { readUpdateStatus } from "@/lib/feed/agent-update-status";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import type {
   AiSelectionPlaintext,
@@ -51,6 +52,7 @@ export const AI_SELECTION_REFUSAL_CODES = [
   "PROVIDER_UNSUPPORTED",
   "STALE_SELECTION",
   "BAD_ENVELOPE",
+  "AI_DEFAULT_UNAVAILABLE",
 ] as const;
 export type AiSelectionRefusalCode =
   | (typeof AI_SELECTION_REFUSAL_CODES)[number]
@@ -261,11 +263,38 @@ export async function clearAgentAiSelection(
   }
 }
 
+/** Verify the cloud default without discarding the provider's typed refusal. */
+export async function verifyAgentCloudAi(): Promise<AiSelectionOutcome> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner) return { ok: false, code: "AGENT_UNREACHABLE" };
+  const status = await readAgentStatus();
+  if (!isValidatedAuthSessionOwnerCurrent(owner))
+    return { ok: false, code: "AGENT_UNREACHABLE" };
+  if (advertisedAiProviders(status) === null || status?.aiSelection?.defaultVerification !== true)
+    return { ok: false, code: "PROVIDER_UNSUPPORTED" };
+  const expectedProvider = status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
+  try {
+    const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) return { ok: false, code: refusalFromResponse(response.status, body) };
+    const model = textOrNull(body?.defaultModel);
+    const checkedAtMs = finiteOrNull(body?.checkedAtMs);
+    if (body?.status !== "cleared" || body.defaultProvider !== expectedProvider ||
+        !model || checkedAtMs === null || checkedAtMs <= 0)
+      return { ok: false, code: "AGENT_UNREACHABLE" };
+    return { ok: true, provider: expectedProvider, model, checkedAtMs };
+  } catch (error) {
+    return { ok: false, code: refusalFromError(error) };
+  }
+}
+
 export function aiSelectionRefusalMessage(
   code: string,
   providerName: string,
 ): string | null {
   switch (code) {
+    case "AI_DEFAULT_UNAVAILABLE":
+      return "Your cloud AI is not set up. Connect your own key or finish setting up model access in your cloud.";
     case "KEY_REFUSED":
       return `${providerName} did not accept this key. Check it and try again.`;
     case "QUOTA_EXCEEDED":

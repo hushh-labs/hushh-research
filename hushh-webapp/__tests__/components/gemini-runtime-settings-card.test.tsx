@@ -135,7 +135,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     expect(screen.getByText("Use Hussh's Gemini")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "AI connection" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Bring your own AI" })).toBeTruthy();
     // Restraint Charter: the mandatory first-run step lets the person choose only
     // Gemini, so the future-providers list is deferred to the settings context
     // rather than competing with the one decision here.
@@ -742,7 +742,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await screen.findByText(/Use your agent’s Vertex AI/);
+    await screen.findByText("Use existing cloud");
     await act(async () => {
       pending.resolve({
         hostingMode: "byoc",
@@ -752,7 +752,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       });
     });
     expect(screen.queryByText(/synthetic-project-a/)).toBeNull();
-    expect(screen.getByText(/Use your agent’s Vertex AI/)).toBeTruthy();
+    expect(screen.getByText("Use existing cloud")).toBeTruthy();
   });
 
   it("refuses reads and provider requests when the validated owner differs", async () => {
@@ -868,7 +868,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
     const managed = screen.getByRole("radio", { name: /Use Hussh's Gemini/ });
-    const own = screen.getByRole("radio", { name: /Use your own Gemini key/ });
+    const own = runtimeChoice("profile-byok-runtime");
     expect(managed).toHaveAttribute("aria-checked", "false");
     await waitFor(() => expect(managed).toBeEnabled());
     fireEvent.click(managed);
@@ -912,10 +912,10 @@ it("presents Azure's connection without manufacturing a Vertex identity", async 
       onRequestVaultCreation={vi.fn()}
     />,
   );
-  await screen.findByText("Use your Azure AI");
+  await screen.findByText("Use existing cloud");
   expect(screen.queryByText(/Use your agent’s Vertex AI/)).toBeNull();
   expect(
-    screen.getByText(/Check AI connection.*your Azure deployment/),
+    screen.getByText("Azure AI · Check connection"),
   ).toBeTruthy();
   expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
 });
@@ -953,7 +953,7 @@ it.each([false, true])(
         onRequestVaultCreation={vi.fn()}
       />,
     );
-    await screen.findByText("Use your Azure AI");
+    await screen.findByText("Use existing cloud");
     await waitFor(() =>
       expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
     );

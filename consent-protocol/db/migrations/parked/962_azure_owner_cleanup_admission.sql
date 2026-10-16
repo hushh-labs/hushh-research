@@ -2,6 +2,110 @@
 -- No credential or new lifecycle ledger. This does not declare physical purge.
 BEGIN;
 
+-- A resource-only failure needs positive original setup history, not absence of
+-- registry coordinates. This grants no effects; exact ARM absence is also checked.
+CREATE OR REPLACE FUNCTION public.azure_setup_predeployment_proven(owner_id text, snapshot jsonb, require_resources boolean)
+RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE live public.personal_agent_registry%ROWTYPE; job public.byoc_setup_jobs%ROWTYPE;
+ item jsonb; first_intent jsonb; intent jsonb; history jsonb; group_path text;
+BEGIN
+ IF public.byoc_azure_setup_guards_ready() IS NOT TRUE
+ OR snapshot->>'user_id' IS DISTINCT FROM owner_id
+ OR (snapshot->>'status' IN ('pending','unprovisioned')) IS NOT TRUE
+ OR nullif(snapshot->>'deployment_target','') IS NOT NULL
+ OR EXISTS (SELECT 1 FROM unnest(ARRAY['backend','external_agent_id','a2a_route','pod_pubkey',
+   'pod_key_id','pod_key_wrapping_alg','attestation_ref','provisioned_at','user_cloud_project',
+   'space_id','region','user_cloud_bootstrap_sa','user_cloud_authorized_at','user_cloud_region',
+   'user_cloud_tenant_id','user_cloud_subscription_id','user_cloud_resource_group']) f
+   WHERE nullif(snapshot->>f,'') IS NOT NULL)
+ OR coalesce(snapshot->'backend_metadata','null'::jsonb) NOT IN ('null'::jsonb,'{}'::jsonb)
+ OR EXISTS(SELECT 1 FROM public.personal_agent_deletion_tombstones
+   WHERE hushh_id=snapshot->>'hushh_id')
+ OR EXISTS(SELECT 1 FROM public.consent_audit WHERE user_id=owner_id
+   AND agent_id='personal_agent' AND action='CONSENT_GRANTED')
+ OR EXISTS(SELECT 1 FROM public.pod_migration_jobs WHERE user_id=owner_id)
+ OR EXISTS(SELECT 1 FROM public.personal_agent_standby_placements WHERE user_id=owner_id)
+ OR EXISTS(SELECT 1 FROM public.pod_lifecycle_events WHERE user_id=owner_id AND (
+   hushh_id IS DISTINCT FROM snapshot->>'hushh_id' OR substrate_step IS NOT NULL
+   OR NOT ((coalesce(event,'')='stage' AND coalesce(stage,'') IN ('registry_row','failed'))
+     OR (coalesce(event,'')='terminal' AND coalesce(stage,'')='failed'))))
+ THEN RETURN false; END IF;
+ SELECT * INTO live FROM public.personal_agent_registry WHERE user_id=owner_id;
+ IF NOT FOUND OR live.hushh_id IS DISTINCT FROM snapshot->>'hushh_id'
+ OR coalesce(live.backend_metadata->'erasure'->'registrySnapshot',to_jsonb(live))
+   -ARRAY['updated_at','last_heartbeat_at','health_state','liveness_failures'] IS DISTINCT FROM
+   snapshot-ARRAY['updated_at','last_heartbeat_at','health_state','liveness_failures']
+ THEN RETURN false; END IF;
+ SELECT * INTO job FROM public.byoc_setup_jobs WHERE user_id=owner_id;
+ IF NOT FOUND OR job.status IS DISTINCT FROM 'failed' OR job.authorization_attempts IS DISTINCT FROM '{}'::jsonb
+ OR jsonb_typeof(job.stages) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+ history:=job.stages;
+ SELECT x->'intent' INTO first_intent FROM jsonb_array_elements(history) x
+ WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent') LIMIT 1;
+ IF first_intent IS NULL THEN RETURN false; END IF;
+ group_path:=job.project_id;
+ FOR item IN SELECT value FROM jsonb_array_elements(history) LOOP
+  IF item->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent') THEN
+   intent:=item->'intent';
+   IF intent->'version' IS DISTINCT FROM '1'::jsonb
+   OR public.valid_byoc_azure_setup_intent(owner_id,intent->>'jobId',group_path,live.hushh_id,intent) IS NOT TRUE
+   OR intent-ARRAY['jobId','groupInitiallyAbsent','setupNonce'] IS DISTINCT FROM first_intent-ARRAY['jobId','groupInitiallyAbsent','setupNonce']
+   OR (require_resources IS TRUE AND intent->'setupNonce' IS DISTINCT FROM first_intent->'setupNonce')
+   OR (require_resources IS FALSE AND intent->'groupInitiallyAbsent' IS DISTINCT FROM 'true'::jsonb)
+   OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(history) w
+     WHERE w->>'stage'='azure_worker_started' AND w->>'jobId'=intent->>'jobId')
+   THEN RETURN false; END IF;
+  ELSIF item->>'stage'='azure_worker_started' THEN
+   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(history) x WHERE x->>'stage'='azure_worker_exited'
+     AND x->>'executionId'=item->>'executionId' AND x->>'jobId'=item->>'jobId')
+   THEN RETURN false; END IF;
+  ELSIF item->>'stage'='azure_provider_request' THEN
+   IF (item->>'purpose' IN ('creating_resource_group','registering_providers','creating_identity',
+      'creating_key_vault','creating_storage','creating_registry','creating_model')) IS NOT TRUE
+   OR item->>'path' ~* '/Microsoft[.]App/containerApps/'
+   OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(history) x WHERE x->>'stage'='azure_provider_terminal'
+     AND x->>'requestId'=item->>'requestId' AND x->>'executionId'=item->>'executionId'
+     AND (x->>'outcome' IN ('succeeded','failed','not_dispatched')
+      OR (x->>'outcome'='refused' AND EXISTS(SELECT 1 FROM jsonb_array_elements(history) ack
+       WHERE ack->>'stage'='azure_provider_ack' AND ack->>'requestId'=item->>'requestId'
+       AND ack->>'executionId'=item->>'executionId'
+       AND ack->>'status' IN ('400','401','403','404','405','409','412','422','429')))))
+   THEN RETURN false; END IF;
+  END IF;
+ END LOOP;
+ IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(history) x WHERE x->>'stage'='azure_worker_started'
+   AND x->>'jobId'=job.job_id) THEN RETURN false; END IF;
+ IF require_resources IS FALSE THEN
+  RETURN NOT EXISTS(SELECT 1 FROM jsonb_array_elements(history) x
+   WHERE x->>'stage' IN ('azure_provider_request','azure_provider_ack','azure_provider_terminal'));
+ END IF;
+ RETURN EXISTS(SELECT 1 FROM jsonb_array_elements(history) request
+  JOIN jsonb_array_elements(history) ack ON ack->>'requestId'=request->>'requestId'
+  JOIN jsonb_array_elements(history) terminal ON terminal->>'requestId'=request->>'requestId'
+  WHERE request->>'stage'='azure_provider_request' AND request->>'method'='PUT'
+   AND request->>'path'=group_path AND request->>'purpose'='creating_resource_group'
+   AND ack->>'stage'='azure_provider_ack' AND ack->'status'='201'::jsonb
+   AND terminal->>'stage'='azure_provider_terminal' AND terminal->>'outcome'='succeeded');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_setup_never_deployed(owner_id text, snapshot jsonb)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
+ SELECT public.azure_setup_predeployment_proven(owner_id,snapshot,true);
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_setup_no_effects(owner_id text)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
+ SELECT coalesce(public.azure_setup_predeployment_proven(owner_id,to_jsonb(p),false),false)
+ FROM public.personal_agent_registry p WHERE user_id=owner_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_cleanup_information_erased(owner_id text, reservation jsonb)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
+ SELECT public.erasure_provider_revocation_complete(reservation) IS TRUE
+ OR public.azure_setup_never_deployed(owner_id,reservation->'registrySnapshot') IS TRUE;
+$$;
+
 CREATE OR REPLACE FUNCTION public.azure_erasure_context(owner_id text)
 RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=public AS $$
 DECLARE agent public.personal_agent_registry%ROWTYPE; job public.byoc_setup_jobs%ROWTYPE;
@@ -58,6 +162,7 @@ BEGIN
   'hushhId',agent.hushh_id,'tenantId',tenant_id,'subscriptionId',subscription_id,
   'resourceGroup',resource_group,'location',location,
   'setupNonce',coalesce(s->'backend_metadata'->>'setupNonce',original->>'setupNonce'),
+  'neverDeployed',public.azure_setup_never_deployed(owner_id,s),
   'snapshotSha256',encode(sha256(convert_to(s::text,'UTF8')),'hex'),
   'setupHistorySha256',encode(sha256(convert_to(job.stages::text,'UTF8')),'hex'));
  RETURN context||jsonb_build_object('digest',encode(sha256(convert_to(context::text,'UTF8')),'hex'));
@@ -102,6 +207,12 @@ BEGIN
  OR octet_length(plan::text)>262144 THEN RETURN false; END IF;
  group_path:='/subscriptions/'||(context->>'subscriptionId')||
    '/resourceGroups/'||(context->>'resourceGroup');
+ IF context->'neverDeployed'='true'::jsonb AND (
+  jsonb_typeof(plan->'resources'->(group_path||'/providers/Microsoft.App/containerApps/ca-hussh-one-pod')) IS DISTINCT FROM 'object'
+  OR plan->'resources'->(group_path||'/providers/Microsoft.App/containerApps/ca-hussh-one-pod')->'identity' IS DISTINCT FROM 'null'::jsonb
+  OR plan->'resources'->(group_path||'/providers/Microsoft.App/containerApps/ca-hussh-one-pod')->'coveredBy' IS DISTINCT FROM 'null'::jsonb
+  OR (SELECT count(*) FROM jsonb_each(plan->'resources') x WHERE x.key ~* '/Microsoft[.]App/containerApps/[^/]+$')<>1
+ ) THEN RETURN false; END IF;
  FOR item IN SELECT * FROM jsonb_each(plan->'resources') LOOP
   resource:=item.value;
   IF item.key !~ '^/subscriptions/[0-9a-f-]+/resourceGroups/[A-Za-z0-9_.()-]+'
@@ -335,7 +446,7 @@ BEGIN
    AND worker-ARRAY['executionId','backendPid','approvalIndex']='{}'::jsonb
    AND ((approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp())) IS TRUE
    AND public.azure_erasure_writers_drained(owner_id) IS TRUE
-   AND public.erasure_provider_revocation_complete(prior) IS TRUE
+   AND public.azure_cleanup_information_erased(owner_id,prior) IS TRUE
    AND octet_length(next_state::text)<900000
    AND (SELECT count(*) FROM jsonb_each(coalesce(before_state->'workerExits','{}'::jsonb)))<128
    AND (SELECT count(*) FROM jsonb_each(coalesce(before_state->'finalReadbacks','{}'::jsonb)))<128
@@ -528,7 +639,7 @@ BEGIN
  AND public.azure_account_cleanup_ready() IS TRUE
  AND public.valid_azure_erasure_plan(owner_id,state->'plan') IS TRUE
  AND public.azure_erasure_writers_drained(owner_id) IS TRUE
- AND public.erasure_provider_revocation_complete(r) IS TRUE
+ AND public.azure_cleanup_information_erased(owner_id,r) IS TRUE
  AND state->'worker'->>'executionId'=execution_id
  AND state->'worker'->'backendPid'=to_jsonb(pg_backend_pid())
  AND state->'worker'->'approvalIndex'=to_jsonb(jsonb_array_length(state->'approvals')-1)
@@ -796,14 +907,15 @@ DECLARE state jsonb:=r->'azureTeardown'; context jsonb:=public.azure_erasure_con
  plan jsonb:=state->'plan'; worker jsonb:=state->'worker'; approval jsonb;
  final_receipt jsonb; exited jsonb; group_path text; parent_pattern text; item record;
 BEGIN
- IF context IS NULL OR r->'registrySnapshot'->>'backend' IS DISTINCT FROM 'user_azure'
- OR r->'registrySnapshot'->>'deployment_target' IS DISTINCT FROM 'user_azure'
+ IF context IS NULL OR ((r->'registrySnapshot'->>'backend' IS DISTINCT FROM 'user_azure'
+ OR r->'registrySnapshot'->>'deployment_target' IS DISTINCT FROM 'user_azure')
+ AND public.azure_setup_never_deployed(owner_id,r->'registrySnapshot') IS NOT TRUE)
  OR nullif(r->'registrySnapshot'->>'user_cloud_project','') IS NOT NULL
  OR public.valid_azure_erasure_plan(owner_id,plan) IS NOT TRUE
  OR plan->>'termsVersion' IS DISTINCT FROM 'azure-exact-parent-retention-v2'
  OR public.azure_erasure_writers_drained(owner_id) IS NOT TRUE
  OR state->'setupHistory' IS DISTINCT FROM public.azure_erasure_setup_history(owner_id)
- OR public.erasure_provider_revocation_complete(r) IS NOT TRUE
+ OR public.azure_cleanup_information_erased(owner_id,r) IS NOT TRUE
  OR (r ? 'ownerAccessErasure' AND public.valid_erasure_owner_access(r,r->'ownerAccessErasure') IS NOT TRUE)
  OR nullif(worker->>'executionId','') IS NULL THEN RETURN false; END IF;
  group_path:='/subscriptions/'||(context->>'subscriptionId')||'/resourceGroups/'||(context->>'resourceGroup');
@@ -865,12 +977,15 @@ BEGIN
  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
  SELECT * INTO agent FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
  IF NOT FOUND THEN RETURN NULL; END IF;
- IF NOT agent.backend_metadata ? 'erasure' AND (expected_snapshot_sha256 IS NULL
+ IF (agent.backend_metadata ? 'erasure') IS NOT TRUE AND (expected_snapshot_sha256 IS NULL
   OR expected_snapshot_sha256 IS DISTINCT FROM public.azure_cleanup_candidate_digest(to_jsonb(agent))) THEN RETURN NULL; END IF;
+ PERFORM 1 FROM public.byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
+ IF NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,206)) THEN RETURN NULL; END IF;
  snapshot:=coalesce(agent.backend_metadata->'erasure'->'registrySnapshot',to_jsonb(agent));
- IF snapshot->>'deployment_target' IS DISTINCT FROM 'user_azure'
+ IF (snapshot->>'deployment_target' IS DISTINCT FROM 'user_azure'
  OR snapshot->>'backend' IS DISTINCT FROM 'user_azure'
- OR snapshot->>'status' IS DISTINCT FROM 'provisioned' THEN RETURN NULL; END IF;
+ OR snapshot->>'status' IS DISTINCT FROM 'provisioned')
+ AND public.azure_setup_never_deployed(owner_id,snapshot) IS NOT TRUE THEN RETURN NULL; END IF;
  r:=public.reserve_personal_agent_erasure(owner_id,replace(gen_random_uuid()::text,'-',''));
  IF r IS NULL OR public.azure_erasure_context(owner_id) IS NULL THEN
   RAISE EXCEPTION 'Azure cleanup reservation cannot be qualified';
@@ -895,7 +1010,8 @@ BEGIN
  SELECT * INTO setup FROM public.byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
  IF NOT FOUND THEN RETURN false; END IF;
  r:=row_state.backend_metadata->'erasure'; release:=r->'bootstrapGrantRelease';
- azure_hosted:=coalesce(r->'registrySnapshot'->>'deployment_target'='user_azure',false);
+ azure_hosted:=coalesce(r->'registrySnapshot'->>'deployment_target'='user_azure',false)
+  OR public.azure_setup_never_deployed(owner_id,r->'registrySnapshot') IS TRUE;
  IF (NOT azure_hosted AND setup.status IS DISTINCT FROM 'recorded')
  OR (azure_hosted AND setup.status NOT IN ('recorded','failed')) THEN RETURN false; END IF;
  -- 954: a never-hosted reservation completes only on its SQL-re-derived evidence.

@@ -4,12 +4,14 @@
  * so removing one provider's key never ends another provider's active choice.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 import {
   agentAiReadiness,
   clearAgentAiSelectionFor,
   sendAiSelectionToAgent,
   shareGeminiSelectionWithAgent,
+  verifyAgentCloudAi,
 } from "@/lib/one/ai-selection-agent";
 
 const mocks = vi.hoisted(() => ({
@@ -49,6 +51,27 @@ beforeEach(() => {
 });
 
 describe("ai-selection agent client", () => {
+  it("retains cloud quota refusal and refuses a provider-mismatched success", async () => {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("fixture-owner");
+    mocks.status.mockResolvedValue({ ...CAPABLE, deploymentTarget: "user_azure",
+      aiSelection: { ...CAPABLE.aiSelection, defaultVerification: true } });
+    mocks.pod.mockResolvedValueOnce(json({ detail: { code: "QUOTA_EXCEEDED" } }, 422));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "QUOTA_EXCEEDED" });
+    mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "gemini",
+      defaultModel: "fixture", checkedAtMs: 1 }));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai",
+      defaultModel: "fixture", checkedAtMs: 1 }));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: true, provider: "azure_openai", model: "fixture", checkedAtMs: 1 });
+    mocks.pod.mockClear();
+    mocks.status.mockImplementationOnce(async () => {
+      publishValidatedAuthSessionOwner("another-owner");
+      return CAPABLE;
+    });
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
   it("reads the C3 capability: no agent, too old (with the offered update), or ready", () => {
     expect(agentAiReadiness({ hostingMode: "shared" }, "openai")).toEqual({
       kind: "no_agent",

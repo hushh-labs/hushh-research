@@ -32,7 +32,7 @@ from hushh_mcp.services.azure_arm_mutations import ArmMutationJournal
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
 from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_keyed import digest_matches
-from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, SetupApplier
+from hushh_mcp.services.azure_setup_applier import ApplyResult, AzureSetupRefused, SetupApplier
 from hushh_mcp.services.azure_setup_plan import (
     BINDING_TAG,
     IMAGE_DIGEST,
@@ -104,17 +104,23 @@ def binding_is_valid(tag_map: Any, hushh_id: str) -> bool:
 
 def bound_nonce(arm: ArmClient, *, subscription_id: str, hushh_id: str) -> str:
     """Reuse the nonce of THIS agent's group, mint one for a new group, refuse a foreign one."""
+    return _bound_nonce_observation(arm, subscription_id=subscription_id, hushh_id=hushh_id)[0]
+
+
+def _bound_nonce_observation(
+    arm: ArmClient, *, subscription_id: str, hushh_id: str
+) -> tuple[str, bool]:
     group = f"/subscriptions/{subscription_id}/resourceGroups/{resource_group_name(hushh_id)}"
     existing = arm.get_or_none(group, api_version=API_VERSIONS["resources"], op="bind")
     if existing is None:
-        return secrets.token_hex(8)
+        return secrets.token_hex(8), True
     if not binding_is_valid(existing.get("tags"), hushh_id):
         raise AzureSetupRefused(
             "A resource group with this agent's name exists but was not created by "
             "Hussh's setup for you. Nothing was changed.",
             code="RESOURCE_GROUP_FOREIGN",
         )
-    return str(existing["tags"][NONCE_TAG])
+    return str(existing["tags"][NONCE_TAG]), False
 
 
 def setup_nonce(arm: ArmClient, *, subscription_id: str, spec: PodSpec, adopt: bool) -> str:
@@ -228,6 +234,65 @@ def prove(
     return fqdn, app
 
 
+def _setup_inputs(
+    arm: ArmClient,
+    *,
+    tenant_id: str,
+    subscription_id: str,
+    location: str,
+    spec: PodSpec,
+    adopt: bool,
+) -> PlanInputs:
+    """Bind the original owner group observation to the deterministic setup plan."""
+    if adopt:
+        nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=True)
+        group_initially_absent = False
+    else:
+        nonce, group_initially_absent = _bound_nonce_observation(
+            arm,
+            subscription_id=subscription_id,
+            hushh_id=spec.hushh_id,
+        )
+    return PlanInputs(
+        hushh_id=spec.hushh_id,
+        tenant_id=tenant_id,
+        subscription_id=subscription_id,
+        location=location,
+        resource_group=resource_group_name(spec.hushh_id),
+        nonce=nonce,
+        files_enabled=spec.files_library_enabled,
+        group_initially_absent=group_initially_absent,
+    )
+
+
+def _setup_result(
+    inputs: PlanInputs,
+    plan: SetupPlan,
+    result: ApplyResult,
+    *,
+    app: dict,
+    fqdn: str,
+    digest: str,
+    incarnation: str,
+) -> AzureSetupResult:
+    """Return only the observed identity, serving endpoint and model outcome."""
+    return AzureSetupResult(
+        tenant_id=inputs.tenant_id,
+        subscription_id=inputs.subscription_id,
+        resource_group=inputs.resource_group,
+        location=inputs.location,
+        nonce=inputs.nonce,
+        model_credential_mode="user_azure_mi" if result.model_available else "byok_per_turn",
+        model_outcome=result.model_outcome,
+        image_digest=digest,
+        app_id=str(app.get("id") or Scopes(plan.inputs, plan.names).app),
+        fqdn=fqdn,
+        pod_principal_id=result.values.get("podPrincipalId", ""),
+        pod_client_id=result.values.get("podClientId", ""),
+        incarnation=incarnation,
+    )
+
+
 def run_agent_setup(
     *,
     access_token: str,
@@ -258,7 +323,14 @@ def run_agent_setup(
     if image_credentials is None:
         image_credentials = import_credentials(registry)
     arm = arm or ArmClient(access_token, sleep=sleep, before_write=guard, mutations=mutations)
-    nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=adopt)
+    inputs = _setup_inputs(
+        arm,
+        tenant_id=tenant_id,
+        subscription_id=subscription_id,
+        location=location,
+        spec=spec,
+        adopt=adopt,
+    )
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id
     if not principal:
         raise AzureSetupRefused(
@@ -268,18 +340,12 @@ def run_agent_setup(
     plan_for = plan_factory(
         spec, source_registry=registry, source_repository=repository, incarnation=incarnation
     )
-    inputs = PlanInputs(
-        hushh_id=spec.hushh_id,
-        tenant_id=tenant_id,
-        subscription_id=subscription_id,
-        location=location,
-        resource_group=resource_group_name(spec.hushh_id),
-        nonce=nonce,
-        files_enabled=spec.files_library_enabled,
-    )
     values = {"husshPrincipalId": principal, "imageDigest": digest}
+    from hushh_mcp.services.azure_model_eligibility import require_model_eligibility
+
     if bind_setup is not None:
         bind_setup(inputs)
+    require_model_eligibility(arm, inputs)
     applier = SetupApplier(
         arm,
         advance=advance,
@@ -303,20 +369,8 @@ def run_agent_setup(
         http = requests
     plan = result.plan or plan_for(inputs)
     fqdn, app = prove(arm, plan, result.values, http=http, sleep=sleep)
-    return AzureSetupResult(
-        tenant_id=tenant_id,
-        subscription_id=subscription_id,
-        resource_group=inputs.resource_group,
-        location=location,
-        nonce=nonce,
-        model_credential_mode="user_azure_mi" if result.model_available else "byok_per_turn",
-        model_outcome=result.model_outcome,
-        image_digest=digest,
-        app_id=str(app.get("id") or Scopes(plan.inputs, plan.names).app),
-        fqdn=fqdn,
-        pod_principal_id=result.values.get("podPrincipalId", ""),
-        pod_client_id=result.values.get("podClientId", ""),
-        incarnation=incarnation,
+    return _setup_result(
+        inputs, plan, result, app=app, fqdn=fqdn, digest=digest, incarnation=incarnation
     )
 
 

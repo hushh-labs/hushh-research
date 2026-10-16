@@ -139,6 +139,8 @@ class PlanInputs:
     model: Optional[ModelChoice] = field(default_factory=ModelChoice)
     # Remains opt-in until the approved capability/update lifecycle admits it.
     files_enabled: bool = False
+    # Authenticated original group GET404, retained in setup admission, never inferred from no new writes.
+    group_initially_absent: bool = False
 
 
 @dataclass(frozen=True)

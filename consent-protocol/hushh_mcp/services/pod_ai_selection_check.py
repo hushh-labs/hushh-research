@@ -195,7 +195,7 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
         from hushh_mcp.services.pod_platform import workload_platform  # noqa: PLC0415
 
         if workload_platform() == "azure":
-            raise ValueError("AZURE_MODEL_TOPOLOGY_INVALID")
+            raise AiSelectionRefused("AI_DEFAULT_UNAVAILABLE")
         from hushh_mcp.runtime_settings import (  # noqa: PLC0415
             pod_managed_model_enabled,
             pod_user_adc_enabled,

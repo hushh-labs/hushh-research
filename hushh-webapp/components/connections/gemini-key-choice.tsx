@@ -36,7 +36,6 @@ export function GeminiKeyChoice({
   privateCloud,
   placement,
   requiresExplicitSelection,
-  vaultReady,
   selectedOption,
   mode,
   hasExplicitSelection,
@@ -64,7 +63,6 @@ export function GeminiKeyChoice({
   privateCloud: boolean;
   placement: string;
   requiresExplicitSelection: boolean;
-  vaultReady: boolean;
   selectedOption: string;
   mode: RuntimeCredentialMode;
   hasExplicitSelection: boolean;
@@ -92,14 +90,12 @@ export function GeminiKeyChoice({
       <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Use your own Gemini key"
+        title="Gemini"
         disabled={
           isSaving || isRemoving || (!privateCloud && placement !== "shared")
         }
         description={
-          requiresExplicitSelection
-            ? "Add your own Gemini key."
-            : "Your key stays locked to you."
+          "Use your own key."
         }
         trailing={
           requiresExplicitSelection ? (
@@ -107,7 +103,7 @@ export function GeminiKeyChoice({
               aria-hidden
               className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground"
             >
-              {selectedOption === "byok" ? (
+              {selectedOption === "byok" && !otherProvider ? (
                 <span className="size-3 rounded-full bg-primary" />
               ) : null}
             </span>

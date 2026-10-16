@@ -1012,6 +1012,7 @@ tests/test_azure_arm_client.py
 tests/test_azure_setup_authority_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_resource_teardown_postgres.py
+tests/test_azure_partial_setup_erasure_postgres.py
 tests/test_azure_federation.py
 tests/test_azure_entra_authorizer.py
 tests/test_azure_home_directory.py
@@ -1079,6 +1080,7 @@ tests/test_circle_chat.py
 # on exactly that selection with typed refusals, and the agent advert plus the catalog.
 tests/test_pod_ai_selection_seal.py
 tests/test_pod_ai_selection_doors.py
+tests/test_pod_ai_default_authority.py
 tests/test_pod_ai_selection_turns.py
 tests/test_pod_ai_selection_voice.py
 tests/test_pod_ai_selection_advert.py
