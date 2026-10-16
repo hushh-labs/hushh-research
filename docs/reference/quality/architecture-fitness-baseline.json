@@ -2348,6 +2348,22 @@
     "function_lines": 80,
     "module_lines": 500
   },
+  "byoc_ai_readiness_regression_review_20261016": {
+    "entries": [
+      {
+        "after": 1017,
+        "before": 1013,
+        "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+        "review": "Independent frontend review accepts four lines in two existing cases: pending-placement stubs and actual radio/button disabled assertions protect the reproduced premature-control race. Original source fails; corrected 31 cases pass, including unchanged ABA session authority. No new tests, file split or global budget change.",
+        "source_sha256": "1203a9c6191836fe5f85f0dbe126d693e146decdfa3c4b50391f42bb4442d46b"
+      }
+    ],
+    "evidence_revisions": [
+      "c8015dff7a",
+      "9780c580ee",
+      "8b8b2f7e4e"
+    ]
+  },
   "byoc_cloudbuild_options_review_20261015": {
     "entries": [
       {
@@ -22581,7 +22597,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
       "symbol": null,
-      "value": 1013
+      "value": 1017
     },
     {
       "detail": "module exceeds the advisory operon budget",
