@@ -27,6 +27,7 @@ export type AgentCalendarProposalCardProps = {
   timeZone?: string;
   attendees: string[];
   location: string | null;
+  description?: string | null;
   sendUpdates: boolean;
   googleMeet?: boolean;
   conflicts: CalendarProposalConflict[];
@@ -100,6 +101,7 @@ export function AgentCalendarProposalCard({
   timeZone,
   attendees,
   location,
+  description,
   sendUpdates,
   googleMeet = false,
   conflicts,
@@ -189,6 +191,7 @@ export function AgentCalendarProposalCard({
             <p className="break-words">{location}</p>
           </div>
         ) : null}
+        {description ? <div className="space-y-1"><p className="font-semibold">Description</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{description}</p></div> : null}
         {!attendeeText ? (
           <p className="text-muted-foreground">
             {sendUpdates

@@ -865,7 +865,7 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next day", exact: true }));
     await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-15" })));
     expect(screen.getByLabelText("Selected date")).toHaveValue("2026-10-15");
-    const provider = new URL(screen.getByRole("link", { name: /View more events/ }).getAttribute("href")!);
+    const provider = new URL(screen.getByRole("link", { name: "Open Google Calendar" }).getAttribute("href")!);
     expect(provider.pathname).toBe("/calendar/u/0/r/day/2026/10/15");
     expect(provider.searchParams.get("authuser")).toBe("owner@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Previous day", exact: true }));

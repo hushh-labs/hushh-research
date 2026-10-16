@@ -54,7 +54,8 @@
       "location": null,
       "googleMeet": true,
       "sendUpdates": true,
-      "conflicts": []
+      "conflicts": [],
+      "description": null
     }
   },
   "message": "The app is showing the meeting details for owner confirmation. A Google Meet link will be added after scheduling."
