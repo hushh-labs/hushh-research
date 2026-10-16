@@ -947,7 +947,7 @@ test.describe("Circle roster row", () => {
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "56px");
-          await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 113, 227)");
+          await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 122, 255)");
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
           await expect(cancel).toHaveCSS("height", "52px");
           await expect(cancel).toHaveCSS("border-radius", "20px");
@@ -955,7 +955,7 @@ test.describe("Circle roster row", () => {
             await expect(remove).toHaveCSS("justify-content", "center");
           }
           await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
-          await expect(cancel).toHaveCSS("color", "rgb(0, 113, 227)");
+          await expect(cancel).toHaveCSS("color", "rgb(0, 122, 255)");
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
             const cancel = element.querySelector<HTMLButtonElement>('button:not([role="menuitem"])')!;
