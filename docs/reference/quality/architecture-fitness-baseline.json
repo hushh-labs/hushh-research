@@ -29005,7 +29005,7 @@
       "limit": 500,
       "path": ".codex/skills/reviewer-app-testing/tests/reviewer-read-only-guard.test.mjs",
       "symbol": null,
-      "value": 509
+      "value": 519
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -56317,6 +56317,19 @@
     "source_qualification_sha256": "c69b90868eaf3127ed2059c7dce2f15fd88755d200d938b862adf195854b59b8",
     "source_revision": "88c984f8825d57e630d5d319eb4af413812ba70f",
     "verification": "42 nearest migration-authority cases pass against owned synthetic PostgreSQL. Full candidate core/CI and deployed acceptance remain required; UAT v3 owner attestation remains separate."
+  },
+  "scope_commerce_reviewer_permission_review_20261015": {
+    "findings": [
+      {
+        "after": 519,
+        "before": 509,
+        "key": "module_size|.codex/skills/reviewer-app-testing/tests/reviewer-read-only-guard.test.mjs||module exceeds the advisory operon budget",
+        "review": "Extend nearest existing authority test for observed approval wire mismatch. Strict true/false positive controls and changed/coerced/missing/extra permission refusal; no new fixture or test. Exact retained-debt observation only; scanner and500/250/80budgets unchanged.",
+        "source_sha256": "7abf37abf95723b86c9e76401859954d7edc1969697a3453ae4e7b763e33c33e"
+      }
+    ],
+    "reviewer": "backend_context",
+    "source_revision": "ef3681a886"
   },
   "scope_commerce_rive_browser_fixture_20261013": {
     "qualified_updates": [
