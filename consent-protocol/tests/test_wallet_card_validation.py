@@ -72,8 +72,9 @@ def test_bad_fields_are_refused(field, value, code) -> None:
 
 
 def test_envelope_refuses_secret_shaped_keys_anywhere() -> None:
-    with pytest.raises(ValueError, match="contains_secret_key"):
-        validate_wallet_card_envelope({"cards": [], "extra": {"cvv": "123"}})
+    for key in ("cvv", "manual_cvv", "securityCode", "security_code"):
+        with pytest.raises(ValueError, match="contains_secret_key"):
+            validate_wallet_card_envelope({"cards": [], "extra": {key: "007"}})
     with pytest.raises(ValueError, match="contains_secret_key"):
         validate_wallet_card_envelope({"secrets": {}})
 

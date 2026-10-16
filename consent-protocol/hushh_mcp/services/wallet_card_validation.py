@@ -100,7 +100,7 @@ def validate_wallet_card_envelope(summary: Any) -> None:
     if not isinstance(summary, dict):
         raise ValueError("wallet_summary_must_be_object")
 
-    forbidden = {"pan", "cvv", "cvc", "pin", "card_number", "number", "secrets"}
+    forbidden = {"pan", "cvv", "cvc", "pin", "card_number", "number", "secrets", "manual_cvv", "security_code", "securitycode"}
 
     def _refuse_secret_keys(node: Any) -> None:
         if isinstance(node, dict):

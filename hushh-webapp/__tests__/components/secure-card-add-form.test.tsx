@@ -24,6 +24,36 @@ function fillRequired() {
   fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "12/99" } });
 }
 
+it("collects a masked manual code only when owner Wallet enables it, preserving leading zeroes", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm collectSecurityCode onSubmit={save} />);
+  fillRequired();
+  const code = screen.getByLabelText("CVV");
+  expect(code).toHaveAttribute("type", "password");
+  fireEvent.change(code, { target: { value: "007" } });
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).toMatchObject({ securityCode: "007" });
+  expect(save.mock.calls[0][0]).not.toHaveProperty("cvv");
+  await waitFor(() => expect(code).toHaveValue(""));
+});
+
+it.each(["inactive", "owner", "hidden"])("clears an unsaved manual code after %s", async boundary => {
+  let owner = "owner-a";
+  const context = () => ({ userId: owner, vaultOwnerToken: "synthetic" });
+  const view = render(<SecureCardAddForm collectSecurityCode getNetworkContext={context} onSubmit={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "0123" } });
+  if (boundary === "inactive") view.rerender(<SecureCardAddForm collectSecurityCode active={false} getNetworkContext={context} onSubmit={vi.fn()} />);
+  if (boundary === "owner") { owner = "owner-b"; view.rerender(<SecureCardAddForm collectSecurityCode getNetworkContext={context} onSubmit={vi.fn()} />); }
+  if (boundary === "hidden") {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    visibility.mockRestore();
+  }
+  await waitFor(() => expect(screen.getByLabelText("CVV")).toHaveValue(""));
+});
+
 
 function submit() {
   fireEvent.submit(screen.getByTestId("secure-card-add-form"));

@@ -12,6 +12,8 @@
  * brand for any region would refuse legitimately issued cards.
  */
 
+import { isWalletSecurityCode } from "./card-security-code";
+
 export const CARD_BRANDS = [
   "visa", "mastercard", "amex", "discover", "diners", "jcb",
   "unionpay", "rupay", "mir", "elo", "verve", "other",
@@ -80,9 +82,11 @@ export interface CardValidationInput {
   cardholderName: string;
   /** The owner may select a network for overlapping or newer BIN ranges. */
   brand?: CardBrand;
-  /** Legacy inputs are ignored; security codes are never required or stored. */
+  /** Legacy inputs remain ignored and are never promoted into manual codes. */
   cvv?: string;
   pin?: string;
+  /** Optional manual Wallet entry, separate from ignored legacy CVV inputs. */
+  securityCode?: string;
   expiryMonth: number;
   expiryYear: number;
   /** Optional ISO-3166 alpha-2, e.g. "IN", "US". */
@@ -105,6 +109,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   const validSelection = selectedBrand === undefined || isCardNetworkId(selectedBrand);
   const brand = validSelection ? (selectedBrand ?? "other") : "other";
   const cardholderName = String(input.cardholderName ?? "").trim();
+  if (input.securityCode !== undefined && input.securityCode !== "" && !isWalletSecurityCode(input.securityCode)) errors.push("security_code_invalid");
   if (!validSelection) errors.push("brand_invalid");
   if (!cardholderName) {
     errors.push("cardholder_name_required");

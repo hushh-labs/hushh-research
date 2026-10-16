@@ -17,13 +17,17 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { maskedCardNumberGroups } from "@/lib/wallet/wallet-card-presentation";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
+import { WalletSecurityCode } from "./wallet-security-code";
 
-export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove, disabled = false }: {
+export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove, disabled = false, active = true, onReadSecurityCode, securityCodeScope }: {
   card: WalletCardSummary;
   name?: string;
   onCopyCardNumber: () => Promise<boolean>;
   onRemove: () => void;
   disabled?: boolean;
+  active?: boolean;
+  onReadSecurityCode?: () => Promise<string | undefined>;
+  securityCodeScope?: string;
 }) {
   const [copying, setCopying] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -74,6 +78,7 @@ export function WalletSavedCardDetails({ card, name, onCopyCardNumber, onRemove,
             </button> : <span className="-my-0.5 size-11 shrink-0" aria-hidden="true" />}
           </span>
         } />)}
+        {onReadSecurityCode ? <WalletSecurityCode key={securityCodeScope} active={active && !disabled} onRead={onReadSecurityCode} /> : null}
         <SettingsRow
           icon={ProfilePaneDeleteIcon}
           title="Remove card"
