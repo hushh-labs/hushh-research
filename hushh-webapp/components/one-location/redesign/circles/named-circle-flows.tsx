@@ -2833,32 +2833,32 @@ export function CircleDetailFlow({
                                   />
                                 }
                                 title={
-                                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
-                                      {connection.displayName}
-                                    </span>
-                                    {connection.connectedFromContacts ? (
-                                      <ContactSourceBadge />
-                                    ) : null}
+                                  <span className="block min-w-0 truncate">
+                                    {connection.displayName}
                                   </span>
                                 }
                                 ariaPressed={selected}
                                 disabled={!selected && selectionAtCapacity}
                                 trailing={
-                                  <span
-                                    className={cn(
-                                      "flex h-6 w-6 items-center justify-center rounded-full border",
-                                      selected
-                                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                        : "border-border bg-transparent",
-                                    )}
-                                  >
-                                    {selected ? (
-                                      <Check
-                                        className="h-4 w-4"
-                                        weight="bold"
-                                      />
+                                  <span className="flex shrink-0 items-center gap-3">
+                                    {connection.connectedFromContacts ? (
+                                      <ContactSourceBadge />
                                     ) : null}
+                                    <span
+                                      className={cn(
+                                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                                        selected
+                                          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                                          : "border-border bg-transparent",
+                                      )}
+                                    >
+                                      {selected ? (
+                                        <Check
+                                          className="h-4 w-4"
+                                          weight="bold"
+                                        />
+                                      ) : null}
+                                    </span>
                                   </span>
                                 }
                                 onClick={() =>
