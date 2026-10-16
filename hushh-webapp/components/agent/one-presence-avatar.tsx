@@ -30,6 +30,9 @@ const portrait = {
 // HD exports embed one 1254px texture each. Limit backing memory while covering
 // the 224px panel and larger 256px presentations at three device pixels/CSS px.
 const maxDrawingSurfaceSize = 768;
+// One native loop is three seconds. Dwell begins after drawable artwork is
+// presented, independently of how quickly the actual task completes.
+const minimumPresenceMs = 3200;
 
 /** HD portrait motion runs in native Rive with 72-frame, 24 FPS loops. */
 export function OnePresenceAvatar({ state, className, presentation = "compact" }: {
@@ -38,20 +41,80 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
   presentation?: "compact" | "profile";
 }) {
   const request = useMemo(() => ({ state }), [state]);
-  const requestedRef = useRef(request);
   const surfaceRef = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => { requestedRef.current = request; }, [request]);
   const [displayed, setDisplayed] = useState(request);
-  const [ready, setReady] = useState<typeof request | null>(null);
-  const [fadingTo, setFadingTo] = useState<typeof request | null>(null);
-  const incoming = displayed.state === state || fadingTo?.state === state ? null : request;
+  const [pending, setPending] = useState<PresenceRequest[]>([]);
+  const [ready, setReady] = useState<PresenceRequest | null>(null);
+  const [displayedReady, setDisplayedReady] = useState<PresenceRequest | null>(null);
+  const [holdUntil, setHoldUntil] = useState<number | null>(null);
+  const [active, setActive] = useState(false);
+  const [fadingTo, setFadingTo] = useState<PresenceRequest | null>(null);
+  const failedRequest = useRef<PresenceRequest | null>(null);
+  const observedRequest = useRef(request);
+  const incoming = fadingTo || pending[0]?.state === displayed.state ? null : pending[0] ?? null;
+  const candidates = useRef({ displayed, incoming });
+  useLayoutEffect(() => { candidates.current = { displayed, incoming }; }, [displayed, incoming]);
   const handleReady = useCallback((candidate: PresenceRequest) => {
-    if (requestedRef.current === candidate) setReady(candidate);
+    if (candidates.current.displayed === candidate) setDisplayedReady(candidate);
+    else if (candidates.current.incoming === candidate) setReady(candidate);
   }, []);
 
   useEffect(() => {
-    if (!fadingTo && incoming && ready === incoming) setFadingTo(incoming);
-  }, [fadingTo, incoming, ready]);
+    let visible = typeof IntersectionObserver === "undefined";
+    const sync = () => setActive(visible && !document.hidden && appInteractionCoordinator.getLifecycleSnapshot().state === "active");
+    const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
+      visible = entries.some(entry => entry.isIntersecting);
+      sync();
+    });
+    observer?.observe(surfaceRef.current!);
+    const unsubscribe = appInteractionCoordinator.subscribeLifecycle(sync);
+    document.addEventListener("visibilitychange", sync);
+    sync();
+    return () => { observer?.disconnect(); unsubscribe(); document.removeEventListener("visibilitychange", sync); };
+  }, []);
+
+  useEffect(() => {
+    if (observedRequest.current === request) return;
+    observedRequest.current = request;
+    // Keep each distinct observed activity once, in order, rather than dropping
+    // a brief Working phase or building an unbounded history of repeated tools.
+    setPending(queue => queue.some(candidate => candidate.state === request.state)
+      || (!queue.length && !fadingTo && displayed.state === request.state)
+      ? queue : [...queue, request]);
+  }, [displayed.state, fadingTo, request]);
+
+  useEffect(() => {
+    if (!pending.length && !fadingTo && displayed.state !== request.state && failedRequest.current !== request) setPending([request]);
+    else if (!fadingTo && pending[0]?.state === displayed.state) setPending(queue => queue.slice(1));
+  }, [displayed, fadingTo, pending, request]);
+
+  useEffect(() => {
+    setHoldUntil(null);
+    if (!active || displayedReady !== displayed) return;
+    // Decode/load callbacks can precede paint. Cross two frame boundaries before
+    // counting the readable interval, including initial and reduced-motion art.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => setHoldUntil(performance.now() + minimumPresenceMs));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, displayed, displayedReady]);
+
+  useEffect(() => {
+    if (!active || fadingTo || !incoming || ready !== incoming || (holdUntil === null && displayedReady === displayed)) return;
+    const timer = window.setTimeout(() => setFadingTo(incoming), Math.max(0, (holdUntil ?? 0) - performance.now()));
+    return () => window.clearTimeout(timer);
+  }, [active, displayed, displayedReady, fadingTo, holdUntil, incoming, ready]);
+
+  useEffect(() => {
+    if (!active || !incoming || ready === incoming) return;
+    // A broken image AND Rive file must not pin the presentation queue forever.
+    // Retain painted outgoing pixels and allow the next valid activity to load.
+    const timer = window.setTimeout(() => {
+      failedRequest.current = incoming;
+      setPending(queue => queue.filter(candidate => candidate !== incoming));
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [active, incoming, ready]);
 
   useEffect(() => {
     if (!fadingTo) return;
@@ -70,7 +133,10 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
         frame = window.requestAnimationFrame(finish);
         return;
       }
+      setHoldUntil(null);
       setDisplayed(fadingTo);
+      setDisplayedReady(fadingTo);
+      setPending(queue => queue.filter(candidate => candidate !== fadingTo));
       setFadingTo(null);
       setReady(current => current === fadingTo ? null : current);
     };
@@ -88,7 +154,7 @@ export function OnePresenceAvatar({ state, className, presentation = "compact" }
           data-one-presence-layer={layer === displayed ? "current" : "incoming"}
           className="absolute inset-0 size-full motion-safe:transition-opacity motion-safe:duration-[var(--motion-duration-xl)] motion-safe:ease-[var(--motion-ease-decelerate)]"
           style={{ mixBlendMode: fadingTo ? "plus-lighter" : "normal", opacity: layer === displayed ? (fadingTo ? 0 : 1) : (layer === fadingTo ? 1 : 0) }}>
-          <OnePresencePlayback request={layer} presentation={presentation} onReady={layer === incoming ? handleReady : undefined} />
+          <OnePresencePlayback request={layer} presentation={presentation} onReady={handleReady} />
         </span>
       ))}
     </span>
