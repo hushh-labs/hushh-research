@@ -8,15 +8,15 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-16 UTC
 
-**Hold the application merge and production BYOC rollout.** The hub and frontend
-serve backend `439f181304` and frontend `5c2d1483aa`; the personal Azure pod completed its Dev 19
+**Hold the application merge and production BYOC rollout.** The hub and frontend now
+serve `c13b3899ba`; the personal Azure pod retains its Dev 19
 Settings-approved installation. Recovery,
 installed digest, unchanged hosting, post-update Puppy streaming/Stop and
 byte-exact interrupted Files transfer passed. Dev 19's active-at-handoff overlap
 did not occur; retain that attempt separately from Dev 17's verified active drain.
 Native connectors, cold-start latency and production controls remain unqualified. Peer WorkOS SSO remains off: deprovisioning must fence existing consent tokens even when Firebase quarantine fails.
-The next candidate adds restart-safe private command/MCP recovery; local evidence
-is not deployed acceptance. Computer Use and cross-cloud moves remain disabled.
+The new source adds restart-safe private command/MCP recovery; owner-image
+installation and live journey acceptance remain separate. Computer Use and cross-cloud moves remain disabled.
 Existing owners retain their resources and selected configuration.
 
 **16 October resource correction:** the personal Azure owner approved 1 vCPU /
@@ -34,12 +34,14 @@ Puppy sample, not a p95 or cloud-model result; latency remains unqualified.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**Serving, 16 October 10:30 UTC:** verified ADC readback shows backend
-`439f181304` / `00173-w2c` and frontend `5c2d1483aa` / `00146-l8q`, each at
-100% traffic. Backend [deployment 38826621789](https://github.com/hushh-labs/hushh-research/actions/runs/38826621789)
-installed the Gemini 3.8/healthy-bridge repair. Files 959 is applied; 960–963 are
-pending and history cleanup 249 remains deferred. No failed ledger row or checksum
-drift was found; no setup worker was running at this observation.
+**Serving, 16 October 18:54 UTC:** [dev deployment 38947511945](https://github.com/hushh-labs/hushh-research/actions/runs/38947511945)
+completed healthy. Verified ADC readback confirms **`c13b3899ba` on both services**:
+backend `00174-f5s` and frontend `00147-h45`, each at 100% traffic. Their immutable
+digests match workflow provenance. The minimum schema passes; parked 959–963 are
+applied with no failed journal rows or checksum drift. History cleanup 249 stays
+deferred. Rollback revisions are backend `00173-w2c` and frontend `00146-l8q`.
+Selected PKM preservation and reviewer navigation/cold re-unlock passed. These
+do not establish full owner-cloud Files, connector or software-update acceptance.
 
 **Frozen application:** `c13b3899ba` includes the negotiated legacy-pod receipt
 compatibility repair and reviewed main integration. The canonical local core is
@@ -50,12 +52,16 @@ failure is retained; its permanent test-only correction passes all 32 nearest
 cases. Production serialization and privacy checks are unchanged. No passing lane
 was restarted and no gate, deadline or assertion was relaxed.
 
-**Deployment authority:** workflow-only [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121),
-source `a68edc769f`, passed all 25 hosted checks. It separates the full manual
-branch verdict from PR merge approval, with exact Actions workflow/event/suite/SHA
-provenance and dev-only admission. GitHub still requires independent approval of
-the latest push: auto-merge is enabled, but there is no queue entry or main
-landing. The application remains unmerged, and dev traffic is unchanged.
+**Deployment authority:** workflow-only [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121)
+landed through the owner-authorized Admin queue bypass at `745911d536` after
+[exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/38942154162)
+passed. The original cleanup-order and synthetic-watchdog failures remain
+recorded; only failed jobs were retried, with no assertion or deadline relaxed.
+`azfx` was removed from the seven governed access lists, its invitation was
+cancelled, and live main/train branch-protection parity passed. The
+[landed-SHA smoke check](https://github.com/hushh-labs/hushh-research/actions/runs/38946927965)
+passed. The frozen branch candidate is deployed and serving readback passes.
+The application remains unmerged; owner installation is separate.
 
 **Compatibility:** [deployment 38894554442](https://github.com/hushh-labs/hushh-research/actions/runs/38894554442)
 was cancelled before traffic changed when new receipt declarations proved
@@ -93,8 +99,8 @@ ratchet without a baseline waiver; 174 backend checks plus the corrected 42-case
 boundary run, 115 frontend checks, typecheck and regenerated UI contracts pass.
 Live disposable cleanup remains a release acceptance requirement.
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
-adapter. Dev 20 therefore builds a new immutable dev image with **no supported
-upgrade predecessors**. Isolated exact-image recovery must pass before adding a
+adapter. Dev 20 is now published as immutable digest `72b049dfdbc2…842b001b`, with **no supported
+upgrade predecessors**. Mounted hub metadata matches its generation-pinned archive. Isolated exact-image recovery must pass before adding a
 predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
@@ -103,7 +109,7 @@ fixture using its managed identity. Reads were bounded; no keys were exported or
 storage contents changed. The Job was deleted and ARM absence verified. This is
 predecessor recovery evidence, not target-image or owner-update acceptance.
 
-**Lifecycle correction — local, not deployed:** setup, updates and rebuilds
+**Lifecycle correction — hub deployed; owner image not installed:** setup, updates and rebuilds
 retain exact admitted requests and join actual workers before release. Connector
 revocation requires validated historical coverage; legacy zero counters cannot
 qualify cleanup. Unknown cloud responses remain unresolved and are never replayed. A signed,
@@ -113,7 +119,7 @@ owner approval and complete cleanup composition remain required.
 | Cleanup boundary | Local evidence | Remaining release condition |
 | --- | --- | --- |
 | GCP operator-project Gmail | 476 affected checks pass, including real PostgreSQL full-topic admission/acknowledgement/deletion, retained creation/IAM history and attached-identity separation. Missing-proof and dropped-history negative controls fail | Dev-only963 schema and hub must serve before new notification plans; live disposable owner cleanup still required |
-| Azure | Owner inspection, exact resource/retention approval, fresh JIT callback and journalled teardown compose locally. 358 backend and 92 UI cases pass; removing the completion gate fails its negative control. The explicit checkpoint backend preserves fresh delegated authority; default-observer substitution fails its regression control | Generated UI contracts and typecheck pass. Responsive live review, combined core/hosted validation and disposable dev cleanup remain required; no personal account deletion was attempted |
+| Azure | Owner inspection, exact resource/retention approval, fresh JIT callback and journalled teardown compose locally. 358 backend and 92 UI cases pass; removing the completion gate fails its negative control. The explicit checkpoint backend preserves fresh delegated authority; default-observer substitution fails its regression control | Generated UI contracts and typecheck pass. Combined core/hosted validation and deployment pass; responsive owner review and disposable dev cleanup remain required; no personal account deletion was attempted |
 
 Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
 are candidate migrations; 962 is now selected for governed dev rehearsal,
@@ -147,10 +153,10 @@ probes do not establish owner-cloud acceptance.
 
 | Surface | Current evidence | Limit |
 | --- | --- | --- |
-| Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
+| Dev hub/frontend | ADC readback: both `c13b3899ba`; backend `00174-f5s` / digest `74748b1cc3ea`, frontend `00147-h45` / `2991a17d7bb8`, 100% each | Governed deployment and independent serving/schema readback pass; owner pods remain independently installed |
 | Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
-| Combined source | Frozen executable candidate `c13b3899ba`: receipt correction, reviewed main integration and event-separated dev validation. Local ADK intake remains frozen at `2462c0bc6f` | Exact-SHA CI passes; workflow landing and governed dev deployment remain required. Subsequent test/memo corrections are not a new deployed executable |
-| Verification | Application `c13b3899ba` passed exact-SHA hosted CI on attempt 2 after the single classified fixture retry. Workflow-only `a68edc769f` passed all 25 checks | Original failures are retained. Independent workflow review and live owner journeys remain required |
+| Combined source | Frozen executable candidate `c13b3899ba`: receipt correction, reviewed main integration and event-separated dev validation. Local ADK intake remains frozen at `2462c0bc6f` | Exact-SHA CI, workflow landing and governed dev deployment pass. Subsequent test/memo corrections are not a new deployed executable |
+| Verification | Application `c13b3899ba` passed exact-SHA hosted CI on attempt 2 after the single classified fixture retry. Workflow-only `9e634f1537` passed all hosted checks and landed through the authorized Admin SOP | Original failures are retained. Live owner journeys remain required; Admin authority and landed smoke are verified |
 | Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
 | Recovery fixtures | GCP synthetic owner recovered under its runtime identity. Azure native identity recovered 57 encrypted records and its original 4,195,328-byte Files fixture exactly; temporary Jobs were removed and absence verified | Original failed probes remain recorded. This qualifies predecessor recovery only; the next exact target image still needs continuity verification |
 
@@ -160,9 +166,9 @@ probes do not establish owner-cloud acceptance.
 | --- | --- | --- |
 | Files workspace | Dedicated `agent_files` explorer. Normal owner on Azure Dev 17: interrupted/resumed upload and download with one stable identity, byte-exact integrity, folders, inline rename/undo, move/undo, trash/restore and cold passphrase unlock. The first premature-resume harness attempt is retained; the corrected run proves one identity | Repeat new/existing setup and owner-cloud storage/IAM acceptance in UAT. Local UI checks do not prove cloud custody. |
 | Files organization | Normal owner Azure Dev 17 synthetic text reached the authenticated queue and terminal organized outcome; post-organization download preserved the original bytes. Earlier semantic move/undo remains dated Dev 15 evidence. On the exact Dev 16 target, GCP Cloud Tasks and Azure managed-identity Storage Queue completed automatic synthetic organization in 45.198 s and 51.24 s; originals remained byte-exact and analysis/automatic settings were restored | These disposable fixtures do not establish fresh owner provisioning or UAT acceptance. Trash does not claim physical deletion; unchanged results do not prove a semantic move. |
-| Updates | Exact Dev 15 → Dev 16 recovery passed on both clouds. Earlier normal Dev 12/15 owner-approved installations pass; Dev 17 pins the qualified executable and predecessor without rebuilding it | Active-work Settings approval, authenticated durable handoff, restart, recovery and digest readback passed on the personal pod. The persisted approval and acknowledgement name the same exact operation across the sign-in retries; supported navigation refresh unblocked hidden callback hydration. Automatic recovery is not yet serving. Feed consistency, broader interruption cases and production rollback remain separate checks. |
+| Updates | Exact Dev 15 → Dev 16 recovery passed on both clouds. Earlier normal Dev 12/15 owner-approved installations pass; Dev 17 pins the qualified executable and predecessor without rebuilding it | Active-work Settings approval, authenticated durable handoff, restart, recovery and digest readback passed on the personal pod. The persisted approval and acknowledgement name the same exact operation across the sign-in retries; supported navigation refresh unblocked hidden callback hydration. Automatic recovery requires installation of the new qualified pod image. Feed consistency, broader interruption cases and production rollback remain separate checks. |
 | Private chat | Exact Dev 18 disposable image: GCP and Azure readers disconnected after admitted run start; both observed pending work followed by the complete encrypted assistant outcome, with exactly one turn POST. Completion took 33.804 s and 39.537 s | Synthetic same-process detach evidence, not cold p95, uninterrupted background CPU or crash recovery. Recorded voice, complete connector approval/resume and the failed cold-start target remain separate. |
-| Restart continuation | Files jobs and update operations have persisted reconciliation owners. Chat recovers saved history; detached live work retains its original authorization deadline | Universal restart-safe continuation is not established. Serving Dev 19 retains process-local command checkpoints and connector pending arguments; the unserved candidate adds sealed recovery through their existing owners. Recovered or changed terms require current admission and exact review; uncertain effects must not be blindly replayed. |
+| Restart continuation | Files jobs and update operations have persisted reconciliation owners. Chat recovers saved history; detached live work retains its original authorization deadline | Universal restart-safe continuation is not established. Serving Dev 19 retains process-local command checkpoints and connector pending arguments; the published but uninstalled Dev 20 image adds sealed recovery through their existing owners. Recovered or changed terms require current admission and exact review; uncertain effects must not be blindly replayed. |
 | Puppy / phone | Physical S24 Ultra has dated signed-admission, direct stream and same-turn Stop receipts. After the Mac reboot, the existing Hermes identity reconnected: first browser turn failed at 93.1 s; warm retry streamed first text at 17.667 s and completed at 18.345 s. Existing grant withdrawal, reconnect and idle/wake receipts remain. | The failed first attempt is retained. Dev 19 post-update owner response, actual Gemma model and server-side Stop passed; warm first text 16.136 s/total 16.328 s. Earlier failed and cold samples remain retained. Independent internet paths remain unverified. Restored wireless pairing does not prove the currently intermittent phone browser-debug transport. |
 | Setup / billing | Durable retry, recovery links, explicit Shared/unplaced authority and assignment preservation exist | Fresh setup and missing-billing/policy return on both clouds without duplicate resources. |
 | Google connectors | Sealed native authorization, refresh/restart fences, exact reviews and direct notification coalescing exist | Native iOS/Android authorization, scope upgrades, direct delivery and approved legacy hub credential removal. |
@@ -170,7 +176,7 @@ probes do not establish owner-cloud acceptance.
 | Resource lifecycle | Oct 12 Azure inventory classified active, shared recovery, pending setup and obsolete synthetic resources. Two obsolete test apps, one temporary registry and its exact pull grant were deleted and absence verified. Personal pod configuration is unchanged; shared storage, keys, identities and environment were retained | GCP retained object versions still require custody/retention reconciliation; Azure fixture prefix access is refused. No complete physical erasure claim. |
 | Native security | Exact Capacitor 8.4.3 pins and reserved-proxy chat refusal; old-code negative control fails | Rebuilt native binaries and their independent distribution/acceptance. Web deployment is not a native release. |
 | Computer Use | Local task rediscovery, explicit takeover/handback, current-owner Stop and metadata-only recovery have focused source evidence. Controlled Chromium login/redirect fixtures pass | GCP worker identity/private bridge and Azure supported identity/execution/private bridge remain unqualified. Feature disabled on both clouds; no live owner browser claim. |
-| Scheduled tasks | Local Files-only template, exact revision/grant checks, durable outbox, duplicate/uncertain fencing and pending cancellation covered by nearest core suites | GCP due-time delivery needs live wake/idle acceptance. Azure due-time delivery, general goals and scheduled browser work are unavailable. No new source is serving yet. |
+| Scheduled tasks | Local Files-only template, exact revision/grant checks, durable outbox, duplicate/uncertain fencing and pending cancellation covered by nearest core suites | GCP due-time delivery needs live wake/idle acceptance. Azure due-time delivery, general goals and scheduled browser work are unavailable. The hub source is serving; owner-image and task delivery acceptance remain separate. |
 
 Puppy requires a registry-confirmed owner-cloud assignment, active device and
 owner grant bound to the current pod incarnation. Shared and Hussh-hosted pod
