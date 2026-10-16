@@ -158,7 +158,15 @@ def _payload_over_the_arg_limit() -> dict:
     return {"total_count": len(runs), "check_runs": runs}
 
 
-def _run_gate(tmp_path: Path, payload: dict, *, reachable: bool = True):
+def _run_gate(
+    tmp_path: Path,
+    payload: dict,
+    *,
+    reachable: bool = True,
+    accepted: str = ACCEPTED,
+    workflow_runs: list[dict] | None = None,
+    provenance_failure: bool = False,
+):
     """Execute the real gate with `git` and `curl` stubbed onto PATH.
 
     `python3` is deliberately NOT stubbed — the defect was in how python3 was
@@ -167,6 +175,8 @@ def _run_gate(tmp_path: Path, payload: dict, *, reachable: bool = True):
     payload_file = tmp_path / "payload.json"
     payload_file.write_text(json.dumps(payload), encoding="utf-8")
 
+    provenance_file = tmp_path / "provenance.json"
+    provenance_file.write_text(json.dumps({"workflow_runs": workflow_runs or []}), encoding="utf-8")
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir()
 
@@ -183,7 +193,12 @@ def _run_gate(tmp_path: Path, payload: dict, *, reachable: bool = True):
         "#!/usr/bin/env bash\n"
         'out=""; prev=""\n'
         'for arg in "$@"; do [ "$prev" = "-o" ] && out="$arg"; prev="$arg"; done\n'
-        'cp "$FIXTURE" "$out"\n',
+        'case "$*" in\n'
+        "  *actions/workflows/ci.yml/runs*)\n"
+        '    [ "$PROVENANCE_FAILURE" = "0" ] || exit 22\n'
+        '    cp "$PROVENANCE_FIXTURE" "$out" ;;\n'
+        '  *) cp "$FIXTURE" "$out" ;;\n'
+        "esac\n",
         encoding="utf-8",
     )
     for stub in ("git", "curl"):
@@ -196,7 +211,9 @@ def _run_gate(tmp_path: Path, payload: dict, *, reachable: bool = True):
             "FIXTURE": str(payload_file),
             "REQUIRED_BRANCH": BRANCH,
             "REQUIRE_CI_SUCCESS": "1",
-            "REQUIRED_CHECK_NAME": ACCEPTED,
+            "REQUIRED_CHECK_NAME": accepted,
+            "PROVENANCE_FIXTURE": str(provenance_file),
+            "PROVENANCE_FAILURE": "1" if provenance_failure else "0",
             "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
             "GITHUB_TOKEN": "stub-token",
         }
@@ -350,3 +367,107 @@ def test_gate_finds_the_smoke_gate_behind_more_than_a_page_of_newer_checks(
     else:
         assert result.returncode != 0
         assert "is successful" in result.stderr
+
+
+def _branch_receipt() -> tuple[dict, dict]:
+    check = _check_run("Branch Validation Gate", "success", 1)
+    workflow = {
+        "head_sha": TARGET_SHA,
+        "check_suite_id": check["check_suite"]["id"],
+        "path": ".github/workflows/ci.yml",
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    return check, workflow
+
+
+def test_branch_verdict_is_not_an_ordinary_release_check(tmp_path: Path) -> None:
+    check, workflow = _branch_receipt()
+    result = _run_gate(tmp_path, {"check_runs": [check]}, workflow_runs=[workflow])
+    assert result.returncode != 0
+    assert "found for" in result.stderr
+
+
+def test_dev_explicitly_accepts_authenticated_full_branch_verdict(tmp_path: Path) -> None:
+    check, workflow = _branch_receipt()
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [check]},
+        accepted=ACCEPTED + ",Branch Validation Gate",
+        workflow_runs=[workflow],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Branch Validation Gate" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong-app",
+        "wrong-slug",
+        "wrong-check-sha",
+        "unfinished-check",
+        "missing-suite",
+        "wrong-workflow",
+        "wrong-event",
+        "wrong-run-sha",
+        "wrong-suite",
+        "failed-run",
+        "unfinished-run",
+        "missing-run",
+        "lookup-failed",
+        "unreachable-sha",
+    ],
+)
+def test_branch_verdict_requires_exact_workflow_provenance(tmp_path: Path, mutation: str) -> None:
+    check, workflow = _branch_receipt()
+    if mutation == "wrong-app":
+        check["app"]["id"] = 42
+    elif mutation == "wrong-slug":
+        check["app"]["slug"] = "another-app"
+    elif mutation == "wrong-check-sha":
+        check["head_sha"] = "0" * 40
+    elif mutation == "unfinished-check":
+        check["status"] = "in_progress"
+    elif mutation == "missing-suite":
+        check["check_suite"] = {}
+    elif mutation == "wrong-workflow":
+        workflow["path"] = ".github/workflows/another.yml"
+    elif mutation == "wrong-event":
+        workflow["event"] = "pull_request"
+    elif mutation == "wrong-run-sha":
+        workflow["head_sha"] = "0" * 40
+    elif mutation == "wrong-suite":
+        workflow["check_suite_id"] = 42
+    elif mutation == "failed-run":
+        workflow["conclusion"] = "failure"
+    elif mutation == "unfinished-run":
+        workflow["status"] = "in_progress"
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [check]},
+        accepted=ACCEPTED + ",Branch Validation Gate",
+        workflow_runs=[] if mutation == "missing-run" else [workflow],
+        provenance_failure=mutation == "lookup-failed",
+        reachable=mutation != "unreachable-sha",
+    )
+    assert result.returncode != 0, mutation
+
+
+def test_only_dev_workflow_accepts_branch_validation_gate() -> None:
+    # Cross-lane release authority has no runtime API: authored workflow inputs
+    # are its contract. Exercise the actual SHA verifier above as well.
+    import yaml
+
+    consumers = []
+    for path in (REPO_ROOT / ".github/workflows").glob("*.yml"):
+        workflow = yaml.safe_load(path.read_text())
+        for job in workflow.get("jobs", {}).values():
+            for step in job.get("steps", []):
+                accepted = str(step.get("env", {}).get("REQUIRED_CHECK_NAME", ""))
+                if "Branch Validation Gate" in accepted.split(","):
+                    consumers.append(path.name)
+    assert consumers == ["deploy-dev.yml"]
+    policy = json.loads((REPO_ROOT / "config/ci-governance.json").read_text())
+    assert "Branch Validation Gate" not in json.dumps(policy)
