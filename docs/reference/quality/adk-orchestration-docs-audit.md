@@ -50,8 +50,17 @@ was cancelled before traffic changed: new receipt tool declarations were incompa
 with older installed pods. Fresh serving and migration-ledger readbacks are unchanged.
 The bounded correction negotiates the authenticated receipt capability before sending;
 legacy pods retain ordinary chat, while unsupported receipt continuations refuse
-explicitly. Focused positive and broken-code negative checks pass; this correction
-still requires exact-revision CI and deployment. Concurrent root edits are preserved.
+explicitly. Correction `25162f54be` passed the local core mirror, including
+20,812 parallel backend, 1,008 serial and 396 integration checks, plus its
+broken-code negative control. The combined source now includes reviewed main
+`3ba21ab8c8`; resumed core evidence preserves the original local fixture failures
+and passes the affected fallback cases without weakening gates. Hosted validation
+has not started for this correction because the open PR conflicts with newer main.
+A separate workflow-only change introduces a dev-only full branch verdict, bound
+to the exact Actions workflow, event, check suite and SHA. It does not authorize
+PR merge, UAT or production. Independent authority review and 110 focused checks
+pass; its main-owned workflow landing and exact candidate CI remain required.
+Concurrent root edits are preserved.
 New main `3ba21ab8c8` then blocked PR mergeability. Its Calendar/Circle changes
 are integrated with migration 357 and preserved branch schema head 406; 42 isolated
 PostgreSQL and 62 frontend checks pass. After Circle message actions occur,
@@ -141,8 +150,8 @@ probes do not establish owner-cloud acceptance.
 | --- | --- | --- |
 | Dev hub/frontend | ADC readback: backend `439f181304` / digest `08cf25d8c1b9`, frontend `5c2d1483aa` / `339764383422`, 100% each | Mixed source revisions; next governed release must be read back independently |
 | Personal Azure pod | Dev 19 `fa018342ab72`, source `e04b76c61433`; revision `ca-hussh-one-pod--ra36f90e3d756` | Same-image resource maintenance, not a new software installation |
-| Combined source | `54bad3e924` has complete hosted CI; root `f1e6c732ae` has the identical source tree. Local ADK intake remains frozen at `2462c0bc6f` | Receipt capability correction is under final local validation; its new exact SHA needs hosted CI |
-| Verification | Complete hosted CI passed for `54bad3e924`; the corrected candidate has focused transport/authority checks and a passing architecture ratchet | Original failed CI attempts are retained. CI does not prove live owner journeys |
+| Combined source | Receipt correction `25162f54be`; reviewed main integration `d040dcd4e1`; event-separated dev branch validation `641995eccb`. Local ADK intake remains frozen at `2462c0bc6f` | New exact combined SHA still needs hosted CI and governed dev deployment; no further broad main/ADK intake in this cycle |
+| Verification | Hosted CI passed for `54bad3e924`; the corrected application has canonical local core evidence, focused transport/authority negatives, reviewed migration 357 and a passing architecture ratchet | Original CI and local fixture failures are retained; workflow-only correction is being verified separately. CI does not prove live owner journeys |
 | Prior image recovery | Exact `47bb9a718063` → `fa018342ab72` passed on both disposable clouds; normal Dev 19 owner installation and continuity passed | No compatibility claim for the next image until its exact pair is qualified |
 | Recovery fixtures | GCP synthetic owner recovered under its runtime identity. Azure native identity recovered 57 encrypted records and its original 4,195,328-byte Files fixture exactly; temporary Jobs were removed and absence verified | Original failed probes remain recorded. This qualifies predecessor recovery only; the next exact target image still needs continuity verification |
 
