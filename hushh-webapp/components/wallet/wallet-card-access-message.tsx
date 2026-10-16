@@ -107,7 +107,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
           {view?.data.status === "verification_required" ? <div className="space-y-3"><p className="text-xs">Verify your identity to view this card.</p><Button disabled={busy} onClick={() => void verify()}>{busy ? "Verifying…" : "Verify identity"}</Button></div> : null}
           {view?.data.status === "expired" || view?.data.status === "revoked" ? <p role="status">This access has ended.</p> : null}
           {view?.data.status === "unavailable" ? <p role="status">This card is currently unavailable.</p> : null}
-          {profile ? <PublicWalletCardView embedded card={profile} /> : null}
+          {profile ? <PublicWalletCardView embedded visualCard card={profile} /> : null}
           {card ? <>
             <p className="text-xs">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
             <div className="mx-auto mt-4 w-full max-w-md">

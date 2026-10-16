@@ -67,7 +67,9 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
-import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
+import { isAgentWalletCard, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -273,6 +275,9 @@ export function WalletWorkspace() {
     setIntroductionSaving(false);
   };
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
+  const tabHistory = useRef<{ tab: WalletTab; cardId: string | null }[]>([]);
+  const addSaveInFlight = useRef<symbol | null>(null);
+  useEffect(() => { tabHistory.current = []; addSaveInFlight.current = null; }, [renderedOwnerId, vaultKey]);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
   const activeTab = view.kind === "add" ? "add" : tab;
@@ -304,6 +309,7 @@ export function WalletWorkspace() {
   const [filing, setFiling] = useState<{ secretId: string; pan: string } | null>(null);
   useEffect(() => {
     if (!ready) {
+      tabHistory.current = [];
       setSelectedDeckCardId(null);
       setRemovingCardId(null);
       setTab("cards");
@@ -326,6 +332,8 @@ export function WalletWorkspace() {
 
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
+    if (value === "cards") tabHistory.current = [];
+    else tabHistory.current = [...tabHistory.current.slice(-23), { tab: activeTab, cardId: selectedDeckCardId }];
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
@@ -341,6 +349,24 @@ export function WalletWorkspace() {
       });
     }
   };
+  const returnToWalletView = () => {
+    if (addSaveInFlight.current) return true;
+    if (activeTab === "add") {
+      setFormRevision(revision => revision + 1);
+      setOfferNickname(null);
+      clearSecretOffer();
+      setFiling(null);
+    }
+    const previous = tabHistory.current.pop() ?? { tab: "cards" as const, cardId: null };
+    dispatch({ type: "unfocus" });
+    dispatch({ type: "close_add" });
+    setTab(previous.tab);
+    const cardId = previous.tab === "cards" && previous.cardId && (isAgentWalletCard(previous.cardId) || cards.some(card => card.cardId === previous.cardId)) ? previous.cardId : null;
+    setSelectedDeckCardId(cardId);
+    if (cardId && !isAgentWalletCard(cardId)) dispatch({ type: "focus", cardId });
+    return true;
+  };
+  useBackLayer(ROUTES.ONE_WALLET, ready && !introductionOpen && activeTab !== "cards" ? 1 : 0, returnToWalletView);
   // Metadata search stays in q; presentation selection stays in memory.
   const routeQuery = searchParams?.get("q") || "";
   const [searchValue, setSearchValue] = useState(routeQuery);
@@ -708,7 +734,7 @@ export function WalletWorkspace() {
     setSearchOpen(false);
     setSelectedDeckCardId(cardId);
     dispatch({ type: "unfocus" });
-    dispatch({ type: "focus", cardId });
+    if (!isAgentWalletCard(cardId)) dispatch({ type: "focus", cardId });
   };
 
   const removeCard = async (cardId: string, context: NonNullable<ReturnType<typeof vaultContext>>) => {
@@ -975,7 +1001,7 @@ export function WalletWorkspace() {
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
               onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
-              onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
+              onAdd={() => selectTab("add")}
               details={cardDetails}
               dockHost={cardDockHost}
               active={activeTab === "cards"}
@@ -997,77 +1023,75 @@ export function WalletWorkspace() {
                 initialNickname={offerNickname ?? undefined}
                 initialPan={filing?.pan}
                 onSubmit={async (card) => {
-                  const context = vaultContext();
-                  if (!context) throw new Error("Unlock your vault to save a card.");
-                  let savedCardId: string | null = null;
-                  let retryArtwork = false;
+                  const save = Symbol("wallet-add");
+                  addSaveInFlight.current = save;
                   try {
-                    const saved = await WalletService.addCard({
-                      ...context,
-                      card,
-                      surface: "web",
-                      source: "one_wallet_add",
-                      reserveCardId: async () => {
-                        let registered: string | null = null;
-                        try {
-                          const token = await user!.getIdToken();
-                          if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
-                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, card.draftId || crypto.randomUUID())).cardId;
-                        } catch { /* A backend rollout must not prevent saving an unverified card. */ }
-                        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
-                        return registered;
-                      },
-                    });
-                    const current = vaultContextRef.current();
-                    if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
-                    // A list request begun before this receipt cannot remove the new card.
-                    cardReadRevision.current += 1;
-                    setCardSnapshot((previous) => {
-                      const owned = previous?.ownerId === context.userId ? previous : null;
-                      const pendingArtworkIds = new Set(owned?.pendingArtworkIds);
-                      pendingArtworkIds.delete(saved.cardId);
-                      if (saved.summary.brand !== "other" && (!saved.artwork || saved.artwork.source === "neutral")) pendingArtworkIds.add(saved.cardId);
-                      return {
-                        ownerId: context.userId,
-                        cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
-                        cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
-                        artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
-                        pendingArtworkIds,
-                      };
-                    });
-                    setSelectedDeckCardId(saved.cardId);
-                    savedCardId = saved.cardId;
-                    retryArtwork = !saved.artwork || saved.artwork.source === "neutral";
-                    if (activeOwnerIdRef.current === context.userId) {
-                      trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+                    const context = vaultContext();
+                    if (!context) throw new Error("Unlock your vault to save a card.");
+                    let savedCardId: string | null = null;
+                    let retryArtwork = false;
+                    try {
+                      const saved = await WalletService.addCard({
+                        ...context,
+                        card,
+                        surface: "web",
+                        source: "one_wallet_add",
+                        reserveCardId: async () => {
+                          let registered: string | null = null;
+                          try {
+                            const token = await user!.getIdToken();
+                            if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
+                            registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, card.draftId || crypto.randomUUID())).cardId;
+                          } catch { /* A backend rollout must not prevent saving an unverified card. */ }
+                          if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
+                          return registered;
+                        },
+                      });
+                      const current = vaultContextRef.current();
+                      if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
+                      // A list request begun before this receipt cannot remove the new card.
+                      cardReadRevision.current += 1;
+                      setCardSnapshot((previous) => {
+                        const owned = previous?.ownerId === context.userId ? previous : null;
+                        const pendingArtworkIds = new Set(owned?.pendingArtworkIds);
+                        pendingArtworkIds.delete(saved.cardId);
+                        if (saved.summary.brand !== "other" && (!saved.artwork || saved.artwork.source === "neutral")) pendingArtworkIds.add(saved.cardId);
+                        return {
+                          ownerId: context.userId,
+                          cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
+                          cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
+                          artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
+                          pendingArtworkIds,
+                        };
+                      });
+                      setSelectedDeckCardId(saved.cardId);
+                      savedCardId = saved.cardId;
+                      retryArtwork = !saved.artwork || saved.artwork.source === "neutral";
+                      if (activeOwnerIdRef.current === context.userId) {
+                        trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+                      }
+                    } catch (error) {
+                      if (activeOwnerIdRef.current === context.userId) {
+                        trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+                      }
+                      throw error;
                     }
-                  } catch (error) {
-                    if (activeOwnerIdRef.current === context.userId) {
-                      trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+                    setFormRevision((revision) => revision + 1);
+                    tabHistory.current = [];
+                    setTab("cards");
+                    dispatch({ type: "close_add" });
+                    if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });
+                    // Show the saved card immediately; recover optional art in the background.
+                    if (retryArtwork) setArtworkRetryRevision(revision => revision + 1);
+                    setOfferNickname(null);
+                    if (filing) {
+                      clearSecretOffer();
+                      void SecretsVaultService.markFiled({ ...context, secretId: filing.secretId, filedTo: "wallet" }).catch(() => undefined);
+                      setFiling(null);
                     }
-                    throw error;
-                  }
-                  setFormRevision((revision) => revision + 1);
-                  setTab("cards");
-                  dispatch({ type: "close_add" });
-                  if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });
-                  // Show the saved card immediately; recover optional art in the background.
-                  if (retryArtwork) setArtworkRetryRevision(revision => revision + 1);
-                  setOfferNickname(null);
-                  if (filing) {
-                    clearSecretOffer();
-                    void SecretsVaultService.markFiled({ ...context, secretId: filing.secretId, filedTo: "wallet" }).catch(() => undefined);
-                    setFiling(null);
-                  }
+                  } finally { if (addSaveInFlight.current === save) addSaveInFlight.current = null; }
                 }}
-                onCancel={() => {
-                  setFormRevision((revision) => revision + 1);
-                  setTab("cards");
-                  setOfferNickname(null);
-                  clearSecretOffer();
-                  setFiling(null);
-                  dispatch({ type: "close_add" });
-                }}
+                onCancel={returnToWalletView}
               />
             </div>
           ) : null}

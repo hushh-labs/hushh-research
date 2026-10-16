@@ -97,8 +97,9 @@ Cards owns the animated collection, safe summary search, and the existing
 explicit reveal/removal actions. Profile, Referral and NWS are system cards and
 remain present beside saved payment cards. They never enter payment-card storage
 or invoke payment-card reveal/removal services.
-Add opens the encrypted card-entry form directly. Save and Cancel return to
-Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
+Add opens the encrypted card-entry form directly. Save selects the new card in
+Cards. Back and Cancel restore the previous Wallet tab or selected card; leaving
+Add clears its draft. Explicit tab switching preserves and masks an unfinished draft. Vault lock
 discards the form and revealed details. Chat and Secrets handoffs wait until
 Continue, then use the existing card-entry flow.
 
@@ -111,9 +112,11 @@ source artwork.
 ## Adding a payment card
 
 The Add tab accepts local camera capture, photo selection and manual entry.
-Card number, name on card and expiry are required. Network and issuing region
-are optional. Security codes are never collected or retained. A blank network
-uses number-based network detection, with Other for a valid unrecognized number;
+Card number, name on card, expiry and network carry required markers. An
+automatically identified network satisfies the network field; an unknown or unavailable
+identification requires an explicit choice. Issuing region stays optional and is
+always visible in the main form, without an additional-details disclosure. Security codes are never collected or retained. A blank network
+uses number-based network detection; the owner selects Other for a valid unrecognized number;
 a supplied provider supports overlapping network ranges. A supplied region is
 validated, while a blank region stays blank. Existing nicknames remain readable;
 new cards use the network label without asking for a nickname.
@@ -585,3 +588,7 @@ behavior. No replacement Firebase configuration was fabricated or committed.
 Licensed product coverage, historical credential retention and native/device
 rehearsals must be approved before this draft feature is released. No deploy or
 merge is part of this task.
+
+Manual entry inserts spaces after every four number digits and an expiry slash after the month. Generic Other cards support checksum-valid 12–19 digit numbers; known networks retain their own length rules, including 15-digit American Express. Formatting never adds separators to encrypted number storage or sends a full number to network lookup.
+
+Wallet swipe controls use a 3px header-to-details gap (75% less than the inherited 12px Profile margin), with a compact heading and 48px read-only summary rows; the close target remains 44px. The versioned Agent One artwork reduces the shushing mark by 20% in both dimensions; Apple Wallet actions use a transparent icon. Timed profile recipients see the canonical card face using only their permitted name; membership dates, wallet identifiers and public QR links are excluded from this projection. Existing contact actions and grant expiry/revocation still apply.

@@ -215,7 +215,7 @@ export class WalletService {
 
   static async resolveCardNetwork(context: WalletNetworkContext, input: WalletNetworkInput, signal?: AbortSignal): Promise<WalletNetworkResult> {
     // Construct the wire object explicitly; never serialize a card or vault key.
-    if (!/^[0-9]{6}$/.test(input.iinPrefix) || !Number.isInteger(input.panLength) || input.panLength < 13 || input.panLength > 19) throw new Error("Network identification unavailable.");
+    if (!/^[0-9]{6}$/.test(input.iinPrefix) || !Number.isInteger(input.panLength) || input.panLength < 12 || input.panLength > 19) throw new Error("Network identification unavailable.");
     const payload = { iinPrefix: input.iinPrefix, panLength: input.panLength, ...(input.selectedNetwork ? { selectedNetwork: input.selectedNetwork } : {}) };
     const data = await this.networkRequest(context, "/resolve", signal, payload);
     if (!isRecord(data) || typeof data.network !== "string" || !isCardNetworkId(data.network.trim().toLowerCase())) throw new Error("Network identification unavailable.");

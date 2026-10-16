@@ -75,7 +75,7 @@ describe("Wallet card browser", () => {
     fireEvent.click(dock.getByRole("button", { name: "Open Agent One Referral" }));
     expect(screen.getByText("Live referral controls")).toBeVisible();
     expect(screen.queryByRole("region", { name: "Card finances" })).toBeNull();
-    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onSelect).toHaveBeenCalledWith("agent-one-referral");
     expect(props.onRemove).not.toHaveBeenCalled();
     expect(screen.queryByTestId("wallet-demo-activity")).toBeNull();
     expect(screen.queryByText("Payment")).toBeNull();
