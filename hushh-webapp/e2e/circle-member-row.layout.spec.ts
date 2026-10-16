@@ -163,6 +163,7 @@ function buildProductionMemberActionsStylesheet(): Promise<string> {
     const sources = [
       "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
       "components/one-location/redesign/circles/circle-member-row-layout.ts",
+      "components/one-location/redesign/location-action-styles.ts",
       "components/connections/connection-person-avatar.tsx",
       "components/ui/alert-dialog.tsx",
       "components/ui/avatar.tsx",
@@ -194,7 +195,7 @@ function pinNodeEnv(value: "development" | "production"): () => void {
   };
 }
 
-async function startProductionMemberActionsFixture() {
+async function startProductionMemberActionsFixture(owner = false) {
   const webappRoot = process.cwd();
   const fixturePrefix = "circle-member-actions-component-";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), fixturePrefix));
@@ -204,7 +205,7 @@ async function startProductionMemberActionsFixture() {
       "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
     )
     .replaceAll("\\", "/");
-  const memberName = "Wilhelmina Featherstonehaugh-Rajendran";
+  const memberName = owner ? "parth" : "Wilhelmina Featherstonehaugh-Rajendran";
 
   fs.mkdirSync(path.join(dir, "src"));
   fs.writeFileSync(
@@ -273,9 +274,9 @@ function App() {
               <CircleMemberActionsMenu
                 displayName={memberName}
                 initials="WF"
-                secondaryLine="Connected"
+                secondaryLine="${owner ? "Owner" : "Connected"}"
                 canShare
-                canRemove
+                canRemove={${!owner}}
                 busy={false}
                 onShare={noop}
                 onRemove={noopAsync}
@@ -889,82 +890,142 @@ test.describe("Circle roster row", () => {
     }
   });
 
-  test("opens the production phone sheet with member context", async ({
-    page,
-  }, testInfo) => {
-    const fixture = await startProductionMemberActionsFixture();
-    const browserErrors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") browserErrors.push(message.text());
-    });
-    page.on("pageerror", (error) => browserErrors.push(error.message));
-
-    try {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(fixture.url);
-      await expect(page.getByRole("heading", { name: "SMS Circle" }))
-        .toBeVisible({ timeout: 15_000 });
-      await awaitProductFont(page);
-
-      await page
-        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
-        .click();
-
-      const sheet = page.getByTestId("circle-member-actions-sheet");
-      await expect(sheet).toBeVisible();
-      await sheet.evaluate(async (element) => {
-        await Promise.all(
-          element.getAnimations().map((animation) => animation.finished),
-        );
-      });
-      await expect(sheet).toContainText(fixture.memberName);
-      await expect(
-        page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Share location" }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
-      ).toBeVisible();
-
-      const sheetBox = (
-        await boxesOf(page, '[data-testid="circle-member-actions-sheet"]')
-      )[0];
-      expect(sheetBox.left).toBe(0);
-      expect(sheetBox.right).toBe(390);
-      // Vaul deliberately extends the draggable sheet below the viewport so
-      // an overscroll cannot expose the page behind it. What matters to the
-      // person is that the visible surface covers the bottom edge completely.
-      expect(sheetBox.top).toBeGreaterThan(0);
-      expect(sheetBox.top).toBeLessThan(844);
-      expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
-
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "SMS Circle" }))
-        .toBeVisible({ timeout: 15_000 });
-      await awaitProductFont(page);
-      await page
-        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
-        .click();
-      await expect(page.getByTestId("circle-member-actions-sheet")).toBeVisible();
-      expect(browserErrors).toEqual([]);
-
-      const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
-      if (evidenceDir) {
-        fs.mkdirSync(evidenceDir, { recursive: true });
-        await page.screenshot({
-          path: path.join(
-            evidenceDir,
-            `circle-overflow-actions-sheet-${testInfo.project.name}.png`,
-          ),
-          fullPage: true,
+  for (const owner of [false, true]) {
+    for (const width of [320, 390, 600]) {
+      test(`opens the production phone sheet for ${owner ? "owner" : "member"} at ${width}px`, async ({
+        page,
+      }, testInfo) => {
+        const fixture = await startProductionMemberActionsFixture(owner);
+        const browserErrors: string[] = [];
+        page.on("console", (message) => {
+          if (message.type() === "error") browserErrors.push(message.text());
         });
-      }
-    } finally {
-      await fixture.close();
+        page.on("pageerror", (error) => browserErrors.push(error.message));
+
+        try {
+          await page.setViewportSize({ width, height: 844 });
+          await page.goto(fixture.url);
+          await expect(page.getByRole("heading", { name: "SMS Circle" }))
+            .toBeVisible({ timeout: 15_000 });
+          await awaitProductFont(page);
+
+          await page
+            .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+            .click();
+
+          const sheet = page.getByTestId("circle-member-actions-sheet");
+          await expect(sheet).toBeVisible();
+          await sheet.evaluate(async (element) => {
+            await Promise.all(
+              element.getAnimations().map((animation) => animation.finished),
+            );
+          });
+          await expect(sheet).toContainText(fixture.memberName);
+          await expect(
+            page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
+          ).toBeVisible();
+          await expect(
+            page.getByRole("menuitem", { name: "Share location" }),
+          ).toBeVisible();
+          const remove = page.getByRole("menuitem", { name: "Remove from Circle" });
+          if (owner) {
+            await expect(remove).toHaveCount(0);
+          } else {
+            await expect(remove).toBeVisible();
+            await expect(remove).toHaveCSS("color", "rgb(255, 59, 48)");
+          }
+          await expect(sheet).toContainText(owner ? "Owner" : "Connected");
+          await expect(sheet).toHaveCSS("background-color", "rgb(255, 255, 255)");
+          await expect(sheet).toHaveCSS("border-top-left-radius", "28px");
+          await expect(sheet).toHaveCSS("border-top-right-radius", "28px");
+          await expect(sheet).toHaveCSS("padding-left", "24px");
+          await expect(sheet).toHaveCSS("padding-right", "24px");
+          await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("width", "48px");
+          await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "700");
+          const menu = sheet.getByRole("menu");
+          await expect(menu).toHaveCSS("border-radius", "20px");
+          const share = page.getByRole("menuitem", { name: "Share location" });
+          await expect(share).toHaveCSS("height", "56px");
+          await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 113, 227)");
+          const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
+          await expect(cancel).toHaveCSS("height", "52px");
+          await expect(cancel).toHaveCSS("border-radius", "20px");
+          if (!owner) {
+            await expect(remove).toHaveCSS("justify-content", "center");
+          }
+          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
+          await expect(cancel).toHaveCSS("color", "rgb(0, 113, 227)");
+          const sheetGeometry = await sheet.evaluate((element) => {
+            const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+            const cancel = element.querySelector<HTMLButtonElement>('button:not([role="menuitem"])')!;
+            const handle = element.firstElementChild!;
+            const menuBox = menu.getBoundingClientRect();
+            const cancelBox = cancel.getBoundingClientRect();
+            return {
+              overflow: element.scrollWidth > element.clientWidth,
+              menuLeft: menuBox.left,
+              menuRight: menuBox.right,
+              cancelLeft: cancelBox.left,
+              cancelRight: cancelBox.right,
+              cancelBottom: cancelBox.bottom,
+              handleHeight: handle.getBoundingClientRect().height,
+              font: getComputedStyle(menu).fontFamily,
+            };
+          });
+          expect(sheetGeometry.overflow).toBe(false);
+          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.cancelLeft);
+          expect(sheetGeometry.menuRight).toBe(sheetGeometry.cancelRight);
+          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 24);
+          expect(sheetGeometry.handleHeight).toBe(6);
+          expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
+
+          const sheetBox = (
+            await boxesOf(page, '[data-testid="circle-member-actions-sheet"]')
+          )[0];
+          expect(sheetBox.left).toBe(0);
+          expect(sheetBox.right).toBe(width);
+          // Vaul deliberately extends the draggable sheet below the viewport so
+          // an overscroll cannot expose the page behind it. What matters to the
+          // person is that the visible surface covers the bottom edge completely.
+          expect(sheetBox.top).toBeGreaterThan(0);
+          expect(sheetBox.top).toBeLessThan(844);
+          expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
+
+          await page.reload();
+          await expect(page.getByRole("heading", { name: "SMS Circle" }))
+            .toBeVisible({ timeout: 15_000 });
+          await awaitProductFont(page);
+          await page
+            .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+            .click();
+          await expect(sheet).toBeVisible();
+          expect(browserErrors).toEqual([]);
+
+          const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+          if (evidenceDir && width === 390) {
+            fs.mkdirSync(evidenceDir, { recursive: true });
+            await page.screenshot({
+              path: path.join(
+                evidenceDir,
+                `circle-${owner ? "owner" : "member"}-sheet-${testInfo.project.name}.png`,
+              ),
+              fullPage: true,
+            });
+          }
+          await cancel.click();
+          await expect(sheet).toBeHidden();
+          await page.getByRole("button", { name: `Actions for ${fixture.memberName}` }).click();
+          await expect(sheet).toBeVisible();
+          await share.click();
+          await expect(sheet).toBeHidden();
+          expect(browserErrors).toEqual([]);
+        } finally {
+          await fixture.close();
+        }
+      });
     }
-  });
+  }
 
   test("the roster QA photographed really did stagger", async ({ page }) => {
     // Mutation check. Without it the assertions above could be passing on a
@@ -1004,7 +1065,7 @@ test.describe("Circle roster row", () => {
 
 test.describe("Circle detail responsive layout", () => {
   for (const width of WIDTHS) {
-    test(`keeps Leave circle responsive and trailing-aligned at ${width}px`, async ({
+    test(`keeps Leave circle responsive and centered at ${width}px`, async ({
       page,
     }, testInfo) => {
       const leaveClass = cn(
@@ -1019,7 +1080,7 @@ test.describe("Circle detail responsive layout", () => {
     <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Jhumma Kumari · Connected</div>
     <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Neelesh Meena · You</div>
   </section>
-  <div data-leave-row style="display:flex;justify-content:flex-end;margin-top:20px">
+  <div data-leave-row style="display:flex;justify-content:center;margin-top:20px">
     <button data-leave class="${leaveClass}">
       <svg data-leave-icon aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H5v14h4M14 8l4 4-4 4M8 12h10"/></svg>
       <span>Leave circle</span>
@@ -1036,7 +1097,10 @@ test.describe("Circle detail responsive layout", () => {
       ]);
 
       expect(leave[0].top).toBeGreaterThanOrEqual(members[0].bottom);
-      expect(Math.abs(leave[0].right - flow[0].right)).toBeLessThanOrEqual(1);
+      expect(Math.abs(
+        (leave[0].left + leave[0].right) / 2 -
+        (flow[0].left + flow[0].right) / 2,
+      )).toBeLessThanOrEqual(1);
       expect(leave[0].width).toBeLessThanOrEqual(320);
       expect(leave[0].height).toBe(44);
       await expect(page.locator("[data-leave-icon]")).toHaveCSS(

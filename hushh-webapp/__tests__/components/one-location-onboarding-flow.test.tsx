@@ -83,6 +83,9 @@ describe("OneLocationOnboardingFlow introduction", () => {
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(screen.getByText("1 of 3")).toBeTruthy();
     expect(screen.queryByTestId("one-location-onboarding-welcome")).toBeNull();
+    expect(screen.queryByText("Your location stays private until you share.")).toBeNull();
+    expect(screen.queryByText("Location is ready. Your next tap opens the place picker.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
     unmount();
     expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
   });

@@ -669,6 +669,7 @@ export function SharedWithMeCard({
                     warningRole.glyph,
                   )}
                 >
+                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
                   Ask to refresh
                 </Button>
               ) : null}
@@ -697,11 +698,11 @@ export function SharedWithMeCard({
             disabled={viewBusy && !isPreviewExpanded}
             onClick={togglePreview}
           >
-            {viewBusy && !isPreviewExpanded ? (
+            {!isPreviewExpanded ? viewBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
               <MapPin className="h-4 w-4" aria-hidden="true" />
-            )}
+            ) : null}
             {isPreviewExpanded ? "Hide map" : "View location"}
             <ChevronDown
               className={cn(
