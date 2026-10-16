@@ -157,7 +157,7 @@ class SharingHistory(BaseModel):
 class CardNetworkBody(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     iin_prefix: str = Field(alias="iinPrefix", pattern=r"^[0-9]{6}$", min_length=6, max_length=6)
-    pan_length: StrictInt = Field(alias="panLength", ge=13, le=19)
+    pan_length: StrictInt = Field(alias="panLength", ge=12, le=19)
     selected_network: str | None = Field(default=None, alias="selectedNetwork", max_length=32)
 
 

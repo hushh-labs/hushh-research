@@ -106,8 +106,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
   const choose = (id: string) => {
     if (isBusy) return;
     setAgentCardId(id);
-    if (isAgentWalletCard(id)) onOverview();
-    else onSelect(id);
+    onSelect(id);
     setMode("card");
   };
   const showAll = () => {
