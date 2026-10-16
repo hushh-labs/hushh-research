@@ -409,7 +409,7 @@ async def test_active_legacy_statement_replans_before_provider_read(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_saved_statement_marker_cannot_enter_trusted_auto_share_path():
+async def test_saved_statement_marker_cannot_enter_trusted_auto_share_path(shared_hub_owner):
     sharing = SimpleNamespace(
         trusted_request_authority=AsyncMock(return_value={}),
         request_bulk_context=AsyncMock(
