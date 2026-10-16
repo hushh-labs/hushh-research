@@ -242,7 +242,7 @@
   width: 100%;
   min-height: 52px;
   border-radius: 999px;
-  background: #0071e3;
+  background: var(--app-accent-deep);
   color: #fff;
   font-family: var(--font-app-body);
   font-size: 16px;

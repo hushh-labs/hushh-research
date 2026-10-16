@@ -5576,7 +5576,7 @@
         "classification": "reviewed_main_import",
         "key": "module_size|hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx||module exceeds the advisory operon budget",
         "occurrence": 0,
-        "source_sha256": "c6e9b16f2c808f8dd9920b942f0229bc59d1f2fe8ca37e7a7dcd6a0afa038071"
+        "source_sha256": "cc13371344dba5aaa832aae9e4e49dcd7def5050bc1c7369b6bc15fb5c2a20d5"
       },
       {
         "after": 3229,
@@ -6112,7 +6112,8 @@
     "prior_byoc_revision": "f8c867fd83e9edb05641e5055688af03ddb4f3ae",
     "provider_readiness_review": "Selected-provider readiness uses successful, strictly parsed encrypted selection reads; unknown/unreadable values cannot fall back to an unrelated Gemini key. OpenAI/Azure/legacy positives and missing/invalid/read-failure negatives pass. Source hashes bind exact reviewed files.",
     "review": "200 imported main size findings and two exact bounded compositions reviewed. Worker v1_only preserves explicit owner approval and existing placement admission before effects; Gemini test extends the existing selected-provider boundary parametrically. Calendar growth removed through unchanged SSE fixture extraction. Budgets unchanged; unrelated entries retained; dependency/import rules unchanged. This admits existing measured debt, not production readiness. Later growth remains blocked.",
-    "reviewer": "adk_authority_review"
+    "reviewer": "adk_authority_review",
+    "token_reconciliation": "Imported raw blue declarations replaced with the existing theme accent token after the canonical accent verifier refused them; geometry and actions unchanged."
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
   "finding_count": 2798,

@@ -3,7 +3,7 @@
 .oc-root {
   --oc-bg:#ffffff; --oc-ink:#1D1D1F; --oc-muted:#71717A; --oc-muted2:#85858E;
   --oc-stroke:#E7E7EB; --oc-surface:#FFFFFF; --oc-surface-secondary:#F7F7FA;
-  --oc-row-hover:#F8F9FC; --oc-blue:#0071E3; --oc-blue-soft:#E8F1FF;
+  --oc-row-hover:#F8F9FC; --oc-blue:var(--app-accent-deep); --oc-blue-soft:#E8F1FF;
   --oc-pink-soft:#FCE7F1; --oc-orange-soft:#FFF1CE; --oc-success:#218568;
   --oc-control-stroke:#DCDDE5;--oc-scrim:rgba(16,19,30,.35);
   font-family:var(--font-app-body,"Plus Jakarta Sans",system-ui,sans-serif);
