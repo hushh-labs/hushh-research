@@ -114,11 +114,11 @@ export function measureFillViewportMinHeight(
  */
 const ARRIVED_TOLERANCE_PX = 3;
 
-// Embla spring parameters, not milliseconds. Tab presses use a nearly
-// critically damped snap: the default drag spring overshoots a middle pane
-// and can take over 500ms to return. Finger-driven snaps keep their defaults.
-const TAB_SELECTION_DURATION = 2;
-const TAB_SELECTION_FRICTION = 0.34;
+// Embla spring parameters, not milliseconds. This critically damped tab snap
+// also leaves room for a delayed first animation frame without a long tail.
+// Finger-driven snaps keep their defaults.
+const TAB_SELECTION_DURATION = 1;
+const TAB_SELECTION_FRICTION = 0.25;
 
 export function clampSwipePosition(
   position: number,

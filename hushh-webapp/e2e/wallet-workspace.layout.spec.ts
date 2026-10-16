@@ -266,6 +266,34 @@ for (const width of [390, 1024]) {
     await mount(page, false);
     await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
     const add = page.getByRole("tab", { name: "Add", exact: true });
+    // Reproduce the delayed animation startup observed in WebKit CI. Keep
+    // the real spring and arrival budget; a delayed frame must not add a
+    // second long settling tail. Phone coverage retains normal frame timing.
+    if (width === 1024) await add.evaluate((tab) => {
+      const request = window.requestAnimationFrame.bind(window);
+      const cancel = window.cancelAnimationFrame.bind(window);
+      const pending = new Map<number, { timer: number; frame?: number }>();
+      let nextId = -1;
+      let holdUntil = 0;
+      tab.addEventListener("click", () => { holdUntil = performance.now() + 150; }, { capture: true, once: true });
+      window.requestAnimationFrame = (callback) => {
+        const delay = holdUntil - performance.now();
+        if (delay <= 0) return request(callback);
+        const id = nextId--;
+        const entry = { timer: window.setTimeout(() => {
+          entry.frame = request(time => { pending.delete(id); callback(time); });
+        }, delay), frame: undefined as number | undefined };
+        pending.set(id, entry);
+        return id;
+      };
+      window.cancelAnimationFrame = (id) => {
+        const entry = pending.get(id);
+        if (!entry) { cancel(id); return; }
+        clearTimeout(entry.timer);
+        if (entry.frame !== undefined) cancel(entry.frame);
+        pending.delete(id);
+      };
+    });
     await add.evaluate((tab) => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
       const viewport = panel.closest('[data-swipe-views-root="true"]')!;
@@ -300,6 +328,7 @@ for (const width of [390, 1024]) {
     expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
     expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
     expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
+    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `tab selection must animate rather than jump: ${diagnostics}`).toBe(true);
     expect(errors).toEqual([]);
   });
 }

@@ -4338,3 +4338,23 @@ This is not a permanent range reservation. Later insertions below an established
 406 baseline must retain the existing checksum refusal and require fresh
 qualification. No database mutation or deployment is established by this source
 relocation.
+
+At `2026-10-16T08:21Z`, fresh read-only Dev/provider checks confirm $10.50
+funded per reviewer, $15 operating capital, both information-access payout
+accounts ready, balanced liabilities, settled backing and conserved funding
+fees. No paid scope purchase, recipient delivery, purchase refund or withdrawal
+is established. Dev still serves backend `439f181304` and frontend `5c2d1483aa`.
+The selected inherited exact-scope leaf requires the candidate's registry-handle
+correction in information-request creation; the deployed deterministic fallback
+can disagree with the commerce resolver and refuse approval before payment.
+Do not broaden the fixture or rewrite request metadata to bypass this boundary.
+
+Candidate `415efd8b71` passed full local core, but its hosted Wallet timing check
+failed twice while 20 other checks passed. A bounded programmatic tab-snap
+correction preserves drag physics and the existing 400ms/overshoot limits. The
+nearest browser case now includes delayed initial frames and requires visible
+intermediate motion; the old coefficients fail at 412ms. Ten focused
+Chromium/WebKit cases, 40 pager/route cases, 466 Back cases, UI-contract
+verification, design/render checks and 93 cache cases pass locally. These are
+source verification, not a deployment or paid transaction receipt. The finished
+candidate still requires full core, hosted CI and exact-source Dev promotion.
