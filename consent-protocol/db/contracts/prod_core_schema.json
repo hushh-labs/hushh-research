@@ -1348,6 +1348,60 @@
       "expires_at",
       "decided_at"
     ],
+    "email_auth_budgets": [
+      "budget_key",
+      "count",
+      "expires_at"
+    ],
+    "email_auth_challenges": [
+      "challenge_id",
+      "destination_hash",
+      "domain",
+      "decision_generation",
+      "browser_hash",
+      "request_key",
+      "verifier",
+      "verifier_version",
+      "payload",
+      "destination_ciphertext",
+      "payload_version",
+      "expected_uid",
+      "enrollment_ticket_hash",
+      "enrollment_finalized_at",
+      "created_at",
+      "expires_at",
+      "attempts",
+      "consumed_at",
+      "cancelled_at",
+      "delivery_state",
+      "lease_until",
+      "next_attempt_at",
+      "delivery_lease_id"
+    ],
+    "email_auth_domain_decisions": [
+      "domain",
+      "status",
+      "reason",
+      "policy_version",
+      "risk_version",
+      "generation",
+      "certificate_status",
+      "review_id",
+      "lease_until",
+      "checked_at",
+      "expires_at"
+    ],
+    "email_auth_enrollments": [
+      "destination_hash",
+      "user_id",
+      "status",
+      "created_at"
+    ],
+    "email_auth_policy_state": [
+      "singleton",
+      "policy_version",
+      "risk_version"
+    ],
     "enterprise_crm_registry": [
       "crm_id",
       "crm_enterprise_name",
@@ -3291,60 +3345,6 @@
       "card_id",
       "expires_at",
       "duration_minutes"
-    ],
-    "email_auth_policy_state": [
-      "singleton",
-      "policy_version",
-      "risk_version"
-    ],
-    "email_auth_domain_decisions": [
-      "domain",
-      "status",
-      "reason",
-      "policy_version",
-      "risk_version",
-      "generation",
-      "certificate_status",
-      "review_id",
-      "lease_until",
-      "checked_at",
-      "expires_at"
-    ],
-    "email_auth_budgets": [
-      "budget_key",
-      "count",
-      "expires_at"
-    ],
-    "email_auth_enrollments": [
-      "destination_hash",
-      "user_id",
-      "status",
-      "created_at"
-    ],
-    "email_auth_challenges": [
-      "challenge_id",
-      "destination_hash",
-      "domain",
-      "decision_generation",
-      "browser_hash",
-      "request_key",
-      "verifier",
-      "verifier_version",
-      "payload",
-      "destination_ciphertext",
-      "payload_version",
-      "expected_uid",
-      "enrollment_ticket_hash",
-      "enrollment_finalized_at",
-      "created_at",
-      "expires_at",
-      "attempts",
-      "consumed_at",
-      "cancelled_at",
-      "delivery_state",
-      "lease_until",
-      "next_attempt_at",
-      "delivery_lease_id"
     ]
   }
 }
