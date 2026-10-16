@@ -428,6 +428,7 @@ async def test_saved_statement_marker_cannot_enter_trusted_auto_share_path(share
         sharing=sharing, bulk=bulk, payment=object(), wake=AsyncMock()
     )
     assert await service.share_available(user_id="owner", request_id="request") == 0
+    shared_hub_owner.assert_awaited_once_with("owner")
     sharing.request_owner_review_required.assert_not_awaited()
     bulk.pending_request_reviews.assert_not_awaited()
 

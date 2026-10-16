@@ -20707,7 +20707,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 2052
+      "value": 2053
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -60967,5 +60967,37 @@
     "provider_readiness_review": "Selected-provider readiness uses successful, strictly parsed encrypted selection reads; unknown/unreadable values cannot fall back to an unrelated Gemini key. OpenAI/Azure/legacy positives and missing/invalid/read-failure negatives pass. Source hashes bind exact reviewed files.",
     "review": "200 imported main size findings and two exact bounded compositions reviewed. Worker v1_only preserves explicit owner approval and existing placement admission before effects; Gemini test extends the existing selected-provider boundary parametrically. Calendar growth removed through unchanged SSE fixture extraction. Budgets unchanged; unrelated entries retained; dependency/import rules unchanged. This admits existing measured debt, not production readiness. Later growth remains blocked.",
     "reviewer": "adk_authority_review"
+  },
+  "scope_commerce_concurrent_fixture_review_20261016": {
+    "source_revision": "efce958269350edb11c9369b3f7cb4f0359a5f33",
+    "review": "Imported raw blue declarations replaced with the existing theme accent token after the canonical accent verifier refused them; geometry and actions unchanged.",
+    "entries": [
+      {
+        "after": 3247,
+        "before": 3165,
+        "classification": "reviewed_main_import",
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx||module exceeds the advisory operon budget",
+        "occurrence": 0,
+        "source_sha256": "cc13371344dba5aaa832aae9e4e49dcd7def5050bc1c7369b6bc15fb5c2a20d5"
+      }
+    ],
+    "resolution": "Retain the existing fill/foreground/ring token roles and real hosting-placement fixture. Both developers generated identical schema projections. The preserved layout fixture exercises actual short viewport heights and the canonical disabled-button reference. Optional native-frame diagnostics remain superseded by the controlled-clock delayed-start regression."
+  },
+  "scope_commerce_real_placement_assertion_review_20261016": {
+    "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+    "occurrence_rank": 0,
+    "old_value": 2052,
+    "value": 2053,
+    "source_sha256": "b51c1ecd006280aefc270000e83b407db8f8008cb3ff6ad522f9b789bea985da",
+    "reviewer": "architecture_review",
+    "review": "One real-guard owner-resolution assertion replaces the intent of the concurrent mocked-admission spy; no production change, new test or additional baseline slot. Retain all2798 slots, nonvalue fields, prior history, detector and budgets."
+  },
+  "byoc_main_fixture_admission_review_20261016": {
+    "after": 2057,
+    "before": 2052,
+    "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+    "review": "The imported saved-statement regression now injects its synthetic admission port and asserts exact owner/purpose. Zero sharing and no-auto-share assertions remain; production placement enforcement is unchanged.95nearest checks include actualShared/BYOC/pending/unknown/failed-observation controls. Only this5line core-fixture growth (including2required Ruff wrapping lines) admitted; budgets unchanged.",
+    "reviewer": "adk_authority_review",
+    "source_sha256": "20ac2ab764aa8a3903f3c86115eb898c2e0f4ff9126def26fdd7ef870a3f36a9"
   }
 }
