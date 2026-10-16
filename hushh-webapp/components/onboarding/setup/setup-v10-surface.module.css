@@ -75,7 +75,6 @@
 }
 
 .surface button:focus-visible,
-.surface input:focus-visible,
 .surface a:focus-visible {
   outline: 3px solid var(--setup-blue);
   outline-offset: 3px;

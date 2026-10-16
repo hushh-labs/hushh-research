@@ -2,6 +2,7 @@
 import React, {useCallback,useEffect,useId,useRef,useState} from 'react';
 import Image from 'next/image';
 import {BadgeCheck} from '@/components/icons';
+import {GoogleIcon} from '@/lib/morphy-ux/social-icons';
 import type {CircleOnboardingProps,OnboardingPerson,ViewName} from './types';
 import {Icon} from './Icons';
 import {CircleScene} from './CircleScene';
@@ -98,7 +99,7 @@ export function CircleOnboarding(props:CircleOnboardingProps){
        {props.overflowCount?<p className="oc-status">{props.overflowCount} more people are connected. Contacts holds 99 people plus you.</p>:null}
        {props.statusMessage?<p className="oc-status" role="status">{props.statusMessage}</p>:null}
        {props.circleError?<div className="oc-status" role="status">{props.circleError} <button type="button" onClick={()=>void invoke(props.onRetryCircle)}>Retry circle setup</button></div>:null}
-       {canFindContacts?<button className="oc-find-link" type="button" disabled={actionBusy} onClick={()=>open('find')}><Icon name={source==='device'?'phone':'google'} size={19} strokeWidth={2}/>{sourceLabel}<Icon name="arrow" size={17}/></button>:null}
+       {canFindContacts?<button className="oc-find-link" type="button" disabled={actionBusy} onClick={()=>open('find')}>{source==='device'?<Icon name="phone" size={19} strokeWidth={2}/>:<GoogleIcon size={19}/>} {sourceLabel}<Icon name="arrow" size={17}/></button>:null}
        <div className="oc-footer"><button className="oc-button oc-button--primary" type="button" disabled={actionBusy} onClick={()=>void doContinue()}>{actionBusy?'One moment…':'Continue to One'}<Icon name="arrow" size={19}/></button>
        {preview?<p className="oc-preview-note">Interactive preview. No contacts or accounts are accessed.</p>:null}
        </div>
