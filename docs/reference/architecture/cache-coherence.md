@@ -55,6 +55,17 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
 
+## Calendar invitation snapshots
+
+Calendar Invitations reuses memory-only `calendar_invitations_` snapshots for
+60 seconds, scoped to owner, connected account, vault epoch, connection revision,
+time zone and query. Fresh tab returns skip authentication and provider reads;
+expired snapshots remain visible during revalidation. Confirmed calendar changes
+invalidate all owner invitation snapshots before broadcasting the refresh signal,
+including when the tab is unmounted. Sign-out and vault epoch changes purge them.
+No invitation contents or credentials are persisted to device storage. RSVP review
+and confirmation continue to use live provider requests.
+
 ## Mail receipt snapshots
 
 Detailed canonical receipt rows belong to Mail's encrypted device snapshot.
