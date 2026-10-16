@@ -7,8 +7,19 @@ import {
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
 import { registerBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it("returns from AI setup by replacement and keeps a safe deep-link target", () => {
+    expect(resolveTopShellBackAction({
+      pathname: ROUTES.ONE_SETUP_CONNECTIONS,
+      searchParams: new URLSearchParams("return_to=%2Fone%2Fprofile"),
+    })).toEqual({
+      href: "/one/setup?return_to=%2Fone%2Fprofile",
+      mode: "replace",
+      transitionMode: "full",
+    });
+  });
   it.each(["payouts", "request-pricing", "world-model"])("returns %s to Profile while retaining its Feed origin", (panel) => {
     expect(resolveTopShellBackAction({
       pathname: `/one/profile/${panel}`,

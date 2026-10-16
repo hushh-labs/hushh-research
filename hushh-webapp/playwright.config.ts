@@ -205,6 +205,7 @@ export default defineConfig({
         /shortcut-icons\.motion\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,
         /setup-hub\.layout\.spec\.ts/,
+        /setup-v10-vault\.layout\.spec\.ts/,
         /phone-entry\.layout\.spec\.ts/,
         /circle-discovery\.layout\.spec\.ts/,
         /guest-preview\.layout\.spec\.ts/,
