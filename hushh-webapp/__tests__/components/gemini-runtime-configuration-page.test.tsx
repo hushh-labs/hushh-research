@@ -7,7 +7,11 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
-import { PWM_RESEARCH_DISCLOSURE_COMPACT } from "@/components/onboarding/setup/pwm-research-disclosure";
+import {
+  PwmResearchDisclosure,
+  PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+  PWM_RESEARCH_DISCLOSURE_COMPACT,
+} from "@/components/onboarding/setup/pwm-research-disclosure";
 import { buildInitialContactsWelcomeRoute } from "@/lib/navigation/routes";
 
 const state = vi.hoisted(() => ({
@@ -118,6 +122,21 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
+  it("requires a distinct Azure/Bing opt-in disclosure in the UAT setup", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    try {
+      render(<PwmResearchDisclosure compact />);
+      expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+        PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+      );
+      expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+        "off until you turn it on",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.each([false, true])(
     "requires a live BYOK draft even with an unlocked vault (draft: %s)",
     async (hasDraft) => {

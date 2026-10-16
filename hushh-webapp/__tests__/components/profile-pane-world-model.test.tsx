@@ -151,6 +151,7 @@ describe("Profile pane: Personal World Model", () => {
       enabled: true,
       email_enabled: true,
       consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
     });
     // As in app/providers.tsx: the pane is a sibling of the provider's tree.
     render(
@@ -190,6 +191,7 @@ describe("Profile pane: Personal World Model", () => {
       enabled: true,
       email_enabled: true,
       consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
     });
     render(
       <>

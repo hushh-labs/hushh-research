@@ -56,6 +56,21 @@ def policy_fingerprint() -> str:
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
     task = manifest()
+    if POLICY["provider"] == "azure_openai_web_search":
+        # A provider switch changes the owner-bound research generation. Keep
+        # this fingerprint separate from Vertex's existing checkpoint lineage.
+        material = {
+            "manifest": task.model_dump(mode="json"),
+            "schema": WorldModelReport.model_json_schema(),
+            "assessment": IdentityAssessment.model_json_schema(),
+            "query_plan": QueryPlan.model_json_schema(),
+            "searches": MAX_SEARCHES,
+            "calls": MAX_MODEL_CALLS,
+            "policy": POLICY,
+            "provider": "azure-openai-web-search-v1",
+            "gate": "evidence-chain-v2",
+        }
+        return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
     return hashlib.sha256(
         json.dumps(
             {

@@ -107,6 +107,7 @@ function Probe() {
             enabled: false,
             email_enabled: true,
             consent_version: "pwm-native-v1",
+            research_provider: "vertex_google_search",
           })
         }
       >
@@ -195,6 +196,7 @@ describe("PWM owner and request isolation", () => {
       enabled: true,
       email_enabled: true,
       consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
     });
     mock.observe.mockImplementation(async ({ onResult }) => {
       expect(mock.preferences).not.toHaveBeenCalled();
