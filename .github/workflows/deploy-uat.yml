@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       skip_managed_vertex_probe_once:
-        description: "One-time UAT Vertex probe exception for 49198f84; verify runtime after release"
+        description: "One-time UAT Vertex probe exception for a8e36651; verify runtime after release"
         required: false
         default: false
         type: boolean
@@ -129,7 +129,7 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "49198f84f6347ef35f9dad0862800e7604ccb545" ||
+          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
                 "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
                 "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
                 "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
