@@ -18,10 +18,11 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared-renderer recovery and release gate — 2026-10-16
 
-The current recovery integrates main through `24ff3e8860`, including Calendar's
+The current recovery integrates main through `847179b6dd`, including Calendar's
 local-time/invitation corrections and the intentional Mail connection-screen
 rollback, Wallet CVV entry/presentation warming and independent email/Microsoft
-authentication. Authentication still grants identity, not vault or consent
+authentication, immediate onboarding-picked names and tighter welcome spacing.
+Authentication still grants identity, not vault or consent
 authority. Receipt request fences
 and Wallet owner/visit/session fences remain intact; warmed Wallet content is
 admitted only for the current owner and vault epoch.
@@ -29,6 +30,14 @@ Custom native
 qualification remains opt-in; ordinary Capacitor/React and the independent
 native tab bar retain their existing admission policy. No additional Profile
 family is qualified by this integration.
+
+At `c18dc294ff`, all product CI lanes except one WebKit Wallet Sharing return
+case passed. Source review and a failing old-code browser control establish a
+missing modal focus owner, not the cause of that CI timeout. Wallet now returns
+confirmation cancellation to Revoke, committed revocation to Back, and detail
+dismissal to the original row without scrolling. Owner/activation fencing and
+the existing single-send and viewport assertions remain. Eighteen focused
+Chromium/WebKit cases pass; combined core and exact-head CI are still required.
 
 Exact-head PR validation at `d44a883d76` failed one Vitest shard and three
 browser lanes despite passing canonical core and the iOS, Android and strict
