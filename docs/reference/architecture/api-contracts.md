@@ -28,10 +28,22 @@ Legacy Firebase-only Circle previews remain closed for older clients; the active
 dashboard uses these owner-authorized endpoints.
 
 The You card and Ranking/Circles pane reuse existing Circle creation and invite
-links. Other teams expose random aliases; authorized members see Circle names.
+links. Invite opens the shared native/Web Share flow directly, falling back to
+copying the link on devices without a share sheet. Other teams expose random
+aliases; authorized members see Circle names.
 Rewards and individual rankings retain their existing behavior. SSE and visible
 polling refresh team standings and rollover. Rollback disables new snapshot and
 notification triggers while preserving bounded history, awards and claims.
+
+Both ranking views request ten entries per page. Individuals retain the
+published `snapshot_id` across cursor reads; a pruned snapshot restarts the
+latest list. An off-page owner has a shortcut to their ranked page rather than
+an eleventh list entry. Circles use the existing offset and `has_more` contract.
+Circle deadlines use the persisted round and database clock independently of
+prize activation. Current-round reads retry once if the DB read crosses cutoff,
+then return retryable 503 `COMPETITION_WEEK_CHANGED`; historical reads stay fixed.
+Clients anchor the deadline at response receipt using a monotonic clock and
+refresh at cutoff, with normal polling as recovery.
 
 The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
 concurrent selection, no retroactive credit, delayed settlement, privacy,
@@ -42,6 +54,17 @@ frontend. Live browser qualification also needs matching nonproduction Firebase
 and backend configuration, a migrated database and a fresh invitee account.
 
 > Complete endpoint reference, authentication model, and developer integration guide.
+
+## Individual referral profile portraits
+
+`GET /api/one/referrals/leaderboard` adds optional nullable `photo_url` to both
+`entries` and the off-page `viewer` row. It follows the same viewer-permitted
+directory projection as `display_name`; chosen public aliases remain unlinked
+to account portraits. Unavailable identities have no portrait. The owner row
+uses its existing provider-profile projection. Existing custom raster image
+URLs are preserved. Clients show a fallback avatar when the field is absent or
+the image cannot load. Snapshot scores, ranks, authentication and pagination
+are unchanged; the web/native proxy passes this additive field through.
 
 ---
 
