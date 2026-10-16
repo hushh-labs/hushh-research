@@ -19,7 +19,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
-from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
+from hushh_mcp.services.drive_owner_allowed import (
+    LEGACY_REQUEST_POLICY,
+    automatic_recipient_current,
+)
 from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -504,6 +507,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 purpose="request",
             )
             if private.get("purpose") != purpose or private.get("agent_package_required") is True:
+                return outcome(row, False)
+            if private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY:
+                # A new restored request keeps its Gemini-authored search. Only
+                # older one-query jobs need the post-demo statement repair.
                 return outcome(row, False)
             if self._row(
                 connection,

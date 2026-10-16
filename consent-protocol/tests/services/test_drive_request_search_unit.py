@@ -11,6 +11,7 @@ import pytest
 from hushh_mcp.services import drive_owner_search_service as search_module
 from hushh_mcp.services import google_drive_rest_transport as rest
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_owner_allowed import LEGACY_REQUEST_POLICY
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     compile_request_queries,
@@ -254,9 +255,7 @@ def test_statement_coverage_search_retries_with_broad_terms_without_a_timestamp_
         ),
     ],
 )
-async def test_statement_request_uses_deterministic_coverage_plan_without_model(
-    request_text, expected_terms
-):
+async def test_new_legacy_statement_uses_gemini_coverage_plan(request_text, expected_terms):
     purpose = {
         "purpose": request_text,
         "periodStart": "2026-09-01",
@@ -268,7 +267,17 @@ async def test_statement_request_uses_deterministic_coverage_plan_without_model(
         "requestTimeZone": "Asia/Kolkata",
         "requestCreatedAt": datetime(2026, 10, 13, tzinfo=UTC),
     }
-    planner = AsyncMock(side_effect=AssertionError("statement route must not call Gemini"))
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "terms": expected_terms,
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+            "subject_scope": "specific_records",
+            "subject_complete": True,
+            "semantic_intent": "institutional_statement",
+        }
+    )
     search = SimpleNamespace(
         store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
         create_for_request=AsyncMock(return_value={"jobId": "job", "status": "queued"}),
@@ -282,7 +291,7 @@ async def test_statement_request_uses_deterministic_coverage_plan_without_model(
 
     await service.start_search(user_id="owner", request_id="request", authority_mode="trusted_auto")
 
-    planner.assert_not_awaited()
+    planner.assert_awaited_once()
     frozen = search.create_for_request.await_args.kwargs
     assert frozen["plan"]["terms"] == expected_terms
     assert frozen["plan"]["time_intent"] == "document_coverage"
@@ -298,6 +307,43 @@ async def test_statement_request_uses_deterministic_coverage_plan_without_model(
         "end": "2026-10-09",
         "timezone": "Asia/Kolkata",
     }
+
+
+@pytest.mark.asyncio
+async def test_statement_coverage_cannot_become_automatic_file_activity():
+    purpose = {
+        "purpose": "Schwab brokerage statements for three months",
+        "periodStart": "2026-07-01",
+        "periodEnd": "2026-09-30",
+    }
+    context = {"purpose": purpose, "revision": 1, "requestTimeZone": "UTC"}
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "terms": ["Schwab", "statement"],
+            "file_kind": "document",
+            "time_intent": "file_activity",
+            "subject_scope": "specific_records",
+            "subject_complete": True,
+        }
+    )
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.start_search(
+            user_id="owner", request_id="request", authority_mode="trusted_auto"
+        )
+    assert planner.await_count == 2
+    search.create_for_request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -336,8 +382,12 @@ async def test_new_legacy_statement_uses_live_provider_and_suggestions_worker(mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("marked_v1", [False, True])
-async def test_legacy_statement_replan_keeps_job_positions_and_worker_lane(monkeypatch, marked_v1):
+@pytest.mark.parametrize(
+    ("marked_v1", "restored_policy"), [(False, False), (True, False), (False, True)]
+)
+async def test_legacy_statement_replan_keeps_job_positions_and_worker_lane(
+    monkeypatch, marked_v1, restored_policy
+):
     request_id = "12345678-1234-1234-1234-123456789012"
     purpose = {
         "purpose": "Schwab brokerage statements from 2026",
@@ -399,7 +449,12 @@ async def test_legacy_statement_replan_keeps_job_positions_and_worker_lane(monke
 
     store = DriveOwnerSearchStore(
         db=SimpleNamespace(),
-        cipher=SimpleNamespace(open=lambda *args, **kwargs: {"purpose": purpose}),
+        cipher=SimpleNamespace(
+            open=lambda *args, **kwargs: {
+                "purpose": purpose,
+                **({"legacy_request_policy": LEGACY_REQUEST_POLICY} if restored_policy else {}),
+            }
+        ),
     )
     monkeypatch.setattr(store, "_lock", lambda *args: None)
     monkeypatch.setattr(store, "_access", lambda *args: {"connection_generation": 7})
@@ -424,6 +479,11 @@ async def test_legacy_statement_replan_keeps_job_positions_and_worker_lane(monke
         terms=plan.terms,
     )
     state, changed, worker_stage = await store.replan_legacy_statement_request(**kwargs)
+    if restored_policy:
+        assert not changed and state == {"jobId": row["job_id"], "status": "completed"}
+        assert worker_stage == "suggestions"
+        assert row["checkpoint"] is checkpoint and not writes
+        return
     assert changed and state == {"jobId": row["job_id"], "status": "queued"}
     assert worker_stage == ("v1" if marked_v1 else "suggestions")
     assert len(writes) == 1
