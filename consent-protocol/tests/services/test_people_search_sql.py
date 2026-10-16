@@ -31,8 +31,35 @@ from hushh_mcp.services.people_search_sql import (
     directory_contact_match_params,
     directory_name_rank,
     directory_search_rank,
+    mask_directory_phone,
     people_query_match_params,
 )
+
+
+@pytest.mark.parametrize(
+    "phone,expected",
+    [
+        ("+91 98765-43210", "98******10"),
+        ("0091 98765 43210", "98******10"),
+        ("+1 (415) 555-0123", "41******23"),
+        ("+44 7700 900123", "77******23"),
+        ("+358 40 1234567", "40*****67"),
+        ("+39 06 6982", "06**82"),
+        ("98******10", "98******10"),
+        ("06**82", "06**82"),
+        ("********3210", None),
+        ("98****3210", None),
+        ("9876543210", None),
+        ("919876543210", None),
+        ("+9999876543210", None),
+        ("+123", None),
+        ("call +919876543210", None),
+        ("+919876543210 ext 1", None),
+        (None, None),
+    ],
+)
+def test_directory_phone_mask_uses_national_digits_without_guessing_a_region(phone, expected):
+    assert mask_directory_phone(phone) == expected
 
 
 @pytest.mark.parametrize(

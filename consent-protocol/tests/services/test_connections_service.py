@@ -1927,7 +1927,7 @@ def test_search_directory_fallback_matches_partial_contact_identifiers(query):
         out = svc.search_directory("user-a", query=query, page=1, limit=20)
 
     assert [item["userId"] for item in out["items"]] == ["user-c"]
-    assert out["items"][0]["maskedPhone"] == "15*******02"
+    assert out["items"][0]["maskedPhone"] == "55******02"
     assert "phoneNumber" not in out["items"][0]
 
 
@@ -1999,7 +1999,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 {
                     "userId": "user-c",
                     "displayName": "Cara",
-                    "maskedPhone": "15*******55",
+                    "maskedPhone": "55******55",
                     "phoneVerified": True,
                     "maskedEmail": "c***a@example.com",
                 }
@@ -2022,7 +2022,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,
-                "maskedPhone": "15*******55",
+                "maskedPhone": "55******55",
                 "maskedEmail": "c***a@example.com",
                 "relationship": "none",
                 "mutualConnectionCount": 0,

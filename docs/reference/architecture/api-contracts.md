@@ -2028,8 +2028,11 @@ national numbers match stored international numbers without assuming
 a fixed country-code or national-number length. Contact-only matches follow
 name matches in stable alphabetical order. Matching and eligibility checks
 happen before pagination, and email/phone response labels remain masked. Directory
-phone labels expose only the first two and last two digits, with `*` for every
-middle digit; raw phone values never enter the directory response.
+phone labels exclude the country calling code and expose only the first two and
+last two national digits, with `*` for every middle digit: `+91 9876543210`
+becomes `98******10`. Significant national leading zeros are preserved. Ambiguous
+legacy numbers without a region and legacy last-four masks are omitted rather
+than guessing a prefix; raw phone values never enter the directory response.
 
 Existing accounts whose provider-verified phone never reached the identity
 cache need a one-time index repair. Run

@@ -88,7 +88,7 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
       : displayName,
     photoUrl: null,
     email: null,
-    maskedPhone: `91********${10 + index}`,
+    maskedPhone: `98******${10 + index}`,
     maskedEmail: dataset().longDirectoryIdentity === "1" && index === 0
       ? "a***@international-research-department.example.com"
       : `p***${index}@example.com`,

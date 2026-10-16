@@ -9,11 +9,11 @@ const person: DirectoryPerson = { userId: "test-person", displayName: "Test Pers
 describe("directory card", () => {
   it("shows the masked phone alongside email without exposing a full phone or legacy last four", () => {
     const props = { title: person.displayName, leading: <span>TP</span>, trailing: <button>Connect</button> };
-    const view = render(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "91********10" }} />);
+    const view = render(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "98******10" }} />);
     expect(screen.getByText("t***@example.com")).toBeVisible();
-    expect(screen.getByTestId("directory-person-masked-phone")).toHaveTextContent("91********10");
+    expect(screen.getByTestId("directory-person-masked-phone")).toHaveTextContent("98******10");
     view.rerender(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "********3210" }} />);
-    expect(screen.getByTestId("directory-person-masked-phone")).toHaveTextContent("**********10");
+    expect(screen.queryByTestId("directory-person-masked-phone")).toBeNull();
     expect(view.container.textContent).not.toContain("3210");
     view.rerender(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "919876543210" }} />);
     expect(screen.queryByTestId("directory-person-masked-phone")).toBeNull();

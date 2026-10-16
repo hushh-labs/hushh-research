@@ -59,15 +59,28 @@ def directory_name_rank(name: str, query: str) -> int | None:
 
 
 def mask_directory_phone(value: object) -> str | None:
-    """Expose only two leading and two trailing digits at the directory boundary."""
+    """Mask national digits only; never expose the country calling code."""
     phone = str(value or "").strip()
     if "*" in phone:
         # A legacy last-four label cannot recover its leading digits. Omit it
         # instead of forwarding a label that violates the directory contract.
         return phone if re.fullmatch(r"[0-9]{2}\*+[0-9]{2}", phone) else None
-    digits = re.sub(r"[^0-9]", "", phone)
+    # Canonical verified identities use international numbers. A bare legacy
+    # number is ambiguous without its region, so do not guess its calling code.
+    if phone.startswith("00"):
+        phone = "+" + phone[2:]
+    if not re.fullmatch(r"\+[0-9\s().-]+", phone):
+        return None
+    try:
+        parsed = phonenumbers.parse(phone, None)
+    except phonenumbers.NumberParseException:
+        return None
+    if not phonenumbers.is_possible_number(parsed):
+        return None
+    # national_number alone drops significant zeros, e.g. Italian landlines.
+    digits = phonenumbers.national_significant_number(parsed)
     if len(digits) <= 4:
-        return "*" * len(digits) or None
+        return None
     return f"{digits[:2]}{'*' * (len(digits) - 4)}{digits[-2:]}"
 
 

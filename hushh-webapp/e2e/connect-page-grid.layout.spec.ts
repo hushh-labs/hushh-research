@@ -198,7 +198,7 @@ for (const dark of [false, true]) {
       const cards = page.getByTestId("directory-person-card");
       await expect(cards).toHaveCount(3);
       await expect(cards.first()).toContainText("p***0@example.com");
-      await expect(cards.first().getByTestId("directory-person-masked-phone")).toHaveText("91********10");
+      await expect(cards.first().getByTestId("directory-person-masked-phone")).toHaveText("98******10");
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
       await expect(cards.first()).toContainText("2 mutual connections");
       const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
@@ -339,7 +339,7 @@ for (const width of [320, 393, 1440]) {
     const first = cards.first();
     await expect(first).toContainText("Avery Featherstonehaugh-Rajendran");
     await expect(first).toContainText("a***@international-research-department.example.com");
-    await expect(first.getByTestId("directory-person-masked-phone")).toHaveText("91********10");
+    await expect(first.getByTestId("directory-person-masked-phone")).toHaveText("98******10");
     const groupBox = await page.getByTestId("connect-directory-group").boundingBox();
     const cardBox = await first.boundingBox();
     expect(groupBox).not.toBeNull();

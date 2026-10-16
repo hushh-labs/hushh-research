@@ -4207,7 +4207,7 @@ def test_directory_phone_search_returns_only_first_and_last_two_digits(query: st
     result = service.search_directory_candidates(owner_user_id="owner", query=query)
 
     assert [person["userId"] for person in result["items"]] == ["verified"]
-    assert result["items"][0]["maskedPhone"] == "91********10"
+    assert result["items"][0]["maskedPhone"] == "98******10"
     assert "9876543210" not in json.dumps(result)
     assert all(
         "phone_number" not in person and "phoneNumber" not in person for person in result["items"]

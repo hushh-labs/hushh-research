@@ -527,7 +527,7 @@ def test_directory_phone_typeahead_with_and_without_country_code(connection, pho
         assert national not in str(result)
         assert (
             result["items"][0]["maskedPhone"]
-            == international[:2] + "*" * (len(international) - 4) + international[-2:]
+            == national[:2] + "*" * (len(national) - 4) + national[-2:]
         )
     for digits in (national, international):
         for length in range(1, len(digits) + 1):
@@ -561,7 +561,7 @@ def test_directory_normalized_phone_variants_run_before_sql_pagination(connectio
     )
     assert [item["userId"] for item in result["items"]] == ["target"]
     assert result["hasMore"] is False
-    assert result["items"][0]["maskedPhone"] == "91********10"
+    assert result["items"][0]["maskedPhone"] == "98******10"
 
 
 def test_directory_email_punctuation_is_literal(connection):
