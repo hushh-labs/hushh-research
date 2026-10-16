@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
-import { expectWalletTabMotion } from "./helpers/wallet-tab-motion";
 import fs from "node:fs";
+import { measureTabSelection } from "./fixtures/tab-motion";
 import os from "node:os";
 import path from "node:path";
 import type { WalletCardPayload } from "../lib/services/wallet-card-service";
@@ -265,7 +265,18 @@ for (const width of [390, 1024]) {
     const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
     await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
     await mount(page, false);
-    await expectWalletTabMotion(page, width === 1024);
+    await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
+    const add = page.getByRole("tab", { name: "Add", exact: true });
+    // Reproduce delayed WebKit startup without replacing the spring or clock.
+    const { frames, rendering } = await measureTabSelection(add, width === 1024 ? 150 : 0);
+    const diagnostics = JSON.stringify({ ...rendering, frameCount: frames.length,
+      maxFrameGap: Math.max(...frames.map((frame, index) => frame.time - (frames[index - 1]?.time ?? 0))),
+      first: frames.slice(0, 3), last: frames.slice(-3) });
+    const arrived = frames.find((frame, index) => Math.abs(frame.offset) < 3 && frames.slice(index).every((later) => Math.abs(later.offset) < 3));
+    expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
+    expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
+    expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
+    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `tab selection must animate rather than jump: ${diagnostics}`).toBe(true);
     expect(errors).toEqual([]);
   });
 }
