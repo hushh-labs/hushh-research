@@ -73,7 +73,7 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
           >
             <span className="referral-share-label">Invite</span>
             <span className="referral-share-arrow-surface" aria-hidden="true">
-              <ArrowRightIcon size={14} weight="bold" />
+              <ArrowRightIcon size={14} weight="bold" className={open ? "rotate-90" : undefined} />
             </span>
           </ShellActionSurface>
         </CollapsibleTrigger>
