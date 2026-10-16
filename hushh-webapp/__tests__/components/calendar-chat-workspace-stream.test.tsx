@@ -746,14 +746,19 @@ it("does not borrow an active Mail reply workflow for a meeting turn", async () 
 });
 
 
-it("reports authorized Calendar/Mail settlement in the existing chat without another model or mutation call", async () => {
+it.each([false, true])("reports authorized Calendar/Mail settlement without repeating effects (history retry: %s)", async retryHistory => {
   const { snapshotVaultSessionEpoch } = await import("@/lib/vault/session-epoch");
   let settle!: (value: { result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }) => void;
   const outcome = new Promise<{ result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }>(resolve => { settle = resolve; });
+  if (retryHistory) {
+    clearAgentChatHistoryCache("owner");
+    vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));
+  }
   const stream = vi.spyOn(ApiService, "apiFetchStream");
   const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance");
   useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarAttendance: { ownerId: "owner", epoch: snapshotVaultSessionEpoch(), title: "Client Sync", recipient: "organizer@example.com", outcome } });
   workspace();
+  if (retryHistory) fireEvent.click(await screen.findByRole("button", { name: "Retry conversation" }));
   await screen.findByText(/Declining Client Sync and sending your email/);
   await act(async () => { settle({ result: { calendar: "declined", email: "sent", calendar_error: null, email_error: null } }); });
   await screen.findByText(/Your email was sent to the organizer/);

@@ -9524,7 +9524,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
-              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
+              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
                 <p>Your conversation could not be restored. Your Calendar selection is retained.</p>
                 <Button variant="secondary" disabled={isLoadingHistory} onClick={() => setSlotHistoryRetry(value => value + 1)}>Retry conversation</Button>
               </div> : null}
