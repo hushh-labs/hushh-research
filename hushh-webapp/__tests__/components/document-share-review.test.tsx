@@ -31,6 +31,7 @@ const state = vi.hoisted(() => ({
   prepareRequestBulk: vi.fn(),
   prepareRequestBatch: vi.fn(),
   setLiveBackground: vi.fn(),
+  overview: vi.fn(),
   bulkShareFiles: vi.fn(),
   approveBulkShare: vi.fn(),
   retryBulkShare: vi.fn(),
@@ -90,7 +91,7 @@ vi.mock("@/lib/services/drive-search-service", async (original) => ({
   DriveSearchService: { streamStatus: searchStream.status },
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { setLiveBackground: state.setLiveBackground },
+  ExternalConnectorService: { setLiveBackground: state.setLiveBackground, overview: state.overview },
 }));
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import {
@@ -255,6 +256,7 @@ describe("exact-file document review", () => {
     state.prepareRequestBulk.mockResolvedValue(durableBulk());
     state.prepareRequestBatch.mockResolvedValue(durableBulk());
     state.setLiveBackground.mockResolvedValue(true);
+    state.overview.mockResolvedValue({ driveAgentPackagesEnabled: false });
     state.bulkShareFiles.mockResolvedValue({ shareId: bulkShareId,
       files: [{ position: 1, name: "Standup 1", mimeType: "application/vnd.google-apps.document", modifiedTime: null, openUrl: null }], nextCursor: null });
     state.approveBulkShare.mockResolvedValue(durableBulk({ status: "queued", canApprove: false }));
@@ -1311,7 +1313,7 @@ describe("exact-file document review", () => {
         purpose: "Statements", paymentRequired: true, busy: false, error: null });
       // A refused price keeps the decision open and says what to change.
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a price from $0.50 to $500.");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a whole-dollar price from $1 to $500.");
       expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
       expect(changed).not.toHaveBeenCalled();
 

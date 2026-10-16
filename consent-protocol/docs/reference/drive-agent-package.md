@@ -2,8 +2,9 @@
 
 Continuous collection preparation and canonical packet reuse extend this
 request workflow; see [continuous Drive packets](./drive-continuous-packets.md).
-The live retrieval and 20 KiB excerpt below describe the fallback path; current
-indexed requests reuse complete versioned facts and their original-page evidence.
+The live retrieval and 20 KiB excerpt below describe the fallback path; when
+packages are enabled, indexed requests can reuse versioned facts and their
+original-page evidence.
 
 ## User story
 
@@ -55,9 +56,14 @@ The report records fixture/manifest hashes, model alias/resolved model where ava
 
 Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `consent-protocol/db/migrations/329_drive_request_cent_prices.sql` add the package evidence fields and cent-denominated price constraints after the existing direct-message delivery migration 327. The continuous-packet release extends the schema contracts through version 334.
 
-`DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests. The UAT release defaults it on; other environments default off. A sealed `agent_package_required` marker persists the contract after creation so disabling enrollment cannot downgrade an existing package to legacy manual or Trusted automation. Historical frozen and paid records are not reinterpreted.
-
-For the owner-first statement fallback, `DRIVE_DEMO_LEGACY_REQUESTS_ENABLED=true` sends only new, non-packet Schwab or brokerage statement requests through the existing Allow → live Drive search → exact-file owner review path. Other requests and all previously sealed requests keep their original route. Candidate filenames and Drive timestamps are discovery hints, not proof of statement coverage; these statement candidates cannot enter automatic sharing. Checkout waits for a completed search and Manish's exact-file approval, then rechecks recipient ACLs and prior paid delivery for the selected files. The flag defaults off outside the UAT rollout and can be disabled for future requests without changing existing reviews, payments, or grants.
+`DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests.
+The October 13 Drive restoration sets it to `false` in UAT: new requests use
+owner-first live Drive search and exact-file review, and continuous collection
+and packet commerce stop. UAT migration 359 disables existing live collection
+processing and packet availability without deleting evidence or payment history.
+Other environments also default to `false` unless explicitly enabled. A sealed
+`agent_package_required` marker persists the contract of an older request so
+disabling enrollment cannot reinterpret its frozen or paid records.
 
 Background preparation still requires the owner's current connected Drive and background permission. Current peer, request revision, expiration and connection generation are rechecked at work boundaries. Owner Allow remains a separate sharing decision.
 

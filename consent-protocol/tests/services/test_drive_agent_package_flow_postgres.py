@@ -62,6 +62,7 @@ async def new_request(
     expected_quote_version=1,
     purpose_text="Portfolio reports",
     access_days=None,
+    **extra,
 ):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
@@ -70,6 +71,7 @@ async def new_request(
         access_days=access_days,
         client_request_id=client_id or str(uuid4()),
         expected_quote_version=expected_quote_version,
+        **extra,
         purpose=ShareRequestPurpose(
             purpose=purpose_text,
             periodStart=(today - timedelta(days=42)).isoformat(),
@@ -198,41 +200,91 @@ async def test_schwab_statement_request_requires_v1_content_evaluation_with_flag
     assert context["packageAllowed"] is False
 
 
-async def test_demo_statement_enrollment_is_new_request_only_and_keeps_other_v1_requests(
+async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_preserves_v1(
     agent_flow, sharing, monkeypatch
 ):
-    existing = await new_request(sharing, purpose_text="Schwab brokerage statements")
+    existing_client_id = str(uuid4())
+    existing = await new_request(
+        sharing,
+        client_id=existing_client_id,
+        purpose_text="Schwab brokerage statements",
+        access_days=30,
+    )
     existing_row, existing_private = private_request(sharing, existing["requestId"])
     assert existing_row["agent_package_required"] is True
     assert existing_private["v1_live_request"] is True
 
-    monkeypatch.setenv("DRIVE_DEMO_LEGACY_REQUESTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
     clear_runtime_settings_caches()
-    statement = await new_request(sharing, purpose_text="All Schwab brokerage statements from 2026")
-    statement_row, statement_private = private_request(sharing, statement["requestId"])
-    assert statement_row["agent_package_required"] is False
-    assert statement_private.get("agent_package_required") is not True
-    assert statement_private.get("v1_live_request") is not True
-    statement_review = await sharing.owner_review(
-        user_id="owner", request_id=statement["requestId"]
+    replay = await new_request(
+        sharing,
+        client_id=existing_client_id,
+        purpose_text="Schwab brokerage statements",
     )
-    assert statement_review["allowAvailable"] is True
-    assert statement_review.get("agentPackage") is None
+    assert replay["requestId"] == existing["requestId"]
 
-    other = await new_request(sharing, purpose_text="Standup notes from last week")
-    other_row, other_private = private_request(sharing, other["requestId"])
-    assert other_row["agent_package_required"] is True
-    assert other_private["v1_live_request"] is True
+    for unsupported in (
+        {"access_days": 30},
+        {"reusable_packet": {"packetId": "unavailable"}},
+        {"requester_profile": {"type": "ria"}, "reason": "Review allocation"},
+        {"reason": "Share with advisor"},
+    ):
+        with pytest.raises(DriveSharingError, match="packet_unavailable|invalid_argument"):
+            await new_request(sharing, **unsupported)
 
-    generic = await new_request(sharing, purpose_text="Bank statements")
-    generic_row, generic_private = private_request(sharing, generic["requestId"])
-    assert generic_row["agent_package_required"] is True
-    assert generic_private["v1_live_request"] is True
+    for purpose in (
+        "All Schwab brokerage statements from 2026",
+        "Standup notes from last week",
+        "Bank statements",
+        "Portfolio reports",
+    ):
+        created = await new_request(sharing, purpose_text=purpose)
+        row, private = private_request(sharing, created["requestId"])
+        assert row["agent_package_required"] is False
+        assert private.get("agent_package_required") is not True
+        assert private.get("v1_live_request") is not True
+        assert private["legacy_request_policy"] == "oct13_restored"
+        review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
+        assert review["allowAvailable"] is True
+        assert review.get("agentPackage") is None
+
+    with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
+        await sharing.allow_request(
+            user_id="owner",
+            request_id=created["requestId"],
+            revision=created["revision"],
+            amount_cents=125,
+        )
+    allowed = await sharing.allow_request(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        amount_cents=1_000,
+    )
+    assert allowed["ownerAllowed"] is True and allowed["amountCents"] == 1_000
 
     # A rollout change cannot reinterpret a request already sealed as V1.
     unchanged_row, unchanged_private = private_request(sharing, existing["requestId"])
     assert unchanged_row["agent_package_required"] is True
     assert unchanged_private["v1_live_request"] is True
+
+
+async def test_package_flag_off_can_disable_historical_cent_price(agent_flow, sharing, monkeypatch):
+    cents = await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=125, expected_version=1
+    )
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    clear_runtime_settings_caches()
+    quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
+    assert quote["amountCents"] is None and quote["priceReady"] is False
+    with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
+        await sharing.update_owner_pricing(
+            user_id="owner", enabled=True, amount_cents=125, expected_version=cents["version"]
+        )
+    disabled = await sharing.update_owner_pricing(
+        user_id="owner", enabled=False, amount_cents=125, expected_version=cents["version"]
+    )
+    assert disabled["enabled"] is False and disabled["amountCents"] == 125
 
 
 async def test_nontrusted_v1_ready_selection_enters_existing_exact_file_review(

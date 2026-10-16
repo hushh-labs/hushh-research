@@ -21,7 +21,6 @@ from hushh_mcp.services.drive_request_bulk_service import (
     _deterministic_statement_plan,
 )
 from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
-from hushh_mcp.services.drive_sharing_store import _demo_legacy_statement_request
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -31,58 +30,6 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
-
-
-@pytest.mark.parametrize(
-    "request_text",
-    [
-        "Last months brokerage statements",
-        "I need all brokerage statements that contains Schwab from 2026",
-    ],
-)
-def test_demo_legacy_enrollment_only_for_new_non_packet_brokerage_statements(request_text):
-    purpose = {
-        "purpose": request_text,
-        "periodStart": "2026-09-01",
-        "periodEnd": "2026-10-09",
-    }
-    assert (
-        _demo_legacy_statement_request(
-            purpose=purpose, owner_initiated=False, reusable_packet=None, enabled=True
-        )
-        is True
-    )
-    assert (
-        _demo_legacy_statement_request(
-            purpose=purpose, owner_initiated=False, reusable_packet=None, enabled=False
-        )
-        is False
-    )
-    assert (
-        _demo_legacy_statement_request(
-            purpose=purpose, owner_initiated=True, reusable_packet=None, enabled=True
-        )
-        is False
-    )
-    assert (
-        _demo_legacy_statement_request(
-            purpose=purpose,
-            owner_initiated=False,
-            reusable_packet={"packetId": "existing"},
-            enabled=True,
-        )
-        is False
-    )
-    for other in ("Bank statements", "Standup notes from last week"):
-        assert (
-            _demo_legacy_statement_request(
-                purpose={**purpose, "purpose": other},
-                owner_initiated=False,
-                reusable_packet=None,
-                enabled=True,
-            )
-            is False
-        )
 
 
 @pytest.mark.asyncio
@@ -354,7 +301,43 @@ async def test_statement_request_uses_deterministic_coverage_plan_without_model(
 
 
 @pytest.mark.asyncio
-async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(monkeypatch):
+async def test_new_legacy_statement_uses_live_provider_and_suggestions_worker(monkeypatch):
+    purpose = {
+        "purpose": "I need all brokerage statements that contains Schwab from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "job"}, True)),
+        align_request_expiry=AsyncMock(),
+    )
+    service = DriveOwnerSearchService(store=store)
+    service.run_one = AsyncMock()
+    service.status = AsyncMock(return_value={"jobId": "job", "status": "queued"})
+    wake = AsyncMock()
+    monkeypatch.setattr(search_module, "wake_drive_work", wake)
+
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=0,
+        purpose=purpose,
+        plan=_deterministic_statement_plan(purpose).model_dump(mode="json"),
+        require_current=AsyncMock(),
+        authority_mode="trusted_auto",
+    )
+
+    frozen = store.create.await_args.kwargs
+    assert frozen["v1_statement_search"] is False
+    assert frozen["checkpoint"]["evidence_route"] == "provider"
+    assert frozen["checkpoint"]["request_owner_review_required"] is True
+    wake.assert_awaited_once_with("suggestions")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("marked_v1", [False, True])
+async def test_legacy_statement_replan_keeps_job_positions_and_worker_lane(monkeypatch, marked_v1):
     request_id = "12345678-1234-1234-1234-123456789012"
     purpose = {
         "purpose": "Schwab brokerage statements from 2026",
@@ -382,7 +365,7 @@ async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(mon
         "connection_generation": 7,
         "checkpoint": checkpoint,
         "lease_id": None,
-        "v1_statement_search": False,
+        "v1_statement_search": marked_v1,
     }
     request = {
         "status": "pending",
@@ -411,7 +394,6 @@ async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(mon
             writes.append(parameters)
             row["checkpoint"] = parameters["checkpoint"]
             row["status"] = "queued"
-            row["v1_statement_search"] = True
             return row
         raise AssertionError(statement)
 
@@ -441,18 +423,21 @@ async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(mon
         period=period,
         terms=plan.terms,
     )
-    state, changed = await store.replan_legacy_statement_request(**kwargs)
+    state, changed, worker_stage = await store.replan_legacy_statement_request(**kwargs)
     assert changed and state == {"jobId": row["job_id"], "status": "queued"}
+    assert worker_stage == ("v1" if marked_v1 else "suggestions")
     assert len(writes) == 1
     assert row["checkpoint"]["queries"] == queries
     assert row["checkpoint"]["phase"] == "user"
     assert row["checkpoint"]["page_token"] is None
     assert row["checkpoint"]["request_owner_review_required"] is True
     assert row["checkpoint"]["coverage_manifest"]["contentPeriodVerified"] is False
+    assert row["v1_statement_search"] is marked_v1
     assert original_positions == {1: "file-a", 2: "file-b"}
 
-    state, changed = await store.replan_legacy_statement_request(**kwargs)
+    state, changed, worker_stage = await store.replan_legacy_statement_request(**kwargs)
     assert not changed and state["jobId"] == row["job_id"]
+    assert worker_stage == ("v1" if marked_v1 else "suggestions")
     assert len(writes) == 1
 
 
@@ -521,7 +506,7 @@ async def test_legacy_statement_replan_does_not_touch_frozen_history(monkeypatch
         return operation(Connection())
 
     monkeypatch.setattr(store, "_transaction", transaction)
-    state, changed = await store.replan_legacy_statement_request(
+    state, changed, worker_stage = await store.replan_legacy_statement_request(
         user_id="owner",
         request_id=request_id,
         request_revision=2,
@@ -532,6 +517,7 @@ async def test_legacy_statement_replan_does_not_touch_frozen_history(monkeypatch
     )
     assert state == {"jobId": row["job_id"], "status": "completed"}
     assert not changed and not writes
+    assert worker_stage == "suggestions"
     assert row["checkpoint"] is checkpoint
     assert checkpoint["queries"] == [{"arguments": {"query": "old"}}]
 
@@ -557,7 +543,9 @@ async def test_active_legacy_statement_replans_before_provider_read(monkeypatch)
         sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
         transport=SimpleNamespace(read_tool=AsyncMock(side_effect=AssertionError("provider read"))),
     )
-    service.replan_legacy_statement_request = AsyncMock(return_value=({"status": "queued"}, True))
+    service.replan_legacy_statement_request = AsyncMock(
+        return_value=({"status": "queued"}, True, "suggestions")
+    )
     monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
     outcome = await service.run_one(user_id="owner", job_id="job", require_current=AsyncMock())
     assert outcome == "queued"
@@ -565,6 +553,7 @@ async def test_active_legacy_statement_replans_before_provider_read(monkeypatch)
         user_id="owner", request_id=request_id, context=context, expected_lease="lease-1"
     )
     service.transport.read_tool.assert_not_awaited()
+    search_module.wake_drive_work.assert_awaited_once_with("suggestions")
 
 
 @pytest.mark.asyncio
@@ -713,7 +702,7 @@ async def test_existing_completed_statement_retries_same_job_without_model():
     )
     search = SimpleNamespace(
         store=store,
-        replan_legacy_statement_request=AsyncMock(return_value=(retried, True)),
+        replan_legacy_statement_request=AsyncMock(return_value=(retried, True, "suggestions")),
         create_for_request=AsyncMock(),
     )
     planner = AsyncMock(side_effect=AssertionError("statement route must not call Gemini"))
@@ -735,7 +724,7 @@ async def test_existing_completed_statement_retries_same_job_without_model():
     store.by_client.assert_awaited_once()
     search.create_for_request.assert_not_awaited()
     planner.assert_not_awaited()
-    wake.assert_awaited_once_with("v1")
+    wake.assert_awaited_once_with("suggestions")
 
 
 @pytest.mark.asyncio
@@ -756,7 +745,7 @@ async def test_owner_review_retries_completed_unfrozen_statement_without_manual_
     lookup = AsyncMock(side_effect=[old, retried])
     search = SimpleNamespace(
         store=SimpleNamespace(by_client=lookup),
-        replan_legacy_statement_request=AsyncMock(return_value=(retried, True)),
+        replan_legacy_statement_request=AsyncMock(return_value=(retried, True, "suggestions")),
     )
     bulk = SimpleNamespace(
         refresh_request=AsyncMock(),
@@ -778,7 +767,7 @@ async def test_owner_review_retries_completed_unfrozen_statement_without_manual_
     search.replan_legacy_statement_request.assert_awaited_once_with(
         user_id="owner", request_id=request_id, context=context
     )
-    wake.assert_awaited_once_with("v1")
+    wake.assert_awaited_once_with("suggestions")
     bulk.refresh_request.assert_not_awaited()
     planner.assert_not_awaited()
 

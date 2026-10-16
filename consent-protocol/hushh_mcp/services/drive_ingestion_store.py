@@ -10,11 +10,13 @@ on a distinct document (claims for one owner serialize on the connection row).
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from dataclasses import asdict
 
 from sqlalchemy import text
 
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.document_index_service import (
     DocumentChunkCipher,
     PreparedIndex,
@@ -135,6 +137,8 @@ class DriveIngestionStore(DriveDocumentStore):
         targets = document_targets(document_ids)
         if type(prefer_profile_upgrade) is not bool:
             raise DriveReadError("invalid_argument")
+        if not connector_feature_enabled("drive_document_indexing", user_id):
+            return None
         self.cipher._key()
 
         def operation(connection):
@@ -142,6 +146,11 @@ class DriveIngestionStore(DriveDocumentStore):
             from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 
             profile = "live" if current["verified_policy_hash"] == LIVE_POLICY_HASH else "selected"
+            if (
+                profile == "live"
+                and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+            ):
+                return None
             self._admit(connection, user_id, generation, profile=profile)
             background_revision = None
             if profile == "live":

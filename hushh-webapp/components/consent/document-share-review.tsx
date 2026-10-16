@@ -283,10 +283,10 @@ function errorCopy(cause: unknown): string {
 }
 
 /** Why the price sheet could not allow the request. */
-function allowErrorCopy(cause: unknown): string {
+function allowErrorCopy(cause: unknown, allowCents: boolean): string {
   const code = cause instanceof DriveSharingError ? cause.code : "request_failed";
   if (code === "invalid_payment_amount" || code === "invalid_argument")
-    return DOCUMENT_REQUEST_PRICE_RULE;
+    return allowCents ? DOCUMENT_REQUEST_PRICE_RULE : "Choose a whole-dollar price from $1 to $500.";
   if (code === "review_changed" || code === "request_already_decided")
     return "This request changed. Check it and try again.";
   return errorCopy(cause);
@@ -426,6 +426,25 @@ function UnlockedDocumentReview({
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
+  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAgentPackagesEnabled(false);
+      return;
+    }
+    let current = true;
+    setAgentPackagesEnabled(false);
+    void ExternalConnectorService.overview(token)
+      .then((overview) => {
+        if (current && getToken() === token)
+          setAgentPackagesEnabled(overview.driveAgentPackagesEnabled === true);
+      })
+      .catch(() => {
+        if (current) setAgentPackagesEnabled(false);
+      });
+    return () => { current = false; };
+  }, [getToken]);
   const [ownerAccessDays, setOwnerAccessDays] = useState<number | null>(null);
   const openedPricePackageKey = useRef<string | null>(null);
   const [allowError, setAllowError] = useState<string | null>(null);
@@ -815,6 +834,10 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
+  const allowCents = agentPackagesEnabled || review?.agentPackage !== undefined ||
+    review?.v1ManualReview === true ||
+    (review?.estimateCents != null && review.estimateCents % 100 !== 0) ||
+    (review?.priceCents != null && review.priceCents % 100 !== 0);
   const v1ManualReview = review?.v1ManualReview === true;
   const requestedAccessDays = review?.requestedAccessDays ?? 30;
   const accessDayChoices = [7, 30, 90].filter(days => days <= requestedAccessDays);
@@ -1084,7 +1107,7 @@ function UnlockedDocumentReview({
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
-          setAllowError(allowErrorCopy(cause));
+          setAllowError(allowErrorCopy(cause, allowCents));
           return load(token, guard, report);
         }
         guard();
@@ -1527,7 +1550,7 @@ function UnlockedDocumentReview({
           }
         />
         <DocumentRequestPriceSheet
-          moneyPolicy="drive_cents"
+          moneyPolicy={allowCents ? "drive_cents" : "legacy_whole_dollars"}
           open={priceOpen}
           requesterLabel={review.recipientEmail}
           purpose={review.purpose.purpose}

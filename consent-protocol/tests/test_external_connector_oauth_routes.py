@@ -457,7 +457,11 @@ def test_catalog_is_curated_but_connection_status_and_legacy_key_lookup_are_owne
 
 
 @pytest.mark.parametrize("configured", [False, True])
-def test_drive_catalog_readiness_matches_oauth_configuration(route_client, monkeypatch, configured):
+@pytest.mark.parametrize("packages_enabled", [False, True])
+def test_drive_catalog_readiness_matches_oauth_configuration(
+    route_client, monkeypatch, configured, packages_enabled
+):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true" if packages_enabled else "false")
     client, app, drive = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
     drive.connection_available.return_value = configured
@@ -486,6 +490,7 @@ def test_drive_catalog_readiness_matches_oauth_configuration(route_client, monke
     assert response.status_code == 200
     assert response.json()["connectors"][0]["available"] is configured
     assert response.json()["features"]["google_drive_connection"] is True
+    assert response.json()["driveAgentPackagesEnabled"] is packages_enabled
     drive.connection_available.assert_awaited_once()
 
 

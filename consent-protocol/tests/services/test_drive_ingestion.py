@@ -104,6 +104,20 @@ async def test_selection_is_not_background_consent(ingestion):
 
 
 @pytest.mark.asyncio
+async def test_indexing_kill_switch_prevents_new_selected_claim(ingestion, monkeypatch):
+    await pick(ingestion)
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+
+@pytest.mark.asyncio
+async def test_package_switch_preserves_selected_claim(ingestion, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    await pick(ingestion)
+    assert await ingestion.claim(user_id="owner", generation=1) is not None
+
+
+@pytest.mark.asyncio
 async def test_disable_reenable_cannot_publish_pre_disable_work(ingestion):
     old = await job(ingestion)
     for enabled in (False, True):
@@ -546,6 +560,7 @@ async def collection(ingestion, monkeypatch):
     from hushh_mcp.services.google_drive_adapter import DRIVE_POLICY, LIVE_POLICY_HASH
 
     monkeypatch.setenv("GOOGLE_DRIVE_LIVE", "true")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     sql = (
         Path(__file__).resolve().parents[2] / "db/migrations/241_drive_live_sharing.sql"
     ).read_text()

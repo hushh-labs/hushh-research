@@ -81,18 +81,6 @@ def test_trusted_device_rollout_is_hydrated_from_canonical_runtime_config(monkey
     assert os.environ["HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST"] == "reviewer@example.com,reviewer-uid"
 
 
-def test_demo_legacy_drive_enrollment_is_hydrated_from_canonical_runtime_config(monkeypatch):
-    monkeypatch.delenv("DRIVE_DEMO_LEGACY_REQUESTS_ENABLED", raising=False)
-    monkeypatch.setenv(
-        "BACKEND_RUNTIME_CONFIG_JSON",
-        json.dumps({"drive_demo_legacy_requests_enabled": "true"}),
-    )
-
-    runtime_settings.hydrate_runtime_environment()
-
-    assert os.environ["DRIVE_DEMO_LEGACY_REQUESTS_ENABLED"] == "true"
-
-
 def test_nearby_presence_admission_is_hydrated_from_canonical_runtime_config(monkeypatch):
     """The two admission flags must survive the config -> env hop.
 

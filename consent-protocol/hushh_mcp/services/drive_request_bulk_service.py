@@ -281,13 +281,13 @@ class DriveRequestBulkService:
             statement_plan = _deterministic_meeting_note_plan(purpose)
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and statement_plan is not None and not context.get("v1LiveRequest"):
-            replanned, changed = await self.search.replan_legacy_statement_request(
+            replanned, changed, worker_stage = await self.search.replan_legacy_statement_request(
                 user_id=user_id, request_id=request_id, context=context
             )
             if replanned is not None:
                 existing = replanned
             if changed:
-                await self.wake("v1")
+                await self.wake(worker_stage)
         if (
             existing is not None
             and existing["status"] == "completed"
@@ -401,13 +401,13 @@ class DriveRequestBulkService:
             and not context.get("agentPackageRequired")
             and _deterministic_statement_plan(context["purpose"]) is not None
         ):
-            replanned, changed = await self.search.replan_legacy_statement_request(
+            replanned, changed, worker_stage = await self.search.replan_legacy_statement_request(
                 user_id=user_id, request_id=request_id, context=context
             )
             if replanned is not None:
                 search = replanned
             if changed:
-                await self.wake("v1")
+                await self.wake(worker_stage)
         if search is not None and search["status"] == "completed":
             await self.bulk.refresh_request(user_id=user_id, request_id=request_id)
         batches = await self.bulk.batches_by_request(user_id=user_id, request_id=request_id)

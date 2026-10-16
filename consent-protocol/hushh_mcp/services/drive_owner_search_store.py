@@ -452,6 +452,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if len(queries) != 2 or not period:
             raise DriveReadError("invalid_argument")
 
+        def outcome(row, changed):
+            return (
+                self._view(row),
+                changed,
+                "v1" if row.get("v1_statement_search") is True else "suggestions",
+            )
+
         def operation(connection):
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             current = self._access(connection, user_id)
@@ -469,7 +476,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 {"user": user_id, "request": client},
             )
             if row is None:
-                return None, False
+                return None, False, None
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
             checkpoint = self._checkpoint(row)
@@ -489,7 +496,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 or expected_lease is not None
                 and str(row["lease_id"]) != expected_lease
             ):
-                return self._view(row), False
+                return outcome(row, False)
             private = self.search_cipher.open(
                 request["request_envelope"],
                 user_id=user_id,
@@ -497,7 +504,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 purpose="request",
             )
             if private.get("purpose") != purpose or private.get("agent_package_required") is True:
-                return self._view(row), False
+                return outcome(row, False)
             if self._row(
                 connection,
                 """SELECT share_id FROM drive_bulk_shares
@@ -505,29 +512,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 {"request": client, "job": row["job_id"]},
             ):
                 # Frozen selections, approvals and paid receipts are immutable.
-                return self._view(row), False
+                return outcome(row, False)
             if checkpoint.get("request_coverage_query_version") == 1:
-                # A job created before this migration may already have the
-                # deterministic two-query plan. Mark it without clearing its
-                # page progress or changing stable result positions.
-                if (
-                    row["v1_statement_search"]
-                    or checkpoint.get("queries") != queries
-                    or checkpoint.get("requested_period") != period
-                    or checkpoint.get("request_subject_terms") != terms
-                    or checkpoint.get("request_time_intent") != "document_coverage"
-                    or checkpoint.get("request_owner_review_required") is not True
-                ):
-                    return self._view(row), False
-                updated = self._row(
-                    connection,
-                    """UPDATE drive_owner_search_jobs SET v1_statement_search=TRUE,
-                       updated_at=clock_timestamp() WHERE job_id=:job RETURNING *""",
-                    {"job": row["job_id"]},
-                )
-                return self._view(updated), True
+                # Its completed coverage plan is already frozen. Keep the
+                # original worker lane, including an older marked V1 job.
+                return outcome(row, False)
             if not _legacy_single_query(checkpoint):
-                return self._view(row), False
+                return outcome(row, False)
             if self._row(
                 connection,
                 """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
@@ -588,7 +579,6 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 connection,
                 """UPDATE drive_owner_search_jobs SET
                   checkpoint_envelope=CAST(:checkpoint AS jsonb),status='queued',
-                  v1_statement_search=TRUE,
                   incomplete_search=FALSE,lease_id=NULL,lease_expires_at=NULL,
                   error_code=NULL,retry_count=0,next_at=clock_timestamp(),
                   revision=revision+1,updated_at=clock_timestamp()
@@ -600,7 +590,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     ),
                 },
             )
-            return self._view(updated), True
+            return outcome(updated, True)
 
         return await self._transaction(operation)
 
@@ -1153,6 +1143,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 "generation": row["connection_generation"],
                 "lease_id": lease,
                 "checkpoint": self._checkpoint(row),
+                "v1_statement_search": row["v1_statement_search"],
             }
 
         return await self._transaction(operation)
