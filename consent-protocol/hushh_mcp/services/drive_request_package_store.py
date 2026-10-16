@@ -31,7 +31,7 @@ PACKAGE_KEY = "agent_package"
 PACKAGE_VERSION = 1
 MAX_BATCH = 6
 V1_FIRST_COHORT = 25
-V1_PRIORITY_KEY = "v1_evaluation_priority"
+V1_PRIORITY_FIELD = "v1_evaluation_priority"
 MAX_OBSERVATION_BYTES = 16 * 1024
 MAX_PACKAGE_BYTES = 24 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -276,7 +276,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
             or checkpoint.get("evidence_route", "provider") != "provider"
         ):
             return []
-        saved = checkpoint.get(V1_PRIORITY_KEY)
+        saved = checkpoint.get(V1_PRIORITY_FIELD)
         if saved is None:
             # One bounded read/decrypt pass per completed discovery, not one
             # DB round trip per file or a fresh ranking on every worker wake.
@@ -306,7 +306,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 "candidate_count": row["matched"],
                 "positions": [position for _, position in scored[:V1_FIRST_COHORT]],
             }
-            checkpoint[V1_PRIORITY_KEY] = saved
+            checkpoint[V1_PRIORITY_FIELD] = saved
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb)
                     WHERE user_id=:user AND job_id=:job"""),
