@@ -46,7 +46,7 @@ describe("EmailAgentPageClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Mail" }));
 
     expect(push).toHaveBeenCalledWith("/one/gmail");
-    expect(screen.getByRole("heading", { name: "Connect Mail" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Connect your Mail" })).toBeTruthy();
   });
 
   it("opens an empty One composer without starting an unrequested mail turn", () => {
