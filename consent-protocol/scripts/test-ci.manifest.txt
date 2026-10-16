@@ -273,6 +273,8 @@ tests/services/test_one_referral_rewards_service.py
 tests/test_one_referral_handle.py
 tests/services/test_one_referral_display_handle_service.py
 tests/services/test_one_referral_leaderboard_service.py
+tests/services/test_one_referral_identity_service.py
+tests/test_one_referral_daily_streak.py
 tests/services/test_one_referral_weekly_award_service.py
 
 # One Location Circles, and the migration guards that protect them.
@@ -860,6 +862,7 @@ tests/services/test_calendar_shared_availability.py
 
 # Referral transaction, privacy and concurrency contracts.
 tests/test_one_referral_lifecycle_postgres.py
+tests/test_referral_prize_activation_postgres.py
 
 # V1 request search, exact authority, and isolated checkout/refund lane.
 tests/test_drive_v1_worker_lane.py

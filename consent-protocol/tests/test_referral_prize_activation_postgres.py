@@ -11,6 +11,7 @@ from db.migration_authority import _replay_sql, build_manifest_entries
 from db.referral_prize_activation import activate_weekly_prizes_sql
 from tests.test_one_referral_lifecycle_postgres import db  # noqa: F401
 
+pytestmark = pytest.mark.db
 MIGRATIONS = Path(__file__).resolve().parents[1] / "db/migrations"
 
 
