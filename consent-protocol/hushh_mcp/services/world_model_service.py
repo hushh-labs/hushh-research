@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.world_model import (
     policy_fingerprint,
     run_world_model,
 )
+from hushh_mcp.one_adk.world_model_contracts import validated_facts_from_work
 from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
@@ -166,18 +167,34 @@ class WorldModelJobs(ProfileResearchJobs):
 
     async def status(self, user_id, consent_token):
         result = await super().status(user_id, consent_token)
-        if result["status"] not in {"pending", "paused"}:
+        if result["status"] not in {"pending", "paused", "unavailable"}:
             self.activity.pop(user_id, None)
             return result
-        # Progress is additive and derived from the sealed checkpoint only;
-        # the key that opens it is the same request-bound key as the status.
         state = await self.store.get(user_id)
-        if state is None:
+        if state is None or state.get("status") != result["status"]:
             return result
+        if not state.get("identity_binding"):
+            # The detached worker has not finished admission yet. No private
+            # checkpoint exists to expose; keep the original pending signal.
+            return result
+        # Base status only checks the owner token while a job is pending. The
+        # sealed checkpoint also needs current consent and the exact identity
+        # binding before releasing titles, citations or provisional statements.
+        refused, binding = await self.check(user_id, consent_token)
+        if refused:
+            return refused
+        if state.get("identity_binding") != binding:
+            return {"status": "pending", "pkm_written": False, "restart_required": True}
+        current = await self.store.get(user_id)
+        if current is None or any(
+            current.get(key) != state.get(key) for key in ("revision", "fence")
+        ):
+            return {"status": "pending", "pkm_written": False, "restart_required": True}
         progress = derive_progress(
             state, now=self.clock(), revision_at=self.activity_at(user_id, state)
         )
-        return {**result, "progress": progress}
+        facts = validated_facts_from_work(state.get("work"))
+        return {**result, "progress": progress, "validated_facts": facts}
 
     def committed(self):
         from hushh_mcp.services.world_model_notifications import world_model_notification_worker

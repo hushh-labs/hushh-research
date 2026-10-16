@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
   ProfileInnerProgressIcon,
@@ -11,9 +11,7 @@ import {
   ProfileAccountNameIcon,
   ProfileAccountPhoneIcon,
 } from "@/components/profile/profile-your-account-icons";
-import { TrailingValue } from "@/components/app-ui/typography";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { PwmProgress } from "@/lib/services/world-model-research-service";
 
@@ -95,50 +93,6 @@ export function useReadingSources(progress: PwmProgress | null): boolean {
   return reading;
 }
 
-/**
- * A weighted share of the run, 3–97. Most runs end well before the search
- * budget, so the searches alone would leave the bar parked; the stage carries
- * most of the weight and the report stage never reads as finished.
- */
-export function preparingPercent(progress: PwmProgress): number {
-  const searches = progress.searches_used / progress.searches_total;
-  let value: number;
-  switch (progress.stage) {
-    case "starting":
-      value = 3;
-      break;
-    case "identity":
-      value = 5 + (25 * Math.min(progress.searches_used, 4)) / 4;
-      break;
-    case "coverage":
-      value =
-        30 +
-        55 * Math.max(progress.topics_checked.length / PWM_TOPIC_COUNT, searches);
-      break;
-    case "report":
-      value = 90;
-      break;
-  }
-  return Math.min(97, Math.max(3, Math.round(value)));
-}
-
-/**
- * The shown percent never drops within one run (a resume reports fewer
- * searches for a moment) and starts over when research stops.
- */
-export function useMonotonicPercent(
-  value: number | null,
-  preparing: boolean,
-): number | null {
-  const [floor, setFloor] = useState(0);
-  const shown = value === null ? null : Math.max(floor, value);
-  useEffect(() => {
-    if (!preparing) setFloor(0);
-    else if (shown !== null && shown > floor) setFloor(shown);
-  }, [preparing, shown, floor]);
-  return preparing ? shown : null;
-}
-
 /** "just now" / "3m ago" / "2h ago", the Payouts freshness buckets. */
 function ageLabel(age: number): string {
   if (age < MINUTE_MS) return "just now";
@@ -211,48 +165,33 @@ export function identityNotice(progress: PwmProgress | null): string | null {
   }
 }
 
-/**
- * A 2px bar on the row's muted track. No value reads as "working": a third
- * of the track pulses, drawn here rather than through the shared bar, whose
- * inline translate would push a part-width indicator out of the track.
- */
-export function WorldModelProgressBar({ value }: { value: number | null }) {
-  if (value === null)
-    return (
-      <div
-        role="progressbar"
-        aria-label="Research progress"
-        data-testid="pwm-progress-bar"
-        className="h-0.5 w-full overflow-hidden rounded-full bg-[color:var(--app-neutral-fill)]"
-      >
-        <div
-          data-testid="pwm-progress-fill"
-          className="h-full w-1/3 animate-pulse rounded-full bg-[color:var(--app-accent)] motion-reduce:animate-none"
-        />
-      </div>
-    );
+/** Research has no meaningful completion denominator; only observed counts are numeric. */
+export function WorldModelProgressBar() {
   return (
-    <Progress
-      value={value}
-      aria-label="Research progress"
+    <div
+      role="progressbar"
+      aria-label="Research in progress"
       data-testid="pwm-progress-bar"
-      className="h-0.5 w-full rounded-full bg-[color:var(--app-neutral-fill)]"
-      indicatorClassName="rounded-full bg-[color:var(--app-accent)] motion-reduce:transition-none"
-    />
+      className="h-0.5 w-full overflow-hidden rounded-full bg-[color:var(--app-neutral-fill)]"
+    >
+      <div
+        data-testid="pwm-progress-fill"
+        className="h-full w-1/3 animate-pulse rounded-full bg-[color:var(--app-accent)] motion-reduce:animate-none"
+      />
+    </div>
   );
 }
 
 /**
- * The counting rows under the status row while research runs: searches and
- * sources so far, and the public page titles found. Counts and titles only;
- * the final report carries the links.
+ * Observed counts and source titles from the latest progress update. A stopped
+ * run shows the same checkpoint without a working bar or completion estimate.
  */
 export function WorldModelProgressRows({
   progress,
-  percent,
+  active = true,
 }: {
   progress: PwmProgress | null;
-  percent: number | null;
+  active?: boolean;
 }) {
   const searched = progress
     ? `${progress.searches_used} of ${progress.searches_total} searches`
@@ -274,17 +213,12 @@ export function WorldModelProgressRows({
         testId="pwm-progress-row"
         icon={ProfileInnerProgressIcon}
         iconTone="capability"
-        title={searched}
+        title={active ? searched : `Last research checkpoint · ${searched}`}
         description={
           <span className="block space-y-1.5">
             <span className="block tabular-nums">{counts}</span>
-            <WorldModelProgressBar value={percent} />
+            {active ? <WorldModelProgressBar /> : null}
           </span>
-        }
-        trailing={
-          percent === null ? undefined : (
-            <TrailingValue className="tabular-nums">{`${percent}%`}</TrailingValue>
-          )
         }
       />
       {progress && titles.length > 0 ? (
@@ -292,7 +226,7 @@ export function WorldModelProgressRows({
           testId="pwm-sources-row"
           icon={ProfilePaneGlobeIcon}
           iconTone="capability"
-          title="Sources so far"
+          title={active ? "Sources so far" : "Sources in last checkpoint"}
           description={
             <span className="line-clamp-2 [overflow-wrap:anywhere]">
               {titles.join(" · ")}

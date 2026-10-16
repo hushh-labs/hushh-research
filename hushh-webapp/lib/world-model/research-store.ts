@@ -2,6 +2,7 @@ import type {
   PwmPreferences,
   PwmProgress,
   PwmResult,
+  PwmValidatedFact,
 } from "@/lib/services/world-model-research-service";
 
 /**
@@ -17,8 +18,12 @@ export type WorldModelResearchState = {
   result: PwmResult | null;
   preferences: PwmPreferences | null;
   failed: boolean;
-  /** What running research is doing; null once a final result arrives. */
+  /** True after a manual retry, until the next research status arrives. */
+  retrying: boolean;
+  /** Last progress update; kept as a checkpoint after an unavailable result. */
   progress: PwmProgress | null;
+  /** Cited but unapproved findings from this research run. */
+  validatedFacts: readonly PwmValidatedFact[];
   /** True while a stream or poll is actively receiving. */
   live: boolean;
   /** When the last progress or result arrived, as Date.now(). */
@@ -44,7 +49,9 @@ export type WorldModelResearchSnapshot = WorldModelResearchAuthority & {
   result: PwmResult | null;
   preferences: PwmPreferences | null;
   failed: boolean;
+  retrying: boolean;
   progress: PwmProgress | null;
+  validatedFacts: readonly PwmValidatedFact[];
   live: boolean;
   lastActivityAt: number | null;
   retryAt: number | null;
@@ -72,7 +79,9 @@ const UNMOUNTED: WorldModelResearchState = Object.freeze({
   result: null,
   preferences: null,
   failed: false,
+  retrying: false,
   progress: null,
+  validatedFacts: [],
   live: false,
   lastActivityAt: null,
   retryAt: null,
@@ -91,7 +100,9 @@ function publish() {
         result: valid ? snapshot!.result : null,
         preferences: valid ? snapshot!.preferences : null,
         failed: valid ? snapshot!.failed : false,
+        retrying: valid ? snapshot!.retrying : false,
         progress: valid ? snapshot!.progress : null,
+        validatedFacts: valid ? snapshot!.validatedFacts : UNMOUNTED.validatedFacts,
         live: valid ? snapshot!.live : false,
         lastActivityAt: valid ? snapshot!.lastActivityAt : null,
         retryAt: valid ? snapshot!.retryAt : null,
@@ -104,7 +115,9 @@ function publish() {
     next.result === published.result &&
     next.preferences === published.preferences &&
     next.failed === published.failed &&
+    next.retrying === published.retrying &&
     next.progress === published.progress &&
+    next.validatedFacts === published.validatedFacts &&
     next.live === published.live &&
     next.lastActivityAt === published.lastActivityAt &&
     next.retryAt === published.retryAt

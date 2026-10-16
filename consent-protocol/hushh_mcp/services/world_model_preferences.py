@@ -135,6 +135,20 @@ async def checkpoint_committed(conn, user_id, state):
     elif state["status"] in {"unavailable", "insufficient_identity"}:
         outcome = "attention"
     if outcome:
+        # Migration 341 projects every completion outcome into Feed. Keep the
+        # attention completion for the re-preparation fence, but do not leave a
+        # Feed action for a failed or empty draft. Remove a historical attention
+        # projection before promotion so a dismissed failure cannot hide a
+        # newly reviewable result for this same draft.
+        if outcome in {"ready", "partial"}:
+            await conn.execute(
+                """DELETE FROM feed_events WHERE user_id=$1 AND source_domain='pwm'
+                AND event_type='pwm_research' AND source_row_id=$2
+                AND metadata->>'pwm_outcome'='attention'""",
+                user_id,
+                str(draft_id),
+                timeout=5,
+            )
         await conn.execute(
             """INSERT INTO pwm_completion_events(user_id,draft_id,generation,outcome,email_state)
             VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,draft_id) DO UPDATE SET
@@ -148,6 +162,17 @@ async def checkpoint_committed(conn, user_id, state):
             "suppressed" if outcome == "attention" else "pending",
             timeout=5,
         )
+        if outcome == "attention":
+            # The trigger ran in this transaction; no reader can observe the
+            # transient projection before it is removed.
+            await conn.execute(
+                """DELETE FROM feed_events WHERE user_id=$1 AND source_domain='pwm'
+                AND event_type='pwm_research' AND source_row_id=$2
+                AND metadata->>'pwm_outcome'='attention'""",
+                user_id,
+                str(draft_id),
+                timeout=5,
+            )
 
 
 async def checkpoint_before_write(conn, user_id):
