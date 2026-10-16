@@ -61,6 +61,10 @@ Frozen source `f2d65294b5` reached hosted
 Its Circle sheet assertions still expected a retired fixed blue. The correction
 checks the actual accent, including gold: 18 cases pass across Chromium, mobile
 Chrome and WebKit; restoring fixed-blue source fails. No layout or timing gate changes.
+New main `87db30c3dd` then required integration to restore PR mergeability.
+Its Wallet/presence changes pass 153 backend, 140 frontend and 472 Back cases;
+generated manifests, typecheck and UI contracts pass. Independent review admits
+only six measured upstream debt spans; architecture budgets remain unchanged.
 
 **New Azure signup:** the pod, storage and signed direct access completed in
 20m51s; Azure environment creation accounted for 14m26s. Optional model quota was
