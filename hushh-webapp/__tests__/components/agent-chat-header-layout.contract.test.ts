@@ -117,7 +117,7 @@ describe("agent chat header layout", () => {
     expect(trigger).toBeDefined();
     expect(trigger).toContain("<ShellActionSurface");
     expect(trigger).toContain('variant="icon"');
-    expect(trigger).toContain("!size-11");
+    expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-11");
     expect(trigger).toContain("ripple={false}");
     expect(header).not.toContain("🤫");
   });

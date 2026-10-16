@@ -4217,12 +4217,33 @@ does not qualify the combined source. Shared Chrome remains untouched, no
 funding or operating capital is repeated, and the Dev 20 private-image recovery
 and upgrade qualification hold remains in force.
 
-The combined core run passes 20,645 backend cases and identifies four incoming
-Wallet request endpoints missing from the hub route inventory. They carry only
-authenticated person-to-person request metadata and now join the existing
-`NETWORK` inventory; no content guard, owner authorization or handler changes.
-The existing inventory test fails before this correction. Final core and hosted
-CI remain required after the correction.
+The exact `ce60384255` candidate passes the full local core: 20,646 backend,
+1,346 PostgreSQL and 396 PKM preservation cases, plus web-core, MCP and integration.
+Four incoming Wallet metadata endpoints join the existing `NETWORK` inventory;
+owner authorization is unchanged. Hosted run `38826424661` then fails on merged
+UI regressions and stale fixtures. The follow-up preserves concurrent native
+payment artwork and main's paused-Drive release authority, removes retired setup
+research assertions, fixes mixed-row alignment and routes Connectors Escape
+through the existing Back registry. A consumed Escape cannot also dismiss the
+mobile grabber; focus returns after its trap releases. Profile's WebKit fallback
+now matches the scoped side-pane policy. Existing geometry, material equality,
+owner-retirement and content-sizing negative controls remain enforced. The
+combined follow-up still requires exact-source core and hosted CI before Dev.
+The existing reviewer approval admission now requires the exact boolean model
+permission, bound to false for the four financial cases. Its nearest guard test
+passes both explicit choices and rejects permission changes, coercion and extra
+fields; the prior wire contract fails that regression. This authorizes no new
+recipient model use or automatic financial actions.
+
+At `2026-10-15T23:43:14Z`, both consumer accounts have enabled payouts, active
+transfers, manual schedules and ready USD bank details, with no outstanding
+requirements. Funding remains $10.50 per reviewer and capital $15. Fresh aggregate
+Monitoring reports balanced liabilities and no backing shortfall or receipt
+failure. Neither a paid purchase nor a payout is established by these checks.
+Both installed private pods still use the Dev 19 digest `sha256:fa018342…`.
+Encrypted browser delivery and recipient-model acceptance remain separate:
+approved PII model use requires a qualified immutable upgrade and normal owner
+installation; a working default Azure model does not prove that consent boundary.
 
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled

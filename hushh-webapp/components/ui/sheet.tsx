@@ -278,6 +278,7 @@ function SheetContent(
             onPointerUp={onHandlePointerEnd}
             onPointerCancel={onHandlePointerEnd}
             onKeyDown={(event) => {
+              if (event.defaultPrevented) return
               if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
                 sheet?.onOpenChange(false)

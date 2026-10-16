@@ -185,8 +185,7 @@ function rowMeasurements(group: Locator) {
       const described = Boolean(node.querySelector('[data-slot="settings-row-description"]'));
       return {
         height: bounds.height,
-        described,
-        titleOffset: title.getBoundingClientRect().top - bounds.top,
+        titleOffset: described ? title.getBoundingClientRect().top - bounds.top : null,
         centered: described ? null : checks.__titleOnlyControlsAreCentered(node),
         violations: checks.__rowContract(node),
         textContained: [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
@@ -419,13 +418,11 @@ for (const width of [320, 393, 834, 1440]) {
         const measurements = await rowMeasurements(source);
         expect(measurements.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
         expect(spread(measurements.map(row => row.height))).toBeLessThanOrEqual(1);
-        const titleOffsets = measurements.map(row => row.titleOffset);
+        const titleOffsets = measurements.flatMap(row => row.titleOffset === null ? [] : [row.titleOffset]);
         expect(titleOffsets.length).toBeGreaterThan(1);
         expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
         for (const row of measurements) {
-          // Mixed groups align every title at one start, including title-only
-          // siblings. Only wholly title-only groups center all their controls.
-          if (!measurements.some(sibling => sibling.described)) {
+          if (row.titleOffset === null) {
             expect(row.centered, "title-only siblings retain centered title, icon and chevron").toBe(true);
           }
           // Voice rows retain their trailing switch/passive badge exception.

@@ -25,7 +25,9 @@ function acceptsBody(capability, body) {
     body.person_ref === expected.personRef && sameJson(body.scope_refs, [expected.scopeRef]) &&
     body.purpose === expected.purpose && body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds &&
     body.connector_key_id === expected.connectorKeyId && body.idempotency_key === expected.operationId;
-  if (type === "approval") return validOperation(body, ["duration_seconds"]) && body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds;
+  if (type === "approval") return validOperation(body, ["duration_seconds", "model_processing_allowed"]) &&
+    body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds && typeof expected.modelProcessingAllowed === "boolean" &&
+    body.model_processing_allowed === expected.modelProcessingAllowed;
   if (type === "opened") return exactKeys(body, ["requestId", "bundleId", "userId", "openedVia"]) &&
     body.requestId === expected.requestId && body.userId === expected.userId &&
     (!body.bundleId || body.bundleId === expected.bundleId) &&

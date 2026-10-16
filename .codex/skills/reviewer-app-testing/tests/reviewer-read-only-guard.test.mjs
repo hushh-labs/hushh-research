@@ -222,6 +222,16 @@ test("paid quote authority is exact and cannot escape the canonical browser guar
     assert.equal(foreign.forwarded, false);
     assert.equal(foreign.response.status, 409);
     assert.throws(() => guard.assertNoBlockedMutation(), /blocked state-changing request/);
+    for (const modelProcessingAllowed of [false, true]) {
+      const pathname = "/api/scope-commerce/requests/synthetic/approve";
+      policy.replace({ type: "approval", pathname, expected: { modelProcessingAllowed } });
+      const approval = { idempotency_key: randomUUID(), duration_seconds: 3600, model_processing_allowed: modelProcessingAllowed };
+      assert.equal(await policy.admit(commercialRequest(pathname, approval)), true);
+      for (const changed of [!modelProcessingAllowed, String(modelProcessingAllowed), undefined]) {
+        await assert.rejects(policy.admit(commercialRequest(pathname, { ...approval, model_processing_allowed: changed })), /BINDING_MISMATCH/);
+      }
+      await assert.rejects(policy.admit(commercialRequest(pathname, { ...approval, unapproved_permission: true })), /BINDING_MISMATCH/);
+    }
   } finally {
     if (previous === undefined) delete process.env.REVIEWER_ALLOW_SHARED_MUTATIONS;
     else process.env.REVIEWER_ALLOW_SHARED_MUTATIONS = previous;

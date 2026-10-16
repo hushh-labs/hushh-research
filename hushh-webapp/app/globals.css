@@ -2345,6 +2345,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 /* WKWebView cannot reliably blur a transformed pane's own backdrop. */
 @supports (-webkit-backdrop-filter: blur(1px)) {
+  .profile-pane-sheet:where([data-app-side-pane])[data-slot="sheet-content"],
+  html.dark .profile-pane-sheet:where([data-app-side-pane])[data-slot="sheet-content"],
   [data-app-side-pane],
   .dark [data-app-side-pane] {
     --profile-pane-surface: var(--background);
@@ -6530,9 +6532,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .agent-chat-composer-surface {
   border-radius: 1.5rem;
 }
-/* Uniform rows align as a group, not per-row: a title-only sibling in a
- * group with supporting copy must share the same title baseline. Groups
- * containing only titles retain centered icons, titles and trailing actions. */
+/* Supporting copy shares a title baseline across uniform rows. Title-only
+ * siblings keep titles, icons and trailing actions centered as row heights grow. */
 [data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
   > [data-row-layout] [data-slot="settings-row-main"] {
   align-self: stretch;
@@ -6540,6 +6541,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 [data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
   > [data-row-layout] [data-slot="settings-row-copy"] {
   align-self: flex-start;
+}
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout]:not(:has([data-slot="settings-row-description"])) [data-slot="settings-row-copy"] {
+  align-self: center;
 }
 
 .agent-chat-composer-compact {

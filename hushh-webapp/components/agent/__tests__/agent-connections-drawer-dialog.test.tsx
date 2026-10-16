@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentConnectionsDrawer } from "@/components/agent/agent-connections-drawer";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one" }));
 
 function Detail() {
   const [open, setOpen] = useState(false);
@@ -70,25 +72,35 @@ describe("chat drawer dialog layering", () => {
     expect(screen.getByRole("dialog", { name: "Agent chat history" })).toBeVisible();
   });
   it("preserves connector state across the separate modal and History navigation", async () => {
-    function Journey() {
+    const dismiss = vi.fn();
+    function Journey({ external = false }: { external?: boolean }) {
       const [mode, setMode] = useState<"chats" | "connections">("chats");
       const trigger = useRef<HTMLButtonElement>(null);
-      return <AgentConnectionsDrawer open onOpenChange={vi.fn()} mode={mode} triggerRef={trigger} externalModalOpen={false}
+      useBackLayer("/one", mode === "connections" ? 2 : 0, () => { setMode("chats"); return true; });
+      return <AgentConnectionsDrawer open onOpenChange={dismiss} mode={mode} triggerRef={trigger} externalModalOpen={external}
         chats={<button onClick={() => setMode("connections")}>Open connectors</button>}
         connections={<><input aria-label="Synthetic connector draft" /><button onClick={() => setMode("chats")}>Back to chats</button></>} />;
     }
-    render(<Journey />);
+    const view = render(<Journey />);
     const history = await screen.findByRole("dialog", { name: "Agent chat history" });
     fireEvent.click(screen.getByRole("button", { name: "Open connectors" }));
     expect(screen.getByRole("dialog", { name: "Connectors", exact: true })).not.toBe(history);
     expect(screen.queryByRole("dialog", { name: "Agent chat history" })).toBeNull();
     const field = screen.getByRole("textbox", { name: "Synthetic connector draft" });
     fireEvent.change(field, { target: { value: "public draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Drag down to close" }), { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Agent chat history" })).toBeVisible();
+    expect(dismiss).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open connectors" }));
     expect(screen.getByRole("textbox", { name: "Synthetic connector draft" })).toBe(field);
     expect(field).toHaveValue("public draft");
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    view.rerender(<Journey external />);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    view.rerender(<Journey />);
+    expect(screen.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Synthetic connector draft" })).toHaveValue("public draft");
+    expect(dismiss).not.toHaveBeenCalled();
   });
   it("refuses delayed web focus restoration after native presentation takes ownership", async () => {
     function Journey({ renderer }: { renderer: "web" | "blocked" }) {
