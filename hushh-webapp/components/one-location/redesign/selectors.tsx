@@ -441,14 +441,14 @@ export function ReasonChips({
             role="radiogroup"
             aria-labelledby={label ? labelId : undefined}
             aria-label={label ? undefined : "Reason"}
-            className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2"
+            className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-2"
           >
             {REASON_CHIPS.map((reason) => (
               <ToggleGroupPrimitive.Item
                 key={reason}
                 value={reason}
                 className={cn(
-                  "flex min-h-11 min-w-0 items-center justify-between gap-2 rounded-[14px] border px-3 py-2 text-left transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                  "flex min-h-11 min-w-0 items-center justify-between gap-1 rounded-[14px] border px-2 py-2 text-left transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                   reason === value
                     ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
                     : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
@@ -456,13 +456,17 @@ export function ReasonChips({
               >
                 <InputValue
                   as="span"
-                  className={reason === value ? "[--app-label:var(--app-accent)]" : undefined}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap [--type-input-value-size:15px]",
+                    reason === value && "[--app-label:var(--app-accent)]",
+                  )}
                 >
                   {reason}
                 </InputValue>
-                {reason === value ? (
-                  <CheckIcon aria-hidden="true" className="size-4 shrink-0" />
-                ) : null}
+                <CheckIcon
+                  aria-hidden="true"
+                  className={cn("size-3.5 shrink-0", reason !== value && "invisible")}
+                />
               </ToggleGroupPrimitive.Item>
             ))}
           </ToggleGroupPrimitive.Root>
