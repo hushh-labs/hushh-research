@@ -29,8 +29,9 @@ then pages through a broader union query; the result rows are unverified candida
 not verified statements. The old all-words-in-filename gate does not discard
 document-coverage candidates. A legacy automatic checkout waits for the complete
 frozen selection and checks the buyer's current access before opening Stripe.
-Unfrozen saved one-query statement jobs are retried with this plan; frozen
-approvals and paid history keep their original file set. Statement requests
+Unfrozen saved one-query statement jobs are retried with this plan, including
+completed jobs when the owner opens review; frozen approvals and paid history
+keep their original file set. Statement requests
 cannot take the old trusted automatic sharing path while they await review.
 This bridge does not certify a statement's content period or whole-Drive recall;
 the indexed facts and packet verifier below own those claims.
