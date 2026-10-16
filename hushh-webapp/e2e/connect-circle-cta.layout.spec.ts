@@ -180,6 +180,43 @@ function boxOf(page: Page, selector: string): Promise<Box> {
 const fontsReady = (page: Page) =>
   page.evaluate(() => document.fonts.ready.then(() => undefined));
 
+test("Circles actions share a row on iPhone 15 Pro and keep larger phone sizing", async ({ page }, testInfo) => {
+  const source = fs.readFileSync(path.join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"), "utf8");
+  const groupClass = source.match(/data-connect-circle-actions className="([^"]+)"/)![1];
+  const actionClass = (id: string, before = false) => {
+    const authored = source.split("\n").find(line => line.includes(`data-testid="${id}"`))!.match(/className="([^"]+)"/)![1];
+    return cn(buttonVariants({ variant: "ghost", size: "standard" }), before ? authored.replace("max-[399px]:!px-4", "") : authored);
+  };
+  const body = (before = false) => `<div data-actions class="${groupClass}">${["join", "create"].map(action =>
+    `<button class="${actionClass(`connect-circle-${action}`, before)}"><span class="relative z-0 inline-flex items-center justify-center text-inherit"><svg class="mr-2 size-4" viewBox="0 0 16 16" aria-hidden="true"></svg>${action === "join" ? "Join with code" : "Create circle"}</span></button>`).join("")}</div>`;
+  const candidates = [groupClass, actionClass("connect-circle-join"), actionClass("connect-circle-create"), "relative z-0 inline-flex items-center justify-center text-inherit mr-2 size-4"].flatMap(value => value.split(/\s+/));
+  for (const width of [320, 360, 393, 402, 430, 768]) {
+    await page.setViewportSize({ width, height: 852 });
+    await page.goto(await buildFixture("connect-circle-actions", body(), candidates));
+    await awaitProductFont(page);
+    const buttons = page.locator("[data-actions] button");
+    const join = await buttons.nth(0).boundingBox();
+    const create = await buttons.nth(1).boundingBox();
+    expect(join && create).toBeTruthy();
+    if (!join || !create) continue;
+    if (width >= 393) expect(join.y).toBeCloseTo(create.y, 0);
+    for (const button of await buttons.all()) {
+      const size = await button.evaluate(element => ({ height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth, padding: getComputedStyle(element).paddingLeft }));
+      expect(size.height).toBe(44);
+      expect(size.overflow).toBeLessThanOrEqual(1);
+      expect(size.padding).toBe(width < 400 ? "16px" : "20px");
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    if (width === 393) await page.locator("[data-actions]").screenshot({ path: testInfo.outputPath("circle-actions-393.png") });
+  }
+  // The same geometry check catches the reported 393px wrapping before the fix.
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.goto(await buildFixture("connect-circle-actions-before", body(true), candidates));
+  await awaitProductFont(page);
+  const oldButtons = page.locator("[data-actions] button");
+  expect((await oldButtons.nth(1).boundingBox())!.y).toBeGreaterThan((await oldButtons.nth(0).boundingBox())!.y);
+});
+
 // ---------------------------------------------------------------------------
 // 1. The Circle name field and the control beside it
 // ---------------------------------------------------------------------------

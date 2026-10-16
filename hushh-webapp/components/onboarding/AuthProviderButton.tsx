@@ -38,9 +38,9 @@ export function AuthProviderButton({
         className
       )}
     >
-      <span className="inline-flex items-center gap-3">
-        {icon}
-        <span>{label}</span>
+      <span data-auth-provider-content className="inline-flex max-w-full items-center justify-center gap-3">
+        {icon ? <span data-auth-provider-icon aria-hidden="true" className="inline-flex size-6 shrink-0 items-center justify-center">{icon}</span> : null}
+        <span className="min-w-0">{label}</span>
       </span>
     </Button>
   );

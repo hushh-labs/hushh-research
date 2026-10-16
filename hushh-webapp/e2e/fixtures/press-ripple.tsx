@@ -14,6 +14,8 @@ import { ArrowRight, Send } from "../../components/icons";
 import { AgentFollowUpSuggestions, AgentSuggestionList } from "../../components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { AuthProviderButton } from "../../components/onboarding/AuthProviderButton";
+import authStyles from "../../components/onboarding/AuthStepLight.module.css";
+import { AppleIcon, GoogleIcon } from "../../lib/morphy-ux/social-icons";
 import { Button as StockButton } from "../../components/ui/button";
 import { Button as MorphyButton } from "../../lib/morphy-ux/button";
 
@@ -36,7 +38,10 @@ function Fixture() {
         Create your One
         <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
       </MorphyButton>
-      <AuthProviderButton label="Continue with Apple" icon={null} />
+      <div className="w-full max-w-[430px] space-y-3" data-testid="auth-providers">
+        <AuthProviderButton label="Continue with Apple" icon={<AppleIcon className="size-6" />} className={authStyles.providerButton} />
+        <AuthProviderButton label="Continue with Google" icon={<GoogleIcon className="size-6" />} className={authStyles.providerButton} />
+      </div>
       <AgentFollowUpSuggestions
         suggestions={["Show my week", "Draft a reply to Sam"]}
         onSelect={() => {}}

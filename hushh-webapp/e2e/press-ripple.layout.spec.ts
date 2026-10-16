@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 /**
  * Press contract in a real engine: a pointerdown on a control grows the
@@ -96,6 +96,29 @@ async function openFixture(page: Page, reducedMotion: "reduce" | "no-preference"
   await expect(page.getByTestId("press-ripple")).toBeVisible();
 }
 
+test("provider icons and labels form one centered group at phone and desktop widths", async ({ page }, testInfo) => {
+  for (const width of [320, 393, 402, 430, 1440]) {
+    await openFixture(page, "reduce");
+    await page.setViewportSize({ width, height: 900 });
+    await awaitProductFont(page);
+    for (const button of await page.getByTestId("auth-providers").getByRole("button").all()) {
+      const geometry = await button.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const group = element.querySelector("[data-auth-provider-content]")!.getBoundingClientRect();
+        const icon = element.querySelector("[data-auth-provider-icon] svg")!.getBoundingClientRect();
+        const label = element.querySelector("[data-auth-provider-content] > span:last-child")!.getBoundingClientRect();
+        return { box: box.toJSON(), group: group.toJSON(), icon: icon.toJSON(), label: label.toJSON() };
+      });
+      expect(Math.abs(geometry.group.x + geometry.group.width / 2 - geometry.box.x - geometry.box.width / 2)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.icon.y + geometry.icon.height / 2 - geometry.label.y - geometry.label.height / 2)).toBeLessThanOrEqual(1);
+      expect(geometry.label.x - geometry.icon.right).toBeCloseTo(12, 0);
+      expect(geometry.icon.width).toBe(24);
+      expect(geometry.group.width).toBeLessThan(geometry.box.width);
+    }
+    if (width === 393) await page.getByTestId("auth-providers").screenshot({ path: testInfo.outputPath("provider-cta-393.png") });
+  }
+});
+
 type PressReading = {
   /** md-ripple's own surface reports `.pressed` while the pointer is down. */
   materialPressed: boolean;
@@ -164,6 +187,7 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
   ["stock Button", (page) => page.getByRole("button", { name: "Stock action" })],
   ["Create your One", (page) => page.getByRole("button", { name: "Create your One" })],
   ["Apple sign-in", (page) => page.getByRole("button", { name: "Continue with Apple" })],
+  ["Google sign-in", (page) => page.getByRole("button", { name: "Continue with Google" })],
   [
     "follow-up chip",
     (page) =>

@@ -961,12 +961,12 @@ export function ConnectCirclesTab({
             <SectionTitle as="h2">Your circles</SectionTitle>
             <RowDescription className="mt-1">Bring people together for the things you share.</RowDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button type="button" variant="none" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full !border !border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)]" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
+          <div data-connect-circle-actions className="flex flex-wrap items-center gap-2.5">
+            <Button type="button" variant="none" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full max-[399px]:!px-4 !border !border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)]" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
               <KeyRound aria-hidden="true" className="mr-2 size-4" />
               Join with code
             </Button>
-            <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+            <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full max-[399px]:!px-4" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
               <Plus aria-hidden="true" className="mr-2 size-4" />
               Create circle
             </Button>
