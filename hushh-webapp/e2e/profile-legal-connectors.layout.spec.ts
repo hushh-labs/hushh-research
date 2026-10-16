@@ -284,10 +284,10 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
         (node as HTMLElement).style.getPropertyValue("--native-overlay-bottom"),
       ])).toEqual(regions.fullWindow ? ["0px", "0px"] : ["120px", "280px"]);
       const box = (await pane(page).boundingBox())!;
-      // React owns the floating pane: legacy native reservations must not clip it.
-      expect(box.y).toBeCloseTo(16, 0);
-      expect(box.height).toBeCloseTo(820, 0);
-      expect(box.y + box.height).toBeCloseTo(836, 0);
+      // Acknowledged full-window coverage fills the viewport; bounded panes retain their frame.
+      expect(box.y).toBeCloseTo(fullWindow ? 0 : 16, 0);
+      expect(box.height).toBeCloseTo(fullWindow ? 852 : 820, 0);
+      expect(box.y + box.height).toBeCloseTo(fullWindow ? 852 : 836, 0);
     }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();

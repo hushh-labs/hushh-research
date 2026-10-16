@@ -111,7 +111,14 @@ describe("agent chat header layout", () => {
     expect(header).toContain(
       'className="size-8 shrink-0"',
     );
-    expect(header).toContain('className="inline-flex size-11');
+    const triggerMarker = header.indexOf("data-agent-chat-one-profile-trigger");
+    expect(triggerMarker).toBeGreaterThan(0);
+    const trigger = header.slice(
+      header.lastIndexOf("<ShellActionSurface", triggerMarker),
+      header.indexOf("<OnePresenceAvatar", triggerMarker),
+    );
+    const triggerClasses = trigger.match(/className="([^"]*)"/)?.[1] ?? "";
+    expect(triggerClasses.split(/\s+/)).toContain("!size-11");
     expect(header).not.toContain("🤫");
   });
 

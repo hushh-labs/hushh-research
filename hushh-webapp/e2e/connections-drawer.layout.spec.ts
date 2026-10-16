@@ -311,12 +311,12 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
-  return page.evaluate((safeSidePane) => {
+async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false, profileSidePane = false) {
+  return page.evaluate(({ safeSidePane, profileSidePane }) => {
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
-    if (safeSidePane) reference.dataset.appSidePane = "";
+    if (safeSidePane || profileSidePane) reference.dataset.appSidePane = "";
     if (safeSidePane) reference.dataset.chatDetailPane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     // Measure the authored leading inset independently: landscape safe-area
@@ -347,7 +347,7 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
       } };
     reference.remove();
     return result;
-  }, safeSidePane);
+  }, { safeSidePane, profileSidePane });
 }
 
 for (const width of [320, 1440]) for (const dark of [false, true])
@@ -567,7 +567,7 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     // Both panels inherit the same material authority in each theme.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
-      const reference = await profileFrame(page);
+      const reference = await profileFrame(page, false, true);
       const material = await chats.evaluate(element => {
         const style = getComputedStyle(element);
         return {
@@ -991,7 +991,7 @@ for (const width of [320, 390, 1440])
 
     const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
     const scrollRegion = dialog.locator('[data-history-connectors-scroll]');
-    await expect(dialog.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("banner").getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
     expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
     const plaid = dialog.getByTestId("profile-connector-row-plaid").getByRole("button").first();

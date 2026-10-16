@@ -11,6 +11,8 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { cn } from "@/lib/utils";
 import { useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
@@ -73,6 +75,7 @@ export function AgentConnectionsDrawer({
   onRestoreHistoryFocus?: () => void;
   historyRenderer?: "web" | "preparing" | "native" | "blocked";
 }) {
+  const pathname = usePathname();
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
@@ -235,14 +238,27 @@ export function AgentConnectionsDrawer({
       event.preventDefault();
       // Radix may finish closing after History has already reopened. The old
       // presentation must not steal focus from that newer interaction layer.
-      if (rendererOwner.current !== "web" || connectorActive.current || historyActive.current || modalActive.current) return;
+      if (rendererOwner.current !== "web" || connectorActive.current || modalActive.current) return;
+      if (historyActive.current) {
+        const active = document.activeElement;
+        // A bottom sheet's grabber may retain focus through exit. Complete the
+        // handoff after Radix releases its trap, preserving newer History input.
+        if (active === document.body || active instanceof HTMLElement && active.closest('[data-connector-host], [data-slot="sheet-content"], [data-slot="dialog-content"]')) {
+          drawer.current?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')?.focus({ preventScroll: true });
+        }
+        return;
+      }
       restoreFocus();
     },
     onInteractOutside: (event: Event) => {
       if (externalModalOpen) event.preventDefault();
     },
     onEscapeKeyDown: (event: Event) => {
-      if (externalModalOpen) event.preventDefault();
+      if (event.defaultPrevented) return;
+      if (modalActive.current) { event.preventDefault(); return; }
+      // Radix observes Escape before the child React handler. Let the existing
+      // route-scoped Back owner unwind Connectors before dismissing History.
+      if (rendererOwner.current === "web" && connectorActive.current && unwindBackLayer(pathname)) event.preventDefault();
     },
   };
   return (

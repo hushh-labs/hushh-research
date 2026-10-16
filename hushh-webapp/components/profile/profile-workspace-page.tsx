@@ -41,7 +41,6 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
-import { ProfileAccountBankIcon } from "./profile-your-account-icons";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
@@ -3576,7 +3575,7 @@ function ProfilePageContent({
         ) : null}
       </SettingsGroup>
       <SettingsGroup title="Payments">
-        <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
+        <SettingsRow icon={WalletAgentIcon} iconTone="capability"
           title="Payments and earnings" description="Purchase balance, earnings and transactions."
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
           voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
