@@ -2634,9 +2634,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, []);
 
   const chatSessionRef = useRef(new AgentChatSessionEpoch());
+  const pendingChatKeyRetryRef = useRef<{
+    text: string;
+    options: AgentRunTurnOptions;
+    owner: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>;
+    conversationId: string | null;
+    draftContext: string | undefined;
+    observedLock: boolean;
+  } | null>(null);
   const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? user?.uid ?? null : null);
-  const { input, setInput, attachment: longPromptAttachment, setAttachment: setLongPromptAttachment,
+  const { input, setInput: writeInput, attachment: longPromptAttachment, setAttachment: writeAttachment,
     expanded: composerExpanded, setExpanded: setComposerExpandedState } = composerDraft;
+  const currentComposerContext = useRef(composerDraft.context);
+  const composerEditGeneration = useRef(0);
+  currentComposerContext.current = composerDraft.context;
+  // All web/native draft edits use these ports. Even an edit subsequently
+  // cleared in the locked intro cancels the rejected request's continuation.
+  const cancelRetryForDraftEdit = useCallback(() => {
+    if (currentComposerContext.current === composerDraft.context) {
+      composerEditGeneration.current += 1;
+      pendingChatKeyRetryRef.current = null;
+    }
+  }, [composerDraft.context]);
+  const setInput = useCallback((value: Parameters<typeof writeInput>[0]) => {
+    cancelRetryForDraftEdit();
+    writeInput(value);
+  }, [cancelRetryForDraftEdit, writeInput]);
+  const setLongPromptAttachment = useCallback((value: Parameters<typeof writeAttachment>[0]) => {
+    cancelRetryForDraftEdit();
+    writeAttachment(value);
+  }, [cancelRetryForDraftEdit, writeAttachment]);
   const [textAttachmentEditorOpen, setTextAttachmentEditorOpen] = useState(false);
   useEffect(() => { setTextAttachmentEditorOpen(false); }, [composerDraft.context, user?.uid, isVaultUnlocked, isPuppySurface]);
   // A selected search result is session-only; chat receives its opaque reference
@@ -2787,7 +2814,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
   } | null>(null);
   const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
-  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions; meetingOrigin?: { ownerId: string; conversationId: string | null } } | null>(null);
   currentDraftRef.current = { input, attachment: longPromptAttachment };
   const recoveryUiRef = useRef({
     conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
@@ -3836,7 +3862,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   const handleCreateNewChat = useCallback(() => {
-    if (pendingChatKeyRetryRef.current?.meetingOrigin) pendingChatKeyRetryRef.current = null;
+    pendingChatKeyRetryRef.current = null;
     chatSessionRef.current.start();
     setCalendarSlot(null);
     pendingDriveSearchSelectionRef.current = null;
@@ -5139,6 +5165,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         toast.error("Vault access expired. Unlock again to continue.");
         return;
       }
+      pendingChatKeyRetryRef.current = null;
       chatSessionRef.current.start();
       abortAgentTurnWork();
       setIsLoadingHistory(true);
@@ -5589,6 +5616,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     performance.mark("hushh:agent-chat:send-handler-entry");
     const text = textInput.trim();
+    const turnOwner = snapshotValidatedAuthSessionOwner();
+    const turnDraftContext = composerDraft.context;
+    const turnDraftGeneration = composerEditGeneration.current;
     const meetingOrigin = options.calendarMeeting && user?.uid ? { ownerId: user.uid, conversationId: conversationIdRef.current } : undefined;
     const slotContext = !options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
       calendarSlot.conversationId === conversationIdRef.current
@@ -6656,14 +6686,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // Chat is locked, not failed. Keep the unsent message, show the unlock
         // flow, and send it once after unlock. Refreshing the conversation list
         // here would only be refused again.
-        if (!currentDraftRef.current.input.trim()) setInput(text);
-        if (!options.calendarMeeting && attachments.length && !currentDraftRef.current.attachment) {
+        const unchangedIntent = !!turnOwner && isValidatedAuthSessionOwnerCurrent(turnOwner) &&
+          composerEditGeneration.current === turnDraftGeneration &&
+          (!currentDraftRef.current.input.trim() || currentDraftRef.current.input.trim() === text);
+        if (unchangedIntent && !currentDraftRef.current.input.trim()) setInput(text);
+        if (unchangedIntent && !options.calendarMeeting && attachments.length && !currentDraftRef.current.attachment) {
           setLongPromptAttachment(
             createPendingTextAttachment(attachments.map((item) => item.text).join("\n\n")),
           );
         }
-        if (error.recovery === "unlock") {
-          pendingChatKeyRetryRef.current = { text, options, meetingOrigin };
+        if (error.recovery === "unlock" && turnOwner && isValidatedAuthSessionOwnerCurrent(turnOwner)) {
+          pendingChatKeyRetryRef.current = unchangedIntent ? {
+            text, options, owner: turnOwner,
+            conversationId: meetingOrigin ? meetingOrigin.conversationId : conversationIdRef.current,
+            draftContext: turnDraftContext,
+            observedLock: !pkmCaptureReadinessRef.current.isVaultUnlocked,
+          } : null;
           setVaultDialogOpen(true);
         }
       } else {
@@ -6688,35 +6726,42 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   runAgentTurnRef.current = runAgentTurn;
 
-  // One retry after the unlock a chat-key refusal asked for, and only of the
-  // message the person left untouched in the composer.
+  // A confirmed refusal is unexecuted. Keep its intent, not the erased draft or
+  // fetched meeting sources; any later edit, owner or conversation cancels it.
   useEffect(() => {
     const pending = pendingChatKeyRetryRef.current;
     if (!pending) return;
-    if (pending.meetingOrigin && pending.meetingOrigin.ownerId !== user?.uid) {
+    if (pending.owner.userId !== user?.uid || !isValidatedAuthSessionOwnerCurrent(pending.owner)) {
       pendingChatKeyRetryRef.current = null;
       return;
     }
-    if (!hasChatAccess) return;
-    if (pending.meetingOrigin && pending.meetingOrigin.conversationId !== conversationIdRef.current) {
+    if (!hasChatAccess) {
+      if (!isVaultUnlocked) pending.observedLock = true;
+      return;
+    }
+    if (pending.conversationId !== conversationIdRef.current) {
       // Unlock clears the active ID before history restoration. Never turn a
       // retry into a new chat, or replay it in a different selected chat.
       if (conversationIdRef.current === null) return;
       pendingChatKeyRetryRef.current = null;
       return;
     }
+    const freshEmptyDraft = pending.observedLock && composerDraft.ready &&
+      composerDraft.context !== pending.draftContext &&
+      currentDraftRef.current.input === "" && currentDraftRef.current.attachment === null;
     pendingChatKeyRetryRef.current = null;
-    if (currentDraftRef.current.input.trim() !== pending.text) return;
+    if (!freshEmptyDraft && currentDraftRef.current.input.trim() !== pending.text) return;
     const pendingAttachments = pending.options.attachments ?? [];
     if (pendingAttachments.length) {
       // Retry only the paste the person left untouched in the composer.
       const pendingAttachmentText = pendingAttachments.map((item) => item.text).join("\n\n");
-      if (currentDraftRef.current.attachment?.text !== pendingAttachmentText) return;
+      if (!freshEmptyDraft && currentDraftRef.current.attachment?.text !== pendingAttachmentText) return;
       setLongPromptAttachment(null);
     }
     setInput("");
     void runAgentTurnRef.current(pending.text, pending.options);
-  }, [hasChatAccess, conversationId, user?.uid, setInput, setLongPromptAttachment]);
+  }, [hasChatAccess, isVaultUnlocked, conversationId, user?.uid, composerDraft.ready,
+    composerDraft.context, setInput, setLongPromptAttachment]);
 
   /**
    * Follow-up turn that reports a specialist DelegateResult back to One.
