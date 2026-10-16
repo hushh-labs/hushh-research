@@ -82,6 +82,25 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
 
 
+def _offline_absent_drive_acl(monkeypatch):
+    """Replace only live Google reads in persisted payment lifecycle tests.
+
+    The exact frozen source selection and current request authority still run
+    against PostgreSQL before this synthetic absent-ACL result is returned.
+    """
+    from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
+    async def inspect(self, *, user_id, request_id, require_current, files=None):
+        assert files and len({file["id"] for file in files}) == len(files)
+        assert all(file["name"] and file["modifiedTime"] and file["generation"] for file in files)
+        await require_current()
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        await require_current()
+        return SimpleNamespace(status="none", request_revision=context["revision"])
+
+    monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", inspect)
+
+
 @pytest.mark.parametrize(
     "access_status,error",
     [
@@ -460,6 +479,7 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
     sharing, monkeypatch, trusted, confirmed, retained, refund, commission, earning, refund_first
 ):
     """Exercise persisted commerce boundaries without Stripe or Google network calls."""
+    _offline_absent_drive_acl(monkeypatch)
     for key, value in {
         "ENVIRONMENT": "test",
         "STRIPE_MODE": "test",
@@ -2680,9 +2700,10 @@ async def test_checkout_candidates_exclude_pending_without_approved_or_frozen_ba
 
 @pytest.mark.asyncio
 async def test_owner_allowed_request_pays_the_owner_price_without_trusted_membership(
-    request_bulk, sharing
+    request_bulk, sharing, monkeypatch
 ):
     # The requester is connected, but the owner's Trusted circle holds someone else.
+    _offline_absent_drive_acl(monkeypatch)
     request_id = (await request(sharing))["requestId"]
     _owner_allow(sharing, request_id, amount_cents=3000)
     review = await request_bulk.create_review(
@@ -3260,6 +3281,7 @@ def test_payment_view_has_one_definition_of_link_and_request_expiry():
 
 async def _withdrawable_checkout(sharing, monkeypatch, *, files=3):
     """A non-trusted request whose owner-approved batch waits at an open Checkout."""
+    _offline_absent_drive_acl(monkeypatch)
     for key, value in {
         "ENVIRONMENT": "test",
         "STRIPE_MODE": "test",
