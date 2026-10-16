@@ -228,6 +228,9 @@ DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}
 GET /api/one/circles/{circle}/chat
 GET /api/one/circles/{circle}/chat/keys/{key}
 GET,POST /api/one/circles/{circle}/chat/messages
+DELETE,PATCH /api/one/circles/{circle}/chat/messages/{message}
+POST /api/one/circles/{circle}/chat/messages/resolve
+POST /api/one/circles/{circle}/chat/messages/updates
 GET /api/one/circles/{circle}/chat/messages/{message}/image
 PUT /api/one/circles/{circle}/chat/preferences
 POST /api/one/circles/{circle}/chat/read

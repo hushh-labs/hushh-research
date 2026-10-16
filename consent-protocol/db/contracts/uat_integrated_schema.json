@@ -261,13 +261,17 @@
       "circle_id",
       "client_message_id",
       "created_at",
+      "deleted_for_everyone_at",
+      "edited_at",
       "id",
       "image_ciphertext",
       "image_iv",
       "iv",
       "notification_previews",
       "original_recipient_count",
+      "reply_to_message_id",
       "request_digest",
+      "revision",
       "sender_user_id",
       "sequence"
     ],
@@ -283,6 +287,7 @@
       "user_id"
     ],
     "circle_chat_recipients": [
+      "deleted_at",
       "envelope",
       "feed_event_id",
       "key_id",

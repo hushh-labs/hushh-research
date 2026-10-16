@@ -809,7 +809,7 @@
       "id": "circle_member_chat",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases."
+      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases. Sender-only encrypted edits and global tombstones retain original envelopes; bounded metadata reconciliation and independently authorized reply resolution repair loaded history."
     },
     {
       "data_class": "audit_regulated",
@@ -6913,7 +6913,7 @@
     "action_gateway": "a2a8f6358d17c3536809888f1a8ab0cfb62c18fc08337215f4c0e3cbac31bf46",
     "agent_registry": "9ff520ad111872831491b94548f6ebd2ac1b7babe29f18d85cd744be751bf2b9",
     "cache_manifest": "e0571b6c4ad7d73af8db63d90ae574a65b107f7c62951bbadf43998d3a199617",
-    "data_plane": "92abd5146f85ba46b92255b01e84dd9f39fa7742d471cb9c4e3ccfad8029f2f0",
+    "data_plane": "6505667c81bbaa08edb09d7fb78975dd8388141f45577280a0777856807a82e5",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "a9b397cb0643a09de857b4262c9c4ec3304b1765953f0adbef14a847b3d6d236",

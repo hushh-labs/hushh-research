@@ -36,6 +36,7 @@ def _dispatch_one() -> bool:
                 AND member.user_id = r.recipient_user_id AND member.status = 'active'
                 AND member.joined_at = r.membership_joined_at
               WHERE m.id = r.message_id AND r.read_at IS NULL
+                AND r.deleted_at IS NULL AND m.deleted_for_everyone_at IS NULL
                 AND m.created_at > now() - interval '1 day' AND NOT EXISTS (
                 SELECT 1 FROM circle_chat_preferences p WHERE p.circle_id = c.id
                   AND p.user_id = r.recipient_user_id AND p.muted
@@ -84,6 +85,7 @@ def _dispatch_one() -> bool:
                   AND member.joined_at = r.membership_joined_at
                 WHERE r.message_id = :message AND r.recipient_user_id = :user
                   AND r.push_status = 'leased' AND r.push_attempts = :attempt AND r.read_at IS NULL
+                  AND r.deleted_at IS NULL AND m.deleted_for_everyone_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM circle_chat_preferences p
                     WHERE p.circle_id = c.id AND p.user_id = r.recipient_user_id AND p.muted)
             """),
@@ -114,7 +116,9 @@ def _dispatch_one() -> bool:
                     if renew
                     else "SELECT r.message_id FROM circle_chat_recipients r,"
                 )
-                tail = " RETURNING r.message_id" if renew else ""
+                # Held through the provider transaction: a mutation suppressing
+                # this recipient cannot commit between eligibility and send.
+                tail = " RETURNING r.message_id" if renew else " FOR SHARE OF r"
                 return bool(
                     conn.execute(
                         text(
@@ -122,6 +126,7 @@ def _dispatch_one() -> bool:
                             + """ circle_chat_messages m, one_location_circles c, one_location_circle_memberships member
                   WHERE r.message_id=:message AND r.recipient_user_id=:user AND r.push_status='leased' AND r.push_attempts=:attempt
                   AND r.read_at IS NULL AND m.id=r.message_id AND m.circle_id=c.id AND c.status='active'
+                  AND r.deleted_at IS NULL AND m.deleted_for_everyone_at IS NULL
                   AND m.created_at>now()-interval '1 day' AND member.circle_id=c.id AND member.user_id=r.recipient_user_id
                   AND member.status='active' AND member.joined_at=r.membership_joined_at
                   AND NOT EXISTS (SELECT 1 FROM circle_chat_preferences p WHERE p.circle_id=c.id AND p.user_id=r.recipient_user_id AND p.muted)

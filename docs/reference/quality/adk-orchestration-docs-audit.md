@@ -52,6 +52,11 @@ The bounded correction negotiates the authenticated receipt capability before se
 legacy pods retain ordinary chat, while unsupported receipt continuations refuse
 explicitly. Focused positive and broken-code negative checks pass; this correction
 still requires exact-revision CI and deployment. Concurrent root edits are preserved.
+New main `3ba21ab8c8` then blocked PR mergeability. Its Calendar/Circle changes
+are integrated with migration 357 and preserved branch schema head 406; 42 isolated
+PostgreSQL and 62 frontend checks pass. After Circle message actions occur,
+application rollback must retain their visibility rules; an older image is not
+an unconditional rollback target. The SQL rollback also refuses after effects.
 
 **Cloud chat:** two normal-owner synthetic turns on the installed Azure Dev 19
 image failed with provider HTTP 400, including a fresh conversation (45.242 s).

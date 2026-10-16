@@ -72,11 +72,9 @@
 .invitations[data-workspace=true] { display: grid; gap: 16px; }
 .invitations[data-workspace=true] .filters { margin: 4px 0 0; }
 .sectionTitle { margin-bottom: 16px; }
-.detailPlaceholder { display: none; }
 @media (min-width:768px) {
-  .invitations[data-workspace=true] .workspace { gap: 20px; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); align-items: stretch; height: clamp(280px, calc(100dvh - var(--app-top-content-offset, 64px) - var(--app-bottom-content-clearance, 164px) - 270px), 660px); }
-  .invitations[data-workspace=true] .listPane, .invitations[data-workspace=true] .detailPane { overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; padding: 2px 4px 8px 2px; }
-  .invitations[data-workspace=true] .detailPlaceholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); color: var(--app-secondary-label); font-size: 14px; text-align: center; padding: 24px; }
+  .invitations[data-workspace=true] .workspace { align-items: start; }
+  .invitations[data-workspace=true] .detailPane { margin-top: var(--invitation-detail-offset, 0px); }
   .invitations[data-workspace=true] .inviteCard[aria-pressed=true] { background: var(--app-accent-surface); }
 }
 

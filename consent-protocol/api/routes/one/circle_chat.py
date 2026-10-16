@@ -39,7 +39,7 @@ class PrivateChatRoute(APIRoute):
         async def bounded(request: Request):
             headers = {"Cache-Control": "private, no-store"}
             try:
-                if request.method in {"POST", "PUT"}:
+                if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
                     maximum = 430000 if request.url.path.endswith("/photo") else MAX_REQUEST_BYTES
                     declared = request.headers.get("content-length", "0")
                     if not declared.isdigit() or int(declared) > maximum:
@@ -101,6 +101,7 @@ class Recipient(StrictModel):
 
 
 class SendMessage(StrictModel):
+    replyToMessageId: UUID | None = None
     clientMessageId: UUID
     rosterVersion: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]+$")
     ciphertext: str = Field(min_length=22, max_length=24000, pattern=_B64)
@@ -150,6 +151,39 @@ class SendMessage(StrictModel):
 
 class ReadMessage(StrictModel):
     sequence: int = Field(gt=0, le=MAX_SEQUENCE)
+
+
+class ResolveMessages(StrictModel):
+    messageIds: list[UUID] = Field(min_length=1, max_length=40)
+
+
+class MessageUpdates(StrictModel):
+    messageIds: list[UUID] = Field(min_length=1, max_length=600)
+
+
+class EditMessage(StrictModel):
+    ciphertext: str = Field(min_length=22, max_length=24000, pattern=_B64)
+    iv: str = Field(min_length=16, max_length=16, pattern=_B64)
+    expectedRevision: int = Field(ge=0, le=MAX_SEQUENCE, strict=True)
+
+    @model_validator(mode="after")
+    def canonical(self):
+        for value in [self.ciphertext, self.iv]:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+            if base64.urlsafe_b64encode(raw).decode().rstrip("=") != value:
+                raise ValueError("Noncanonical ciphertext")
+        return self
+
+
+class DeleteMessage(StrictModel):
+    scope: Literal["me", "everyone"]
+    tombstone: EditMessage | None = None
+
+    @model_validator(mode="after")
+    def scoped(self):
+        if (self.scope == "everyone") != (self.tombstone is not None):
+            raise ValueError("Global deletion requires a client-encrypted tombstone")
+        return self
 
 
 class Preference(StrictModel):
@@ -327,6 +361,64 @@ def chat_send(
     owner: dict = Depends(require_vault_owner_token),
 ):
     return _call(response, "send", owner, circle, payload.model_dump(mode="json"))
+
+
+@router.post("/{circle}/chat/messages/resolve")
+@limiter.limit(AUTOMATIC_READ_LIMIT)
+def chat_resolve(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    payload: ResolveMessages,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "resolve", owner, circle, [str(item) for item in payload.messageIds])
+
+
+@router.post("/{circle}/chat/messages/updates")
+@limiter.limit(AUTOMATIC_READ_LIMIT)
+def chat_updates(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    payload: MessageUpdates,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "updates", owner, circle, [str(item) for item in payload.messageIds])
+
+
+@router.patch("/{circle}/chat/messages/{message}")
+@limiter.limit("30/minute")
+def chat_edit(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    payload: EditMessage,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "mutate", owner, circle, str(message), payload.model_dump())
+
+
+@router.delete("/{circle}/chat/messages/{message}")
+@limiter.limit("30/minute")
+def chat_delete(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    payload: DeleteMessage,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(
+        response,
+        "mutate",
+        owner,
+        circle,
+        str(message),
+        payload.tombstone.model_dump() if payload.tombstone else {},
+        scope=payload.scope,
+    )
 
 
 @router.get("/{circle}/chat/messages/{message}/image")

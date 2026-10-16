@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2798,
+  "finding_count": 2803,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4723,7 +4723,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
       "symbol": "CircleChatService",
-      "value": 659
+      "value": 862
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -9232,7 +9232,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_notifications.py",
       "symbol": "_dispatch_one",
-      "value": 155
+      "value": 160
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9250,7 +9250,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
       "symbol": "messages",
-      "value": 94
+      "value": 101
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9259,7 +9259,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
       "symbol": "send",
-      "value": 119
+      "value": 137
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18835,7 +18835,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
       "symbol": null,
-      "value": 740
+      "value": 952
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21238,7 +21238,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_circle_chat.py",
       "symbol": null,
-      "value": 1333
+      "value": 1716
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23659,7 +23659,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connect/circles/circle-chat.tsx",
       "symbol": null,
-      "value": 564
+      "value": 713
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29697,6 +29697,33 @@
       "path": "consent-protocol/tests/services/test_wallet_artwork_catalog.py",
       "symbol": null,
       "value": 630
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/circle_chat_service.py|mutate|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+      "symbol": "mutate",
+      "value": 123
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/connect/circles/__tests__/circle-chat.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/connect/circles/__tests__/circle-chat.test.tsx",
+      "symbol": null,
+      "value": 614
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/circle-chat.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/circle-chat.layout.spec.ts",
+      "symbol": null,
+      "value": 561
     }
   ],
   "inspected_files": 6625,
@@ -61081,5 +61108,93 @@
         "source_sha256": "ec54f18a2c5641cf3fb7db38a16a0ff322d49378a85f099622ecc455c384451a"
       }
     ]
+  },
+  "main_3ba21_circle_action_integration_review_20261016": {
+    "source_main_sha": "3ba21ab8c8cf77c20559e04cf45d80e7403f2012",
+    "reviewer": "adk_authority_review",
+    "review": "Nine measured spans are byte-identical to incoming main. Circle test module retains only the previously verified three-line private subscription fixture correction. No new composition growth. Preserve all other baseline entries and 500/250/80 budgets.",
+    "slots": [
+      {
+        "kind": "class_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+        "symbol": "CircleChatService",
+        "before": 659,
+        "value": 862,
+        "source_sha256": "9b815ef6b28fc36860836194d469ca87c33697c7dc5979bd3ffa10285d7cf113"
+      },
+      {
+        "kind": "function_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_notifications.py",
+        "symbol": "_dispatch_one",
+        "before": 155,
+        "value": 160,
+        "source_sha256": "cbd5a102a6bd0173c917350cecfbe104129a539c944ae0fa8b4e57faf1c82ac8"
+      },
+      {
+        "kind": "function_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+        "symbol": "send",
+        "before": 119,
+        "value": 137,
+        "source_sha256": "9b815ef6b28fc36860836194d469ca87c33697c7dc5979bd3ffa10285d7cf113"
+      },
+      {
+        "kind": "function_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+        "symbol": "mutate",
+        "before": null,
+        "value": 123,
+        "source_sha256": "9b815ef6b28fc36860836194d469ca87c33697c7dc5979bd3ffa10285d7cf113"
+      },
+      {
+        "kind": "function_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+        "symbol": "messages",
+        "before": 94,
+        "value": 101,
+        "source_sha256": "9b815ef6b28fc36860836194d469ca87c33697c7dc5979bd3ffa10285d7cf113"
+      },
+      {
+        "kind": "module_size",
+        "path": "consent-protocol/tests/test_circle_chat.py",
+        "symbol": null,
+        "before": 1333,
+        "value": 1716,
+        "source_sha256": "f4eb20fa665b503874129f3fb7a7abc370a724477eea686def1b7f84a91088a4"
+      },
+      {
+        "kind": "module_size",
+        "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
+        "symbol": null,
+        "before": 740,
+        "value": 952,
+        "source_sha256": "9b815ef6b28fc36860836194d469ca87c33697c7dc5979bd3ffa10285d7cf113"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/components/connect/circles/circle-chat.tsx",
+        "symbol": null,
+        "before": 564,
+        "value": 713,
+        "source_sha256": "db103151c4f9a5010375d2511268cba296d7b2d6c9a5a57467a8a65249b7c913"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/components/connect/circles/__tests__/circle-chat.test.tsx",
+        "symbol": null,
+        "before": null,
+        "value": 614,
+        "source_sha256": "7216db80db5d2d55fdcd4902bbe2db30fbc13543fb55eee8bdf00dd560961f02"
+      },
+      {
+        "kind": "module_size",
+        "path": "hushh-webapp/e2e/circle-chat.layout.spec.ts",
+        "symbol": null,
+        "before": null,
+        "value": 561,
+        "source_sha256": "842f387742c40144ff6ed7c082cebc480cd887e1f6586dc9b9843b513fe8d5a0"
+      }
+    ],
+    "unchanged_budgets": true
   }
 }

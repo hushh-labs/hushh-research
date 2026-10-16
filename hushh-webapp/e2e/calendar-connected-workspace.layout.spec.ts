@@ -540,56 +540,52 @@ for (const width of [390, 1280]) {
 }
 
 for (const width of [390, 1280]) {
-  test(`35 invitations keep selection visible and every date reachable at ${width}px`, async ({ page }) => {
+  test(`date-only invitations and row-aligned details at ${width}px`, async ({ page }) => {
     const fixture = await openFixture(page, width);
-    const events = Array.from({ length: 35 }, (_, index) => {
-      const day = new Date(Date.UTC(2026, 9, 14 + index)).toISOString().slice(0, 10);
-      return { ...dayEvents(day)[0], id: `invitation-${index + 1}`, title: `QA Invitation ${index + 1}`, response_status: "needsAction", can_respond: true, conflicts: [] };
+    const events = Array.from({ length: 10 }, (_, index) => ({ ...dayEvents("2026-10-14")[0], id: `invitation-${index + 1}`, title: `QA Invitation ${index + 1}`, response_status: "needsAction", can_respond: true, conflicts: [] }));
+    events.push({ ...events[0], ...dayEvents("2026-10-15")[0], id: "tomorrow", title: "QA Tomorrow" });
+    let reads = 0;
+    await page.route("**/api/one/calendar/invitations", route => {
+      reads++;
+      return route.fulfill({ json: { events, pending_count: 11, unreadable_calendars: [], complete: true, time_zone: "Asia/Kolkata", start_at: "2026-10-13T00:00:00Z", end_at: "2026-10-17T00:00:00Z" } });
     });
-    await page.route("**/api/one/calendar/invitations", route => route.fulfill({ json: {
-      events, pending_count: 35, unreadable_calendars: [], complete: true, time_zone: "Asia/Kolkata",
-      start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
-    } }));
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     const rows = page.getByRole("button", { name: /^Open invitation:/ });
-    await expect(rows).toHaveCount(35);
-    await expect(page.getByText(/Next 90 days/)).toHaveCount(0);
-    await page.screenshot({ path: path.join(screenshotDirectory, `invitations-35-list-${width}.png`), animations: "disabled" });
-    const row = page.getByRole("button", { name: "Open invitation: QA Invitation 30", exact: true });
-    await row.scrollIntoViewIfNeeded();
-    const root = page.getByTestId("calendar-scroll-root");
-    const scrollBefore = await root.evaluate(node => node.scrollTop);
-    const list = page.locator('[aria-label="Invitation list"]');
-    const listScrollBefore = await list.evaluate(node => node.scrollTop);
-    await row.click();
-    const detail = page.getByRole("article", { name: "Invitation details: QA Invitation 30", exact: true });
-    await expect(detail).toBeVisible();
-    if (width >= 768) {
-      expect(await root.evaluate(node => node.scrollTop)).toBe(scrollBefore);
-      expect(await list.evaluate(node => node.scrollTop)).toBe(listScrollBefore);
-      await expect(row).toHaveAttribute("aria-pressed", "true");
-      const box = (await detail.boundingBox())!;
-      const chrome = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
-      expect(box.y).toBeGreaterThanOrEqual(48);
-      expect(box.y).toBeLessThan(chrome.y);
-    } else {
-      await expect(list).toBeHidden();
-      const back = await page.getByRole("button", { name: "Invitations", exact: true }).boundingBox();
-      expect(back!.y).toBeGreaterThanOrEqual(48);
+    await expect(rows).toHaveCount(10);
+    await expect(page.getByRole("tab", { name: "Pending (10)" })).toBeVisible();
+    await expect(page.getByText("Select an invitation to see its details.")).toHaveCount(0);
+    await page.screenshot({ path: path.join(screenshotDirectory, `invitations-day-list-${width}.png`) });
+    for (const index of [1, 9]) {
+      const row = page.getByRole("button", { name: `Open invitation: QA Invitation ${index}`, exact: true });
+      await row.scrollIntoViewIfNeeded();
+      await row.click();
+      await expect(page.getByRole("article", { name: `Invitation details: QA Invitation ${index}` })).toBeVisible();
+      if (width >= 768) {
+        const rowBox = (await row.boundingBox())!;
+        const detailBox = (await page.locator('[aria-label="Selected invitation"]').boundingBox())!;
+        expect(Math.abs(rowBox.y - detailBox.y)).toBeLessThanOrEqual(2);
+        expect(detailBox.x).toBeGreaterThan(rowBox.x + rowBox.width);
+        expect(await page.locator('[aria-label="Invitation list"]').evaluate(node => node.scrollHeight <= node.clientHeight)).toBe(true);
+      }
+      await page.screenshot({ path: path.join(screenshotDirectory, `invitations-day-selected-${index}-${width}.png`) });
+      await page.getByRole("button", { name: "Invitations", exact: true }).click();
+      await expect(row).toBeFocused();
     }
-    await page.screenshot({ path: path.join(screenshotDirectory, `invitations-35-selected-${width}.png`), animations: "disabled" });
-    await page.getByRole("button", { name: "Invitations", exact: true }).click();
-    await expect(row).toBeVisible();
-    await page.getByLabel("Invitation date", { exact: true }).fill("2026-11-16");
-    await expect(rows).toHaveCount(35);
-    await expect(page.getByRole("button", { name: "Open invitation: QA Invitation 34", exact: true })).toBeInViewport();
-    await page.getByRole("button", { name: "Previous day", exact: true }).click();
-    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-11-15");
     await page.getByRole("button", { name: "Next day", exact: true }).click();
-    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-11-16");
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toHaveAccessibleName("Open invitation: QA Tomorrow");
+    await page.getByRole("button", { name: "Next day", exact: true }).click();
+    await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
+    await page.getByRole("button", { name: "Previous day", exact: true }).click();
+    await expect(rows).toHaveCount(1);
     await page.getByRole("button", { name: "Today", exact: true }).click();
-    await expect(page.getByLabel("Invitation date", { exact: true })).toHaveValue("2026-10-14");
-    await expect(rows.first()).toBeInViewport();
+    await expect(rows).toHaveCount(10);
+    const before = reads;
+    await page.getByRole("tab", { name: "Schedule", exact: true }).click();
+    await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+    await expect(rows).toHaveCount(10);
+    await expect(page.getByRole("status", { name: "Invitations loading" })).toHaveCount(0);
+    expect(reads).toBe(before);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(fixture.errors).toEqual([]);
   });
