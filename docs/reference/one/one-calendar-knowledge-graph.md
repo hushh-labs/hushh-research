@@ -136,3 +136,5 @@ not a claim about provider latency or live speech interpretation.
 
 - Calendar proposals preserve the requested elapsed duration across midnight; the next day starts at 00:00. Confirmation cards show the current chat timezone and date rollover, with whole minutes and any remaining seconds.
 - Confirmed invitation responses dismiss the detail modal; pending invitations move to Responded. Partial or unknown Calendar/Mail outcomes stay visible for recovery. Offering another time opens the existing availability form inside the modal. Schedule labels pending responses and remains the chronological calendar view.
+
+- Schedule compares absolute event instants for Happening now and Ended. Displaying another timezone does not change those states; Ended describes elapsed scheduled time, not verified attendance.
