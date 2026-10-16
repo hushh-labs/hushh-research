@@ -21,6 +21,7 @@ from hushh_mcp.services.drive_request_bulk_service import (
     _deterministic_statement_plan,
 )
 from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
+from hushh_mcp.services.drive_sharing_store import _demo_legacy_statement_request
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -30,6 +31,58 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "Last months brokerage statements",
+        "I need all brokerage statements that contains Schwab from 2026",
+    ],
+)
+def test_demo_legacy_enrollment_only_for_new_non_packet_brokerage_statements(request_text):
+    purpose = {
+        "purpose": request_text,
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    assert (
+        _demo_legacy_statement_request(
+            purpose=purpose, owner_initiated=False, reusable_packet=None, enabled=True
+        )
+        is True
+    )
+    assert (
+        _demo_legacy_statement_request(
+            purpose=purpose, owner_initiated=False, reusable_packet=None, enabled=False
+        )
+        is False
+    )
+    assert (
+        _demo_legacy_statement_request(
+            purpose=purpose, owner_initiated=True, reusable_packet=None, enabled=True
+        )
+        is False
+    )
+    assert (
+        _demo_legacy_statement_request(
+            purpose=purpose,
+            owner_initiated=False,
+            reusable_packet={"packetId": "existing"},
+            enabled=True,
+        )
+        is False
+    )
+    for other in ("Bank statements", "Standup notes from last week"):
+        assert (
+            _demo_legacy_statement_request(
+                purpose={**purpose, "purpose": other},
+                owner_initiated=False,
+                reusable_packet=None,
+                enabled=True,
+            )
+            is False
+        )
 
 
 @pytest.mark.asyncio

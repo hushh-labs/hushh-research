@@ -1465,10 +1465,15 @@ describe("exact-file document review", () => {
 
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       expect(await screen.findByRole("status")).toHaveTextContent("46 file candidates to review");
-      expect(screen.getByText("Dates inside files haven't been checked; review before sharing.")).toBeVisible();
+      expect(screen.getByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeVisible();
       expect(screen.queryByText(/Matching files are found and shared automatically/)).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole("checkbox", { name: "Standup 2" }));
+      const first = await screen.findByRole("checkbox", { name: "Standup 1" });
+      expect(first).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Standup 2" })).not.toBeChecked();
+      expect(screen.getByRole("button", { name: "Review 0 files" })).toBeDisabled();
+      fireEvent.click(first);
+      fireEvent.click(screen.getByRole("checkbox", { name: "Standup 3" }));
       expect(state.prepareRequestBatch).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Review 2 files" }));
       await waitFor(() => expect(state.prepareRequestBatch).toHaveBeenCalledWith(
@@ -1513,7 +1518,7 @@ describe("exact-file document review", () => {
       expect(screen.getByText("Only Agent One's verified matches can be selected.")).toBeVisible();
       expect(screen.getByRole("heading", { name: "Verified files" })).toBeVisible();
       expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
-      expect(screen.queryByText("Dates inside files haven't been checked; review before sharing.")).toBeNull();
+      expect(screen.queryByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeNull();
       fireEvent.click(await screen.findByRole("checkbox", { name: "Standup 1" }));
       fireEvent.click(screen.getByRole("button", { name: "Review 1 file" }));
       await waitFor(() => expect(state.prepareRequestBatch).toHaveBeenCalledWith(

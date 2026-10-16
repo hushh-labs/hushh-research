@@ -57,6 +57,8 @@ Migrations `consent-protocol/db/migrations/328_drive_request_packages.sql` and `
 
 `DRIVE_AGENT_PACKAGES_ENABLED` enrolls new requester-origin live Drive requests. The UAT release defaults it on; other environments default off. A sealed `agent_package_required` marker persists the contract after creation so disabling enrollment cannot downgrade an existing package to legacy manual or Trusted automation. Historical frozen and paid records are not reinterpreted.
 
+For the owner-first statement fallback, `DRIVE_DEMO_LEGACY_REQUESTS_ENABLED=true` sends only new, non-packet Schwab or brokerage statement requests through the existing Allow → live Drive search → exact-file owner review path. Other requests and all previously sealed requests keep their original route. Candidate filenames and Drive timestamps are discovery hints, not proof of statement coverage; these statement candidates cannot enter automatic sharing. Checkout waits for a completed search and Manish's exact-file approval, then rechecks recipient ACLs and prior paid delivery for the selected files. The flag defaults off outside the UAT rollout and can be disabled for future requests without changing existing reviews, payments, or grants.
+
 Background preparation still requires the owner's current connected Drive and background permission. Current peer, request revision, expiration and connection generation are rechecked at work boundaries. Owner Allow remains a separate sharing decision.
 
 ## Research basis

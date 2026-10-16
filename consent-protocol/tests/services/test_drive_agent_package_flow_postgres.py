@@ -198,6 +198,43 @@ async def test_schwab_statement_request_requires_v1_content_evaluation_with_flag
     assert context["packageAllowed"] is False
 
 
+async def test_demo_statement_enrollment_is_new_request_only_and_keeps_other_v1_requests(
+    agent_flow, sharing, monkeypatch
+):
+    existing = await new_request(sharing, purpose_text="Schwab brokerage statements")
+    existing_row, existing_private = private_request(sharing, existing["requestId"])
+    assert existing_row["agent_package_required"] is True
+    assert existing_private["v1_live_request"] is True
+
+    monkeypatch.setenv("DRIVE_DEMO_LEGACY_REQUESTS_ENABLED", "true")
+    clear_runtime_settings_caches()
+    statement = await new_request(sharing, purpose_text="All Schwab brokerage statements from 2026")
+    statement_row, statement_private = private_request(sharing, statement["requestId"])
+    assert statement_row["agent_package_required"] is False
+    assert statement_private.get("agent_package_required") is not True
+    assert statement_private.get("v1_live_request") is not True
+    statement_review = await sharing.owner_review(
+        user_id="owner", request_id=statement["requestId"]
+    )
+    assert statement_review["allowAvailable"] is True
+    assert statement_review.get("agentPackage") is None
+
+    other = await new_request(sharing, purpose_text="Standup notes from last week")
+    other_row, other_private = private_request(sharing, other["requestId"])
+    assert other_row["agent_package_required"] is True
+    assert other_private["v1_live_request"] is True
+
+    generic = await new_request(sharing, purpose_text="Bank statements")
+    generic_row, generic_private = private_request(sharing, generic["requestId"])
+    assert generic_row["agent_package_required"] is True
+    assert generic_private["v1_live_request"] is True
+
+    # A rollout change cannot reinterpret a request already sealed as V1.
+    unchanged_row, unchanged_private = private_request(sharing, existing["requestId"])
+    assert unchanged_row["agent_package_required"] is True
+    assert unchanged_private["v1_live_request"] is True
+
+
 async def test_nontrusted_v1_ready_selection_enters_existing_exact_file_review(
     agent_flow, request_bulk, sharing
 ):

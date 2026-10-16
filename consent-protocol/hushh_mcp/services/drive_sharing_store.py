@@ -71,6 +71,14 @@ OWNER_SETUP_CODES = frozenset(
 )
 
 
+def _demo_legacy_statement_request(*, purpose, owner_initiated, reusable_packet, enabled):
+    if not enabled or owner_initiated or reusable_packet is not None:
+        return False
+    from hushh_mcp.services.drive_request_bulk_service import _deterministic_statement_plan
+
+    return _deterministic_statement_plan(purpose) is not None
+
+
 class DriveSharingStore(DriveDocumentStore):
     def __init__(self, db=None, *, cipher=None, sharing_cipher=None, authority_key=None):
         super().__init__(db, cipher=cipher)
@@ -1527,6 +1535,17 @@ class DriveSharingStore(DriveDocumentStore):
                 and drive["validation_state"] == "verified"
                 and drive["verified_policy_hash"] != LIVE_POLICY_HASH
             )
+            # The October 13 owner-first statement flow is an opt-in for new
+            # requests only. Existing sealed package requests keep their own
+            # search, approval, payment and delivery contracts. A reusable
+            # packet must also keep its package binding.
+            demo_legacy_statement = _demo_legacy_statement_request(
+                purpose=payload["purpose"],
+                owner_initiated=owner_initiated,
+                reusable_packet=reusable_packet,
+                enabled=os.getenv("DRIVE_DEMO_LEGACY_REQUESTS_ENABLED", "").strip().lower()
+                == "true",
+            )
             agent_package = bool(
                 not owner_initiated
                 and drive
@@ -1534,6 +1553,7 @@ class DriveSharingStore(DriveDocumentStore):
                 and drive["validation_state"] == "verified"
                 and drive["verified_policy_hash"] == LIVE_POLICY_HASH
                 and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+                and not demo_legacy_statement
             )
             if reusable_packet is not None and not agent_package:
                 raise DriveSharingError("packet_unavailable")

@@ -437,6 +437,7 @@ function UnlockedDocumentReview({
     ids: [],
   });
   const [excluded, setExcluded] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
+  const [reviewSelected, setReviewSelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   // Recovery requires an affirmative tick; fresh unclaimed files retain their default selection.
   const [recoverySelected, setRecoverySelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   const [unshareableSeen, setUnshareableSeen] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
@@ -1011,12 +1012,15 @@ function UnlockedDocumentReview({
     .filter((id) => !unselectedIds.includes(id));
   const allSelected = !!review && selectedIds.length === review.files.length;
   const excludedPositions = search && excluded.jobId === search.jobId ? excluded.positions : [];
+  const reviewSelectedPositions = search && reviewSelected.jobId === search.jobId ? reviewSelected.positions : [];
   const selectedRecoveryPositions = search && recoverySelected.jobId === search.jobId ? recoverySelected.positions : [];
   const blockedPositions = search && unshareableSeen.jobId === search.jobId ? unshareableSeen.positions : [];
   const manualExcludedCount = excludedPositions.filter(position => !blockedPositions.includes(position)).length;
   const selectedPositions = progressive && searchPage && search
     ? searchPage.files.filter(file => file.shareable === true &&
-        (recoverablePositions.includes(file.position)
+        (ownerReviewRequired
+          ? !claimedPositions.includes(file.position) && reviewSelectedPositions.includes(file.position)
+          : recoverablePositions.includes(file.position)
           ? selectedRecoveryPositions.includes(file.position)
           : !claimedPositions.includes(file.position) && !excludedPositions.includes(file.position)))
       .map(file => file.position)
@@ -1504,8 +1508,8 @@ function UnlockedDocumentReview({
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.paymentRequired === true
-          ? "Allow to set a price. Agent One searches Drive and shares selected files after payment."
-          : "Allow Agent One to search Drive and share selected files."}</HelperText>
+          ? "Allow to set a price and search Drive. You may need to choose the exact files before payment and sharing."
+          : "Allow Agent One to search Drive. You may need to choose the exact files before sharing."}</HelperText>
         <FlowActionGroup
           primary={
             <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
@@ -1637,7 +1641,7 @@ function UnlockedDocumentReview({
             {v1ManualReview ? <HelperText>
               Only Agent One&apos;s verified matches can be selected.
             </HelperText> : ownerReviewRequired ? <HelperText>
-              Dates inside files haven&apos;t been checked; review before sharing.
+              Dates inside files haven&apos;t been checked. Select the exact files before sharing.
             </HelperText> : search.coverage.requestedPeriod ? <HelperText>
               Dates match file names first, then creation or modification dates. Dates inside file contents were not checked.
             </HelperText> : null}
@@ -1697,12 +1701,21 @@ function UnlockedDocumentReview({
                         <Checkbox
                           aria-label={file.name}
                           className={CHECKBOX_CLASS}
-                          checked={file.shareable !== false && (recoverable
+                          checked={file.shareable !== false && (ownerReviewRequired
+                            ? !alreadyClaimed && reviewSelectedPositions.includes(file.position)
+                            : recoverable
                             ? selectedRecoveryPositions.includes(file.position)
                             : !excludedPositions.includes(file.position) && !alreadyClaimed)}
                           disabled={locked || file.shareable === false || progressive &&
                             (file.shareable !== true || alreadyClaimed || bulkShare?.status === "review_ready")}
                           onCheckedChange={checked => {
+                            if (ownerReviewRequired) {
+                              setReviewSelected({ jobId: search.jobId,
+                                positions: checked === true
+                                  ? [...new Set([...reviewSelectedPositions, file.position])]
+                                  : reviewSelectedPositions.filter(position => position !== file.position) });
+                              return;
+                            }
                             if (recoverable) {
                               setRecoverySelected({ jobId: search.jobId,
                                 positions: checked === true
