@@ -83,7 +83,7 @@ async def test_failed_v1_request_resumes_same_search_without_replanning_or_new_j
 
 
 @pytest.mark.asyncio
-async def test_search_release_keeps_local_contract_error_distinct_from_provider_outage(
+async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint(
     monkeypatch,
 ):
     store = DriveOwnerSearchStore(db=SimpleNamespace())
@@ -103,12 +103,20 @@ async def test_search_release_keeps_local_contract_error_distinct_from_provider_
     monkeypatch.setattr(
         store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
     )
+    detail = {"page_token": "saved-page"}
+    monkeypatch.setattr(store, "_checkpoint", lambda _row: detail)
+    monkeypatch.setattr(store, "_seal", lambda *_args: "sealed-checkpoint")
     state = await store.release(
         {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
         error="operation_not_allowed",
     )
     assert state == "failed"
-    assert updated[0]["code"] == "operation_not_allowed"
+    assert updated[0]["code"] == "provider_unavailable"
+    assert updated[0]["checkpoint"] == "sealed-checkpoint"
+    assert detail == {
+        "page_token": "saved-page",
+        "last_search_failure_cause": "operation_not_allowed",
+    }
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -166,19 +167,37 @@ async def test_failed_discovery_is_not_reported_as_endless_package_preparation(
     packages, request_bulk, sharing
 ):
     request_id, search = await request_search(packages, request_bulk, sharing, count=25)
+    lease = str(uuid4())
     with sharing.db.engine.begin() as connection:
         connection.execute(
-            text("""UPDATE drive_owner_search_jobs SET status='failed',
-                 evaluation_status='pending',error_code='operation_not_allowed'
+            text("""UPDATE drive_owner_search_jobs SET status='running',
+                 evaluation_status='pending',lease_id=:lease,
+                 lease_expires_at=clock_timestamp()+INTERVAL '1 minute'
                  WHERE job_id=:job"""),
-            {"job": search},
+            {"job": search, "lease": lease},
         )
+    assert (
+        await packages.release(
+            {"user_id": "owner", "job_id": search, "lease_id": lease},
+            error="operation_not_allowed",
+        )
+        == "failed"
+    )
     review = await packages.package_review(user_id="owner", request_id=request_id)
     assert review["status"] == "unavailable"
-    assert review["searchErrorCode"] == "operation_not_allowed"
+    assert review["searchErrorCode"] == "provider_unavailable"
     assert review["candidateCount"] == 25
     assert review["canAllow"] is False
     with sharing.db.engine.begin() as connection:
+        failed = (
+            connection.execute(
+                text("SELECT * FROM drive_owner_search_jobs WHERE job_id=:job"), {"job": search}
+            )
+            .mappings()
+            .one()
+        )
+        assert failed["error_code"] == "provider_unavailable"
+        assert packages._checkpoint(failed)["last_search_failure_cause"] == "operation_not_allowed"
         assert (
             connection.execute(
                 text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
@@ -206,10 +225,11 @@ async def test_failed_request_retry_keeps_job_cursor_results_and_batch_identity(
             authority_mode="agent_package",
             page_token="next-provider-page",  # noqa: S106 - synthetic provider cursor
             v1_live_request=True,
+            last_search_failure_cause="operation_not_allowed",
         )
         connection.execute(
             text("""UPDATE drive_owner_search_jobs SET status='failed',
-                error_code='operation_not_allowed',matched=25,
+                error_code='provider_unavailable',matched=25,
                 checkpoint_envelope=CAST(:checkpoint AS jsonb) WHERE job_id=:job"""),
             {
                 "job": search,
@@ -236,7 +256,8 @@ async def test_failed_request_retry_keeps_job_cursor_results_and_batch_identity(
             .one()
         )
         assert packages._checkpoint(row)["page_token"] == "next-provider-page"
-        assert packages._checkpoint(row)["last_recovered_error_code"] == "operation_not_allowed"
+        assert packages._checkpoint(row)["last_recovered_error_code"] == "provider_unavailable"
+        assert packages._checkpoint(row)["last_search_failure_cause"] == "operation_not_allowed"
         assert (
             connection.execute(
                 text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),

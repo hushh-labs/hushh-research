@@ -1521,6 +1521,16 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             retries = row["retry_count"] + int(error is not None)
             retry = retryable and retries < 3
             state = "queued" if error is None or retry else "failed"
+            # The table's public error-code constraint predates this local
+            # adapter failure. Keep its precise cause only in the encrypted
+            # checkpoint, while persisting a schema-compatible public code.
+            checkpoint = None
+            if error == "operation_not_allowed":
+                detail = self._checkpoint(row)
+                detail["last_search_failure_cause"] = error
+                checkpoint = self._seal(
+                    detail, job["user_id"], str(row["job_id"]), "owner-search-checkpoint"
+                )
             code = (
                 error
                 if error
@@ -1529,7 +1539,6 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "connection_changed",
                     "connector_unavailable",
                     "provider_response_invalid",
-                    "operation_not_allowed",
                 }
                 else "provider_unavailable"
                 if error
@@ -1538,12 +1547,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             connection.execute(
                 text("""UPDATE drive_owner_search_jobs SET status=:state,error_code=:code,
                 retry_count=:retries,lease_id=NULL,lease_expires_at=NULL,
+                checkpoint_envelope=COALESCE(CAST(:checkpoint AS jsonb),checkpoint_envelope),
                 next_at=clock_timestamp()+(:delay * INTERVAL '1 second'),revision=revision+1,
                 updated_at=clock_timestamp() WHERE job_id=:job"""),
                 {
                     "job": job["job_id"],
                     "state": state,
                     "code": code,
+                    "checkpoint": checkpoint,
                     "retries": min(retries, 3),
                     "delay": 5 * 2 ** (retries - 1) if retry else 0,
                 },
