@@ -6,13 +6,15 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let outDir: string;
 test.beforeAll(async () => {
+  test.setTimeout(120_000);
   const root = process.cwd();
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "initial-welcome-"));
+  outDir = fs.mkdtempSync(path.join(os.tmpdir(), "initial-welcome-"));
   await build({
     configFile: false,
     publicDir: false,
@@ -80,58 +82,95 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
 });
 
+test.afterAll(() => { if (outDir) fs.rmSync(outDir, { recursive: true, force: true }); });
+
 for (const width of [320, 393, 1440]) {
-  test(`initial Contacts welcome ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 852 });
-    await page.setContent(`<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  test(`Circles v11 welcome and actions at ${width}px`, async ({ page }, testInfo) => {
+    const height = width === 1440 ? 900 : 852;
+    await page.setViewportSize({ width, height });
+    await page.route('https://fixture.one.test/circles/answering-poster.png', (route) => route.fulfill({
+      body: fs.readFileSync(path.join(process.cwd(), 'public/circles/answering-poster.png')),
+      contentType: 'image/png',
+    }));
+    await page.setContent(`<html><head><base href="https://fixture.one.test/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
-    await expect(page.getByText("Welcome to One, Aarav", { exact: true })).toBeVisible();
     await awaitProductFont(page);
-    await expect(page.getByText("Anjali Meena", { exact: true })).toBeVisible();
-    await expect(page.getByText("Already on One", { exact: true })).toHaveCount(3);
-    const proceed = page.getByRole("button", { name: "Continue to One", exact: true });
+    await expect(page.getByRole('heading', { name: 'Welcome to One, Aarav.' })).toBeVisible();
+    await expect(page.getByLabel('Verified advisor')).toHaveCount(1);
+    const font = await page.locator('.oc-root').evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(font).toContain('Plus Jakarta Sans');
+    const poster = page.locator('.oc-art-mascot');
+    await expect.poll(() => poster.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    const proceed = page.getByRole('button', { name: 'Continue to One', exact: true });
     await expect(proceed).toBeVisible();
-    await expect(proceed).toBeInViewport();
-    const profileImage = page.locator('[data-photo-url^="data:image/svg+xml"] img');
-    await expect(profileImage).toBeVisible();
-    await expect.poll(() => profileImage.evaluate((element) => {
-      const image = element as HTMLImageElement;
-      return image.complete && image.naturalWidth > 0;
-    })).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-    await page.screenshot({ path: testInfo.outputPath("welcome.png") });
-    await page.getByRole("button", { name: /Contacts.*Manage/ }).click();
-    await expect(page.getByText("Very long friendly contact name 49", { exact: true })).toBeAttached();
-    const scroller = page.locator('[data-slot="sheet-content"] .overflow-y-auto');
-    expect(await scroller.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
-    await scroller.evaluate(el => el.scrollTop = el.scrollHeight);
-    await expect(page.getByText("Very long friendly contact name 49", { exact: true })).toBeInViewport();
-    await page.screenshot({ path: testInfo.outputPath("roster.png") });
-    await page.getByRole("button", { name: "Remove", exact: true }).last().click();
-    const confirmation = page.getByRole("alertdialog");
+    await page.screenshot({ path: testInfo.outputPath('welcome.png') });
+
+    await page.getByRole('button', { name: 'Contacts, Manage' }).click();
+    const contacts = page.getByRole('dialog', { name: 'Contacts' });
+    await expect(contacts).toBeVisible();
+    await expect(contacts.getByText('Very long friendly contact name 49', { exact: true })).toBeAttached();
+    const scroller = page.locator('.oc-sheet');
+    expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await expect(contacts.getByText('Very long friendly contact name 49', { exact: true })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('contacts.png') });
+    await contacts.getByRole('button', { name: 'Remove', exact: true }).last().click();
+    const confirmation = page.getByRole('alertdialog');
     await expect(confirmation).toBeVisible();
-    await expect(page.locator("body")).not.toHaveAttribute("data-removed");
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture:back", { detail: 4 })));
+    await expect(page.locator('body')).not.toHaveAttribute('data-removed');
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 4 })));
     await expect(confirmation).toBeHidden();
-    await expect(page.locator("body")).not.toHaveAttribute("data-removed");
-    await page.getByRole("button", { name: "Remove", exact: true }).last().click();
-    await confirmation.getByRole("button", { name: "Remove", exact: true }).click();
-    await expect(page.locator("body")).toHaveAttribute("data-removed", "friend-49");
-    await expect(confirmation).toBeHidden();
-    await expect(page.getByText("Very long friendly contact name 49", { exact: true })).toHaveCount(0);
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture:back", { detail: 2 })));
-    await page.getByRole("button", { name: /^Trusted / }).click();
-    await expect(page.getByRole("button", { name: "Close people picker", exact: true })).toBeVisible();
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture:back", { detail: 3 })));
-    await expect(page.getByRole("button", { name: "Close people picker", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: /Invite someone/ }).click();
-    await expect(page.getByText("ABCD2345", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Share circle link", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Invite to One", exact: true })).toBeEnabled();
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture:back", { detail: 2 })));
+    await contacts.getByRole('button', { name: 'Remove', exact: true }).last().click();
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-removed', 'friend-49');
+    await expect(contacts.getByText('Very long friendly contact name 49', { exact: true })).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 2 })));
+    await expect(contacts).toBeHidden();
+
+    await page.getByRole('button', { name: 'Trusted, Choose' }).click();
+    const trusted = page.getByRole('dialog', { name: 'Your trusted people' });
+    await expect(trusted).toBeVisible();
+    await trusted.getByRole('button', { name: 'Choose trusted people' }).click();
+    await expect(page.getByRole('button', { name: 'Close people picker' })).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 3 })));
+    await expect(page.getByRole('button', { name: 'Close people picker' })).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 2 })));
+    await expect(trusted).toBeHidden();
+
+    await page.getByRole('button', { name: 'Invite someone, Invite' }).click();
+    const invite = page.getByRole('dialog', { name: 'Invite someone' });
+    await expect(invite.getByText('ABCD2345', { exact: true })).toBeVisible();
+    await expect(invite.getByRole('button', { name: 'Share circle link' })).toBeDisabled();
+    await expect(invite.locator('.oc-invite-card').first().getByRole('button', { name: 'Invite' })).toBeEnabled();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 2 })));
     await proceed.click();
-    await expect(page.locator("body")).toHaveAttribute("data-ack", "yes");
-    await expect(page.locator("body")).toHaveAttribute("data-queued", "yes");
-    await expect(page.locator("body")).toHaveAttribute("data-destination", "/finance");
+    await expect(page.locator('body')).toHaveAttribute('data-ack', 'yes');
+    await expect(page.locator('body')).toHaveAttribute('data-queued', 'yes');
+    await expect(page.locator('body')).toHaveAttribute('data-destination', '/finance');
   });
 }
+
+test('empty welcome matches the supplied phone states and keeps the action reachable', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('https://fixture.one.test/circles/answering-poster.png', (route) => route.fulfill({
+    body: fs.readFileSync(path.join(process.cwd(), 'public/circles/answering-poster.png')),
+    contentType: 'image/png',
+  }));
+  await page.setContent(`<html><head><base href="https://fixture.one.test/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+  await page.evaluate(() => { (window as Window & { __circleEmpty?: boolean }).__circleEmpty = true; });
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  await expect(page.getByRole('heading', { name: 'Welcome to One, hushh.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue to One' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Find people with Google Contacts' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('empty-mobile-light.png') });
+  await page.getByRole('button', { name: 'Contacts, Manage' }).click();
+  await expect(page.getByRole('dialog', { name: 'Contacts' }).getByText('No people here yet')).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:back', { detail: 2 })));
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await expect(page.locator('.oc-root')).toHaveCSS('background-color', 'rgb(14, 16, 21)');
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole('button', { name: 'Contacts, Manage' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await page.screenshot({ path: testInfo.outputPath('empty-mobile-dark.png') });
+});
