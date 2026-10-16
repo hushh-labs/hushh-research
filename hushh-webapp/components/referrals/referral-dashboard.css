@@ -117,7 +117,7 @@
   padding: 0;
 }
 .referral-share-toggle {
-  width: 104px;
+  width: 116px;
   max-width: 100%;
   min-width: 0;
   height: 44px !important;
@@ -133,11 +133,11 @@
 .referral-share-toggle:active .referral-share-content { background: var(--app-accent-tint); }
 .referral-share-toggle:focus-visible { outline: 2px solid var(--app-focus-ring); outline-offset: 3px; }
 /* The compact visible pill keeps the shared 44px touch target. */
-.referral-share-content { width: 100%; min-height: 36px; padding: 5px 7px; border: 1px solid var(--app-accent-border); border-radius: 999px; background: linear-gradient(180deg, #fff, #f4f8ff); box-shadow: inset 0 1px 0 #fff, 0 3px 9px var(--app-accent-tint); }
-.referral-share-label { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; padding-inline: 22px; font-size: var(--foundation-footnote-size); font-weight: 600; line-height: 1.3; letter-spacing: -.015em; white-space: nowrap; text-align: center; }
-.referral-share-arrow-surface { position: absolute; inset-inline-end: 7px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--app-accent); color: #fff; }
-.referral-invite-bubbles { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 0; margin: 16px 0 0; font-family: var(--font-app-body); }
-.referral-invite-bubble { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.referral-share-content { width: 100%; min-height: 40px; justify-content: space-between; gap: 10px !important; padding: 7px 12px; border: 1px solid var(--app-accent-border); border-radius: 999px; background: linear-gradient(180deg, #fff, #f4f8ff); box-shadow: inset 0 1px 0 #fff, 0 3px 9px var(--app-accent-tint); }
+.referral-share-label { min-width: 0; padding: 0; font-size: var(--type-agent-tab-label-size); font-weight: 600; line-height: 1.3; letter-spacing: -.015em; white-space: nowrap; }
+.referral-share-arrow-surface { display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--app-accent); color: #fff; }
+.referral-invite-bubbles { width: max-content; max-width: 100%; display: grid; grid-template-columns: repeat(3, 44px); align-items: center; gap: 12px; margin: 12px 0 0; font-family: var(--font-app-body); }
+.referral-invite-bubble { display: flex; align-items: center; justify-content: center; min-width: 0; height: 44px; }
 .referral-invite-bubbles[data-state="open"] { animation: referral-share-slide-in calc(var(--motion-duration-xxl) * 2) var(--motion-ease-decelerate) both; }
 .referral-invite-bubbles[data-state="open"] .referral-invite-bubble { animation: referral-bubble-slide-in calc(var(--motion-duration-xxl) * 2) var(--motion-ease-decelerate) both; }
 .referral-invite-bubbles[data-state="open"] .referral-invite-bubble:nth-child(2) { animation-delay: calc(var(--motion-duration-xs) / 2); }
@@ -146,7 +146,7 @@
 @keyframes referral-share-slide-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes referral-share-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); } }
 @keyframes referral-bubble-slide-in { from { opacity: 0; transform: translateY(-16px) scale(.85); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.referral-bubble-action { color: var(--app-accent); border: 0; background: transparent; box-shadow: none; }
+.referral-bubble-action { display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; color: var(--app-accent); border: 0; background: transparent; box-shadow: none; }
 @layer base {
   .referral-dashboard .referral-bubble-action { width: 44px !important; height: 44px !important; }
 }
