@@ -22,6 +22,7 @@ const mutations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path)
 const preparations = () => mock.apiFetch.mock.calls.filter(([path]) => String(path).endsWith("/attendance/review"));
 
 beforeEach(() => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-10-14T09:00:00Z"));
   CacheService.getInstance().clear();
   vi.clearAllMocks(); mock.token = "synthetic-owner";
   invitations = [structuredClone(pending), { ...structuredClone(pending), id: "declined", title: "Declined Review", response_status: "declined" }];
@@ -37,7 +38,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request ${path}`);
   });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("shared page/chat Invitations with real typed transport", () => {
   it("loads owner-bound upcoming invitations and filters pending/responded/all", async () => {
@@ -134,10 +135,10 @@ it("replaces the selected chat review when a later request chooses another invit
 
 it("reuses a warm invitation snapshot immediately on tab remount", async () => {
   const getIdToken = vi.fn(async () => "synthetic-firebase");
-  const first = render(view({ getIdToken }));
+  const first = render(view({ workspaceLayout: true, getIdToken }));
   await screen.findByRole("button", { name: "Open invitation: Client Sync" });
   first.unmount();
-  render(view({ getIdToken }));
+  render(view({ workspaceLayout: true, getIdToken }));
   expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
   expect(screen.queryByRole("status", { name: "Invitations loading" })).not.toBeInTheDocument();
   expect(getIdToken).toHaveBeenCalledTimes(1);
@@ -145,12 +146,12 @@ it("reuses a warm invitation snapshot immediately on tab remount", async () => {
 });
 
 it("invalidates snapshots for changes made while the tab is unmounted", async () => {
-  const first = render(view());
+  const first = render(view({ workspaceLayout: true }));
   await screen.findByRole("button", { name: "Open invitation: Client Sync" });
   first.unmount();
   invitations[0]!.response_status = "accepted";
   act(() => notifyCalendarChanged("owner"));
-  render(view({ initialFilter: "responded" }));
+  render(view({ workspaceLayout: true, initialFilter: "responded" }));
   await screen.findByRole("button", { name: "Open invitation: Client Sync" });
   expect(mock.apiFetch).toHaveBeenCalledTimes(2);
 });
@@ -174,15 +175,15 @@ it("filters each selected local date, including an empty date, without a placeho
 });
 
 it("isolates cached invitations by owner, account and session", async () => {
-  const first = render(view());
+  const first = render(view({ workspaceLayout: true }));
   await screen.findByRole("button", { name: "Open invitation: Client Sync" });
   first.unmount();
   mock.apiFetch.mockImplementation(() => new Promise(() => {}));
-  const other = render(view({ userId: "another-owner", accountEmail: "another@example.test" }));
+  const other = render(view({ workspaceLayout: true, userId: "another-owner", accountEmail: "another@example.test" }));
   expect(screen.queryByRole("button", { name: "Open invitation: Client Sync" })).not.toBeInTheDocument();
   other.unmount();
   act(() => advanceVaultSessionEpoch());
-  render(view());
+  render(view({ workspaceLayout: true }));
   expect(screen.queryByRole("button", { name: "Open invitation: Client Sync" })).not.toBeInTheDocument();
 });
 
@@ -210,4 +211,14 @@ it("includes multi-day invitations on overlapping dates and excludes their end d
   fireEvent.click(screen.getByRole("button", { name: "Next day" }));
   await screen.findByText("No pending invitations on this date.");
   vi.restoreAllMocks();
+});
+
+
+it("keeps explicit chat invitation requests live instead of using tab snapshots", async () => {
+  const first = render(view());
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  first.unmount();
+  render(view());
+  await screen.findByRole("button", { name: "Open invitation: Client Sync" });
+  expect(mock.apiFetch).toHaveBeenCalledTimes(2);
 });

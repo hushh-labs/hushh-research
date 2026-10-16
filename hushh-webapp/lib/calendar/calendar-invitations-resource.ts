@@ -15,7 +15,7 @@ export function invitationResourceKey(owner: string, context: readonly unknown[]
 }
 
 export function invitationSnapshot(key: string) {
-  return CacheService.getInstance().peek<CalendarInvitationsResponse>(key);
+  return key ? CacheService.getInstance().peek<CalendarInvitationsResponse>(key) : null;
 }
 
 export function invalidateInvitationSnapshots(owner: string) {
@@ -30,6 +30,6 @@ export async function loadInvitationResource(key: string, params: Parameters<typ
   if (accountEmail && result.account_email && accountEmail.toLowerCase() !== result.account_email.toLowerCase()) {
     throw new GoogleCalendarError("The connected Calendar account changed. Load this invitation again.", "calendar_connection_changed", 409);
   }
-  if (!params.signal?.aborted && params.isEffectCurrent?.()) CacheService.getInstance().set(key, result, TTL);
+  if (key && !params.signal?.aborted && params.isEffectCurrent?.()) CacheService.getInstance().set(key, result, TTL);
   return result;
 }

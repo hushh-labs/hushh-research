@@ -64,7 +64,8 @@ expired snapshots remain visible during revalidation. Confirmed calendar changes
 invalidate all owner invitation snapshots before broadcasting the refresh signal,
 including when the tab is unmounted. Sign-out and vault epoch changes purge them.
 No invitation contents or credentials are persisted to device storage. RSVP review
-and confirmation continue to use live provider requests.
+and confirmation, along with explicit invitation requests in chat, continue to
+use live provider requests.
 
 ## Mail receipt snapshots
 
