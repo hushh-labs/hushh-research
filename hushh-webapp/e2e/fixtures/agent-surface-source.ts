@@ -425,7 +425,22 @@ const segmentedSegmentBase = one(
   SEGMENTED_PATH,
 )[1];
 
+// Keep the empty-chat geometry tied to the shipped welcome and scroll column.
+const welcome = workspace.slice(workspace.indexOf("function AgentWelcomePanel("), workspace.indexOf("function useAnimatedAssistantText("));
+const transcriptViewport = workspace.slice(workspace.indexOf("One's transcript region"), workspace.indexOf("ref={transcriptRef}"));
+const transcript = workspace.slice(workspace.indexOf("ref={transcriptRef}"), workspace.indexOf("{visibleMessages.map"));
+const transcriptClasses = one(transcript, /className=\{cn\(\s*"([^"]+)",\s*"([^"]+)"/, "transcript scroll classes", WORKSPACE_PATH);
+
 export const AGENT_SURFACE_SOURCE = {
+  welcome: {
+    viewportClass: one(transcriptViewport, /"(relative min-h-0 flex-1 overflow-hidden)"/, "transcript viewport", WORKSPACE_PATH)[1],
+    sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", WORKSPACE_PATH)[1],
+    columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", WORKSPACE_PATH)[1],
+    headingClass: one(welcome, /<h2 className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
+    descriptionClass: one(welcome, /<p className="([^"]+)"/, "welcome description", WORKSPACE_PATH)[1],
+    scrollClass: `${transcriptClasses[1]} ${transcriptClasses[2]}`,
+    transcriptColumnClass: one(transcript, /<div className="(mx-auto flex min-h-full [^"]+)"/, "transcript reading column", WORKSPACE_PATH)[1],
+  },
   header: {
     containerClass: headerContainerClass,
     centeredMarkerExpression: flatten(
