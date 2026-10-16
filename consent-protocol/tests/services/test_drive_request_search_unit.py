@@ -223,6 +223,7 @@ async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(mon
         "connection_generation": 7,
         "checkpoint": checkpoint,
         "lease_id": None,
+        "v1_statement_search": False,
     }
     request = {
         "status": "pending",
@@ -251,6 +252,7 @@ async def test_legacy_statement_replan_keeps_job_positions_and_is_idempotent(mon
             writes.append(parameters)
             row["checkpoint"] = parameters["checkpoint"]
             row["status"] = "queued"
+            row["v1_statement_search"] = True
             return row
         raise AssertionError(statement)
 
@@ -470,7 +472,7 @@ async def test_existing_completed_statement_retries_same_job_without_model():
     store.by_client.assert_awaited_once()
     search.create_for_request.assert_not_awaited()
     planner.assert_not_awaited()
-    wake.assert_awaited_once_with("suggestions")
+    wake.assert_awaited_once_with("v1")
 
 
 @pytest.mark.asyncio
@@ -513,7 +515,7 @@ async def test_owner_review_retries_completed_unfrozen_statement_without_manual_
     search.replan_legacy_statement_request.assert_awaited_once_with(
         user_id="owner", request_id=request_id, context=context
     )
-    wake.assert_awaited_once_with("suggestions")
+    wake.assert_awaited_once_with("v1")
     bulk.refresh_request.assert_not_awaited()
     planner.assert_not_awaited()
 
