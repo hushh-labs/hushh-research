@@ -16,7 +16,7 @@ enum NativeProfileArtwork {
         case "hosting": colorHex = "#00E5FF"; hasAccent = false
         case "software-updates": colorHex = nil; hasAccent = false
         case "account": colorHex = "#2563EB"; hasAccent = false
-        case "payouts": colorHex = nil; hasAccent = true
+        case "payouts": colorHex = "#10B981"; hasAccent = false
         case "request-pricing": colorHex = nil; hasAccent = true
         case "my-data": colorHex = "#6366F1"; hasAccent = false
         case "world-model": colorHex = nil; hasAccent = true
