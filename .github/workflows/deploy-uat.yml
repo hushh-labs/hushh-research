@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       skip_managed_vertex_probe_once:
-        description: "One-time UAT Vertex probe exception for 3ac26e6e; verify runtime after release"
+        description: "One-time UAT Vertex probe exception for 14dc4ecf; verify runtime after release"
         required: false
         default: false
         type: boolean
@@ -129,7 +129,7 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "3ac26e6e1ceb835e257087f11bd274467708c217" ||
+          if [[ "$REQUESTED_SHA" != "14dc4ecfb8c54fed7d4b839511e925faceb8ec29" ||
                 "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
                 "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
                 "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
