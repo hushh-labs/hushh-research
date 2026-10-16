@@ -194,9 +194,10 @@ LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
 class DriveReadError(RuntimeError):
     """Only authored safe codes cross the transport boundary."""
 
-    def __init__(self, code: str, *, retryable: bool = False):
+    def __init__(self, code: str, *, retryable: bool = False, status_code: int | None = None):
         super().__init__(code)
         self.retryable = retryable
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -543,7 +544,7 @@ class GoogleDriveAdapter:
                     # shortcut target is unavailable. Retry the same durable page.
                     raise DriveReadError("provider_unavailable", retryable=True)
                 if response.status_code in {403, 404, 410}:
-                    raise DriveReadError("source_unavailable")
+                    raise DriveReadError("source_unavailable", status_code=response.status_code)
                 if response.status_code == 429 or response.status_code >= 500:
                     # No URL, query, token, file ID or provider body reaches logs.
                     logger.warning(

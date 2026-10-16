@@ -160,6 +160,10 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     const call = { path: routePath, body, authorization: request.headers().authorization } as typeof calls[number];
     calls.push(call);
     if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
+    if (routePath.endsWith("/insights")) return route.fulfill({ json: {
+      complete: true, meeting_count: 0, meeting_minutes: 0, overlaps: 0, back_to_back: 0,
+      time_zone: body.time_zone, days: [], recurring: [], focus: [],
+    } });
     if (routePath.endsWith("/invitations")) return route.fulfill({ json: {
       events: fixtureEvents("2026-10-14", "standard").slice(0, 3).map((event, index) => ({ ...event,
         response_status: invitationResponses.get(event.id) || (index === 2 ? "declined" : "needsAction"),
@@ -486,5 +490,51 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+  });
+}
+
+for (const width of [390, 1280]) {
+  test(`Calendar Insights library and notes at ${width}px`, async ({ page }) => {
+    const fixture = await openFixture(page, width);
+    await page.route("**/api/one/calendar/insights", route => route.fulfill({ json: {
+      complete: true, meeting_count: 8, meeting_minutes: 480, overlaps: 1, back_to_back: 2, time_zone: "Asia/Kolkata",
+      days: [12, 13, 14, 15, 16, 17, 18].map((day, index) => ({ date: `2026-10-${day}`, minutes: [60, 120, 180, 60, 60, 0, 0][index], meetings: 1 })),
+      recurring: [{ title: "QA weekly review", minutes: 60 }], focus: [{ start_at: "2026-10-15T09:30:00Z", end_at: "2026-10-15T11:30:00Z" }],
+    } }));
+    await page.route("**/api/one/calendar/meetings", route => route.fulfill({ json: { complete: true, window_days: 30, meetings: [
+      { id: "notes", calendar_id: "primary", title: "QA Design review", start: { dateTime: "2026-10-13T09:00:00Z" }, artifact_kinds: ["notes"] },
+      { id: "video", calendar_id: "primary", title: "QA Product demo", start: { dateTime: "2026-10-12T09:00:00Z" }, artifact_kinds: ["recording"] },
+    ] } }));
+    await page.route("**/api/one/calendar/meetings/detail", route => route.fulfill({ json: { complete: true, discovery: "checked", calendar_id: "primary", event: { title: "QA Design review" }, artifacts: [
+      { file_id: "qa-doc", kind: "notes", state: "available", title: "QA Meeting notes", url: "https://docs.google.com/document/d/qa-doc", text: "Synthetic browser fixture only.\n\nDecisions\nKeep the existing Calendar shell.\n\nFollow-ups\nReview the responsive layout and permission states.", can_ask: true },
+      { file_id: "qa-transcript", kind: "transcript", state: "permission_required" },
+    ] } }));
+    await page.getByRole("tab", { name: "Insights", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Executive snapshot" })).toBeVisible();
+    await expect(page.getByText("8", { exact: true })).toBeVisible();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-overview-${width}.png`), fullPage: true });
+    const libraryEntry = page.getByRole("button", { name: /Recordings & Notes/ });
+    await libraryEntry.scrollIntoViewIfNeeded();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-entry-${width}.png`) });
+    await libraryEntry.click();
+    await page.getByRole("tab", { name: "Notes", exact: true }).click();
+    await expect(page.getByRole("button", { name: /QA Product demo/ })).toHaveCount(0);
+    await page.getByRole("searchbox").fill("Design");
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-library-${width}.png`), fullPage: true });
+    await page.getByRole("button", { name: /QA Design review/ }).click();
+    await expect(page.getByRole("link", { name: "Open source" })).toHaveAttribute("href", "https://docs.google.com/document/d/qa-doc");
+    await expect(page.getByRole("button", { name: "Ask One about this meeting" })).toBeEnabled();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-meeting-${width}.png`), fullPage: true });
+    await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const askBounds = (await page.getByRole("button", { name: "Ask One about this meeting" }).boundingBox())!;
+    const chromeBounds = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
+    expect(askBounds.y + askBounds.height).toBeLessThanOrEqual(chromeBounds.y);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-meeting-actions-${width}.png`) });
+    await page.getByRole("tab", { name: "Transcript", exact: true }).click();
+    await expect(page.getByText("Permission required. Calendar access does not include access to this meeting file.")).toBeVisible();
+    await page.getByRole("button", { name: "Back to recordings and notes" }).click();
+    await expect(page.getByRole("searchbox")).toHaveValue("Design");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(fixture.errors).toEqual([]);
   });
 }

@@ -57,19 +57,20 @@ Native Google search suggestions stay displayed with the grounded findings they 
 
 The single authored system instruction is the `one_personal_world_model.system_instruction` block in [the One manifest](../../../consent-protocol/hushh_mcp/agents/one/agent.yaml). Python loads this manifest; it contains no duplicate system prompt. The generated product-agent registries describe the same specialist. The instruction also tells the specialist not to propose again any claim in the owner's confirmed or rejected decisions, or an equivalent of one, and never to infer the opposite of a rejected claim. The model decides equivalence; host code does not.
 
-The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.6-flash`**, with medium thinking and a 16,384-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** reads independently supplied permitted public URLs for reviewable facts. Google research and saved owner knowledge have separate source-use contracts.
+The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-flash`**, with medium thinking and a 16,384-token output ceiling. Gemini uses **native Google Search grounding on Vertex**. No Tavily key is needed. **URL Context on Vertex** reads independently supplied permitted public URLs for reviewable facts. Google research and saved owner knowledge have separate source-use contracts.
 
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
-| Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
-| Production | `hushh-vertex-personal54` | same | same | same |
+| Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Dev / UAT / Production | `hushh-gemini-bridge` | same | same | same |
 
-UAT sharing production's project is a stopgap while `hussh-511311` is suspended for billing: UAT traffic draws on production's Vertex quota, so move UAT back to its own project once that billing is restored.
+The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 
-Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
+The release configuration disables automatic world-model research with `ONE_PROFILE_RESEARCH_ENABLED=false`; UAT deployments default the corresponding repository variable to false. This stops new research and resumes without deleting encrypted drafts or changing ordinary chat. The notification scheduler alone does not stop generation. Drive background processing is separately paused with `DRIVE_WORK_DRAIN_UAT_ENABLED=false`: both API and worker drains remain disabled and the three retained Drive jobs remain paused during release; stored files and queued work are preserved.
+
+The default 3.8 text model uses the verified `global` endpoint; Live remains regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 
 Change the checked-in environment profile and deploy its revision. The compiler and runtime share validation and a normalized configuration hash. Candidate readiness compares the image's hash and exercises the configured text and enabled Live targets. The runtime config CI contract rejects managed environment reads outside the canonical settings boundary. Local development retains explicit overrides; hosted runtimes use the packaged profile and ignore retired per-surface project overrides.
 

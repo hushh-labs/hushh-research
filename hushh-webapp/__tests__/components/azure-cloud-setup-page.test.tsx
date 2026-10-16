@@ -222,16 +222,18 @@ describe("Connect Azure on the cloud step", () => {
     expect(mocks.assign).not.toHaveBeenCalled();
   });
 
-  it("narrates a running Azure job with the Azure stages", async () => {
+  it("shows core Azure progress without claiming optional AI is connected", async () => {
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(
-      azureJob("creating_key_vault", ["creating_resource_group", "registering_providers", "creating_identity", "creating_key_vault"]),
+      azureJob("creating_environment", ["creating_resource_group", "creating_model", "creating_environment"]),
     );
     render(<ByocCloudSetupPage />);
     const progress = await screen.findByTestId("byoc-setup-progress");
     expect(progress).toHaveTextContent("Setting up your agent in Microsoft Azure");
-    expect(progress).toHaveTextContent("Creating your resource group");
-    expect(progress).toHaveTextContent("Creating your agent’s key vault…");
-    expect(progress).toHaveTextContent("Checking your private agent");
+    expect(progress.querySelectorAll("li")).toHaveLength(3);
+    expect(progress.querySelector('[aria-current="step"]')).toHaveTextContent("Preparing your cloud…");
+    expect(progress).toHaveTextContent("Installing your agent");
+    expect(progress).toHaveTextContent("Checking private access");
+    expect(progress).not.toHaveTextContent("Azure OpenAI model");
     expect(progress).not.toHaveTextContent("Linking your billing");
   });
 

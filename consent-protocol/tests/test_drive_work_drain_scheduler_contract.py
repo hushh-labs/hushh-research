@@ -191,7 +191,17 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     for name in names[1:]:
         assert f'_{name}: ""' in cloudbuild
 
-    assert "_DRIVE_WORK_DRAIN_ENABLED=true" in uat
+    assert "_DRIVE_WORK_DRAIN_ENABLED=${{ vars.DRIVE_WORK_DRAIN_UAT_ENABLED || 'true' }}" in uat
+    wake = next(
+        step
+        for step in yaml.safe_load(uat)["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Verify prompt UAT Drive worker wake grant"
+    )
+    assert wake["if"] == (
+        "steps.scope.outputs.deploy_backend == 'true' "
+        "&& vars.DRIVE_WORK_DRAIN_UAT_ENABLED != 'false'"
+    )
+    assert "roles/cloudscheduler.jobRunner" in wake["run"]
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" in uat
     assert (
         "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="
@@ -238,7 +248,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
-    assert "retargeted=true\nfor fixed_job in drive-work-drain-uat" in release
+    assert 'retargeted=true\nif [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" restore' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" quarantine' in release
     assert 'JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}"' in release

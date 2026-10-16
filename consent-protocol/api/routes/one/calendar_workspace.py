@@ -187,3 +187,97 @@ async def public_rescheduling_options(request: Request, payload: CalendarPublicO
         )
     except Exception as exc:
         raise _http(exc) from exc
+
+
+class CalendarMeetingSelection(BaseModel):
+    expected_account_email: str = Field(min_length=1, max_length=512)
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    event_id: str = Field(min_length=1, max_length=2048)
+
+
+def _insights():
+    from hushh_mcp.services.calendar_insights_service import CalendarInsightsService
+
+    return CalendarInsightsService()
+
+
+def _artifacts():
+    from hushh_mcp.services.calendar_meeting_artifacts import CalendarMeetingArtifacts
+
+    return CalendarMeetingArtifacts()
+
+
+@router.post("/insights")
+async def insights(
+    payload: CalendarDay,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _insights().overview(user_id=firebase_uid, **payload.model_dump())
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+class CalendarMeetingPage(CalendarDay):
+    page: int = Field(default=0, ge=0, le=1000)
+
+
+@router.post("/meetings")
+async def meeting_library(
+    payload: CalendarMeetingPage,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _insights().library(user_id=firebase_uid, **payload.model_dump())
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/meetings/detail")
+async def meeting_detail(
+    payload: CalendarMeetingSelection,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/meetings/context")
+async def meeting_context(
+    payload: CalendarMeetingSelection,
+    response: Response,
+    token: dict = Depends(hub_content_owner),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, token["user_id"])
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        detail = await _artifacts().detail(user_id=firebase_uid, **payload.model_dump())
+        sources = [
+            {
+                "title": item["title"],
+                "url": item["url"],
+                "text": item["text"],
+                "truncated": item.get("truncated", False),
+            }
+            for item in detail["artifacts"]
+            if item.get("can_ask") and item.get("text")
+        ]
+        if not sources:
+            raise HTTPException(
+                status_code=403,
+                detail={"message": "No meeting text is currently authorized for One."},
+            )
+        return {"title": detail["event"]["title"], "sources": sources}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _http(exc) from exc

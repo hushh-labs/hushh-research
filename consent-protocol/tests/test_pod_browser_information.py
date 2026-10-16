@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from hushh_mcp.runtime_providers.gemini_config import SUPPORTED_GEMINI_TEXT_MODELS
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused
 from tests.helpers.pod_browser import (
     Authority,
@@ -15,7 +16,13 @@ from tests.helpers.pod_browser import (
 )
 
 
-async def test_model_factory_rejects_custom_transport_and_unverified_native_model(monkeypatch):
+@pytest.mark.parametrize(
+    "model_name",
+    [name for model in SUPPORTED_GEMINI_TEXT_MODELS for name in (model, "models/" + model)],
+)
+async def test_model_factory_rejects_custom_transport_and_unverified_native_model(
+    monkeypatch, model_name
+):
     from pathlib import Path
 
     from google.adk.models import Gemini
@@ -34,16 +41,16 @@ async def test_model_factory_rejects_custom_transport_and_unverified_native_mode
         BrowserModelProcessing,
     )
 
-    runtime = control()
+    runtime = control(ready=readiness(model_name=model_name))
     process = BrowserModelProcessing(
         BrowserInformation(SimpleNamespace(), _BrowserConsent()),
         runtime.binding,
         (),
-        "gemini-3.7-flash",
+        model_name,
         readiness().model_transport,
         ("https://example.com",),
     )
-    native = Gemini(model="gemini-3.7-flash")
+    native = Gemini(model=model_name)
     monkeypatch.delenv("POD_COMPUTER_USE_ENABLED", raising=False)
     with pytest.raises(BrowserRefused, match="DISABLED"):
         build_computer_use_agent(manifest, control=runtime, model=native, processing=process)
@@ -65,6 +72,15 @@ async def test_model_factory_rejects_custom_transport_and_unverified_native_mode
     assert "initialize" not in {tool.name for tool in tools}
     assert "search" not in {tool.name for tool in tools}
     assert "click_at" in {tool.name for tool in tools}
+
+    # A matching capability receipt cannot re-admit a retired fleet release.
+    with pytest.raises(BrowserRefused, match="MODEL_UNSUPPORTED"):
+        build_computer_use_agent(
+            manifest,
+            control=control(ready=readiness(model_name="gemini-3.6-flash")),
+            model=Gemini(model="gemini-3.6-flash"),
+            processing=process,
+        )
 
 
 async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(monkeypatch):

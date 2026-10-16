@@ -754,7 +754,7 @@ class TestSpecialistTurn:
         async def delegated(_agent_id, _task):
             # Specialist models are built during dispatch, after the scope binds.
             model = build_managed_regional_gemini_adk_model("gemini-default")
-            projects.append(model.regional_client._project)
+            projects.append(model.client_kwargs["project"])
             return SpecialistTurnResult(
                 conversation_id="conversation",
                 text="Specialist answer",

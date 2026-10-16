@@ -1,18 +1,12 @@
-"""Generation-aware Gemini generation configuration.
+"""Generation-aware Gemini configuration for the two supported text releases.
 
-Exactly two Gemini text releases are supported at any time (founder rule 2026-09-14:
-two releases, never a third). Founder decision 2026-09-25 chose the pair by measured
-chat latency rather than recency: gemini-3.7-flash (default) and gemini-3.6-flash,
-both at LOW thinking in chat. 3.8 Flash was retired from the fleet after a
-two-round, same-window matrix measured it at 58 s per model call (3.6 LOW: 1.2 s,
-3.7 LOW: 3.3 s). Both releases own their sampling policy, so callers must not send
-the legacy sampling knobs, and both accept ``thinking_level`` LOW, MEDIUM and HIGH.
-MINIMAL is rejected by gemini-3.7-flash with 400 INVALID_ARGUMENT ("Thinking level is
-unsupported: THINKING_LEVEL_MINIMAL", measured 2026-09-14) and accepted by
-gemini-3.6-flash (measured 2026-09-25); the adapter maps MINIMAL to LOW for both so
-the fleet keeps one thinking floor. The contract test pins that matrix. Keeping this rule in one adapter prevents every product agent from
-independently guessing the provider contract. Any other model id passes through
-untouched: there are no model-specific branches beyond "supported or not".
+Owner decision 2026-10-15 rolls support to 3.8 Flash and 3.7 Flash, with 3.8 as
+the fleet default. 3.8 answered the bounded runtime and quality checks on global;
+a separate LOW-thinking function-call probe returned HTTP 200 with the expected
+synthetic tool arguments. The existing MINIMAL-to-LOW policy remains a fleet
+normalization rule, not a claim that MINIMAL was probed on 3.8. Authored MEDIUM
+and HIGH settings pass through. The adapter keeps sampling policy centralized.
+Unknown model ids pass through without acquiring this compatibility policy.
 """
 
 from __future__ import annotations
@@ -22,7 +16,7 @@ from typing import Any
 GEMINI_37_FLASH = "gemini-3.7-flash"
 
 # Newest first. Exactly two ids, consecutive minor releases; the policy test enforces it.
-SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = (GEMINI_37_FLASH, "gemini-3.6-flash")
+SUPPORTED_GEMINI_TEXT_MODELS: tuple[str, ...] = ("gemini-3.8-flash", GEMINI_37_FLASH)
 
 _SUPPORTED_MODEL_NAMES = frozenset(
     name for model in SUPPORTED_GEMINI_TEXT_MODELS for name in (model, f"models/{model}")
@@ -79,8 +73,8 @@ def _sanitize_thinking_config(thinking_cfg: Any) -> Any:
     """Apply the supported-release thinking contract to a dict or ThinkingConfig-like value.
 
     ``include_thoughts`` and ``thinking_budget`` pass through as they always have.
-    ``thinking_level`` passes through, except MINIMAL which the provider rejects and
-    the adapter maps to LOW. A ``None`` level is left to the provider default (MEDIUM).
+    ``thinking_level`` passes through, except MINIMAL which the fleet policy normalizes and
+    the adapter maps to LOW. A ``None`` level is left to the provider default.
     """
     if thinking_cfg is None:
         return None
@@ -129,8 +123,8 @@ def thinking_config_for(model: str | None, level: str | None, types_module: Any)
 
     ``level`` is one of minimal, low, medium, high (any case; manifests author the
     lowercase words). ``None`` means no preference and yields ``None`` so the provider
-    default applies. For a supported release MINIMAL is coerced to LOW because the
-    provider rejects it; any other id receives the level as authored. An unknown level
+    default applies. For a supported release MINIMAL is coerced to LOW to keep one
+    fleet thinking floor; any other id receives the level as authored. An unknown level
     is a caller defect and raises rather than reaching the provider.
     """
     if level is None or not str(level).strip():

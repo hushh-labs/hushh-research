@@ -4229,6 +4229,30 @@ mobile grabber; focus returns after its trap releases. Profile's WebKit fallback
 now matches the scoped side-pane policy. Existing geometry, material equality,
 owner-retirement and content-sizing negative controls remain enforced. The
 combined follow-up still requires exact-source core and hosted CI before Dev.
+The follow-up `9780c580ee` passes the full local core with the same backend,
+PostgreSQL and PKM totals. Hosted run `38832268896` fails on a stale Shared hosting fixture, a stale native
+payout-icon assertion, editor typing latency and WebKit Wallet checks. The
+concurrent root native correction is retained. All three Wallet cases pass a
+focused local WebKit run with one worker and no retries; their timing, geometry
+and revocation assertions remain unchanged. Hosted rerun evidence is required. The
+next candidate integrates main `56653253e3` and concurrent root onboarding work.
+Four incoming Calendar plaintext routes now use the existing placement admission
+and CONTENT inventory; the unguarded predecessor fails the existing negative
+control. Focused Calendar, placement and Drive rollback checks pass 107 cases,
+and regenerated UI contracts pass. Chat/client/hosting checks pass 143 cases;
+unsafe streamed refusals require a fresh explicit request after unlock. The
+combined backend run passes 20,657 cases and exposes one retired Gemini pin in
+the browser specialist. It now uses the shared two-release policy while keeping
+exact capability/transport/processing verification. Its existing model-factory
+test covers both supported releases and rejects the retired release even with a
+matching capability receipt; 23 focused checks cover canonical and prefixed
+model identifiers. The retired predecessor fails. Fresh serving readback shows
+backend `439f181304` and frontend `5c2d1483aa`; the candidate retains the deployed
+managed-runtime fixes and reuses its canonical model predicate.
+Capability projections are refreshed against the merged main base. This remains
+integration evidence: no new
+Dev deployment, paid purchase, recipient-model receipt or payout is established.
+
 The existing reviewer approval admission now requires the exact boolean model
 permission, bound to false for the four financial cases. Its nearest guard test
 passes both explicit choices and rejects permission changes, coercion and extra
