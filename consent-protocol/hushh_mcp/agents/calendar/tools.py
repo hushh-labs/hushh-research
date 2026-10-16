@@ -128,7 +128,13 @@ async def _check_stable_binding(service: Any, user_id: str, before: tuple[str, .
 
 
 def _connection_directive(
-    tool_context: ToolContext, *, access_level: str, message: str, confirm_label: str | None = None
+    tool_context: ToolContext,
+    *,
+    access_level: str,
+    message: str,
+    confirm_label: str | None = None,
+    reason_code: str | None = None,
+    include_calendar_list: bool = False,
 ) -> dict[str, Any]:
     directive = {
         "kind": "action",
@@ -136,6 +142,8 @@ def _connection_directive(
         "payload": {
             "type": "calendar.connect",
             "accessLevel": access_level,
+            "reasonCode": reason_code,
+            "includeCalendarList": include_calendar_list,
             "summary": message,
             "confirmLabel": confirm_label
             or ("Allow Calendar scheduling" if access_level == "manage" else "Connect Calendar"),
@@ -144,6 +152,7 @@ def _connection_directive(
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
     return {
         "status": "connection_required",
+        "reason_code": reason_code,
         "directive": directive,
         "message": message,
         "next_step": (
@@ -160,6 +169,7 @@ def _handle_connection_error(
 ) -> dict[str, Any] | None:
     if exc.reason_code not in {
         "google_not_connected",
+        "calendar_not_connected",
         "google_reauthorization_required",
         "google_permission_required",
         "calendar_reauthorization_required",
@@ -173,12 +183,24 @@ def _handle_connection_error(
             access_level="read",
             message="Allow One to see your subscribed calendars before I can include them.",
             confirm_label="Allow calendar list access",
+            reason_code=exc.reason_code,
+            include_calendar_list=True,
         )
-    label = "editing" if access_level == "manage" else "reading"
+    label = "scheduling and editing events" if access_level == "manage" else "reading events"
+    if exc.reason_code in {"google_permission_required", "calendar_permission_required"}:
+        message = f"Allow Google Calendar permission for {label} to continue."
+    elif exc.reason_code in {
+        "google_reauthorization_required",
+        "calendar_reauthorization_required",
+    }:
+        message = f"Renew Google Calendar permission for {label} to continue."
+    else:
+        message = f"Connect Google Calendar with permission for {label} to continue."
     return _connection_directive(
         tool_context,
         access_level=access_level,
-        message=f"Connect Google Calendar with permission for {label} before I can help with that.",
+        message=message,
+        reason_code=exc.reason_code,
     )
 
 

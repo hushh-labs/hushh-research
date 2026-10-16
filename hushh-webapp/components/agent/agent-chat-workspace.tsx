@@ -3999,6 +3999,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           ? connectCalendarInPlace({
               owner,
               accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
+              includeCalendarList: payload.includeCalendarList === true,
               ...controls,
               isCurrent,
             })

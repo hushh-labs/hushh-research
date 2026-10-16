@@ -1526,8 +1526,10 @@ def test_calendar_proposal_continuation_requires_exact_identity_and_typed_chat(n
     assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
 
 
+@pytest.mark.parametrize("needs_permission", [False, True])
 async def test_calendar_read_then_booking_prepares_review_without_executing_and_redacts(
     monkeypatch,
+    needs_permission,
 ):
     from hushh_mcp.agents.calendar import tools as calendar_tools
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
@@ -1551,6 +1553,14 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
         ),
         execute=AsyncMock(),
     )
+    if needs_permission:
+        from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+        service.propose.side_effect = GoogleConnectionError(
+            "Scheduling requires manage access",
+            status_code=403,
+            reason_code="google_permission_required",
+        )
     monkeypatch.setattr(calendar_tools, "get_google_calendar_service", lambda: service)
 
     async def calendar_free_slots(tool_context: ToolContext) -> dict:
@@ -1590,8 +1600,14 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
         proposal = next(
             response.response for response in responses if response.name == "propose_calendar_event"
         )
-        assert proposal["status"] == "confirmation_required"
-        assert proposal["directive"]["payload"]["description"] == plan["description"]
+        if needs_permission:
+            assert proposal["status"] == "connection_required"
+            assert proposal["reason_code"] == "google_permission_required"
+            assert proposal["directive"]["payload"]["type"] == "calendar.connect"
+            assert proposal["directive"]["payload"]["accessLevel"] == "manage"
+        else:
+            assert proposal["status"] == "confirmation_required"
+            assert proposal["directive"]["payload"]["description"] == plan["description"]
         assert model._advertised[1] == {"propose_calendar_event"}
         service.propose.assert_awaited_once()
         service.execute.assert_not_awaited()
