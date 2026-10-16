@@ -30,8 +30,11 @@ class DriveRequestBulkRemovalWorker:
             raise DriveSharingError("reconnect_original_account")
         return credentials
 
-    async def _run_job(self, row):
-        job = await self.store.claim(user_id=row["user_id"], removal_id=str(row["removal_id"]))
+    async def _run_job(self, row, *, v1_only=False):
+        v1_kwargs = {"v1_only": True} if v1_only else {}
+        job = await self.store.claim(
+            user_id=row["user_id"], removal_id=str(row["removal_id"]), **v1_kwargs
+        )
         if job is None:
             return "not_claimed"
         plan = job["plan"]
@@ -41,7 +44,7 @@ class DriveRequestBulkRemovalWorker:
             args = {
                 "file_id": plan["file_id"],
                 "access_token": credentials["accessToken"],
-                "require_current": lambda: self.store.require_current(job),
+                "require_current": lambda: self.store.require_current(job, **v1_kwargs),
                 "resource_key": plan.get("resource_key"),
             }
             await self.adapter.inspect_permission_management(**args, require_app_authorized=False)
@@ -49,17 +52,21 @@ class DriveRequestBulkRemovalWorker:
             try:
                 present = current_recorded_viewer(snapshot, plan)
             except DriveSharingError:
-                await self.store.settle(job, state="needs_review", code="permission_changed")
+                await self.store.settle(
+                    job, state="needs_review", code="permission_changed", **v1_kwargs
+                )
                 return "needs_review"
             if present is None:
-                await self.store.settle(job, state="absent")
+                await self.store.settle(job, state="absent", **v1_kwargs)
                 return "absent"
             if dispatched:
                 # A timed-out DELETE may have succeeded and another actor may
                 # have restored access. Presence alone cannot authorize a retry.
-                await self.store.settle(job, state="needs_review", code="outcome_unknown")
+                await self.store.settle(
+                    job, state="needs_review", code="outcome_unknown", **v1_kwargs
+                )
                 return "needs_review"
-            await self.store.mark_dispatching(job)
+            await self.store.mark_dispatching(job, **v1_kwargs)
             dispatched = True
             await self.adapter.remove_recorded_permission(
                 **args, recorded_permission_id=plan["permission_id"]
@@ -69,35 +76,41 @@ class DriveRequestBulkRemovalWorker:
             # here becomes GET-only reconciliation, never another DELETE.
             after = await self.adapter.list_permissions(**args)
             if any(item["id"] == plan["permission_id"] for item in after.permissions):
-                await self.store.settle(job, state="needs_review", code="permission_still_present")
+                await self.store.settle(
+                    job, state="needs_review", code="permission_still_present", **v1_kwargs
+                )
                 return "needs_review"
-            await self.store.settle(job, state="removed")
+            await self.store.settle(job, state="removed", **v1_kwargs)
             return "removed"
         except (DriveReadError, TimeoutError) as error:
             if isinstance(error, DriveSharingError) and str(error) == "reconnect_original_account":
                 await self.store.settle(
-                    job, state="needs_review", code="reconnect_original_account"
+                    job, state="needs_review", code="reconnect_original_account", **v1_kwargs
                 )
                 return "needs_review"
             await self.store.settle(
                 job,
                 state="unknown" if dispatched else "queued",
                 code="permission_outcome_unknown" if dispatched else "reconnect_required",
+                **v1_kwargs,
             )
             return "unknown" if dispatched else "queued"
 
-    async def run(self, *, max_jobs=20, deadline_seconds=75):
+    async def run(self, *, max_jobs=20, deadline_seconds=75, v1_only=False):
         if type(max_jobs) is not int or not 1 <= max_jobs <= 20:
             raise ValueError("invalid bulk removal bounds")
         if type(deadline_seconds) is not int or not 1 <= deadline_seconds <= 160:
             raise ValueError("invalid bulk removal deadline")
+        if type(v1_only) is not bool:
+            raise ValueError("invalid bulk removal mode")
+        v1_kwargs = {"v1_only": True} if v1_only else {}
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
-                counts["materialized"] += await self.store.materialize(limit=100)
-                for row in await self.store.due(limit=max_jobs):
+                counts["materialized"] += await self.store.materialize(limit=100, **v1_kwargs)
+                for row in await self.store.due(limit=max_jobs, **v1_kwargs):
                     try:
-                        counts[await self._run_job(row)] += 1
+                        counts[await self._run_job(row, **v1_kwargs)] += 1
                     except Exception:
                         # The durable lease is intentionally left for later
                         # read-only reconciliation. Never log private details.

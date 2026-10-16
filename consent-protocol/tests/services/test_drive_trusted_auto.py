@@ -897,6 +897,21 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("v1,stage", [(True, "v1"), (False, "sharing")])
+async def test_unpaid_frozen_review_wakes_its_own_checkout_lane(v1, stage):
+    sharing = SimpleNamespace(request_bulk_context=AsyncMock(return_value={"v1LiveRequest": v1}))
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(return_value={"status": "awaiting_payment"})
+    )
+    wake = AsyncMock()
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=SimpleNamespace(), payment=payment, wake=wake
+    )
+    assert not await service._payment_ready(user_id="owner", request_id="request", share_id="share")
+    wake.assert_awaited_once_with(stage)
+
+
+@pytest.mark.asyncio
 async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monkeypatch):
     from hushh_mcp.services import drive_trusted_auto_service as module
 
@@ -1417,7 +1432,7 @@ async def test_package_precheckout_preflight_rechecks_version_and_generation(
         )
     )
     adapter = SimpleNamespace(
-        get_metadata=AsyncMock(
+        get_share_metadata=AsyncMock(
             return_value=SimpleNamespace(name="Statement.pdf", version=actual_version)
         )
     )
@@ -1445,7 +1460,7 @@ async def test_package_precheckout_preflight_rechecks_version_and_generation(
         await service.preflight_package(user_id="owner", request_id="request")
         assert sharing.trusted_request_authority.await_count >= 2
     if generation != 7:
-        adapter.get_metadata.assert_not_awaited()
+        adapter.get_share_metadata.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1480,6 +1495,7 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
                     "name": "Statement.pdf",
                     "sourceVersion": "7",
                     "generation": 7,
+                    "resourceKey": "synthetic-resource-key",
                 }
             ]
         )
@@ -1488,7 +1504,9 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
         _generation=7,
         _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
         adapter=SimpleNamespace(
-            get_metadata=AsyncMock(return_value=SimpleNamespace(name="Statement.pdf", version="7"))
+            get_share_metadata=AsyncMock(
+                return_value=SimpleNamespace(name="Statement.pdf", version="7")
+            )
         ),
     )
     monkeypatch.setattr(drive_live_reader, "DriveLiveReader", lambda **kwargs: reader)
@@ -1504,5 +1522,9 @@ async def test_paid_delivery_preflight_checks_source_without_reclassifying_exist
         await service.preflight_package(user_id="owner", request_id="request", inspect_access=False)
         is None
     )
-    reader.adapter.get_metadata.assert_awaited_once()
+    reader.adapter.get_share_metadata.assert_awaited_once_with(
+        file_id="file-1",
+        access_token=reader._credential.return_value["accessToken"],
+        resource_key="synthetic-resource-key",
+    )
     assert sharing.trusted_request_authority.await_count == 2

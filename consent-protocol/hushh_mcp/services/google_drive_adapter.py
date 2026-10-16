@@ -28,7 +28,9 @@ logger = drive_logger(__name__)
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 METADATA_LIMIT = 256 * 1024
+OWNER_SEARCH_METADATA_LIMIT = 2 * 1024 * 1024
 MAX_FILE_LIST_PAGE_SIZE = 100
+MAX_OWNER_SEARCH_PAGE_SIZE = 1000
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
@@ -137,7 +139,8 @@ EXPORTS = {
 LIVE_EXPORTS = {
     **EXPORTS,
     "application/vnd.google-apps.document": "text/markdown",
-    "application/vnd.google-apps.spreadsheet": "text/csv",
+    # XLSX contains every worksheet. CSV export contains only the first tab.
+    "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 # Markdown carries each image inline, so a picture-heavy Doc can pass the
 # CONTENT_LIMIT, or Google's 10 MB export limit (a 403), where its plain text
@@ -145,7 +148,7 @@ LIVE_EXPORTS = {
 LIVE_EXPORT_FALLBACKS = {"application/vnd.google-apps.document": "text/plain"}
 _LIVE_EXPORT_FALLBACK_CODES = frozenset({"file_too_large", "source_unavailable"})
 _LIVE_EXPORT_TYPES = frozenset({*LIVE_EXPORTS.values(), *LIVE_EXPORT_FALLBACKS.values()})
-LIVE_PARTIAL_EXPORTS = frozenset({"application/vnd.google-apps.spreadsheet"})
+LIVE_PARTIAL_EXPORTS: frozenset[str] = frozenset()
 BINARY_TYPES = frozenset(
     {
         "text/plain",
@@ -180,6 +183,7 @@ LIVE_EXTRACTABLE_CONTENT_TYPES = frozenset(
         "text/markdown",
         "text/csv",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
 LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
@@ -495,7 +499,13 @@ class GoogleDriveAdapter:
             allowed = False
         if (
             not allowed
-            or limit not in {METADATA_LIMIT, CONTENT_LIMIT, LIVE_COLLECTION_CONTENT_LIMIT}
+            or limit
+            not in {
+                METADATA_LIMIT,
+                OWNER_SEARCH_METADATA_LIMIT,
+                CONTENT_LIMIT,
+                LIVE_COLLECTION_CONTENT_LIMIT,
+            }
             or (
                 limit == LIVE_COLLECTION_CONTENT_LIMIT
                 and not (params.get("alt") == "media" or path.endswith("/export"))
@@ -832,12 +842,15 @@ class GoogleDriveAdapter:
         order_by: str | None = None,
         drive_id: str | None = None,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> dict[str, Any]:
         """One bounded Drive REST search page (the GA API the picker lane already uses)."""
         if (
             not isinstance(page_size, int)
             or isinstance(page_size, bool)
-            or not 1 <= page_size <= MAX_FILE_LIST_PAGE_SIZE
+            or not 1
+            <= page_size
+            <= (MAX_OWNER_SEARCH_PAGE_SIZE if owner_search_page else MAX_FILE_LIST_PAGE_SIZE)
         ):
             raise DriveReadError("invalid_argument")
         if drive_id is not None and (
@@ -856,7 +869,10 @@ class GoogleDriveAdapter:
                 "/files",
                 access_token=access_token,
                 params=params,
-                limit=METADATA_LIMIT,
+                # Only the fenced durable owner scanner may ask for a large
+                # metadata page. A 1000-row response is bounded to 2 MiB;
+                # oversize pages retry at 100 and then 25 without losing a token.
+                limit=OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT,
                 **({"resource_keys": resource_keys} if resource_keys is not None else {}),
             )
         )

@@ -24,6 +24,9 @@ const LONG_DRIVE_SHARING_POST =
 const DRIVE_PREPARE_STREAM =
   /^google_drive\/sharing\/requests\/[0-9a-f-]{36}\/prepare\/stream$/;
 const DRIVE_PREPARE_STREAM_TIMEOUT_MS = 200_000;
+const DRIVE_SEARCH_STATUS_STREAM =
+  /^google_drive\/searches\/[0-9a-f-]{36}\/stream$/;
+const DRIVE_SEARCH_STATUS_STREAM_TIMEOUT_MS = 60_000;
 // Owner-only, read-only compilation of a bounded Drive note batch. Closing the
 // chat or leaving the page must cancel this work rather than drain it in the background.
 const DRIVE_OWNER_COMPILE_STREAM = "google_drive/sharing/owner/compile/stream";
@@ -122,13 +125,15 @@ export async function proxyExternalConnectorRequest(
     request.method === "POST" && DRIVE_PREPARE_STREAM.test(joinedPath);
   const isOwnerCompileStream =
     request.method === "POST" && joinedPath === DRIVE_OWNER_COMPILE_STREAM;
+  const isSearchStatusStream =
+    request.method === "GET" && DRIVE_SEARCH_STATUS_STREAM.test(joinedPath);
   const isOAuthStart =
     request.method === "POST" &&
     path.length === 4 &&
     path[1] === "connect" &&
     path[2] === "oauth" &&
     path[3] === "start";
-  if (isPrepareStream || isOwnerCompileStream) headers.set("Accept", "text/event-stream");
+  if (isPrepareStream || isOwnerCompileStream || isSearchStatusStream) headers.set("Accept", "text/event-stream");
 
   let body: BodyInit | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -167,10 +172,12 @@ export async function proxyExternalConnectorRequest(
       body,
       // Preparation must finish after a disconnect; a read-only owner
       // compilation is canceled with its caller to avoid wasted Drive reads.
-      signal: isOwnerCompileStream
+      signal: isOwnerCompileStream || isSearchStatusStream
         ? AbortSignal.any([
             request.signal,
-            AbortSignal.timeout(DRIVE_OWNER_COMPILE_STREAM_TIMEOUT_MS),
+            AbortSignal.timeout(isSearchStatusStream
+              ? DRIVE_SEARCH_STATUS_STREAM_TIMEOUT_MS
+              : DRIVE_OWNER_COMPILE_STREAM_TIMEOUT_MS),
           ])
         : isOAuthStart
           ? AbortSignal.any([
@@ -187,7 +194,7 @@ export async function proxyExternalConnectorRequest(
     // Hand the stream through untouched; JSON errors from the same route
     // (401/422) keep the buffered path below.
     if (
-      (isPrepareStream || isOwnerCompileStream) &&
+      (isPrepareStream || isOwnerCompileStream || isSearchStatusStream) &&
       response.body &&
       response.headers.get("content-type")?.includes("text/event-stream")
     ) {

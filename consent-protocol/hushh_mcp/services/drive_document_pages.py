@@ -55,6 +55,7 @@ OCR_DATE_TOKEN = re.compile(
 )
 TESSERACT_BINARY = "/usr/bin/tesseract"
 TESSDATA_FILE = "/usr/share/tesseract-ocr/5/tessdata/eng.traineddata"
+OCR_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/jpg"})
 
 
 def engine_versions() -> dict:
@@ -152,33 +153,11 @@ def _bounded_page(number: int, text: str, **kwargs) -> PageEvidence:
     return PageEvidence(number, text, **kwargs)
 
 
-def _ocr_page(pdf, number: int) -> tuple[str, dict]:
-    page = pdf[number - 1]
-    bitmap = None
+def _ocr_png(payload: bytes) -> tuple[str, dict]:
     try:
-        width, height = page.get_size()
-        if not all(math.isfinite(value) and value > 0 for value in (width, height)):
-            raise ParseError("page_render_budget_exceeded")
-        # Tall exported pages can narrowly exceed the pixel budget at 200 DPI.
-        # Bound the allocation before rendering, including PDFium's rounding,
-        # and preserve a gap instead of silently reducing below readable size.
-        dpi = min(200, math.floor(72 * math.sqrt(MAX_RENDER_PIXELS / (width * height))))
-        while dpi >= MIN_RENDER_DPI:
-            scale = dpi / 72
-            if math.ceil(width * scale) * math.ceil(height * scale) <= MAX_RENDER_PIXELS:
-                break
-            dpi -= 1
-        if dpi < MIN_RENDER_DPI:
-            raise ParseError("page_render_budget_exceeded")
-        bitmap = page.render(scale=dpi / 72)
-        image = bitmap.to_pil()
-        if image.width * image.height > MAX_RENDER_PIXELS:
-            raise ParseError("page_render_budget_exceeded")
-        payload = io.BytesIO()
-        image.save(payload, format="PNG")
         result = subprocess.run(  # noqa: S603 - fixed local OCR, private stdin, no shell
             [TESSERACT_BINARY, "stdin", "stdout", "-l", "eng", "--psm", "3", "tsv"],
-            input=payload.getvalue(),
+            input=payload,
             capture_output=True,
             timeout=OCR_SECONDS,
             check=False,
@@ -211,18 +190,85 @@ def _ocr_page(pdf, number: int) -> tuple[str, dict]:
             if date_token_confidences
             else None,
             "confidence_kind": "ocr_engine_score_not_probability",
-            "render_dpi": dpi,
-            "render_policy": "bounded-adaptive-dpi-v1",
-            "render_pixels": image.width * image.height,
         }
     except FileNotFoundError:
         raise ParseError("ocr_unavailable") from None
     except subprocess.TimeoutExpired:
         raise ParseError("ocr_timeout") from None
+
+
+def _ocr_page(pdf, number: int) -> tuple[str, dict]:
+    page = pdf[number - 1]
+    bitmap = None
+    try:
+        width, height = page.get_size()
+        if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+            raise ParseError("page_render_budget_exceeded")
+        # Bound allocation before PDF rendering; unreadable pages stay gaps.
+        dpi = min(200, math.floor(72 * math.sqrt(MAX_RENDER_PIXELS / (width * height))))
+        while dpi >= MIN_RENDER_DPI:
+            scale = dpi / 72
+            if math.ceil(width * scale) * math.ceil(height * scale) <= MAX_RENDER_PIXELS:
+                break
+            dpi -= 1
+        if dpi < MIN_RENDER_DPI:
+            raise ParseError("page_render_budget_exceeded")
+        bitmap = page.render(scale=dpi / 72)
+        image = bitmap.to_pil()
+        if image.width * image.height > MAX_RENDER_PIXELS:
+            raise ParseError("page_render_budget_exceeded")
+        payload = io.BytesIO()
+        image.save(payload, format="PNG")
+        text, quality = _ocr_png(payload.getvalue())
+        return text, {
+            **quality,
+            "render_dpi": dpi,
+            "render_policy": "bounded-adaptive-dpi-v1",
+            "render_pixels": image.width * image.height,
+        }
     finally:
         if bitmap is not None:
             bitmap.close()
         page.close()
+
+
+def _image_page(content: bytes, mime_type: str) -> PageEvidence:
+    """OCR one original PNG/JPEG under the same local engine and quality gate."""
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    expected = "PNG" if mime_type == "image/png" else "JPEG"
+    try:
+        with Image.open(io.BytesIO(content)) as original:
+            if original.format != expected:
+                raise ParseError("invalid_document")
+            width, height = original.size
+            if width < 1 or height < 1 or width * height > MAX_RENDER_PIXELS:
+                return PageEvidence(
+                    1,
+                    "",
+                    method="ocr",
+                    status="unreadable",
+                    error_code="page_render_budget_exceeded",
+                )
+            original.load()
+            image = ImageOps.exif_transpose(original).convert("RGB")
+            payload = io.BytesIO()
+            image.save(payload, format="PNG")
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError):
+        raise ParseError("invalid_document") from None
+    try:
+        text, quality = _ocr_png(payload.getvalue())
+        signal_error = _ocr_signal_error(quality)
+        return _bounded_page(
+            1,
+            text,
+            method="ocr",
+            status="partial" if signal_error else "extracted",
+            error_code=signal_error,
+            quality={**quality, "source_pixels": width * height},
+        )
+    except ParseError as error:
+        return PageEvidence(1, "", method="ocr", status="unreadable", error_code=str(error))
 
 
 def _ocr_signal_error(quality: dict) -> str | None:
@@ -336,6 +382,10 @@ def extract_pages(
         unit_kind = "page"
         if mime_type == "application/pdf":
             pages, total = _pdf_pages(content, start_page, page_limit)
+        elif mime_type in OCR_IMAGE_MIMES:
+            if start_page != 1:
+                raise ParseError("invalid_argument")
+            pages, total = [_image_page(content, mime_type)], 1
         else:
             unit_kind = "text_segment"
             # Text documents can resume beyond the compatibility parser's

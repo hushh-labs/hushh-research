@@ -618,6 +618,55 @@ def test_request_freezes_valid_requester_timezone_and_rejects_unknown_zone(setup
     service.create.assert_not_awaited()
 
 
+def test_verified_ria_request_is_checked_server_side_and_shown_to_owner(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    ria = SimpleNamespace(
+        require_ria_verified=AsyncMock(return_value=None),
+        get_ria_onboarding_status=AsyncMock(
+            return_value={
+                "exists": True,
+                "display_name": "Chris",
+                "individual_legal_name": "Chris Advisor",
+                "individual_crd": "123456",
+                "advisory_firm_legal_name": "Example Advisory",
+            }
+        ),
+    )
+    monkeypatch.setattr(routes, "RIAIAMService", lambda: ria)
+    body = {
+        **create_body(),
+        "requesterActorType": "ria",
+        "accessDays": 7,
+        "reason": "Review the requested account history",
+    }
+    response = client.post(BASE, json=body, headers={"Authorization": "Bearer synthetic-firebase"})
+    assert response.status_code == 202
+    ria.require_ria_verified.assert_awaited_once_with("recipient")
+    assert service.create.await_args.kwargs["requester_profile"] == {
+        "type": "ria",
+        "displayName": "Chris",
+        "legalName": "Chris Advisor",
+        "crd": "123456",
+        "firmName": "Example Advisory",
+    }
+    assert service.create.await_args.kwargs["access_days"] == 7
+    assert service.create.await_args.kwargs["reason"] == "Review the requested account history"
+
+    service.create.reset_mock()
+    ria.require_ria_verified.side_effect = routes.RIAIAMPolicyError(
+        "RIA verification incomplete", status_code=403
+    )
+    denied = client.post(
+        BASE,
+        json={**body, "clientRequestId": str(uuid4())},
+        headers={"Authorization": "Bearer synthetic-firebase"},
+    )
+    assert denied.status_code == 403
+    service.create.assert_not_awaited()
+
+
 def test_request_resolves_public_reference_without_accepting_identity_from_client(
     setup, monkeypatch
 ):

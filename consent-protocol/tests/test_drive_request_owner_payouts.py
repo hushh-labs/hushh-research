@@ -6,12 +6,13 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.pool import StaticPool
 
 import hushh_mcp.services.drive_request_owner_payout_service as payout_module
 from hushh_mcp.services.drive_request_owner_payout_service import (
@@ -21,11 +22,236 @@ from hushh_mcp.services.drive_request_owner_payout_service import (
     delivery_amounts,
     fee_amounts,
 )
+from hushh_mcp.services.drive_request_owner_payout_worker import DriveRequestOwnerPayoutWorker
 from tests.services.test_external_connector_lifecycle_postgres import (
     connector_postgres_url,  # noqa: F401
 )
 
 REQUEST = "bd309adf-d639-4be5-ac20-9dfcb29f05df"
+
+
+@pytest.mark.asyncio
+async def test_v1_payout_worker_runs_request_settlement_without_global_reconcilers(monkeypatch):
+    service = SimpleNamespace(
+        reconcile_due=AsyncMock(return_value={"checked": 1}),
+        transfer_due=AsyncMock(return_value={"claimed": 1}),
+        reconcile_external_debits=AsyncMock(return_value={}),
+        reconcile_reversals=AsyncMock(return_value={}),
+    )
+    connect = Mock(side_effect=ValueError("no global Connect work"))
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_owner_payout_worker.connect_config", connect
+    )
+    worker = DriveRequestOwnerPayoutWorker(service=service)
+
+    assert (await worker.run(max_jobs=1, deadline_seconds=20, v1_only=True))["outcomes"] == {
+        "checked": 1,
+        "claimed": 1,
+    }
+    for call in (
+        service.reconcile_due,
+        service.transfer_due,
+        service.reconcile_external_debits,
+        service.reconcile_reversals,
+    ):
+        call.assert_awaited_once_with(max_orders=1, v1_only=True)
+    connect.assert_not_called()
+
+    for call in (
+        service.reconcile_due,
+        service.transfer_due,
+        service.reconcile_external_debits,
+        service.reconcile_reversals,
+    ):
+        call.reset_mock()
+    await worker.run(max_jobs=1, deadline_seconds=20)
+    for call in (
+        service.reconcile_due,
+        service.transfer_due,
+        service.reconcile_external_debits,
+        service.reconcile_reversals,
+    ):
+        call.assert_awaited_once_with(max_orders=1)
+    connect.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_v1_payout_due_selectors_use_durable_marker_after_search_rows_are_gone(
+    monkeypatch,
+):
+    """Paid and reversing V1 rows remain due without a retained search job."""
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    event.listen(
+        engine,
+        "connect",
+        lambda dbapi_connection, _record: dbapi_connection.create_function(
+            "clock_timestamp", 0, lambda: datetime.now(UTC).isoformat()
+        ),
+    )
+    ids = {
+        status: {flag: str(uuid4()) for flag in (False, True)}
+        for status in ("awaiting_delivery", "due", "transferred", "reversal_due")
+    }
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("""CREATE TABLE drive_request_owner_payouts (
+              request_id UUID PRIMARY KEY, stripe_mode TEXT NOT NULL,
+              settlement_method TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'awaiting_delivery',
+              v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE,
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              next_check_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              lease_expires_at TIMESTAMPTZ,
+              reversal_lease_expires_at TIMESTAMPTZ, stripe_transfer_id TEXT,
+              stripe_charge_id TEXT, stripe_payment_intent_id TEXT,
+              gross_amount_cents INT, commission_bps INT NOT NULL DEFAULT 300,
+              wallet_id TEXT, sandbox_wallet_id TEXT)""")
+            connection.exec_driver_sql("""CREATE TABLE drive_request_payment_orders (
+              request_id UUID PRIMARY KEY,user_id TEXT,amount_cents INT,status TEXT,
+              paid_at TIMESTAMPTZ,stripe_mode TEXT,settlement_method TEXT)""")
+            connection.exec_driver_sql("""CREATE TABLE drive_request_payment_obligations (
+              request_id UUID PRIMARY KEY,v1_statement_search BOOLEAN NOT NULL)""")
+            for status, rows in ids.items():
+                for flag, request_id in rows.items():
+                    connection.execute(
+                        text("""INSERT INTO drive_request_owner_payouts
+                          (request_id,stripe_mode,settlement_method,status,v1_statement_search,
+                           updated_at,next_check_at,stripe_transfer_id,stripe_charge_id,
+                           stripe_payment_intent_id)
+                          VALUES (:request,'test','stripe_transfer',:status,:flag,
+                            :due_at,:due_at,:transfer,:charge,:intent)"""),
+                        {
+                            "request": request_id,
+                            "status": status,
+                            "flag": flag,
+                            "due_at": "2020-01-01T00:00:00+00:00",
+                            "transfer": "tr_" + request_id if status == "transferred" else None,
+                            "charge": "ch_" + request_id if status == "transferred" else None,
+                            "intent": "pi_" + request_id if status == "transferred" else None,
+                        },
+                    )
+        monkeypatch.setenv("STRIPE_MODE", "test")
+        monkeypatch.setattr(payout_module, "_config", lambda: ("sk_test_synthetic", "", ""))
+        service = DriveRequestOwnerPayoutService(
+            db=SimpleNamespace(engine=engine), stripe_api=Mock()
+        )
+
+        async def transaction(operation):
+            with engine.begin() as connection:
+                return operation(connection)
+
+        service._transaction = transaction
+        seen = {status: [] for status in ids}
+        service._advance_delivery = Mock(
+            side_effect=lambda _c, request_id, **_kw: (
+                seen["awaiting_delivery"].append(request_id) or "unchanged"
+            )
+        )
+        service.resolve_processing_fees = AsyncMock(return_value=0)
+        service.reconcile_coin_sources = AsyncMock(return_value=0)
+        service._adopt_production_transfer_accounts = AsyncMock()
+        service._claim_transfer = Mock(
+            side_effect=lambda _c, request_id, **_kw: seen["due"].append(request_id) or None
+        )
+        service._row = Mock(
+            side_effect=lambda _c, _sql, params: (
+                seen["transferred"].append(params["request"]) or None
+            )
+        )
+        service._claim_reversal = Mock(
+            side_effect=lambda _c, request_id, **_kw: (
+                seen["reversal_due"].append(request_id) or None
+            )
+        )
+
+        async def run_selectors(v1_only):
+            await service.reconcile_due(max_orders=4, v1_only=v1_only)
+            await service.transfer_due(max_orders=4, v1_only=v1_only)
+            await service.reconcile_external_debits(max_orders=4, v1_only=v1_only)
+            await service.reconcile_reversals(max_orders=4, v1_only=v1_only)
+
+        await run_selectors(True)
+        for status, selected in seen.items():
+            assert selected == [ids[status][True]]
+            selected.clear()
+        await run_selectors(False)
+        for status, selected in seen.items():
+            assert set(selected) == set(ids[status].values())
+        service.resolve_processing_fees.assert_any_await(max_orders=4, v1_only=True)
+        service.reconcile_coin_sources.assert_any_await(max_orders=4, v1_only=True)
+        service.stripe_api.assert_not_called()
+
+        # The search rows can be gone by the time an unpaid order is enrolled;
+        # its durable obligation is the only V1 provenance record needed here.
+        monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+        order_ids = {flag: str(uuid4()) for flag in (False, True)}
+        with engine.begin() as connection:
+
+            class LockingConnection:
+                def execute(self, statement, params):
+                    # SQLite has no FOR UPDATE; the enclosing transaction is
+                    # the lock for this local query-path test.
+                    return connection.execute(
+                        text(str(statement).replace(" FOR UPDATE", "")), params
+                    )
+
+            locked = LockingConnection()
+            for flag, request_id in order_ids.items():
+                connection.execute(
+                    text("""INSERT INTO drive_request_payment_orders VALUES
+                      (:request,'owner',1000,'awaiting_payment',NULL,'test','stripe_transfer')"""),
+                    {"request": request_id},
+                )
+                connection.execute(
+                    text("""INSERT INTO drive_request_payment_obligations VALUES
+                      (:request,:flag)"""),
+                    {"request": request_id, "flag": flag},
+                )
+                assert DriveRequestOwnerPayoutService.record_order(
+                    locked, request_id=request_id, owner_user_id="owner", amount_cents=1000
+                )
+                assert not DriveRequestOwnerPayoutService.record_order(
+                    locked, request_id=request_id, owner_user_id="owner", amount_cents=1000
+                )
+            markers = {
+                str(row["request_id"]): row["v1_statement_search"]
+                for row in connection.execute(
+                    text("SELECT request_id,v1_statement_search FROM drive_request_owner_payouts"),
+                ).mappings()
+                if str(row["request_id"]) in order_ids.values()
+            }
+            assert markers == {request_id: flag for flag, request_id in order_ids.items()}
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "marker,v1_only,claimed",
+    [(False, True, False), (True, True, True), (False, False, True)],
+)
+def test_v1_reversal_claim_rechecks_marker_under_lock(monkeypatch, marker, v1_only, claimed):
+    monkeypatch.setenv("STRIPE_MODE", "test")
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._row = Mock(
+        side_effect=[
+            {
+                "stripe_mode": "test",
+                "status": "reversal_due",
+                "v1_statement_search": marker,
+                "stripe_transfer_id": "tr_123",
+                "reversal_amount_cents": 911,
+                "reversal_attempt_id": None,
+            },
+            {"request_id": REQUEST, "reversal_attempt_id": str(uuid4())},
+        ]
+    )
+    result = service._claim_reversal(Mock(), REQUEST, v1_only=v1_only)
+    assert (result is not None) is claimed
+    assert service._row.call_count == (2 if claimed else 1)
 
 
 @pytest.mark.asyncio

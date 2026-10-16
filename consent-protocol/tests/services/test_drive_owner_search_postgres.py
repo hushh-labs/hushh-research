@@ -50,6 +50,11 @@ def store(lifecycle, monkeypatch):
             ADD COLUMN unshareable_count INTEGER NOT NULL DEFAULT 0
             CHECK (unshareable_count BETWEEN 0 AND 10000)""")
         )
+        # This search-only fixture has no payment ledgers for migration 352.
+        connection.execute(
+            text("""ALTER TABLE drive_owner_search_jobs
+            ADD COLUMN v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE""")
+        )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
             mcp_endpoint=:endpoint,capability_policy=CAST(:policy AS jsonb) WHERE connector_id='google_drive'"""),
@@ -844,6 +849,25 @@ async def test_retry_backoff_does_not_create_an_early_wake_loop(store, monkeypat
     await DriveOwnerSearchWorker(service).run()
     waking.assert_not_called()
     assert await store.due() == []
+
+
+async def test_v1_due_selects_only_server_marked_statement_jobs(store):
+    await create(store, user="owner")
+    statement, _ = await store.create(
+        user_id="other",
+        client_request_id=str(uuid4()),
+        request={"query": "Synthetic Schwab statement"},
+        checkpoint=checkpoint(),
+        confirmed=True,
+        v1_statement_search=True,
+    )
+    due = await store.due(v1_only=True)
+    assert len(due) == 1
+    assert str(due[0]["job_id"]) == statement["jobId"]
+    assert due[0]["user_id"] == "other"
+    # due() intentionally defaults to one job, independently of lane filtering.
+    all_due = await store.due(limit=2)
+    assert {row["user_id"] for row in all_due} == {"owner", "other"}
 
 
 async def test_dated_title_fallback_is_frozen_and_filters_unrelated_dates(store, monkeypatch):

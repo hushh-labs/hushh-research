@@ -537,7 +537,13 @@ describe("private sharing transport", () => {
   });
   it("preserves the owner package assessment and rejects unsafe approval projections", async () => {
     const agentPackage = { status: "ready", revision: 2, digest: "a".repeat(64),
-      selectedCount: 4, evaluatedCount: 8, candidateCount: 12,
+      selectedCount: 4, selectedFileCount: 4,
+      selectedFiles: [
+        { position: 1, name: "eStmt-09.pdf", weightageOutOf10: 9.5, confidenceScore: 94 },
+        { position: 2, name: "eStmt-10.pdf", weightageOutOf10: 9, confidenceScore: 91 },
+        { position: 3, name: "Statement A.pdf", weightageOutOf10: 8, confidenceScore: 87 },
+        { position: 4, name: "Statement B.pdf", weightageOutOf10: 7, confidenceScore: 83 },
+      ], evaluatedCount: 8, candidateCount: 12,
       confidenceScore: 82, confidenceBasis: "model_assessment", importanceScore: 175,
       suggestedPriceCents: 1051, priceReason: "Four records.", summary: "Partial coverage.",
       coverageStatus: "partial", gaps: ["February missing"], canAllow: true };
@@ -546,9 +552,54 @@ describe("private sharing transport", () => {
     for (const invalid of [{ digest: null }, { digest: "wrong" }, { status: "preparing" },
       { selectedCount: 0 }, { confidenceScore: 101 }, { confidenceScore: 0.8 },
       { confidenceBasis: "probability" }, { importanceScore: 0 }, { importanceScore: 501 },
-      { suggestedPriceCents: 49 }, { suggestedPriceCents: 50.5 }, { canAllow: "true" }]) {
+      { suggestedPriceCents: 49 }, { suggestedPriceCents: 50.5 }, { canAllow: "true" },
+      { selectedFileCount: 3 }, { selectedFiles: [{ position: 1, name: "one.pdf" }] },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 1 ? { ...file, position: 1 } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, name: "unsafe\nname.pdf" } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, weightageOutOf10: 10.5 } : file) },
+      { selectedFiles: agentPackage.selectedFiles.map((file, index) =>
+        index === 0 ? { ...file, confidenceScore: 101 } : file) },
+    ]) {
       fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage: { ...agentPackage, ...invalid } }));
       await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("accepts bounded V1 provisional matches and rejects inconsistent progress", async () => {
+    const agentPackage = { status: "preparing", revision: 2, digest: null,
+      selectedCount: 0, evaluatedCount: 3, candidateCount: 5,
+      provisionalFiles: [{ position: 2, name: "eStmt-09.pdf", weightageOutOf10: 9, confidenceScore: 93 }],
+      verifiedCount: 1, pendingCount: 2, confidenceScore: null,
+      confidenceBasis: "model_assessment", importanceScore: null,
+      suggestedPriceCents: null, priceReason: "", summary: "", coverageStatus: "unknown",
+      gaps: [], canAllow: false };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1LiveRequest: true, agentPackage }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).agentPackage).toEqual(agentPackage);
+    for (const invalid of [{ verifiedCount: 4 }, { pendingCount: 1 },
+      { provisionalFiles: [{ ...agentPackage.provisionalFiles[0], weightageOutOf10: 11 }] },
+      { provisionalFiles: [{ ...agentPackage.provisionalFiles[0], name: "unsafe\nfile.pdf" }] }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1LiveRequest: true,
+        agentPackage: { ...agentPackage, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("accepts only a bounded non-Trusted V1 verified manual review projection", async () => {
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1ManualReview: true, verifiedCount: 2 }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject({
+      v1ManualReview: true, verifiedCount: 2,
+    });
+    for (const invalid of [
+      { verifiedCount: 0 }, { verifiedCount: 121 }, { verifiedCount: "2" },
+      { trustedAuto: true }, { agentPackage: { status: "ready" } },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), v1ManualReview: true, verifiedCount: 2, ...invalid }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
     }
   });
 

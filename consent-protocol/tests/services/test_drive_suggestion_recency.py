@@ -43,6 +43,61 @@ def test_search_concepts_preserve_legacy_terms_and_bound_equivalent_variants():
     assert plan.search_term_groups() == groups
 
 
+def test_semantic_discovery_clues_are_bounded_hints_not_legacy_requirements():
+    from hushh_mcp.services.drive_suggestion_service import LiveSearchModelPlan
+
+    legacy = LiveSearchPlan(terms=["statement"])
+    assert legacy.semantic_intent is None
+    assert legacy.discovery_clues == []
+    assert legacy.expected_document_anatomy is None
+    model_plan = {
+        "terms": ["Schwab", "statement"],
+        "term_groups": [["Schwab", "Charles Schwab"], ["statement", "eStmt"]],
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "institutional_statement",
+        "discovery_clues": ["Schwab", "eStmt", "brokerage", "holdings", "portfolio"],
+        "required_entities": ["Schwab"],
+        "expected_document_anatomy": "Issuer, account, statement period and holdings.",
+    }
+    parsed = LiveSearchModelPlan.model_validate(model_plan)
+    assert parsed.search_term_groups() == model_plan["term_groups"]
+    assert parsed.discovery_clues == model_plan["discovery_clues"]
+    assert parsed.time_intent == "document_coverage"
+    assert parsed.date_from is None and parsed.date_to is None
+    for invalid in (
+        {"discovery_clues": []},
+        {"discovery_clues": ["Schwab", "schwab"]},
+        {"discovery_clues": ["bad\nclue"]},
+        {"discovery_clues": ["x" * 51]},
+        {"discovery_clues": [str(index) for index in range(13)]},
+        {"semantic_intent": "uncalibrated_guess"},
+        {"expected_document_anatomy": " \n "},
+    ):
+        with pytest.raises(ValidationError):
+            LiveSearchModelPlan.model_validate({**model_plan, **invalid})
+
+
+def test_documents_manifest_separates_broad_discovery_from_content_evidence():
+    from pathlib import Path
+
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    path = Path(module.__file__).resolve().parents[1] / "agents/documents/agent.yaml"
+    manifest = ManifestLoader.load(str(path))
+    planner = next(
+        child for child in manifest.subagents if child.id == "agent_documents_live_search"
+    )
+    assessor = next(
+        child for child in manifest.subagents if child.id == "agent_documents_suggestions"
+    )
+    assert "finacial staements" in planner.system_instruction
+    assert "discovery_clues" in planner.system_instruction
+    assert "never as proof of a document's content period" in planner.system_instruction
+    assert "weightage_out_of_10" in assessor.system_instruction
+    assert "Confidence is your assessment" in assessor.system_instruction
+
+
 @pytest.mark.parametrize(
     "terms,groups",
     [

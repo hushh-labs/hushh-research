@@ -87,6 +87,21 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
     state.token = "vault-token";
   });
 
+  it("shows the server's approved Viewer term and exact access end in request details", () => {
+    const props = { requestId: REQUEST_ID, delivery: undefined, context: null,
+      locked: false, surface: "sheet" as const, onCancel: vi.fn(), onChanged: vi.fn() };
+    const mounted = render(<DocumentRequestRequesterPanel {...props}
+      status={{ ...STATUS, requestedAccessDays: 90, approvedAccessDays: 30,
+        accessExpiresAt: "2026-10-20T10:15:00Z" }} />);
+    expect(screen.getByText("Access")).toBeInTheDocument();
+    expect(screen.getByText(/Viewer for 30 days · until /)).toBeInTheDocument();
+    mounted.rerender(<DocumentRequestRequesterPanel {...props}
+      status={{ ...STATUS, status: "pending", requestedAccessDays: 90,
+        approvedAccessDays: null, accessExpiresAt: null }} />);
+    expect(screen.getByText("Requested 90 days")).toBeInTheDocument();
+    expect(screen.queryByText(/Viewer for/)).toBeNull();
+  });
+
   it("binds private disclosure to its request revision without equating the package revision", () => {
     const disclosure = { schemaVersion: 1 as const, packageDigest: "b".repeat(64), packageRevision: 2,
       selectedCount: 1, coverageStatus: "complete" as const, periods: [], limitations: [] };

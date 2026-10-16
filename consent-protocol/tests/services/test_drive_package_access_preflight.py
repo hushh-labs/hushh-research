@@ -1,5 +1,6 @@
 """Read-only original source and recipient ACL checks before payment."""
 
+import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -34,6 +35,16 @@ def user_acl(**extra):
         ([], "absent"),
         ([user_acl()], "present"),
         ([user_acl(role="writer")], "present"),
+        (
+            [
+                user_acl(
+                    permissionDetails=[
+                        {"inherited": True, "permissionType": "member", "role": "reader"}
+                    ]
+                )
+            ],
+            "present",
+        ),
         ([user_acl(deleted=True)], "absent"),
         ([user_acl(expirationTime="2000-01-01T00:00:00Z")], "absent"),
         ([{"id": "public", "type": "anyone", "role": "reader"}], "present"),
@@ -84,7 +95,9 @@ def pipeline(permissions):
         _generation=1,
         _credential=AsyncMock(return_value={"accessToken": "private-test-token"}),
         adapter=SimpleNamespace(
-            get_metadata=AsyncMock(return_value=SimpleNamespace(version="7", name="Statement.pdf"))
+            get_share_metadata=AsyncMock(
+                return_value=SimpleNamespace(version="7", name="Statement.pdf")
+            )
         ),
     )
     adapter = SimpleNamespace(
@@ -108,7 +121,7 @@ async def test_original_version_and_buyer_access_are_checked_without_granting():
     )
     assert result.status == "all_existing" and result.files[0]["sourceVersion"] == "7"
     assert result.files[0]["permission"]["role"] == "reader"
-    assert reader.adapter.get_metadata.await_count == 2
+    assert reader.adapter.get_share_metadata.await_count == 2
     assert verifier.await_count == 2
     adapter.create_reader.assert_not_awaited()
     assert "buyer@example.invalid" not in repr(result) and "source-1" not in repr(result)
@@ -145,7 +158,7 @@ async def test_revoked_acl_is_observed_on_recheck_instead_of_reusing_snapshot():
 
 async def test_source_change_during_acl_read_and_revoked_owner_fence_discard_receipts():
     service, _, reader, _, _ = pipeline(acl(user_acl()))
-    reader.adapter.get_metadata.side_effect = [
+    reader.adapter.get_share_metadata.side_effect = [
         SimpleNamespace(version="7", name="Statement.pdf"),
         SimpleNamespace(version="8", name="Statement.pdf"),
     ]
@@ -155,4 +168,67 @@ async def test_source_change_during_acl_read_and_revoked_owner_fence_discard_rec
     guard = AsyncMock(side_effect=DriveSharingError("background_preparation_required"))
     with pytest.raises(DriveSharingError, match="background_preparation_required"):
         await service.inspect(user_id="owner", request_id="request", require_current=guard)
+    adapter.list_permissions.assert_not_awaited()
+
+
+async def test_legacy_frozen_modified_time_is_rechecked_but_not_used_as_coverage():
+    service, bulk, reader, _, _ = pipeline(acl())
+    bulk.package_sources.return_value = [
+        {
+            "id": "source-1",
+            "name": "Statement.pdf",
+            "modifiedTime": "2026-10-01T00:00:00Z",
+            "generation": 1,
+        }
+    ]
+    reader.adapter.get_share_metadata.return_value = SimpleNamespace(
+        name="Statement.pdf", modified_time="2026-10-01T00:00:00Z", version="8"
+    )
+    result = await service.inspect(
+        user_id="owner", request_id="request", require_current=AsyncMock()
+    )
+    assert result.status == "none"
+    assert result.files[0]["sourceVersion"] is None
+    reader.adapter.get_share_metadata.return_value = SimpleNamespace(
+        name="Statement.pdf", modified_time="2026-10-02T00:00:00Z", version="8"
+    )
+    with pytest.raises(DriveSharingError, match="source_changed"):
+        await service.inspect(user_id="owner", request_id="request", require_current=AsyncMock())
+
+
+async def test_resource_key_and_current_shareability_are_checked_before_payment():
+    service, bulk, reader, adapter, _ = pipeline(acl())
+    bulk.package_sources.return_value[0]["resourceKey"] = "resource-key"
+    await service.inspect(user_id="owner", request_id="request", require_current=AsyncMock())
+    assert reader.adapter.get_share_metadata.await_args.kwargs["resource_key"] == "resource-key"
+    assert adapter.list_permissions.await_args.kwargs["resource_key"] == "resource-key"
+    reader.adapter.get_share_metadata.side_effect = DriveSharingError("source_unavailable")
+    adapter.list_permissions.reset_mock()
+    with pytest.raises(DriveSharingError, match="source_unavailable"):
+        await service.inspect(user_id="owner", request_id="request", require_current=AsyncMock())
+    adapter.list_permissions.assert_not_awaited()
+    adapter.create_reader.assert_not_awaited()
+
+
+async def test_failed_preflight_cancels_sibling_google_reads_before_returning():
+    service, bulk, reader, adapter, _ = pipeline(acl())
+    bulk.package_sources.return_value.append(
+        {**bulk.package_sources.return_value[0], "id": "source-2"}
+    )
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def metadata(**kwargs):
+        if kwargs["file_id"] == "source-1":
+            await entered.wait()
+            raise DriveSharingError("source_unavailable")
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    reader.adapter.get_share_metadata.side_effect = metadata
+    with pytest.raises(DriveSharingError, match="source_unavailable"):
+        await service.inspect(user_id="owner", request_id="request", require_current=AsyncMock())
+    assert cancelled.is_set()
     adapter.list_permissions.assert_not_awaited()
