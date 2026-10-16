@@ -28,6 +28,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _redact_location_metadata,
     _share_lane_match_sql,
 )
+from hushh_mcp.services.people_search_sql import directory_name_rank
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -2290,7 +2291,18 @@ class FourUserMemoryService(OneLocationAgentService):
                     if self.vault_statuses.get(user_id) != "active" and not related:
                         continue
                 network_connected = user_id in connected_ids
-                if not network_connected:
+                # The Connect statement lets an opt-out stop only an email or
+                # phone fragment from finding someone; a person whose NAME
+                # matches is listed whatever their marketplace or contact-sync
+                # settings say. (The Ready-people statement keeps the old rule.)
+                name_matches = is_connect_directory and (
+                    directory_name_rank(
+                        str(identity.get("display_name") or marketplace.get("display_name") or ""),
+                        str(params.get("query") or ""),
+                    )
+                    is not None
+                )
+                if not network_connected and not name_matches:
                     if marketplace.get("is_discoverable") is False:
                         continue
                     preference = self.contact_preferences.get(user_id) or {}
@@ -4001,30 +4013,47 @@ def test_directory_candidates_include_existing_profiles_without_verified_phone_o
     assert candidates["user_without_cache"]["displayName"] == "Cache Missing Member"
 
 
-def test_directory_candidates_excludes_marketplace_hidden() -> None:
-    service = FourUserMemoryService()
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
+def _opt_out_of_marketplace_and_contact_sync(service: FourUserMemoryService, user_id: str) -> None:
+    service.marketplace_profiles[user_id] = {
+        "user_id": user_id,
         "profile_type": "investor",
         "is_discoverable": False,
         "updated_at": datetime.now(timezone.utc),
     }
-    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
-    assert "user_b" not in candidate_ids
-    assert "user_c" in candidate_ids
+    # The shape `reset_account` and every consent change leave behind.
+    service.contact_preferences[user_id] = {"contact_discoverable": False, "rule_version": 1}
 
 
-def test_directory_candidates_exclude_explicit_contact_opt_out_for_strangers() -> None:
+def test_directory_finds_a_stranger_by_name_whatever_their_marketplace_or_contact_settings() -> (
+    None
+):
+    """A reset account or a marketplace toggle must not make a person unsearchable.
+
+    Two accounts searching the same name used to get different answers, because
+    only people already connected to the person bypassed the flags.
+    """
     service = FourUserMemoryService()
-    service.contact_preferences["user_b"] = {
-        "contact_discoverable": False,
-        "rule_version": 1,
-    }
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
 
     candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    by_name = service.search_directory_candidates(owner_user_id="user_a", query="user b")
 
-    assert "user_b" not in candidate_ids
-    assert "user_c" in candidate_ids
+    assert {"user_b", "user_c"} <= candidate_ids
+    assert [item["userId"] for item in by_name["items"]] == ["user_b"]
+
+
+def test_directory_still_hides_an_opted_out_stranger_from_email_and_phone_lookups() -> None:
+    """Negative control: the opt-out guards what a name does not disclose."""
+    service = FourUserMemoryService()
+    service.identities["user_b"]["email"] = "bee@example.test"
+    service.identities["user_c"]["email"] = "cee@example.test"
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
+
+    by_email = service.search_directory_candidates(owner_user_id="user_a", query="@example.test")
+    by_phone = service.search_directory_candidates(owner_user_id="user_a", query="5550100002")
+
+    assert [item["userId"] for item in by_email["items"]] == ["user_c"]
+    assert by_phone["items"] == []
 
 
 def test_directory_lists_strangers_only_with_an_active_vault() -> None:
@@ -4062,20 +4091,23 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "profile.user_id <> :owner_user_id" in service.sql
     assert "marketplace.is_discoverable IS DISTINCT FROM FALSE" in service.sql
     # The vault-or-relationship rule sits in the eligibility subquery, ahead of
-    # the opt-out block and of LIMIT, so it can never subtract from a page that
-    # was already cut.
+    # LIMIT, so it can never subtract from a page that was already cut.
     sql = " ".join(service.sql.split())
     vault_rule = "vault.user_id = profile.user_id AND vault.vault_status = 'active'"
     assert sql.count(vault_rule) == 1
     vault_at = sql.index(vault_rule)
-    assert vault_at < sql.index("FROM trusted_connections tc")
     assert vault_at < sql.index("LIMIT :fetch_limit OFFSET :offset")
     for relationship in (
         "FROM connections related WHERE related.status = 'active'",
         "FROM connection_requests pending WHERE pending.status = 'pending'",
         "FROM trusted_connections edge WHERE edge.status = 'active'",
     ):
-        assert vault_at < sql.index(relationship) < sql.index("FROM trusted_connections tc")
+        assert vault_at < sql.index(relationship) < sql.index("LIMIT :fetch_limit OFFSET :offset")
+    # The marketplace and contact-sync opt-out is a column that only the email
+    # and phone branch reads. The name branch must not depend on it.
+    assert sql.count("a.contact_listed") == 1
+    contact_branch = sql[sql.index("a.contact_listed") :]
+    assert contact_branch.index("email_contains") < contact_branch.index(":name_search = TRUE")
     assert "profile.contact_sync_consent_rule_version" in service.sql
     assert service.params["contact_sync_contract_version"] == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 
