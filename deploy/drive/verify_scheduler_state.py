@@ -73,8 +73,16 @@ def _scheduler_state(snapshot: Path) -> tuple[str, str]:
     )
 
 
-def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str, object]]:
+def _scheduler_set(
+    snapshot: Path,
+    *,
+    worker_origin: str,
+    expected_state: str = "ENABLED",
+    require_all: bool = False,
+) -> dict[str, dict[str, object]]:
     """Keep only reviewed, stable job configuration, including absence."""
+    if expected_state not in {"ENABLED", "PAUSED"}:
+        raise ValueError("Unreviewed Drive scheduler state")
     jobs = json.loads(snapshot.read_text(encoding="utf-8"))
     if not isinstance(jobs, list):
         raise ValueError("Drive scheduler listing must be an array")
@@ -106,7 +114,7 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
         if (
             (body != expected and not (stage == "documents" and body == b"{}"))
             or job.get("schedule") not in allowed_schedules
-            or job.get("state") != "ENABLED"
+            or job.get("state") != expected_state
             or job.get("timeZone") != "Etc/UTC"
             or target.get("httpMethod") != "POST"
             or headers != REVIEWED_HEADERS
@@ -137,6 +145,8 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
         found[short_name] = config
     if "drive-work-drain-uat" not in found:
         raise ValueError("Existing Drive document scheduler is missing")
+    if require_all and set(found) != set(STAGE_JOBS):
+        raise ValueError("The complete Drive scheduler set is required")
     return found
 
 
