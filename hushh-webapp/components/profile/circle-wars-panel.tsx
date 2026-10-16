@@ -36,7 +36,7 @@ export function CircleWarsPanel(props: Props) {
   // in-flight requests survive sign-out, lock, or the next account's render.
   return token ? <CircleWarsContent key={`${props.userId}:unlocked`} {...props} token={token} /> : (
     <SettingsGroup title="Your circle">
-      <SettingsRow icon={Users} title="Win with your circle" description="Open your vault to choose a Circle and join Circle Wars." />
+      <SettingsRow icon={Users} iconTone="capability" title="Win with your circle" description="Open your vault to choose a Circle and join Circle Wars." />
       <a className="inline-flex min-h-11 items-center px-4 text-sm text-primary underline" href={ROUTES.CONNECT}>Open Circles</a>
     </SettingsGroup>
   );

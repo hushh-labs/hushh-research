@@ -1189,6 +1189,6 @@ def test_circle_wars_immutable_history_and_migration_replay(db):
         )
     with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.connection.cursor().execute(
-            (ROOT / "db/migrations/357_circle_wars_weekly_opt_in.sql").read_text()
+            (ROOT / "db/migrations/358_circle_wars_weekly_opt_in.sql").read_text()
         )
     assert wars.get_state("alice")["participation"]["team"]["participating_members"] == 1

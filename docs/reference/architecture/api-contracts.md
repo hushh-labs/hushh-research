@@ -2,7 +2,7 @@
 
 ## Circle Wars weekly participation
 
-Migration 357 extends `one_referral_circle_selections` and
+Migration 358 extends `one_referral_circle_selections` and
 `one_referral_circle_contributions`; it does not introduce another referral or
 coin ledger. `one_referral_circle_teams` holds random public aliases per existing
 reward-round ID. The active program schedule owns the deadline and timezone;
