@@ -29,6 +29,8 @@ rollback retained the prior application. Files 959 is applied; history cleanup
 
 **Candidate:** the isolated integration includes frozen infrastructure `7058898726`,
 local ADK `2462c0bc6f` and the concurrent UI corrections through `67aacf0098`.
+The subsequently published root `ce60384255` is preserved in the same candidate;
+no later ADK changes are being chased during validation.
 Root edits, PDF work and existing browser/device connections remain preserved.
 The resumed core run passed 20,579 backend cases but exposed route-inventory
 merge duplicates, missing accounting for two already-bounded Azure connection
