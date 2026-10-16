@@ -11,7 +11,9 @@ export const EMAIL_DOMAIN_BRANDS = [
   {
     "name": "Google",
     "domains": [
-      "google.com"
+      "google.com",
+      "gmail.com",
+      "googlemail.com"
     ],
     "src": "/brand/email-domains/google.png"
   },
