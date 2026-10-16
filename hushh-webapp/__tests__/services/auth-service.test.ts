@@ -1278,43 +1278,6 @@ describe("AuthService native Google provider parity", () => {
     if (platform === "ios") expect(mockFirebaseAuthentication.signInWithGoogle).toHaveBeenCalledWith();
   });
 
-  it("captures a real Contacts token during signup without accepting a stale JS owner", async () => {
-    mockCapacitor.getPlatform.mockReturnValue("android");
-    mockAuth.currentUser = { uid: "old-owner" };
-    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner", phoneNumber: "+16505550101" },
-      idToken: createIdToken(3600, "new-owner"), accessToken: "legacy-identity-alias", isNewUser: true });
-    mockHushhAuth.authorizeGoogleContacts.mockResolvedValue({ accessToken: "contacts-only-token",
-      grantedScopes: ["https://www.googleapis.com/auth/contacts.readonly"], authority: "android-contacts-only" });
-    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
-    expect(result.user.uid).toBe("new-owner");
-    expect(result.contactsGrant?.accessToken).toBe("contacts-only-token");
-    expect(mockHushhAuth.authorizeGoogleContacts).toHaveBeenCalledWith({ expectedUserId: "new-owner" });
-    expect(mockSignInWithCredential).not.toHaveBeenCalled();
-  });
-
-  it("keeps native signup successful when Contacts authorization is denied", async () => {
-    mockCapacitor.getPlatform.mockReturnValue("android");
-    mockAuth.currentUser = { uid: "new-owner" };
-    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner" },
-      idToken: createIdToken(3600, "new-owner"), accessToken: "legacy-identity-alias", isNewUser: true });
-    mockHushhAuth.authorizeGoogleContacts.mockRejectedValue({ code: "contacts_not_granted" });
-    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
-    expect(result.user.uid).toBe("new-owner"); expect(result.contactsUnavailable).toBe(true);
-    expect(result.contactsGrant).toBeUndefined();
-  });
-
-  it("keeps the authenticated native user when no optional Google access token was returned", async () => {
-    mockCapacitor.getPlatform.mockReturnValue("android");
-    mockAuth.currentUser = null;
-    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner", phoneNumber: "+16505550101" },
-      idToken: createIdToken(3600, "new-owner"), isNewUser: true });
-    mockHushhAuth.authorizeGoogleContacts.mockRejectedValue({ code: "contacts_not_granted" });
-    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
-    expect(result.user.uid).toBe("new-owner"); expect(result.contactsUnavailable).toBe(true);
-    expect(mockSignInWithCredential).not.toHaveBeenCalled();
-    expect(result.user.phoneNumber).toBe("+16505550101");
-  });
-
   it("ends the Android loading toast on success", async () => {
     const { toast } = await import("sonner");
     mockCapacitor.getPlatform.mockReturnValue("android");
@@ -1500,7 +1463,7 @@ describe("AuthService web provider popup continuity", () => {
     expect(mockSignInWithPopup).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])("preserves SDK signup and contact choice without a configured identity client (%s)", async (includeContacts) => {
+  it.each([true, false])("never adds the Contacts scope to sign-in, even when asked (%s)", async (includeContacts) => {
     vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "");
     const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
     mockSignInWithPopup.mockResolvedValue({ user, additionalUserInfo: { isNewUser: true } });
@@ -1508,8 +1471,8 @@ describe("AuthService web provider popup continuity", () => {
     const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts", includeContacts });
     expect(mockSignInWithPopup).toHaveBeenCalledTimes(1);
     expect(signupToken).not.toHaveBeenCalled();
-    expect(mockOAuthAddScope).toHaveBeenCalledTimes(includeContacts ? 1 : 0);
-    expect(Boolean(result.contactsGrant)).toBe(includeContacts);
+    expect(mockOAuthAddScope).not.toHaveBeenCalled();
+    expect(result.contactsGrant).toBeUndefined();
     expect(result.isNewUser).toBe(true);
   });
 
