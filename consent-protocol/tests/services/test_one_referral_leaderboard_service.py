@@ -27,7 +27,9 @@ def snapshot_publication(monkeypatch):
     from hushh_mcp.services import one_referral_scoring_service
 
     monkeypatch.setattr(one_referral_scoring_service, "publish_leaderboard_snapshot", lambda: None)
-    monkeypatch.setattr(leaderboard_service, "get_leaderboard_display_names", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        leaderboard_service, "get_leaderboard_display_names", lambda *args, **kwargs: {}
+    )
 
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"

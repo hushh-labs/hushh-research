@@ -345,6 +345,8 @@ _REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256 = (
     "ed26dc5ad4a88eaa0564200a139ded13b52e1783755c7fef569b37429138f27a"
 )
 _REFERRAL_POLICY_V4_SHA256 = "11cd7d8c9eb83a6d24f25814d3ab7b8a21182f21a98594657d6721a6dcdf5b19"
+
+
 def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
     """Accept reviewed v3 through v6 successors without rewriting policy rows.
 
@@ -525,13 +527,19 @@ def _replay_referral_policy_v4_sql(entry: MigrationManifestEntryV2) -> str:
 
 def _replay_referral_policy_v5_sql(entry: MigrationManifestEntryV2) -> str:
     checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
-    if checksum != "3d160ef807200eb1a2b9ac7aa385199919a92967ab665e46d46d25f175388459" or entry.checksum_sha256 != checksum:
+    if (
+        checksum != "3d160ef807200eb1a2b9ac7aa385199919a92967ab665e46d46d25f175388459"
+        or entry.checksum_sha256 != checksum
+    ):
         raise MigrationAuthorityError("Referral policy v5 replay source checksum changed")
     old = "IF current_row.activated_at IS NULL OR current_row.retired_at IS NOT NULL"
     if entry.sql.count(old) != 1:
         raise MigrationAuthorityError("Referral policy v5 replay source shape changed")
-    return entry.sql.replace(old,
-        f"IF current_row.activated_at IS NULL OR (current_row.retired_at IS NOT NULL AND NOT ({reviewed_prize_successor_sql()}))", 1)
+    return entry.sql.replace(
+        old,
+        f"IF current_row.activated_at IS NULL OR (current_row.retired_at IS NOT NULL AND NOT ({reviewed_prize_successor_sql()}))",
+        1,
+    )
 
 
 def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:

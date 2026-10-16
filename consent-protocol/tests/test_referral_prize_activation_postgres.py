@@ -93,8 +93,17 @@ def test_replay_rejects_a_changed_activation_successor(db):
 def test_activation_uses_fresh_time_after_a_transaction_wait(db):
     with pytest.raises(Exception, match="historical inactive rounds"):
         with db.begin() as connection:
-            connection.execute(text("INSERT INTO one_referral_reward_rounds(settings_version,cutoff_at,timezone,status) VALUES(5,NOW()+INTERVAL '1 second','Asia/Kolkata','scheduled')"))
+            connection.execute(
+                text(
+                    "INSERT INTO one_referral_reward_rounds(settings_version,cutoff_at,timezone,status) VALUES(5,NOW()+INTERVAL '1 second','Asia/Kolkata','scheduled')"
+                )
+            )
             connection.execute(text("SELECT pg_sleep(1.05)"))
             connection.exec_driver_sql(activate_weekly_prizes_sql())
     with db.connect() as connection:
-        assert connection.execute(text("SELECT version FROM one_referral_program_settings WHERE retired_at IS NULL")).scalar() == 5
+        assert (
+            connection.execute(
+                text("SELECT version FROM one_referral_program_settings WHERE retired_at IS NULL")
+            ).scalar()
+            == 5
+        )
