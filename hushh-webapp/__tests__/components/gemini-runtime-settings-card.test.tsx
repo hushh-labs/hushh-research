@@ -61,6 +61,7 @@ vi.mock("@/lib/services/api-service", () => ({
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   GEMINI_RUNTIME_CREDENTIAL_REF: "pkm:runtime_secrets.llm.gemini_api_key",
+  OPENAI_RUNTIME_CREDENTIAL_REF: "pkm:runtime_secrets.llm.openai_api_key",
   GEMINI_RUNTIME_TRANSPORT_REF: "pkm:runtime_secrets.llm.gemini_transport",
   GEMINI_VERTEX_LOCATION_REF: "pkm:runtime_secrets.llm.gemini_vertex_location",
   GEMINI_VERTEX_PROJECT_REF: "pkm:runtime_secrets.llm.gemini_vertex_project",
@@ -203,10 +204,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
   });
 
-  it("resumes a saved BYOK setup choice only after reading the encrypted key", async () => {
+  it.each(["gemini", "openai", "azure_openai"])("resumes a saved BYOK setup choice only after reading its selected encrypted key (%s)", async provider => {
     loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
       credentialRef.endsWith("credential_mode") ? "byok" :
-      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
+      credentialRef.endsWith("selected_provider") ? provider :
+      credentialRef.endsWith(provider === "azure_openai" ? "azure_openai_configuration" : `${provider}_api_key`) ? "fixture-key" : null);
     const onCanContinueChange = vi.fn();
     render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture"
       vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
@@ -216,7 +218,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       onCanContinueChange={onCanContinueChange} />);
 
     await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(true));
-    expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
+    if (provider === "gemini") expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
   });
 
   it("keeps the radio selection aligned after removing a saved key", async () => {
@@ -824,7 +826,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     loadRuntimeSecretMock.mockImplementation(
       ({ credentialRef }: { credentialRef: string }) =>
         Promise.resolve(
-          credentialRef.includes("credential_mode")
+          credentialRef.includes("selected_provider") ? "gemini" : credentialRef.includes("credential_mode")
             ? "byok"
             : "synthetic-saved-value",
         ),

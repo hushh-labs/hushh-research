@@ -27,7 +27,20 @@ approval. Both reviewers' signed funding settlements and platform capital on
 shared Dev are separately verified below; they do not prove a consumer purchase
 or payout.
 
-### Current Dev evidence — 2026-10-15 UTC
+### Current Dev evidence — 2026-10-16 UTC
+
+The read-only ledger/provider check at `08:34:34Z` confirms $10.50 funded per
+reviewer, $15 cumulative capital, both information-access payout accounts ready
+and **zero scope purchases**. Funding, backing and fee checks pass; no paid
+delivery, purchase refund, earnings withdrawal or bank payout is established.
+The last serving-source observation (`08:20:50Z`) is backend `439f181304` and
+frontend `5c2d1483aa`. The exact-scope registry-handle correction awaits a verified
+release. The current integration preserves main and both developers' BYOC fixes
+on the original branch. Core/CI, Dev promotion and the first one-cent exchange
+remain required. Rehearsals use isolated headless sessions; shared Chrome is
+untouched. Existing settled funding and capital must not be repeated.
+
+### Historical Dev evidence — 2026-10-15 UTC
 
 At `2026-10-15T04:54:04Z`, fresh authenticated Stripe reads confirm both reviewers'
 information-access Connect accounts have completed details, enabled payouts,

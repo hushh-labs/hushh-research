@@ -27,6 +27,7 @@ import {
   shareGeminiSelectionWithAgent,
   verifyAgentCloudAi,
 } from "@/lib/one/ai-selection-agent";
+import { hasStoredAiKey } from "@/lib/one/setup-runtime-readiness";
 import { useAiPlacement } from "@/lib/connections/use-ai-placement";
 import {
   recordSelectedAiProvider,
@@ -153,6 +154,7 @@ function OwnerRuntimeSettingsCard({
       ? "Use existing cloud"
         : "Use Hussh's Gemini";
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
+  const [hasSavedProviderKey, setHasSavedProviderKey] = useState(false);
   const [otherProvider, setOtherProvider] = useState<string | null>(null); // e.g. OpenAI is the own key in use
   const [draftKey, setDraftKey] = useState("");
   const [transport, setTransport] =
@@ -188,7 +190,7 @@ function OwnerRuntimeSettingsCard({
     requiresExplicitSelection &&
     initialSetupChoice === "byok_pending_vault" &&
     mode === "byok" &&
-    hasSavedKey === true;
+    (otherProvider ? hasSavedProviderKey : hasSavedKey === true);
   const configuredChoiceReady = initiallyConfigured || savedByokReady;
 
   useEffect(() => {
@@ -232,6 +234,7 @@ function OwnerRuntimeSettingsCard({
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       if (!requiresExplicitSelection) setMode("hushh_managed_vertex");
       setHasSavedKey(null);
+      setHasSavedProviderKey(false);
       return;
     }
     const selectionRevision = selectionRevisionRef.current;
@@ -274,13 +277,16 @@ function OwnerRuntimeSettingsCard({
           vaultOwnerToken,
           credentialRef: GEMINI_VERTEX_LOCATION_REF,
         }),
-        loadSelectedAiProvider({ userId, vaultKey, vaultOwnerToken }),
+        loadSelectedAiProvider({ userId, vaultKey, vaultOwnerToken }, { requireReadable: true }),
       ]);
+      const providerKeySaved = savedProvider && savedProvider !== "gemini"
+        ? await hasStoredAiKey(userId, vaultKey, vaultOwnerToken, savedProvider) : false;
       if (
         !ownerIsCurrent() ||
         selectionRevisionRef.current !== selectionRevision
       )
         return;
+      setHasSavedProviderKey(providerKeySaved);
       const restoredMode =
         savedMode === "byok" ? "byok" : "hushh_managed_vertex";
       setMode(restoredMode);
@@ -293,8 +299,7 @@ function OwnerRuntimeSettingsCard({
         setSelectedOption((current) => (current ? restoredMode : ""));
         if (
           restoredMode === "byok" &&
-          (!savedProvider || savedProvider === "gemini") &&
-          !savedKey
+          !(savedProvider && savedProvider !== "gemini" ? providerKeySaved : savedKey)
         )
           setHasExplicitSelection(false);
       }
@@ -315,6 +320,7 @@ function OwnerRuntimeSettingsCard({
       if (requiresExplicitSelection) setHasExplicitSelection(false);
       else setMode("hushh_managed_vertex");
       setHasSavedKey(false);
+      setHasSavedProviderKey(false);
       setTransport("developer_api");
       setVertexProject("");
       setVertexLocation("global");

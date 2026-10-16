@@ -1,3 +1,4 @@
+import { hasSavedAzureKey, hasSavedOpenAiKey, loadSelectedAiProvider } from "@/lib/one/ai-selection-vault";
 import { PreVaultUserStateService, type PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { GEMINI_RUNTIME_CREDENTIAL_REF, PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -28,7 +29,7 @@ export async function hasReadyRuntimeChoice(params: {
     Boolean(params.vaultKey && params.vaultOwnerToken),
   );
   if (immediate !== null) return immediate;
-  return hasStoredGeminiKey(params.userId, params.vaultKey, params.vaultOwnerToken);
+  return hasStoredAiKey(params.userId, params.vaultKey, params.vaultOwnerToken);
 }
 
 export async function hasStoredGeminiKey(
@@ -45,6 +46,27 @@ export async function hasStoredGeminiKey(
       credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
     });
     return Boolean(credential);
+  } catch {
+    return false;
+  }
+}
+
+/** Read only the selected provider; another provider's key is not a substitute. */
+export async function hasStoredAiKey(
+  userId: string,
+  vaultKey: string | null,
+  vaultOwnerToken: string | null,
+  selectedProvider?: string | null,
+): Promise<boolean> {
+  if (!vaultKey || !vaultOwnerToken) return false;
+  const vault = { userId, vaultKey, vaultOwnerToken };
+  try {
+    const provider = selectedProvider === undefined
+      ? await loadSelectedAiProvider(vault, { requireReadable: true }) : selectedProvider;
+    if (provider === "openai") return hasSavedOpenAiKey(vault);
+    if (provider === "azure_openai") return hasSavedAzureKey(vault);
+    if (provider && provider !== "gemini") return false;
+    return hasStoredGeminiKey(userId, vaultKey, vaultOwnerToken);
   } catch {
     return false;
   }

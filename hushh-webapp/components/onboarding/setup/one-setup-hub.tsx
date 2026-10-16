@@ -68,7 +68,7 @@ import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { PublicProfileDiscoveryCard } from "@/components/profile/public-profile-discovery-card";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { immediateRuntimeChoiceReadiness, hasReadyRuntimeChoice, hasStoredGeminiKey } from "@/lib/one/setup-runtime-readiness";
+import { immediateRuntimeChoiceReadiness, hasReadyRuntimeChoice, hasStoredAiKey } from "@/lib/one/setup-runtime-readiness";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
@@ -428,8 +428,8 @@ export function OneSetupHub() {
       const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid)
         ?? await PreVaultUserStateService.bootstrapState(user.uid, { force: true });
       if (bootstrap.oneRuntimeSetupChoice === "byok_pending_vault" &&
-          !(await hasStoredGeminiKey(user.uid, vaultKey, vaultOwnerToken))) {
-        throw new Error("Your Gemini key was not saved. Choose your AI again.");
+          !(await hasStoredAiKey(user.uid, vaultKey, vaultOwnerToken))) {
+        throw new Error("Your selected AI key was not saved. Choose your AI again.");
       }
       await PostUnlockSyncService.run({
         userId: user.uid,
