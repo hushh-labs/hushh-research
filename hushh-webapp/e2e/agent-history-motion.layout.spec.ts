@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
-import { mountAppChrome } from "./fixtures/app-chrome-layer";
+import { mountAppChrome, awaitClosedHistoryGeometry } from "./fixtures/app-chrome-layer";
 
 let script: string;
 let css: string;
@@ -75,10 +75,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   // Changing this retained fixture's viewport can itself animate its closed
   // percentage translate. Measure the tap from the authored closed position,
   // not from a desktop-to-phone resize that is still settling.
-  await expect.poll(() => page.locator("[data-agent-history-drawer]").evaluate(panel =>
-    panel.getBoundingClientRect().x + (panel as HTMLElement).offsetWidth +
-      parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")),
-  )).toBeCloseTo(0, 0);
+  await awaitClosedHistoryGeometry(page);
   const motion = await page.evaluate(async () => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     const main = document.querySelector("main")!;

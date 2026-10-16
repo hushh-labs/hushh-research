@@ -500,6 +500,7 @@ export function SwipeViews({
     null,
   );
   const isDraggingRef = useRef(false);
+  const programmaticSelectionRef = useRef(false);
   // True from the moment a tapped pane starts moving until Embla settles on it.
   // Together with `isDraggingRef` this is what the strip reads as "the pager
   // owns the indicator", so the pill tracks the pane instead of running its own
@@ -779,40 +780,6 @@ export function SwipeViews({
   );
 
   /**
-   * Moves the pager to a selection the person made somewhere else -- a shell
-   * tab tap, a deep link, a voice action -- and claims the shared indicator
-   * variable for the whole flight, so the pill is that same motion rather than
-   * a second animation racing it.
-   *
-   * Under Reduce Motion the pane is placed, not animated. Embla's own snap is
-   * a spring with no reduced-motion notion of its own, so without this a tap
-   * still travelled a full screen width; measured identical, frame for frame,
-   * with and without `prefers-reduced-motion: reduce`.
-   *
-   * A jump emits neither `select` nor `settle`, so this has to do their work
-   * itself: hand ownership back, drop the height floor, and report the new
-   * value upward. Reporting is not optional -- it is the consumer's only cue
-   * to update the route. Without it the panes moved while the query string
-   * stayed on the previous tab, so `aria-hidden`, `inert` and the URL all
-   * disagreed with what was on screen until an unrelated navigation caught up
-   * (measured on WebKit: ~700ms before, ~6s after).
-   *
-   * It is reported after the current task, and that timing is load-bearing
-   * rather than incidental. A shell tab press dispatches its selection
-   * synchronously and then opens its own navigation; reporting from inside
-   * that dispatch put a second `requestNavigation` for the same destination
-   * ahead of it in the same tick, and the coordinator supersedes rather than
-   * coalesces an intent that has already committed. Measured: the tap then
-   * produced no history write at all on Chromium.
-   *
-   * A timer, not an animation frame. The only requirement is to be out of the
-   * current tick -- but `requestAnimationFrame` also waits for a paint, and a
-   * page that is not being painted never delivers one. Measured against the
-   * deployed build: in a throttled context rAF never fired, so the report
-   * never ran and the tab press did not commit at all. A macrotask still runs
-   * when frames are not being produced.
-   */
-  /**
    * Moves the pager to a selection made somewhere else -- a shell tab tap, a
    * deep link, a voice action -- and claims the shared indicator variable for
    * the whole flight, so the pill is that same motion rather than a second
@@ -837,12 +804,16 @@ export function SwipeViews({
    */
   const scrollToSelection = useCallback(
     (api: EmblaCarouselType, index: number, viaRoute = false) => {
+      // The tab/route owner already commits this choice. Embla's synchronous
+      // select and later settle are presentation receipts, not another intent.
+      programmaticSelectionRef.current = true;
       if (prefersReducedMotion()) {
         if (viaRoute) return;
         isAnimatingRef.current = false;
         scrollToIndexSafely(api, index, true);
         setTopShellTabSwipeState(tabSetId, Math.max(0, index), false);
         releaseHeightFloor();
+        programmaticSelectionRef.current = false;
         return;
       }
       isAnimatingRef.current = true;
@@ -893,10 +864,10 @@ export function SwipeViews({
   // Publish selection at Embla's `select` point. Waiting for `settle` made
   // query-backed tabs look stale on iOS and delayed the visible panel state.
   const onSelect = useCallback(() => {
-    if (!emblaApi) return;
+    if (!emblaApi || programmaticSelectionRef.current) return;
     const currentIdx = resolveSelectedIndex(emblaApi, options.length);
     const newValue = options[currentIdx]?.value;
-    if (newValue && newValue !== activeValue) {
+    if (newValue && newValue !== activeValueRef.current) {
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
@@ -906,6 +877,8 @@ export function SwipeViews({
   // example a cancelled drag); it never owns the first route update.
   const onSettle = useCallback(() => {
     if (!emblaApi) return;
+    const programmatic = programmaticSelectionRef.current;
+    programmaticSelectionRef.current = false;
     const currentIdx = resolveVisualIndex(emblaApi, options.length);
     alignSettledSwipePosition(emblaApi, currentIdx);
     emblaApi.internalEngine?.().scrollBody?.useBaseDuration().useBaseFriction();
@@ -918,7 +891,7 @@ export function SwipeViews({
     setTopShellTabSwipeState(tabSetId, currentIdx, false);
     releaseHeightFloor();
     const newValue = options[currentIdx]?.value;
-    if (newValue && newValue !== lastReportedValueRef.current) {
+    if (!programmatic && newValue && newValue !== lastReportedValueRef.current) {
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
@@ -1039,6 +1012,7 @@ export function SwipeViews({
       }
     };
     const onPointerDown = () => {
+      programmaticSelectionRef.current = false;
       isDraggingRef.current = true;
       // A finger landing mid-flight takes over from the tap that started it.
       isAnimatingRef.current = false;
