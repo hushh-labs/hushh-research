@@ -1,3 +1,6 @@
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CacheService } from "@/lib/services/cache-service";
 import { Preferences } from "@capacitor/preferences";
 import { removeLocalItem } from "@/lib/utils/session-storage";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -27,7 +30,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: authMock.user, loading: false }),
+  useAuth: () => { publishValidatedAuthSessionOwner(authMock.user?.uid ?? null); return { user: authMock.user, loading: false }; },
 }));
 
 vi.mock("@/lib/observability/client", () => ({
@@ -80,7 +83,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
-      addCard: serviceMock.addCard,
+      addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
       matchesQuery: actual.WalletService.matchesQuery,
     },
   };
@@ -158,7 +161,7 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("TRAVEL");
     expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
-    expect(screen.queryByLabelText("CVV")).toBeNull();
+    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
@@ -230,3 +233,5 @@ describe("Wallet visit introduction", () => {
 
 });
 vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
+
+beforeEach(() => CacheService.getInstance().clear());

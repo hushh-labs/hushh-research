@@ -1378,6 +1378,44 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({ plaintext: JSON.stringify(payload.domainData) }));
   });
 
+  it("round-trips an explicitly entered manual code only inside encrypted private content", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const vaultKey = "7f".repeat(32), value = "007";
+    encryptDataMock.mockImplementation(({ plaintext, keyHex }: { plaintext: string; keyHex: string }) => encryptData(plaintext, keyHex));
+    mockWalletRead().mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    try {
+      await PersonalKnowledgeModelService.storeWalletDomain({ ...context, vaultKey, securityCodeChange: { cardId: nextId, value }, applyMutation: base => ({ ...applyMutation(base), secrets: { [nextId]: { ...nextCard, manual_cvv: value } } }) });
+      const payload = store.mock.calls[0][0];
+      const decrypted = JSON.parse(await decryptData(payload.encryptedBlob as EncryptedPayload, vaultKey));
+      expect(decrypted.secrets[nextId]).toEqual({ ...safeNextCard, manual_cvv: value });
+      expect(JSON.stringify([payload.summary, payload.manifest, payload.structureDecision, payload.mutationPlan])).not.toContain("manual_cvv");
+      expect(JSON.parse(await decryptData(payload.encryptedBlob.segments!.secrets as EncryptedPayload, vaultKey))[nextId].manual_cvv).toBe(value);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(["inject", "change", "drop", "drop-record", "drop-branch", "rebind", "chat-authority"])("blocks unauthorized manual code %s before encryption", async operation => {
+    const value = "007";
+    mockWalletRead().mockResolvedValue({ summary: { [nextId]: metadata }, secrets: { [nextId]: { ...safeNextCard, ...(operation !== "inject" ? { manual_cvv: value } : {}) } } });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context,
+      ...(operation === "chat-authority" ? { confirmation: { ...context.confirmation, source: "agent_chat_wallet_add" }, securityCodeChange: { cardId: nextId, value: "0123" } } : {}),
+      applyMutation: base => {
+        if (operation === "drop-branch") { delete base.secrets; return base; }
+        if (operation === "rebind") return { ...base, secrets: { [nextId]: { ...safeNextCard, pan: "4242424242424242", manual_cvv: value } } };
+        return { ...base, secrets: operation === "drop-record" ? {} : { [nextId]: { ...safeNextCard, ...(operation !== "drop" ? { manual_cvv: operation === "inject" ? value : "0123" } : {}) } } };
+      },
+    })).rejects.toThrow("Security code write unavailable");
+    expect(encryptDataMock).not.toHaveBeenCalled(); expect(store).not.toHaveBeenCalled();
+  });
+
+  it("preserves a concurrent manual code through canonical conflict reconstruction", async () => {
+    mockWalletRead().mockResolvedValueOnce({ summary: {}, secrets: {} }).mockResolvedValueOnce({ summary: { [firstId]: metadata }, secrets: { [firstId]: { ...safeNextCard, manual_cvv: "007" } } });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValueOnce({ success: false, conflict: true }).mockResolvedValueOnce({ success: true });
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation });
+    expect((store.mock.calls[1][0].domainData.secrets as Record<string, unknown>)[firstId]).toEqual({ ...safeNextCard, manual_cvv: "007" });
+  });
+
   it("encrypts artwork atomically into the private segment and round-trips real AES-GCM bytes", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const vaultKey = "7f".repeat(32), artwork = { [nextId]: { source: "photo", version: 1, image: "data:image/png;base64,U1lOVEhFVElD", digest: "a".repeat(64), sanitizerVersion: 1 } };
