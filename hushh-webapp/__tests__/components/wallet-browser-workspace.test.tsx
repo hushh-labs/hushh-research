@@ -63,6 +63,7 @@ const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
   deleteCard: vi.fn(),
   getCard: vi.fn(),
+  getCardSecurityCode: vi.fn(),
   addCard: vi.fn(),
 }));
 
@@ -85,6 +86,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      getCardSecurityCode: serviceMock.getCardSecurityCode,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
       addCard: serviceMock.addCard,
       matchesQuery: actual.WalletService.matchesQuery,
@@ -116,6 +118,7 @@ describe("Wallet video browser workspace", () => {
     navigationMock.search = "";
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
     serviceMock.deleteCard.mockResolvedValue(undefined);
+    serviceMock.getCardSecurityCode.mockReset().mockResolvedValue("007");
     serviceMock.getCard.mockReset().mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242424242", cvv: "123", pin: "9876" } });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
@@ -296,9 +299,52 @@ describe("Wallet video browser workspace", () => {
     expect(document.body).not.toHaveTextContent("4242 4242 4242 4242");
     expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
     expect(document.querySelector('textarea')).toBeNull();
-    expect(screen.getByRole("region", { name: "Saved card details" })).not.toHaveTextContent(/\b(?:CVV|CVC|PIN)\b/);
+    expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("•••");
+    expect(serviceMock.getCardSecurityCode).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Saved card details" })).not.toHaveTextContent(/\b(?:CVC|PIN)\b/);
     expect(screen.queryByRole("button", { name: "Copy CVV" })).toBeNull();
     expect(trackEventMock.mock.calls.flatMap((call) => call).map(String).join(" ")).not.toContain("4242424242424242");
+  });
+  it("reveals a code only on request and hides it after backgrounding or timeout", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    expect(serviceMock.getCardSecurityCode).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Show CVV" }));
+    await waitFor(() => expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("007"));
+    expect(serviceMock.getCardSecurityCode).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" }));
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("•••");
+    visibility.mockRestore();
+    vi.useFakeTimers();
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Show CVV" })); });
+      expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("007");
+      act(() => { vi.advanceTimersByTime(45_001); });
+    }
+    finally { vi.useRealTimers(); }
+    expect(screen.getByTestId("wallet-owner-cvv")).toHaveTextContent("•••");
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(trackEventMock.mock.calls.flat().join()).not.toContain("007");
+  });
+  it.each(["owner", "lock", "tab", "card", "visibility", "epoch"])("drops a delayed CVV read after %s changes", async boundary => {
+    let finish!: (value: string) => void;
+    serviceMock.getCardSecurityCode.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show CVV" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    if (boundary === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
+    if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
+    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    if (boundary === "card") { fireEvent.click(screen.getByRole("button", { name: "All (5)" })); fireEvent.click(screen.getByRole("button", { name: "Open Card 1, ending 1001" })); }
+    if (boundary === "epoch") act(() => advanceVaultSessionEpoch());
+    const visibility = boundary === "visibility" ? vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden") : null;
+    if (visibility) fireEvent(document, new Event("visibilitychange"));
+    await act(async () => finish("007"));
+    expect(document.body).not.toHaveTextContent("007");
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    visibility?.mockRestore();
   });
   it.each(["owner", "lock", "tab", "card", "overview"])("rejects a late number copy after changing %s", async (change) => {
     let resolveCopy!: (result: unknown) => void;

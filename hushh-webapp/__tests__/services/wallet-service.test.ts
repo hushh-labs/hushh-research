@@ -275,6 +275,39 @@ describe("WalletService", () => {
     expect(full?.secrets).not.toHaveProperty("cvv");
   });
 
+  it("keeps manual codes out of card readers and exposes them only through the owner action", async () => {
+    expect(await WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID })).toBeUndefined();
+    mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, secrets: { [CARD_ID]: { ...DOMAIN_DATA.secrets[CARD_ID], manual_cvv: "007" } } });
+    expect(await WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID })).toBe("007");
+    expect((await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID }))?.secrets).toEqual({ pan: "4111111111111111", cardholderName: "A Person" });
+    expect(JSON.stringify(await WalletService.listCardPresentations(CONTEXT))).not.toContain("007");
+    let finish!: (data: typeof DOMAIN_DATA) => void;
+    mockLoadDomainData.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const read = WalletService.getCardSecurityCode({ ...CONTEXT, cardId: CARD_ID });
+    advanceVaultSessionEpoch();
+    finish(DOMAIN_DATA);
+    await expect(read).rejects.toThrow("Wallet changed");
+  });
+
+  it("writes a manual code with exact owner authority and never sends it for network resolution", async () => {
+    const card = { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099, securityCode: "0123" };
+    const saved = await WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add" });
+    const call = mockStoreWalletDomain.mock.calls[0][0];
+    expect(call.securityCodeChange).toEqual({ cardId: saved.cardId, value: "0123" });
+    const domain = await call.applyMutation({});
+    expect(domain.secrets[saved.cardId].manual_cvv).toBe("0123");
+    expect(JSON.stringify([saved, domain.summary, networkApi.fetch.mock.calls])).not.toContain("0123");
+    mockStoreWalletDomain.mockClear();
+    await expect(WalletService.addCard({ ...CONTEXT, card, surface: "chat", source: "agent_chat_wallet_add" })).rejects.toThrow("Security code write unavailable");
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+  });
+
+  it("never carries a previous number's code onto a changed retry number", async () => {
+    await WalletService.addCard({ ...CONTEXT, card: { draftId: CARD_ID.slice(5), pan: "4242424242424242", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "one_wallet_add" });
+    const call = mockStoreWalletDomain.mock.calls[0][0];
+    await expect(call.applyMutation({ ...DOMAIN_DATA, secrets: { [CARD_ID]: { ...DOMAIN_DATA.secrets[CARD_ID], manual_cvv: "007" } } })).rejects.toThrow("cancel and start a new card");
+  });
+
   it("refuses an invalid card before any storage call", async () => {
     await expect(
       WalletService.addCard({

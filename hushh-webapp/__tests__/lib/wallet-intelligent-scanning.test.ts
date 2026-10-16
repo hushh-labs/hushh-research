@@ -98,7 +98,7 @@ describe("owner-bound approval and private projections", () => {
     const blob = await encodeCardPng(raster()); registerInspectedWalletPhoto(blob, "synthetic-owner", snapshotVaultSessionEpoch()); const artwork = await approveWalletPhoto(blob, "synthetic-owner"); advanceVaultSessionEpoch(); expect(() => assertWalletArtworkApproval(artwork, "synthetic-owner")).toThrow();
   });
   it("excludes art, codes and receipts from historical/mixed-case consent projections", () => {
-    const input = { summary: { card_1: { last4: "4242", brand: "visa", extra: "do not export" } }, secrets: { card_1: { pan: "4242424242424242", cardholder_name: "SYNTHETIC OWNER", cvv: "code-sentinel", pin: "pin-sentinel", share_receipts: ["receipt-sentinel"] } }, artwork: { card_1: { image: "art-sentinel" } } };
+    const input = { summary: { card_1: { last4: "4242", brand: "visa", extra: "do not export" } }, secrets: { card_1: { pan: "4242424242424242", cardholder_name: "SYNTHETIC OWNER", cvv: "code-sentinel", manual_cvv: "manual-code-sentinel", pin: "pin-sentinel", share_receipts: ["receipt-sentinel"] } }, artwork: { card_1: { image: "art-sentinel" } } };
     const safe = projectWalletConsent(input); expect(JSON.stringify(safe)).not.toMatch(/sentinel|do not export/); expect(safe).toHaveProperty("secrets.card_1.pan");
     const result = projectDomainDataForScope({ domain: "Wallet", scope: "pkm.read", domainData: input }); expect(JSON.stringify(result)).not.toMatch(/sentinel/);
     expect(excludePrivatePkmDomains({ Wallet: input, professional: { name: "kept" } })).toEqual({ professional: { name: "kept" } });

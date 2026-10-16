@@ -155,7 +155,7 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
     expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
-    expect(screen.queryByLabelText("CVV")).toBeNull();
+    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));

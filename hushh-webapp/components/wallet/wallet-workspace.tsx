@@ -685,6 +685,15 @@ export function WalletWorkspace() {
     };
   }, []);
 
+  const readSecurityCode = async (cardId: string): Promise<string | undefined> => {
+    const context = getCardShareContext(cardId);
+    const epoch = snapshotVaultSessionEpoch();
+    if (!context?.isCurrent()) throw new DOMException("Wallet changed", "AbortError");
+    const code = await WalletService.getCardSecurityCode({ userId: context.userId, vaultKey: context.vaultKey, vaultOwnerToken: context.vaultOwnerToken, cardId });
+    if (!context.isCurrent() || !isVaultSessionEpochCurrent(epoch)) throw new DOMException("Wallet changed", "AbortError");
+    return code;
+  };
+
   const copyCardNumber = async (cardId: string): Promise<boolean> => {
     const context = vaultContextRef.current();
     const revision = cardActionScopeRef.current.revision;
@@ -826,6 +835,9 @@ export function WalletWorkspace() {
         card={focusedCard}
         name={cardholderNames[focusedCard.cardId]}
         onCopyCardNumber={() => copyCardNumber(focusedCard.cardId)}
+        onReadSecurityCode={() => readSecurityCode(focusedCard.cardId)}
+        securityCodeScope={`${renderedOwnerId}:${numberScopeRevision}`}
+        active={activeTab === "cards" && ready}
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
@@ -1015,6 +1027,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                collectSecurityCode
                 showIntroduction={false}
                 getNetworkContext={vaultContext}
                 scanInToolbar

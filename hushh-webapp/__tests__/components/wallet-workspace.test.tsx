@@ -253,7 +253,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
   };
 
-  it("saves a card without collecting security codes", async () => {
+  it("saves an owner card with an optional masked code", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
     serviceMock.addCard.mockResolvedValue({ cardId: "saved", summary });
     render(<WalletWorkspace />);
@@ -263,13 +263,15 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
     expect(screen.queryByLabelText("PIN (optional)")).toBeNull();
-    expect(screen.queryByLabelText("CVV")).toBeNull();
+    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
+    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "007" } });
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await screen.findByTestId("wallet-selected-card");
     const submitted = serviceMock.addCard.mock.calls[0][0].card;
     expect(submitted).not.toHaveProperty("pin");
     expect(submitted).not.toHaveProperty("cvv");
+    expect(submitted.securityCode).toBe("007");
     expect(screen.queryByTestId("secure-card-errors")).toBeNull();
   });
 
@@ -425,7 +427,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
     expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
-    expect(screen.queryByLabelText("CVV")).toBeNull();
+    expect(screen.getByLabelText("CVV")).toHaveValue("");
     vaultMock.locked = true;
     workspace.rerender(<WalletWorkspace />);
     await screen.findByTestId("one-wallet-locked");

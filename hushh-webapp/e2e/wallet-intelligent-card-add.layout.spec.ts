@@ -92,6 +92,35 @@ test.beforeAll(async () => {
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No fixture port"); origin = `http://127.0.0.1:${address.port}`;
 });
 test.afterAll(async () => { if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); } });
+test("manual CVV stays masked, encrypts, reloads and reveals only to the owner", async ({ page }, testInfo) => {
+  record = null; wire.length = 0; artworkMode = "unknown";
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${origin}/?cvv-proof=1`); await awaitProductFont(page);
+  await page.getByLabel("Card number", { exact: true }).fill("4242424242424242");
+  await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
+  await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("1230");
+  const code = page.getByLabel("CVV", { exact: true });
+  await expect(code).toHaveAttribute("type", "password");
+  await code.fill("0931");
+  await expect(page.getByTestId("secure-card-save")).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await code.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("wallet-cvv-entry.png") });
+  await page.getByTestId("secure-card-save").click();
+  await expect(page.getByRole("region", { name: "Cards" })).toBeVisible();
+  expect(record).not.toBeNull();
+  expect(wire.join("\n")).not.toMatch(/"(?:manual_cvv|securityCode|0931)"/);
+  await expect(page.getByTestId("wallet-owner-cvv")).toHaveText("•••");
+  await page.reload();
+  await expect(page.getByTestId("wallet-owner-cvv")).toHaveText("•••");
+  await page.getByRole("button", { name: "Show CVV" }).click();
+  await expect(page.getByTestId("wallet-owner-cvv")).toHaveText("0931");
+  await page.getByRole("button", { name: "Hide CVV" }).click();
+  await expect(page.getByTestId("wallet-owner-cvv")).toHaveText("•••");
+  await page.getByRole("button", { name: "Lock Wallet" }).click();
+  await expect(page.getByText("Wallet locked", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("wallet-owner-cvv")).toHaveCount(0);
+});
 test("Back cancels the crop/read layer and keeps the Add draft in place", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "unknown"; await page.goto(origin);
   await expect(page.getByRole("region", { name: "Card design", exact: true })).toHaveCount(0);

@@ -129,7 +129,7 @@ The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
 chat projection. Collection and selected-card faces show only the last four
 number digits, as does the Card details row. The full number is decrypted only
-after an explicit copy action. CVV and PIN stay hidden. Locking the vault or changing
+after an explicit copy action. CVV requires its separate owner-only Show action; PIN stays hidden. Locking the vault or changing
 accounts drops the presentation. Reads that fail do not become an empty wallet,
 and writes use the current snapshot revision to preserve concurrent additions.
 
@@ -221,8 +221,8 @@ confirmed revocation through the existing consent actions. Pending requests stay
 in Consent Center. Loading and read errors are distinct from empty access.
 
 Wallet panels use solid surfaces and Location section typography. The collection
-omits example labels and fictional total-due content. CVV/CVC and PIN controls,
-validation requirements, current-write persistence and reveal rows are removed.
+omits example labels and fictional total-due content. Owner Add offers an optional,
+masked CVV field beside Issuing region; PIN is not collected.
 
 ### Card browsing gestures
 
@@ -234,7 +234,8 @@ The Cards overview presents one full card above a compact lower stack. Vertical 
 Selecting a saved payment card keeps its face and Card details number masked.
 The copy icon decrypts and copies the complete saved number without adding it
 to the DOM. Owner, key, tab, selection, visibility and unmount changes invalidate
-delayed copies. CVV and PIN remain hidden. Saved-card recipient rows show the
+delayed copies. CVV has a separate owner-only Show action; PIN remains hidden.
+Saved-card recipient rows show the
 recipient name and shared date; revocation remains available for active grants.
 
 The Add scanner illustration centers the portrait Agent One card over the
@@ -509,7 +510,7 @@ discarding valid card details; an explicit design update asks for a current choi
 The approved-feed adapter reuses the pinned public HTTPS transport and requires
 a deployment-owned permission/rights review before configuration.
 
-### Private photo and prohibited security codes
+### Private photo and owner-only security codes
 
 The sanitizer flattens transparency onto an opaque background, discarding hidden
 RGB/alpha information. It conservatively overwrites all detected printed text, plus any
@@ -539,12 +540,26 @@ owner-authorized encrypted payload and grant identities; artwork is not attached
 The client compares actual before/after values against reserved-writer authority
 before encryption and after conflict reconstruction; chat cannot modify artwork.
 
-CVV/CVC and PIN are absent from collection, reveal, card rendering and current
-Wallet writes. Current writes also scrub legacy per-card fields and receipt
-extras and refuse malformed records. **Historical encrypted revisions, backups,
-restoration downloads, delivered exports and older clients are not purged by this
-feature. Their retention/migration and minimum-client-write policy remain a
-separate governed release blocker.** No production deletion is performed here.
+Owner Add optionally accepts a three or four digit CVV, preserving leading zeros.
+Only explicit manual entry writes `manual_cvv` inside the encrypted private
+`wallet.secrets` segment. The canonical writer compares before/after values and
+requires the confirmed owner Add authority for a change, including after a
+conflict rebuild. Other writers preserve it or remove the whole card. A retry
+cannot carry a previous number's code onto a different number.
+
+Saved owner details mask the code until Show is tapped. It hides after 45 seconds,
+backgrounding, lock, owner/key/epoch changes, card selection or leaving Cards.
+There is no code copy action. `getCard`, card faces, OCR, chat widgets, model
+context, readable downloads and card sharing never include it. Encrypted vault
+restoration backups retain it inside ciphertext. General Memory security-code
+capture stays prohibited; this field is not a Live Memory source.
+
+Legacy `cvv`, `cvc` and `pin` values are never promoted to the new field. Current
+writes scrub them and receipt extras and refuse malformed records. Historical
+encrypted revisions, backups, delivered exports and older clients are not purged
+by this feature; no production deletion is performed here.
+Clients predating `manual_cvv` can strip it during a full Wallet rewrite. Deploy
+the updated writer across active clients before enabling this field in a rollout.
 
 Local PAN validation uses Luhn except for a backend-resolved UnionPay card,
 consistent with [Braintree card-validator](https://github.com/braintree/card-validator).
