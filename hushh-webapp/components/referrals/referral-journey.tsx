@@ -53,6 +53,11 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
           </ol>
         </div>
 
+        <section aria-label="Circle Wars rules" className={styles.earning}>
+          <h3>Win with your circle</h3>
+          <p>Choose an existing Circle or create one, then explicitly join Circle Wars for the current week. Each member joins separately and chooses one Circle per week.</p>
+          <p>Each new referral started after you join adds one team referral when it qualifies. Individual coins and lifetime rewards keep working independently. The weekly deadline follows the program timezone shown in Circle Wars.</p>
+        </section>
         <section className={styles.earning} aria-labelledby={earningHeadingId}>
           <header className={styles.earningHeader}>
             <div>
