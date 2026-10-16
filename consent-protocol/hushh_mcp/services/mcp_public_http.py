@@ -16,30 +16,13 @@ from urllib.parse import urlsplit
 import httpcore
 import httpx
 
+from hushh_mcp.services.public_network_address import is_public_address as _public_address
+
 
 class UnsafeMcpEndpoint(ValueError):
     def __init__(self) -> None:
         # Do not include a possibly credential-bearing URL or DNS response.
         super().__init__("The connector requires a public HTTPS endpoint.")
-
-
-def _public_address(address: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(address)
-    except ValueError:
-        return False
-    if not ip.is_global or ip.is_multicast or ip.is_reserved or "%" in address:
-        return False
-    if isinstance(ip, ipaddress.IPv6Address):
-        # Transition encodings can tunnel to a different IPv4 destination.
-        return (
-            ip.ipv4_mapped is None
-            and ip.sixtofour is None
-            and ip.teredo is None
-            and ip not in ipaddress.ip_network("64:ff9b::/96")
-            and ip not in ipaddress.ip_network("64:ff9b:1::/48")
-        )
-    return True
 
 
 def validate_mcp_endpoint(endpoint: str) -> None:
