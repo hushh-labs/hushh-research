@@ -189,7 +189,7 @@ class LocationCommandBrain:
                 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
                 gene = _load_transcriber_gene()
-                model_name = resolve_fleet_model_name(gene.model_config_for_runtime().name)
+                model_name = resolve_fleet_model_name(gene.model.name)
                 agent = build_single_turn_agent(
                     gene,
                     output_schema=_TRANSCRIPTION_SCHEMA,
@@ -257,7 +257,13 @@ class LocationCommandBrain:
         agent = LlmAgent(
             name="location_command",
             mode="single_turn",
-            model=self.adk_model or build_managed_gemini_adk_model(self.model),
+            model=self.adk_model
+            or build_managed_gemini_adk_model(
+                self.model,
+                http_options=types.HttpOptions(
+                    timeout=20_000, retry_options=types.HttpRetryOptions(attempts=1)
+                ),
+            ),
             instruction=self.manifest.capabilities["command_instruction"],
             tools=read_tools or [],
             output_schema=SemanticAssessment.provider_schema(),

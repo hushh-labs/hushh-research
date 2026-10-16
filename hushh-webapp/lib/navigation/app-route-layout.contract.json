@@ -181,10 +181,7 @@
     "shellVerification": {
       "file": "components/onboarding/setup/one-setup-hub.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
+        "SetupV10Surface"
       ]
     },
     "voicePlaybook": {
@@ -3937,6 +3934,7 @@
     "shellVerification": {
       "file": "components/connections/gemini-runtime-configuration-page.tsx",
       "includes": [
+        "SetupV10Surface",
         "AppPageShell",
         "AppPageHeaderRegion",
         "AppPageContentRegion",
@@ -3973,7 +3971,15 @@
           "href": "/one/setup/connections",
           "expected": {
             "href": "/one/setup",
-            "mode": "push",
+            "mode": "replace",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/setup/connections?return_to=%2Fone%2Fprofile",
+          "expected": {
+            "href": "/one/setup?return_to=%2Fone%2Fprofile",
+            "mode": "replace",
             "transitionMode": "full"
           }
         }

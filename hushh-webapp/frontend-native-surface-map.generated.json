@@ -7633,10 +7633,7 @@
         "exemption_reason": null,
         "shell_verification_file": "components/onboarding/setup/one-setup-hub.tsx",
         "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
+          "SetupV10Surface"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -7910,6 +7907,7 @@
         "exemption_reason": null,
         "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
         "shell_verification_includes": [
+          "SetupV10Surface",
           "AppPageShell",
           "AppPageHeaderRegion",
           "AppPageContentRegion",
@@ -10401,5 +10399,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "4a836ea94d8ebc65d1c7a48470fa470175d72f8f72969d18a0b621a32214894b"
+  "content_sha256": "c700c50e2ae3ba4074695cd12be4cb463297d65e625ec2e8d61cc559cd8e5b14"
 }

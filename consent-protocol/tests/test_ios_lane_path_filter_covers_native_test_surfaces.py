@@ -8,10 +8,8 @@ parses the filter the way GitHub does (dorny/paths-filter, whose globs and
 `pathspec`'s gitignore rules agree for every slash-anchored pattern) and checks
 it against the files the CI-run test actually touches.
 
-The filter excludes `components/onboarding/setup/**`, the post-sign-in setup
-screens, which alone used to schedule the lane. That exclusion is only safe
-while nothing the XCUITest renders imports them, so the render path's
-transitive imports are traced and checked for exactly that.
+The login route now imports post-sign-in setup screens. The render path's
+transitive imports are traced so the iOS filter covers those screens too.
 
 It also pins the checkout depth and base-ref env of every lane that reaches
 the capability graph check (`generate_capability_graph.py --check`), which
@@ -294,18 +292,15 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
 
 
-def test_nothing_the_ci_run_xcuitest_renders_imports_the_onboarding_setup_screens() -> None:
-    # The ios: filter excludes components/onboarding/setup/**. The moment a
-    # render-path file imports from there, a setup-only change can break the
-    # XCUITest without scheduling it, so the exclusion must go.
+def test_ios_filter_schedules_setup_screens_rendered_by_xcuitest() -> None:
     closure = _ci_run_xcuitest_render_closure()
     assert "hushh-webapp/components/onboarding/AuthStep.tsx" in closure
     assert len(closure) > len(CI_RUN_XCUITEST_RENDERS), "the import trace found nothing"
     reached = sorted(path for path in closure if path.startswith(ONBOARDING_SETUP_DIR))
-    assert not reached, (
-        "The CI-run XCUITest now renders onboarding setup files; remove the "
-        f"'!{ONBOARDING_SETUP_DIR}**' exclusion from the ios: filter: {reached}"
-    )
+    assert f"{ONBOARDING_SETUP_DIR}setup-v10-surface.tsx" in reached
+    assert f"{ONBOARDING_SETUP_DIR}setup-v10-surface.module.css" in reached
+    unmatched = [path for path in reached if not _ios_spec().match_file(path)]
+    assert not unmatched, f"The ios: filter no longer schedules rendered setup files: {unmatched}"
 
 
 def test_ios_filter_covers_every_onboarding_file_the_xcuitest_renders() -> None:
@@ -314,7 +309,7 @@ def test_ios_filter_covers_every_onboarding_file_the_xcuitest_renders() -> None:
     assert rendered, "the import trace reached no onboarding file"
     unmatched = [path for path in rendered if not spec.match_file(path)]
     assert not unmatched, f"The ios: filter no longer schedules rendered files: {unmatched}"
-    assert not spec.match_file(f"{ONBOARDING_SETUP_DIR}one-setup-hub.tsx")
+    assert spec.match_file(f"{ONBOARDING_SETUP_DIR}one-setup-hub.tsx")
 
 
 def test_every_marker_the_ci_run_xcuitest_expects_is_rendered_by_a_filtered_file() -> None:
