@@ -15,6 +15,7 @@ from hushh_mcp.services.drive_owner_search_service import (
     compile_request_queries,
 )
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_request_bulk_service import _deterministic_statement_plan
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import LIVE_SUPPORTED_TYPES, DriveReadError
 from tests.services.test_drive_owner_search_postgres import (  # noqa: F401
@@ -104,14 +105,17 @@ def _v1_structural_checkpoint(plan, queries):
 
 @pytest.mark.asyncio
 async def test_v1_structural_sweep_reads_generic_name_statement_candidates_without_fulltext():
-    plan = _v1_statement_plan()
+    purpose = {
+        "purpose": "All Charles Schwab brokerage statements from 2026",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    plan = _deterministic_statement_plan(purpose).model_dump(mode="json")
+    assert plan["semantic_intent"] == "institutional_statement"
+    assert plan["required_entities"] == ["Schwab"]
     queries, _ = compile_request_queries(
         plan,
-        {
-            "purpose": "All Schwab statements",
-            "periodStart": "2026-09-01",
-            "periodEnd": "2026-10-09",
-        },
+        purpose,
         "UTC",
         v1_live_request=True,
     )
