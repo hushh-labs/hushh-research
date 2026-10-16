@@ -166,7 +166,8 @@ async def request(sharing, client_id=None):
 
 
 @pytest.mark.asyncio
-async def test_verified_ria_identity_is_sealed_for_owner_review(sharing):
+async def test_verified_ria_identity_is_sealed_for_owner_review(sharing, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     profile = {
         "type": "ria",
         "displayName": "Chris",

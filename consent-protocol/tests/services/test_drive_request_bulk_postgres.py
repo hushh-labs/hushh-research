@@ -2280,6 +2280,28 @@ async def test_statement_replan_preserves_existing_worker_lane(request_bulk, sha
         ),
     )
     request_id = request["requestId"]
+    # This job models a request created before the restored demo policy.
+    # New requests retain their Gemini-authored plan and must not replan.
+    with sharing.db.engine.begin() as connection:
+        row = request_bulk._row(
+            connection,
+            "SELECT * FROM drive_share_requests WHERE request_id=:request",
+            {"request": request_id},
+        )
+        private = sharing._open_request(row)
+        private.pop("legacy_request_policy", None)
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET request_envelope=CAST(:envelope AS jsonb) "
+                "WHERE request_id=:request"
+            ),
+            {
+                "request": request_id,
+                "envelope": request_bulk._seal(
+                    private, user_id="owner", resource_id=request_id, purpose="request"
+                ),
+            },
+        )
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id)
     # A real legacy checkpoint contains its original provider query. Omitting
     # arguments altogether describes a malformed job, which must not replan.
