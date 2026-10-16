@@ -7,6 +7,9 @@ const state = vi.hoisted(() => ({
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
   savedGeminiKey: false,
+  selectedProvider: null as string | null,
+  savedProviderKey: false,
+  providerReadError: false,
   user: { uid: "owner" },
   unlocked: false,
   pendingContactsWelcome: false,
@@ -63,8 +66,16 @@ vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExi
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false, hasGeminiRuntime: () => state.stagedGeminiKey } }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   GEMINI_RUNTIME_CREDENTIAL_REF: "gemini-key",
+  OPENAI_RUNTIME_CREDENTIAL_REF: "openai-key",
   PersonalKnowledgeModelService: {
-    loadRuntimeSecret: async () => state.savedGeminiKey ? "saved-gemini-key" : null,
+    loadRuntimeSecret: async ({ credentialRef }: { credentialRef: string }) => {
+      if (credentialRef.endsWith("selected_provider")) {
+        if (state.providerReadError) throw new Error("selected provider unavailable");
+        return state.selectedProvider;
+      }
+      if (credentialRef === "gemini-key") return state.savedGeminiKey ? "saved-gemini-key" : null;
+      return state.savedProviderKey ? "saved-provider-key" : null;
+    },
   },
 }));
 vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined) } }));
@@ -80,6 +91,9 @@ beforeEach(() => {
   state.choice = "hushh_managed_vertex";
   state.stagedGeminiKey = false;
   state.savedGeminiKey = false;
+  state.selectedProvider = null;
+  state.savedProviderKey = false;
+  state.providerReadError = false;
   state.unlocked = false;
   state.pendingContactsWelcome = false;
   state.completionOrder.length = 0;
@@ -116,11 +130,13 @@ describe("Setup saved AI choice", () => {
     view.unmount();
   });
 
-  it("accepts a BYOK choice backed by an existing encrypted key", async () => {
+  it.each([null, "gemini", "openai", "azure_openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     state.unlocked = true;
-    state.savedGeminiKey = true;
+    state.selectedProvider = provider;
+    state.savedGeminiKey = provider === null || provider === "gemini";
+    state.savedProviderKey = provider === "openai" || provider === "azure_openai";
     render(<OneSetupHub />);
 
     const finish = await screen.findByRole("button", { name: "Finish setup" });
@@ -128,6 +144,20 @@ describe("Setup saved AI choice", () => {
     fireEvent.click(finish);
     await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
     expect(state.replace).toHaveBeenCalledWith("/");
+  });
+
+  it.each(["openai", "azure_openai", "unknown_provider", "INVALID!", "", "unreadable"])("refuses a selected provider without its usable stored key (%s)", async provider => {
+    state.saved = true;
+    state.choice = "byok_pending_vault";
+    state.unlocked = true;
+    state.selectedProvider = provider === "unreadable" ? null : provider;
+    state.providerReadError = provider === "unreadable";
+    state.savedGeminiKey = true; // An unrelated key must not repair the selection.
+    render(<OneSetupHub />);
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    await act(async () => {});
+    expect(finish).toBeDisabled();
+    expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
   });
 
   it("removes redundant progress and disables Finish until the current owner's saved choice arrives", async () => {

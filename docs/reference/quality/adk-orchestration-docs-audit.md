@@ -82,6 +82,13 @@ The original hosted failure is retained; a corrected exact-SHA release is requir
 Committed main sync `194f425fe7` is now integrated in isolation. Authored agent
 contracts are regenerated; four changed AI/deletion descriptions reject prior
 main-revision instructions explicitly. Concurrent root edits remain untouched.
+The integration's Gemini-only setup check now follows the selected encrypted
+provider: 48 focused setup/settings cases pass, including strict read failure,
+unknown provider and missing-key refusals. Calendar's 38 cases pass separately.
+Imported architecture debt is bounded to 200 reviewed main findings and two
+reviewed compositions; 500/250/80 budgets remain unchanged. Prior hosted Wallet
+arrival misses remain failed evidence; the 400 ms gate is unchanged and the
+next probe records native frame cadence separately from its injected delay.
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported

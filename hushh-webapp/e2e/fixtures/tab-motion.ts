@@ -4,6 +4,19 @@ type Frame = { time: number; offset: number };
 
 /** Observe the shipping pager, including a bounded delay before its first frame. */
 export async function measureTabSelection(tab: Locator, initialFrameDelayMs = 0) {
+  // Observe native cadence before injecting startup delay. This is diagnostic;
+  // it never alters the shipping animation or relaxes its arrival budget.
+  const nativeFrameGaps = await tab.page().evaluate(() => new Promise<number[]>(resolve => {
+    const gaps: number[] = [];
+    let previous = performance.now();
+    const observe = (time: number) => {
+      gaps.push(time - previous);
+      previous = time;
+      if (gaps.length < 8) requestAnimationFrame(observe);
+      else resolve(gaps);
+    };
+    requestAnimationFrame(observe);
+  }));
   await tab.evaluate((element, delayMs) => {
     if (delayMs > 0) {
       const request = window.requestAnimationFrame.bind(window);
@@ -56,5 +69,5 @@ export async function measureTabSelection(tab: Locator, initialFrameDelayMs = 0)
       viewportWidth: viewport.getBoundingClientRect().width,
       transform: getComputedStyle(panel.parentElement!).transform };
   });
-  return { frames, rendering };
+  return { frames, rendering: { ...rendering, nativeFrameGaps } };
 }

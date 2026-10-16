@@ -45,9 +45,15 @@ async function readRef(
 /** The recorded provider id (including one a newer app wrote), or null. */
 export async function loadSelectedAiProvider(
   vault: AiSelectionVault,
+  options: { requireReadable?: boolean } = {},
 ): Promise<string | null> {
-  const value = await readRef(vault, AI_SELECTED_PROVIDER_REF);
-  return value && /^[a-z0-9_]{1,64}$/.test(value) ? value : null;
+  const value = options.requireReadable
+    ? await PersonalKnowledgeModelService.loadRuntimeSecret({ ...vault, credentialRef: AI_SELECTED_PROVIDER_REF })
+    : await readRef(vault, AI_SELECTED_PROVIDER_REF);
+  if (value === null) return null;
+  if (value && /^[a-z0-9_]{1,64}$/.test(value)) return value;
+  if (options.requireReadable) throw new Error("AI_SELECTION_INVALID");
+  return null;
 }
 
 export async function hasSavedOpenAiKey(
