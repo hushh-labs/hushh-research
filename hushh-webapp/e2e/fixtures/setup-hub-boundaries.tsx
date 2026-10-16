@@ -45,3 +45,10 @@ export const GuidedConnectionScreen = () => null;
 export const VaultExplainerScreens = () => null;
 export const migrateOnboardingBuffer = unavailable;
 export const isPersonalAgentReadyFromCachedFeed = () => false;
+
+// Production readiness stays active; credential and Contacts I/O remain inert.
+export const GEMINI_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key";
+export const PersonalKnowledgeModelService = { loadRuntimeSecret: unavailable };
+export const hasSavedAzureKey = unavailable;
+export const hasSavedOpenAiKey = unavailable;
+export const loadSelectedAiProvider = unavailable;

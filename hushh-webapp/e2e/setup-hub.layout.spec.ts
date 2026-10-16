@@ -30,7 +30,7 @@ test.beforeAll(async () => {
     }],
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
-      ...["@/components/onboarding/setup/local-first-vault-sequence", "@/lib/services/onboarding-buffer-migration-service", "@/lib/feed/personal-agent-readiness", "@/lib/services/account-identity-service", "@/lib/services/api-service", "@/lib/onboarding/use-capability-setup-states", "@/components/dashboard/one-agent-presence", "@/components/profile/public-profile-discovery-card", "@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
+      ...["@/components/onboarding/initial-contacts-bridge", "@/lib/services/initial-contacts-onboarding-service", "@/lib/services/personal-knowledge-model-service", "@/lib/one/ai-selection-vault", "@/components/onboarding/setup/local-first-vault-sequence", "@/lib/services/onboarding-buffer-migration-service", "@/lib/feed/personal-agent-readiness", "@/lib/services/account-identity-service", "@/lib/services/api-service", "@/lib/onboarding/use-capability-setup-states", "@/components/dashboard/one-agent-presence", "@/components/profile/public-profile-discovery-card", "@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
       { find: "@", replacement: root },
     ] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
@@ -73,7 +73,7 @@ test.afterAll(() => {
   if (outDir) fs.rmSync(outDir, { recursive: true, force: true });
 });
 
-for (const viewport of [
+for (const { width, height } of [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
   { width: 800, height: 600 },
@@ -81,7 +81,7 @@ for (const viewport of [
 ]) {
   for (const theme of ["light", "dark"]) {
     test(`Setup hub ${width}px ${theme}`, async ({page}, testInfo) => {
-      await page.setViewportSize({width,height:852});
+      await page.setViewportSize({width,height});
       await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addScriptTag({content:script});
       const subtitle = page.locator('[data-slot="page-header-description"]');
@@ -99,11 +99,11 @@ for (const viewport of [
       expect(buttonBox.width).toBeCloseTo(width >= 640 ? 320 : cardBox.width, 0);
       expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(cardBox.x + cardBox.width / 2, 0);
       expect(cardBox.y - subBox.y - subBox.height).toBeCloseTo(24, 0);
-      expect(buttonBox.y + buttonBox.height).toBeCloseTo(852 - 16, 0);
+      expect(buttonBox.y + buttonBox.height).toBeCloseTo(height - 16, 0);
       expect(buttonBox.y).toBeGreaterThan(cardBox.y + cardBox.height);
       await page.evaluate(() => document.documentElement.style.setProperty("--app-safe-area-bottom-effective", "34px"));
       const insetBox = (await finish.boundingBox())!;
-      expect(insetBox.y + insetBox.height).toBeCloseTo(852 - 16 - 34, 0);
+      expect(insetBox.y + insetBox.height).toBeCloseTo(height - 16 - 34, 0);
       await expect(page.getByTestId("one-agent-icon-cloud").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");
       await expect(page.getByTestId("one-agent-icon-cloud").locator("svg")).toHaveCSS("opacity", "1");
       for (const property of ["height","border-radius","font-size","font-weight","background-color","color","opacity"]) {

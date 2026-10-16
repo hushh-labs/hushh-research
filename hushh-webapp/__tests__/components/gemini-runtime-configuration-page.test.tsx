@@ -1,8 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
-import { PWM_RESEARCH_DISCLOSURE_COMPACT } from "@/components/onboarding/setup/pwm-research-disclosure";
-import { buildInitialContactsWelcomeRoute } from "@/lib/navigation/routes";
 
 const state = vi.hoisted(() => ({
   user: { uid: "recipient" },

@@ -29,7 +29,7 @@ or payout.
 
 ### Current Dev evidence — 2026-10-16 UTC
 
-The read-only ledger/provider check at `08:34:34Z` confirms $10.50 funded per
+The read-only ledger/provider check at `09:35:50Z` confirms $10.50 funded per
 reviewer, $15 cumulative capital, both information-access payout accounts ready
 and **zero scope purchases**. Funding, backing and fee checks pass; no paid
 delivery, purchase refund, earnings withdrawal or bank payout is established.
