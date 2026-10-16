@@ -130,7 +130,7 @@ for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real
   await (await chooser).setFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
   await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Use full photo" }).click(); await page.getByRole("button", { name: "Read card", exact: true }).click();
-  await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242424242424242", { timeout: 120000 });
+  await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242 4242 4242 4242", { timeout: 120000 });
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("ALEX SAMPLE"); await expect(page.getByLabel("Expiry (MM/YY)", { exact: true })).toHaveValue("12/30");
   expect(record).toBeNull();
   const action = page.getByRole("button", { name: "Add to Wallet", exact: true }); await expect(action).toBeEnabled();

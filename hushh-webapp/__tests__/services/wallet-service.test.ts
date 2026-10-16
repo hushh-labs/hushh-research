@@ -422,12 +422,12 @@ it("rejects malformed backend catalogue entries instead of silently hiding optio
  await expect(WalletService.supportedCardNetworks(CONTEXT)).rejects.toThrow("Network identification unavailable");
 });
  beforeEach(() => { vi.clearAllMocks(); networkApi.fetch.mockReset(); mockStoreWalletDomain.mockResolvedValue({ success: true }); mockLoadDomainData.mockResolvedValue(DOMAIN_DATA); });
-it("requests only issuer metadata and never card credentials", async () => {
+it.each([12, 16])("requests only issuer metadata for a %s-digit number and never card credentials", async panLength => {
  networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
- await WalletService.resolveCardNetwork(CONTEXT, { iinPrefix: "411111", panLength: 16, pan: "4111111111111111", cvv: "123", pin: "1234" } as never);
+ await WalletService.resolveCardNetwork(CONTEXT, { iinPrefix: "411111", panLength, pan: "4111111111111111", cvv: "123", pin: "1234" } as never);
  const [url, options] = networkApi.fetch.mock.calls[0];
  expect(url).toBe("/api/one/wallet/card-access/networks/resolve");
- expect(JSON.parse(options.body)).toEqual({ iinPrefix: "411111", panLength: 16 });
+ expect(JSON.parse(options.body)).toEqual({ iinPrefix: "411111", panLength });
  expect(options.headers["X-Hushh-Consent"]).toBe(CONTEXT.vaultOwnerToken);
  expect(options.cache).toBe("no-store");
 });

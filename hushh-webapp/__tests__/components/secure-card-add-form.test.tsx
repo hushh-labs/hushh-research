@@ -24,10 +24,6 @@ function fillRequired() {
   fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "12/99" } });
 }
 
-function openAdditional() {
-  const summary = screen.getByText("Additional details");
-  if (!summary.closest("details")?.open) fireEvent.click(summary);
-}
 
 function submit() {
   fireEvent.submit(screen.getByTestId("secure-card-add-form"));
@@ -87,7 +83,7 @@ it("fills readable scan details only after crop confirmation and never saves aut
   scan.read.mockResolvedValue(reading({ pan: "5555555555554444", cardholderName: "Scanned Owner", expiry: "11/99" }));
   const save = vi.fn(); render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
   expect(screen.getByRole("button", { name: "Scan card" }).querySelector("img")).not.toBeNull();
-  await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+  await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
   expect(screen.getByLabelText("Name on card")).toHaveValue("Scanned Owner"); expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"); expect(save).not.toHaveBeenCalled();
   expect(scan.read).toHaveBeenCalledWith(expect.any(Blob), expect.any(AbortSignal), { corners: expect.any(Array) });
 });
@@ -107,7 +103,7 @@ it.each([{}, { expiry: "11/99" }])("keeps toolbar scanning reachable after an un
   fireEvent.click(screen.getByRole("button", { name: "Take photo", exact: true }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Read card", exact: true })).not.toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: "Read card", exact: true }));
-  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
   expect(scan.pick).toHaveBeenCalledWith("camera", expect.any(AbortSignal));
   expect(screen.getByRole("button", { name: "Choose from photos", exact: true })).toBeEnabled();
   expect(save).not.toHaveBeenCalled();
@@ -126,19 +122,19 @@ it.each(["cancel", "inactive", "unmount"])("drops late recognition after %s", as
   if (exit === "cancel") fireEvent.click(screen.getByRole("button", { name: "Cancel scan" })); else if (exit === "inactive") view.rerender(<SecureCardAddForm active={false} onSubmit={save} />); else view.unmount();
   expect(signal.aborted).toBe(true); await act(async () => finish(reading({ pan: "5555555555554444" })));
   if (exit === "inactive") { expect(screen.getByLabelText("Card number")).toHaveValue(""); view.rerender(<SecureCardAddForm active onSubmit={save} />); }
-  if (exit !== "unmount") expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242"); expect(save).not.toHaveBeenCalled();
+  if (exit !== "unmount") expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242"); expect(save).not.toHaveBeenCalled();
 });
 it("uses native camera and gallery and preserves the draft on cancellation", async () => {
   scan.native.mockReturnValue(true); scan.pick.mockResolvedValue(null); render(<SecureCardAddForm onSubmit={vi.fn()} />); fillRequired();
   fireEvent.click(screen.getByRole("button", { name: "Take photo" })); await waitFor(() => expect(scan.pick).toHaveBeenCalledWith("camera", expect.any(AbortSignal)));
   await waitFor(() => expect(screen.getByRole("button", { name: "Choose from photos" })).not.toBeDisabled()); fireEvent.click(screen.getByRole("button", { name: "Choose from photos" }));
-  await waitFor(() => expect(scan.pick).toHaveBeenCalledWith("photos", expect.any(AbortSignal))); expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242"); expect(scan.read).not.toHaveBeenCalled();
+  await waitFor(() => expect(scan.pick).toHaveBeenCalledWith("photos", expect.any(AbortSignal))); expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242"); expect(scan.read).not.toHaveBeenCalled();
 });
 it("blocks submission when the Add surface becomes inactive", () => {
   const save = vi.fn(), view = render(<SecureCardAddForm onSubmit={save} />); fillRequired(); view.rerender(<SecureCardAddForm active={false} onSubmit={save} />);
   expect(screen.getByLabelText("Card number")).toBeDisabled(); submit(); expect(save).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Card number")).toHaveValue("");
-  view.rerender(<SecureCardAddForm active onSubmit={save} />); expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+  view.rerender(<SecureCardAddForm active onSubmit={save} />); expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
 });
 it("hides the previous owner's private preview before passive draft cleanup", async () => {
   const photo = new Blob(["synthetic flattened pixels"], { type: "image/png" }), observations: boolean[] = [];
@@ -150,16 +146,18 @@ it("hides the previous owner's private preview before passive draft cleanup", as
   context = { userId: "owner-b", vaultOwnerToken: "synthetic-b" }; view.rerender(form());
   expect(observations).toEqual([false]); expect(screen.queryByTestId("wallet-card-face")).toBeNull(); expect(screen.getByLabelText("Card number")).toHaveValue("");
 });
-it("shows a neutral label and explains a failed backend lookup", async () => {
+it("requires a manual network when backend identification is unavailable", async () => {
   networkApi.resolve.mockRejectedValue(new Error("private lookup diagnostic"));
   const save = vi.fn().mockResolvedValue(undefined);
   render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
-  expect(await screen.findByText("Network identification is unavailable. Your card will use a neutral Card label.")).toBeInTheDocument();
-  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect");
+  expect(await screen.findByText("Choose the card network to continue.")).toBeInTheDocument();
+  expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect");
   expect(screen.queryByText("private lookup diagnostic")).toBeNull();
   submit();
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ nickname: "Card", brand: undefined })));
+  await screen.findByTestId("secure-card-errors");
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Card network")).toHaveAttribute("aria-invalid", "true");
 });
 
 it("explains ambiguous networks without displaying a guessed brand", async () => {
@@ -167,7 +165,7 @@ it("explains ambiguous networks without displaying a guessed brand", async () =>
   render(<SecureCardAddForm onSubmit={vi.fn()} scanEnabled={false} />);
   fillRequired();
   expect(await screen.findByText("This number matches more than one network. Choose the network printed on your card.")).toBeInTheDocument();
-  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect");
+  expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect");
 });
 
 it("discards a late reply for a previous issuer prefix", async () => {
@@ -179,10 +177,10 @@ it("discards a late reply for a previous issuer prefix", async () => {
   await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledOnce());
   const signal = networkApi.resolve.mock.calls[0][2] as AbortSignal;
   fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "5555555555554444" } });
-  await waitFor(() => expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard"));
+  await waitFor(() => expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect · Mastercard"));
   expect(signal.aborted).toBe(true);
   await act(async () => finish({ network: "amex", source: "prefix", candidates: [] }));
-  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard");
+  expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect · Mastercard");
 });
 
 it("hides the previous network when the owner authorization changes", async () => {
@@ -192,12 +190,12 @@ it("hides the previous network when the owner authorization changes", async () =
   const save = vi.fn();
   const view = render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
-  await waitFor(() => expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Visa"));
+  await waitFor(() => expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect · Visa"));
   view.rerender(<SecureCardAddForm onSubmit={save} scanEnabled={false} getNetworkContext={() => ({ userId: "owner", vaultOwnerToken: "renewed-consent" })} />);
-  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent(/^Auto-detect$/);
+  expect(screen.getByLabelText("Card network")).toHaveTextContent(/^Auto-detect$/);
   await waitFor(() => expect(networkApi.resolve).toHaveBeenCalledTimes(2));
   await act(async () => finish({ network: "mastercard", source: "prefix", candidates: [] }));
-  expect(screen.getByLabelText("Card network (optional)")).toHaveTextContent("Auto-detect · Mastercard");
+  expect(screen.getByLabelText("Card network")).toHaveTextContent("Auto-detect · Mastercard");
 });
 
 it("offers a new backend network and distinguishes owner selection from identification", async () => {
@@ -205,8 +203,7 @@ it("offers a new backend network and distinguishes owner selection from identifi
   render(<SecureCardAddForm onSubmit={vi.fn()} />);
   fillRequired();
   expect(await screen.findByText("Network identified from the card prefix. This does not verify the card or its issuer.")).toBeInTheDocument();
-  openAdditional();
-  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+  fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "FUTURE NETWORK" }));
   expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
 });
@@ -215,8 +212,7 @@ it("explains an incompatible manual network length and recovers after correction
   const save = vi.fn().mockResolvedValue(undefined);
   render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
   fillRequired();
-  openAdditional();
-  fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+  fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "American Express", exact: true }));
   expect(await screen.findByText("The card number length does not match the selected network.")).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
@@ -229,4 +225,26 @@ it("explains an incompatible manual network length and recovers after correction
   expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
   submit();
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "amex", pan: "378282246310005" })));
+});
+
+
+it.each([
+  ["911111111116", "Other", "other", "9111 1111 1116"],
+  ["378282246310005", "American Express", "amex", "3782 8224 6310 005"],
+  ["4242424242424242", "Visa", "visa", "4242 4242 4242 4242"],
+])("formats and saves a %s number without persisting separators", async (pan, label, brand, grouped) => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm onSubmit={save} scanEnabled={false} />);
+  fireEvent.change(screen.getByLabelText("Card number"), { target: { value: pan } });
+  fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Synthetic Owner" } });
+  fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "1230" } });
+  expect(screen.getByLabelText("Card number")).toHaveValue(grouped);
+  expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("12/30");
+  expect(screen.queryByText("Additional details")).toBeNull();
+  expect(screen.getByLabelText("Issuing region")).toBeVisible();
+  fireEvent.keyDown(screen.getByLabelText("Card network"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: label, exact: true }));
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
+  fireEvent.click(screen.getByTestId("secure-card-save"));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan, brand, expiryMonth: 12, expiryYear: 2030 })));
 });

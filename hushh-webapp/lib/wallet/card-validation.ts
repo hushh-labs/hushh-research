@@ -45,7 +45,7 @@ const BRAND_PAN_LENGTHS: Readonly<Record<KnownCardBrand, readonly number[]>> = {
   mir: [16, 17, 18, 19],
   elo: [16],
   verve: [16, 18, 19],
-  other: [13, 14, 15, 16, 17, 18, 19],
+  other: [12, 13, 14, 15, 16, 17, 18, 19],
 };
 
 /** Validate an already identified/selected network; never infer one from a PAN. */
@@ -113,13 +113,13 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   }
   const region = String(input.issuingRegion ?? "").trim().toUpperCase();
 
-  if (!/^\d{13,19}$/.test(digits)) {
+  if (!/^\d{12,19}$/.test(digits)) {
     errors.push("pan_length_invalid");
   } else if (/^(\d)\1+$/.test(digits) || (brand !== "unionpay" && !luhnValid(digits))) {
     errors.push("pan_checksum_invalid");
   }
 
-  if (/^\d{13,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
+  if (/^\d{12,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
     errors.push("pan_length_invalid_for_brand");
   }
 

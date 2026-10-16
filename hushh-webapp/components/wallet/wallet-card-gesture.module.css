@@ -24,7 +24,7 @@
 .controls { padding: 8px !important; gap: 4px !important; }
 
 @layer base {
-  /* This group has no heading; don't apply Profile's heading margin to its box. */
-  .controls :global([data-testid="settings-group"] > [data-slot="settings-group-shell"]:first-child) { margin-top: 0 !important; }
+  /* Trim Profile's 12px heading margin by 75%; keep the close target 44px. */
+  .controls.controls :global([data-testid="settings-group"] > [data-slot="settings-group-shell"]:first-child) { margin-top: 3px !important; }
   .controlHeader :global(.ui-text-row-label) { font-family: var(--font-app-body); font-size: 13px !important; line-height: 1.22 !important; font-weight: 400 !important; }
 }

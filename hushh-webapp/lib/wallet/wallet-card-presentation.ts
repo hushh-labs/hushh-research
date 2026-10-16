@@ -84,6 +84,16 @@ export function formatCardExpiry(month: number, year: number): string {
   return `${String(month).padStart(2, "0")}/${String(year).slice(-2)}`;
 }
 
+/** Predictable groups while entering partial and variable-length numbers. */
+export function formatCardNumberInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 19).match(/.{1,4}/g)?.join(" ") ?? "";
+}
+
+export function formatCardExpiryInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 6);
+  return digits.length < 2 ? digits : `${digits.slice(0, 2)}/${digits.slice(2)}`;
+}
+
 /**
  * Face tones. Hussh's own, deliberately not the networks' trade dress: two
  * Visa cards should still be told apart at a glance. Every tone is dark

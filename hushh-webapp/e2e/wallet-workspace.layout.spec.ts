@@ -218,7 +218,7 @@ async function open(
   await page.route(`${origin}/**`, async (route) => {
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
-    if (assetPath === "/wallet/apple-wallet-icon.png") {
+    if (assetPath === "/wallet/apple-wallet-transparent-v1.png") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/png" });
       return;
     }
@@ -230,7 +230,7 @@ async function open(
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
-    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[12]\.svg$/.test(assetPath)) {
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[123]\.svg$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
       return;
     }
@@ -688,8 +688,7 @@ for (const width of [320, 393, 1440]) {
       expect(networkBounds.x).toBeGreaterThanOrEqual(box.x + box.width);
       expect(networkBounds.y).toBeGreaterThanOrEqual(bounds[1]!.y + bounds[1]!.height);
     }
-    await page.getByText("Additional details", { exact: true }).click();
-    for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
+    for (const label of ["Name on card", "Card network", "Expiry (MM/YY)", "Issuing region"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
     const save = form.getByTestId("secure-card-save");
@@ -718,19 +717,71 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
-test("typing replaces the card-number placeholder instead of appending to Xs", async ({ page }) => {
+test("profile swipe details keep a compact header gap and a full close target", async ({ page }) => {
+  await open(page, 393, "light", {}, { shell: true });
+  await mount(page);
+  const card = page.getByTestId("wallet-add-collection").getByRole("button", { name: "Agent One Profile", exact: true });
+  await card.press("ArrowLeft");
+  const close = page.getByRole("button", { name: "Back to card", exact: true });
+  await expect(close).toBeVisible();
+  const geometry = await close.evaluate(button => {
+    const header = button.parentElement!;
+    const box = header.parentElement!.querySelector('[data-slot="settings-group-shell"]')!;
+    return { gap: box.getBoundingClientRect().top - header.getBoundingClientRect().bottom, target: button.getBoundingClientRect().height };
+  });
+  expect(geometry.gap).toBeCloseTo(3, 0);
+  expect(geometry.target).toBeCloseTo(44, 1);
+  await page.screenshot({ path: test.info().outputPath("wallet-profile-compact-header.png") });
+});
+
+test("typing groups card numbers and inserts expiry separators while allowing middle edits", async ({ page }) => {
   await open(page, 393, "light", {}, { shell: true });
   await mount(page);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   const input = page.getByTestId("secure-card-pan-input");
-  await input.click();
-  await input.pressSequentially("4242");
-  await expect(input).toHaveValue("4242");
-  expect(await input.evaluate((node) => node.matches(":placeholder-shown"))).toBe(false);
-  await input.fill("5555 5555 5555 4444");
-  await expect(input).toHaveValue("5555555555554444");
+  await input.pressSequentially("42424242");
+  await expect(input).toHaveValue("4242 4242");
+  await input.evaluate((node: HTMLInputElement) => { node.focus(); node.setSelectionRange(5, 5); });
+  await input.press("Backspace");
+  await expect(input).toHaveValue("4244 242");
+  expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart)).toBe(3);
+  await input.press("9");
+  await expect(input).toHaveValue("4249 4242");
+  for (const [digits, grouped] of [["911111111116", "9111 1111 1116"], ["378282246310005", "3782 8224 6310 005"], ["4242424242424242", "4242 4242 4242 4242"]]) {
+    await input.fill("");
+    await input.pressSequentially(digits);
+    await expect(input).toHaveValue(grouped);
+  }
+  const expiry = page.getByLabel("Expiry (MM/YY)", { exact: true });
+  await expiry.pressSequentially("12");
+  await expect(expiry).toHaveValue("12/");
+  await expiry.press("Backspace");
+  await expect(expiry).toHaveValue("1");
+  await expiry.pressSequentially("230");
+  await expect(expiry).toHaveValue("12/30");
+  await expiry.fill("08/2032");
+  await expect(expiry).toHaveValue("08/2032");
   await input.fill("");
   expect(await input.evaluate((node) => node.matches(":placeholder-shown"))).toBe(true);
+});
+
+test("Back unwinds Add and Sharing to the previous selected Wallet card", async ({ page }) => {
+  await open(page, 393, "light", {}, { shell: true });
+  await mount(page);
+  await page.getByRole("button", { name: "Everyday", exact: true }).click();
+  await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  await page.getByLabel("Name on card", { exact: true }).fill("Draft Owner");
+  await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { __walletBack: () => boolean }).__walletBack())).toBe(true);
+  await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Draft Owner");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Everyday, ending 4242" })).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => window.__walletEvents ?? [])).not.toContain("reveal:card_a");
+  await page.screenshot({ path: test.info().outputPath("wallet-back-restored-card.png") });
 });
 
 test("Add saves typed card details, keeps optional fields empty, and preserves its finish after remount", async ({ page }) => {
@@ -740,8 +791,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   const form = page.getByTestId("secure-card-add-form");
   await form.getByLabel("Card number", { exact: true }).fill("5555 5555 5555 4444");
   await form.getByLabel("Name on card", { exact: true }).fill("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
-  await form.getByText("Additional details", { exact: true }).click();
-  await form.getByLabel("Card network (optional)", { exact: true }).click();
+  await form.getByLabel("Card network", { exact: true }).click();
   await page.getByRole("option", { name: "Mastercard", exact: true }).click();
   await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
   await form.getByRole("button", { name: "Add to Wallet", exact: true }).click();
@@ -1190,6 +1240,26 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
   await expect(sharing.getByRole("button", { name: "Sent cards", exact: true })).toHaveCount(0);
   await expect(sharing.getByRole("region", { name: "Received card history", exact: true })).toBeInViewport();
 });
+
+for (const width of [320, 1024]) {
+  test(`timed shared profile displays the real card artwork at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light");
+    await page.addScriptTag({ content: 'window.__visitorPreview={photo:"",shared:true};' });
+    await mount(page, false);
+    const face = page.getByTestId("shared-profile-card-face");
+    await expect(face.locator('[data-agent-card="profile"]')).toHaveAttribute("data-artwork-ready", "true");
+    await expect(face.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+    const rendered = await face.locator("img").evaluate(async (img: HTMLImageElement) => ({ width: img.getBoundingClientRect().width, height: img.getBoundingClientRect().height, svg: await (await fetch(img.src)).text() }));
+    expect(rendered.width / rendered.height).toBeCloseTo(ISO_RATIO, 2);
+    expect(rendered.svg).toContain("Alex Morgan");
+    expect(rendered.svg).not.toContain("data-wallet-qr");
+    expect(rendered.svg).not.toContain("MEMBER SINCE");
+    expect(rendered.svg).not.toContain("WALLET ID");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath("wallet-shared-profile-card.png"), fullPage: true });
+  });
+}
 
 for (const width of [320, 393, 1024]) {
   test(`Visitor preview keeps photo, details and QR readable at ${width}px`, async ({ page }, testInfo) => {

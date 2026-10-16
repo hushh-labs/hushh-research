@@ -1,4 +1,6 @@
 import React from "react";
+import { unwindBackLayer } from "../../lib/navigation/back-layers";
+(window as unknown as { __walletBack: () => boolean }).__walletBack = () => unwindBackLayer("/one/wallet");
 import { PublicWalletCardView, normalizePublicWalletCard } from "../../components/wallet-card/public-card-view";
 import { createRoot } from "react-dom/client";
 
@@ -58,7 +60,7 @@ function ArtworkGallery() {
 }
 
 const root = createRoot(document.getElementById("root")!);
-const visitor = (window as unknown as { __visitorPreview?: { photo: string; long?: boolean } }).__visitorPreview;
+const visitor = (window as unknown as { __visitorPreview?: { photo: string; long?: boolean; shared?: boolean } }).__visitorPreview;
 function VisitorPreview() {
   const card = normalizePublicWalletCard({
     fullName: visitor?.long ? "Alexandra Catherine Montgomery-Wellington" : "Alex Morgan",
@@ -69,7 +71,7 @@ function VisitorPreview() {
   })!;
   const profileUrl = "https://one.hushh.ai/c/abcdefghijklmnop";
   return <AppPageShell width="agent" fitContent><AppPageContentRegion>
-    <PublicWalletCardView card={card} embedded profileUrl={profileUrl} />
+    <PublicWalletCardView card={card} embedded visualCard={visitor?.shared} profileUrl={visitor?.shared ? undefined : profileUrl} />
   </AppPageContentRegion></AppPageShell>;
 }
 let revision = 0;
