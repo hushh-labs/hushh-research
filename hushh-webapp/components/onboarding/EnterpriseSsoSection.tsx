@@ -30,7 +30,7 @@ const SSO_BTN_CLASS =
 // absolutely positioned one is what the light theme paints (see AuthStepLight.module.css).
 function ShieldGlyph() {
   return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+    <svg className="h-[25px] w-[25px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
       <path d="M12 3 5 6v5.5c0 4.2 2.8 7.9 7 9.5 4.2-1.6 7-5.3 7-9.5V6l-7-3Z" />
       <path d="m9 12 2.2 2.2L15.5 10" strokeLinecap="round" />
     </svg>
