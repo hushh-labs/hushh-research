@@ -18,10 +18,14 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared-renderer recovery and release gate — 2026-10-16
 
-The current recovery integrates main through `847179b6dd`, including Calendar's
+The current recovery integrates main through `190c77fab6`, including Calendar's
 local-time/invitation corrections and the intentional Mail connection-screen
 rollback, Wallet CVV entry/presentation warming and independent email/Microsoft
 authentication, immediate onboarding-picked names and tighter welcome spacing.
+It also preserves main's UAT Drive request-flow restoration and retirement
+migration: continuous collection processing and packet listings are disabled,
+not deleted. This source integration does not execute that migration or deploy
+the restored workers.
 Authentication still grants identity, not vault or consent
 authority. Receipt request fences
 and Wallet owner/visit/session fences remain intact; warmed Wallet content is
