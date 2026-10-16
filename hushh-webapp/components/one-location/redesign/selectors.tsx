@@ -38,6 +38,7 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
 import type { DurationRung } from "./duration-presets";
+import { DURATION_SELECTED_OPTION_CLASSNAME } from "./duration-option-styles";
 import {
   DURATION_EQUAL_BUTTON_CLASSNAME,
   DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
@@ -139,6 +140,15 @@ export function DurationSelector({
   disabled?: boolean;
 }) {
   const labelId = useId();
+  const [selectOpen, setSelectOpen] = useState(false);
+  const [dialogBoundary, setDialogBoundary] = useState<HTMLElement | null>(null);
+  const selectTriggerRef = useCallback((trigger: HTMLButtonElement | null) => {
+    setDialogBoundary(
+      trigger?.closest<HTMLElement>(
+        '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="drawer-content"]',
+      ) ?? null,
+    );
+  }, []);
 
   return (
     // `max-w-[420px]` on the GROUP, not on the ladder inside it. The label and
@@ -191,8 +201,14 @@ export function DurationSelector({
           {...(untilStopValue ? { untilStopValue } : {})}
         />
       ) : presentation === "select" ? (
-        <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <Select
+          value={value}
+          onValueChange={onChange}
+          disabled={disabled}
+          onOpenChange={setSelectOpen}
+        >
           <SelectTrigger
+            ref={selectTriggerRef}
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
             className={cn(
@@ -207,14 +223,33 @@ export function DurationSelector({
           <SelectContent
             align="start"
             position="popper"
-            className="rounded-[14px]"
+            side="bottom"
+            collisionBoundary={dialogBoundary ?? undefined}
+            collisionPadding={dialogBoundary ? 16 : undefined}
+            className={cn(
+              "rounded-[14px]",
+              dialogBoundary && "max-h-[min(var(--radix-select-content-available-height),40dvh)]",
+            )}
           >
             {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                className={dialogBoundary ? "min-h-11 py-2.5" : undefined}
+              >
                 {option.label}
               </SelectItem>
             ))}
           </SelectContent>
+          {/* Radix portals the list, so reserve its space in modal layouts.
+              The dialog grows naturally and keeps its viewport/keyboard cap;
+              short screens scroll the options inside the dialog boundary. */}
+          {selectOpen && dialogBoundary ? (
+            <div
+              aria-hidden="true"
+              style={{ height: `min(${options.length * 44 + 18}px, 40dvh)` }}
+            />
+          ) : null}
         </Select>
       ) : (
         <div
@@ -241,7 +276,7 @@ export function DurationSelector({
                   equalWidthButtons && DURATION_EQUAL_BUTTON_CLASSNAME,
                   active
                     ? (activeClassName ??
-                      "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]")
+                      DURATION_SELECTED_OPTION_CLASSNAME)
                     : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >

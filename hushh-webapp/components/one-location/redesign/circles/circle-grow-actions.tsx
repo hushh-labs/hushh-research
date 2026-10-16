@@ -357,13 +357,8 @@ export function CircleInvitePeopleSheet({
                             />
                           }
                           title={
-                            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
-                                {connection.displayName}
-                              </span>
-                              {connection.connectedFromContacts ? (
-                                <ContactSourceBadge />
-                              ) : null}
+                            <span className="block min-w-0 truncate">
+                              {connection.displayName}
                             </span>
                           }
                           description="Connected on One"
@@ -371,15 +366,20 @@ export function CircleInvitePeopleSheet({
                           ariaLabel={`${selected ? "Deselect" : "Select"} ${connection.displayName} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
                           disabled={!selected && atCapacity}
                           trailing={
-                            <span
-                              className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded-full border",
-                                selected
-                                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                  : "border-border bg-background",
-                              )}
-                            >
-                              {selected ? <Check className="h-4 w-4" /> : null}
+                            <span className="flex shrink-0 items-center gap-3">
+                              {connection.connectedFromContacts ? (
+                                <ContactSourceBadge />
+                              ) : null}
+                              <span
+                                className={cn(
+                                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                                  selected
+                                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                                    : "border-border bg-background",
+                                )}
+                              >
+                                {selected ? <Check className="h-4 w-4" /> : null}
+                              </span>
                             </span>
                           }
                           onClick={() =>
