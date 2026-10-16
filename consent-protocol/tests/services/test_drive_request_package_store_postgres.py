@@ -162,6 +162,101 @@ async def test_46_candidates_survive_restart_and_package_digest_binds_all_source
         )
 
 
+async def test_failed_discovery_is_not_reported_as_endless_package_preparation(
+    packages, request_bulk, sharing
+):
+    request_id, search = await request_search(packages, request_bulk, sharing, count=25)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='failed',
+                 evaluation_status='pending',error_code='operation_not_allowed'
+                 WHERE job_id=:job"""),
+            {"job": search},
+        )
+    review = await packages.package_review(user_id="owner", request_id=request_id)
+    assert review["status"] == "unavailable"
+    assert review["searchErrorCode"] == "operation_not_allowed"
+    assert review["candidateCount"] == 25
+    assert review["canAllow"] is False
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+
+
+async def test_failed_request_retry_keeps_job_cursor_results_and_batch_identity(
+    packages, request_bulk, sharing
+):
+    request_id, search = await request_search(packages, request_bulk, sharing, count=25)
+    with sharing.db.engine.begin() as connection:
+        row = (
+            connection.execute(
+                text("SELECT * FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": search},
+            )
+            .mappings()
+            .one()
+        )
+        checkpoint = packages._checkpoint(row)
+        checkpoint.update(
+            authority_mode="agent_package",
+            page_token="next-provider-page",  # noqa: S106 - synthetic provider cursor
+            v1_live_request=True,
+        )
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='failed',
+                error_code='operation_not_allowed',matched=25,
+                checkpoint_envelope=CAST(:checkpoint AS jsonb) WHERE job_id=:job"""),
+            {
+                "job": search,
+                "checkpoint": packages._seal(
+                    checkpoint, "owner", search, "owner-search-checkpoint"
+                ),
+            },
+        )
+    recovered, changed = await packages.retry_failed_request(
+        user_id="owner",
+        request_id=request_id,
+        request_revision=checkpoint["request_revision"],
+        authority_mode="agent_package",
+    )
+    assert changed is True
+    assert recovered["status"] == "queued" and recovered["jobId"] == search
+    with sharing.db.engine.begin() as connection:
+        row = (
+            connection.execute(
+                text("SELECT * FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": search},
+            )
+            .mappings()
+            .one()
+        )
+        assert packages._checkpoint(row)["page_token"] == "next-provider-page"
+        assert packages._checkpoint(row)["last_recovered_error_code"] == "operation_not_allowed"
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": search},
+            ).scalar_one()
+            == 25
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_owner_search_jobs")).scalar_one()
+            == 1
+        )
+    repeated, changed = await packages.retry_failed_request(
+        user_id="owner",
+        request_id=request_id,
+        request_revision=checkpoint["request_revision"],
+        authority_mode="agent_package",
+    )
+    assert changed is False and repeated["jobId"] == search
+
+
 async def test_v1_first_25_prioritizes_hints_then_resumes_every_generic_and_old_file(
     packages, request_bulk, sharing, monkeypatch
 ):

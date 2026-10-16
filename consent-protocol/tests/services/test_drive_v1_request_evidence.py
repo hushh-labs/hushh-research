@@ -123,6 +123,77 @@ def test_broad_financial_request_uses_content_not_filename():
     assert checked.documents[0].decision == "include"
 
 
+MEETING_REQUEST = {
+    "purpose": "3 months of meeting notes",
+    "periodStart": "2026-09-02",
+    "periodEnd": "2026-10-02",
+    "semanticIntent": "other",
+}
+
+
+def _meeting_batch(body, *, event="2026-09-29", role="event_date"):
+    batch = _batch(body, start=event, end=event)
+    batch.documents[0].record_type_claim = "meeting notes"
+    batch.documents[0].entity_claim = None
+    batch.documents[0].period_role = role
+    return batch
+
+
+def test_meeting_notes_accept_sync_standup_with_cited_event_date():
+    body = (
+        "Example Team Sync and Standup — 2026/09/29. "
+        "Decisions: follow up on onboarding. Action items: send draft."
+    )
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body, name="Untitled")
+    )
+    assert checked.documents[0].decision == "include"
+
+
+def test_meeting_notes_accept_past_standup_decisions_as_bullets():
+    body = (
+        "Team Standup 2026/09/29. Attendees: engineering and product.\n"
+        "Decisions\n- Ship the revised onboarding checklist.\n"
+        "Action items\n1. Review the rollout tomorrow."
+    )
+    checked = verify_v1_document_batch(
+        _meeting_batch(body), request=MEETING_REQUEST, retrieved=_retrieved(body, name="doc_001")
+    )
+    assert checked.documents[0].decision == "include"
+
+
+@pytest.mark.parametrize(
+    ("body", "event", "role"),
+    [
+        ("Team Sync Agenda — 2026/09/29. Planned discussion topics.", "2026-09-29", "event_date"),
+        ("Q3 budget report — 2026/09/29. Decisions: cut costs.", "2026-09-29", "event_date"),
+        (
+            "Team Sync Notes — 2026/08/01. Decisions: follow up.",
+            "2026-08-01",
+            "event_date",
+        ),
+        (
+            "Team Sync Notes — 2026/09/29. Decisions: follow up.",
+            "2026-09-29",
+            "reporting_period",
+        ),
+        (
+            "Team Sync Notes. Next meeting scheduled 2026/09/29. Decisions: follow up.",
+            "2026-09-29",
+            "event_date",
+        ),
+    ],
+)
+def test_meeting_notes_abstain_on_unrelated_old_or_wrong_date_evidence(body, event, role):
+    checked = verify_v1_document_batch(
+        _meeting_batch(body, event=event, role=role),
+        request=MEETING_REQUEST,
+        retrieved=_retrieved(body),
+    )
+    assert checked.documents[0].decision == "uncertain"
+    assert checked.documents[0].confidence == 0
+
+
 def test_false_issuer_claim_cannot_use_a_different_issuers_citation():
     body = "Morgan Stanley brokerage account statement. Period: September 1 to October 9, 2026."
     checked = verify_v1_document_batch(

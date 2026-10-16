@@ -75,6 +75,93 @@ def _v1_statement_plan():
     }
 
 
+def test_meeting_notes_expand_to_sync_and_standup_without_using_file_dates():
+    purpose = {
+        "purpose": "3 months of meeting notes",
+        # Explicit form dates narrow the prose; the actual content event date
+        # must be checked downstream, not Drive's modifiedTime.
+        "periodStart": "2026-09-02",
+        "periodEnd": "2026-10-02",
+    }
+    plan = {
+        "mode": "find",
+        "terms": ["meeting", "notes"],
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "file_kind": "document",
+        "time_intent": "file_activity",  # A bad model plan cannot change date semantics.
+    }
+    queries, period = compile_request_queries(plan, purpose, "Asia/Kolkata", v1_live_request=True)
+    assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
+    compiled = [query["arguments"]["query"] for query in queries]
+    assert "standup" in compiled[1] and "sync" in compiled[1]
+    assert all(
+        "modifiedTime >=" not in query and "createdTime >=" not in query for query in compiled
+    )
+    assert len(queries) <= 5
+    structural = compiled[-1]
+    assert "fullText" not in structural and "title" not in structural
+    assert all(f"mimeType = '{mime}'" in structural for mime in LIVE_SUPPORTED_TYPES)
+
+
+@pytest.mark.asyncio
+async def test_meeting_note_structural_sweep_keeps_generic_names_for_content_evaluation():
+    purpose = {
+        "purpose": "3 months of meeting notes",
+        "periodStart": "2026-09-02",
+        "periodEnd": "2026-10-02",
+    }
+    plan = {
+        "mode": "find",
+        "terms": ["meeting", "notes"],
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "file_kind": "document",
+        "time_intent": "document_coverage",
+    }
+    queries, _ = compile_request_queries(plan, purpose, "Asia/Kolkata", v1_live_request=True)
+    structural = queries[-1]["arguments"]["query"]
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id == "owner" and tool_name == "search_files"
+        assert arguments["query"] == structural
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    _provider_file(
+                        "generic-doc", "Untitled", "application/vnd.google-apps.document"
+                    ),
+                    _provider_file("generic-scan", "scan_001.pdf", "application/pdf"),
+                    _provider_file("generic-image", "IMG_0929.jpg", "image/jpeg"),
+                ],
+                "nextPageToken": None,
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    checkpoint = _v1_structural_checkpoint(plan, queries)
+    checkpoint["request"] = {"query": purpose["purpose"]}
+    service = DriveOwnerSearchService(transport=SimpleNamespace(read_owner_search_page=read))
+    _, files, incomplete, _ = await service._page({"user_id": "owner", "checkpoint": checkpoint})
+    assert [item["id"] for item in files] == ["generic-doc", "generic-scan", "generic-image"]
+    assert all(item["requestEvidence"]["assessment"] == "unverified" for item in files)
+    assert incomplete is False
+
+    # A generic file inside a topical folder must reach the same evaluator.
+    checkpoint["request_notes"] = True
+    children, child_incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [_provider_file("folder-child", "Untitled", "application/vnd.google-apps.document")],
+        folder_scoped=True,
+        drive_id=None,
+    )
+    assert [item["id"] for item in children] == ["folder-child"]
+    assert child_incomplete is False
+
+
 def _v1_structural_checkpoint(plan, queries):
     return {
         "v1_live_request": True,

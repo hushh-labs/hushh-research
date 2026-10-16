@@ -19,6 +19,10 @@ from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+)
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -468,14 +472,16 @@ class GoogleDriveRestTransport:
             page_size=page_size,
             page_token=page_token,
             order_by=None if full_text else order,
-            **({"owner_search_page": True} if page_size > 100 else {}),
+            **({"owner_search_page": True} if page_size > FILE_LIST_PAGE_SIZE_MAX else {}),
             **({"drive_id": drive_id} if drive_id is not None else {}),
             **({"resource_keys": {folder: key}} if key is not None else {}),
         )
         return _project_page(page, _page_files(page, max_files=page_size))
 
     async def _owner_search_files(self, arguments: dict[str, Any], token: str) -> dict:
-        return await self._search_files(arguments, token, page_size_limit=1000)
+        return await self._search_files(
+            arguments, token, page_size_limit=OWNER_SEARCH_PAGE_SIZE_MAX
+        )
 
     async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
         _only(arguments, {"pageSize", "pageToken"})

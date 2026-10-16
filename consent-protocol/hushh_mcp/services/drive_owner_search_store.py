@@ -678,6 +678,101 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         await self._transaction(operation)
 
+    async def retry_failed_request(self, *, user_id, request_id, request_revision, authority_mode):
+        """Resume a failed request at its committed cursor and stable result positions.
+
+        This is an explicit request action, not a scheduler loop. Retaining the
+        job ID and result rows also retains any progressive batch bindings.
+        """
+        client = _identity(request_id)
+        if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
+            raise DriveReadError("invalid_argument")
+
+        def operation(connection):
+            self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
+            current = self._access(connection, user_id)
+            request = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests WHERE user_id=:user
+                   AND request_id=:request FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_owner_search_jobs WHERE user_id=:user
+                   AND client_request_id=:request AND expires_at>clock_timestamp()
+                   FOR UPDATE""",
+                {"user": user_id, "request": client},
+            )
+            if row is None:
+                return None, False
+            if row["status"] != "failed":
+                return self._view(row), False
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            checkpoint = self._checkpoint(row)
+            if (
+                request is None
+                or request["status"] != "pending"
+                or request["access_stop_requested_at"] is not None
+                or request["expires_at"] <= now
+                or request["bulk_search_started_at"] is None
+                or request["revision"] != request_revision
+                or row["connection_generation"] != current["connection_generation"]
+                or checkpoint.get("request_origin_id") != client
+                or checkpoint.get("request_revision") != request_revision
+                or checkpoint.get("authority_mode") != authority_mode
+                or (request["agent_package_required"] is True)
+                != (authority_mode == "agent_package")
+                or authority_mode == "agent_package"
+                and row["evaluation_status"] != "pending"
+            ):
+                raise DriveReadError("search_superseded")
+            if authority_mode != "owner":
+                self.background_current(
+                    connection,
+                    user_id=user_id,
+                    generation=current["connection_generation"],
+                )
+            if self._row(
+                connection,
+                """SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+                   AND job_id<>:job AND status IN ('queued','running') LIMIT 1""",
+                {"user": user_id, "job": row["job_id"]},
+            ):
+                raise DriveReadError("search_in_progress")
+            if authority_mode == "agent_package" and (
+                self._row(
+                    connection,
+                    """SELECT share_id FROM drive_bulk_shares WHERE user_id=:user
+                       AND (origin_request_id=:request OR search_job_id=:job) LIMIT 1""",
+                    {"user": user_id, "request": client, "job": row["job_id"]},
+                )
+                or self._row(
+                    connection,
+                    "SELECT request_id FROM drive_request_payment_orders WHERE request_id=:request LIMIT 1",
+                    {"request": client},
+                )
+            ):
+                raise DriveReadError("search_superseded")
+            checkpoint["last_recovered_error_code"] = row["error_code"]
+            updated = self._row(
+                connection,
+                """UPDATE drive_owner_search_jobs SET status='queued',error_code=NULL,
+                   retry_count=0,lease_id=NULL,lease_expires_at=NULL,
+                   next_at=clock_timestamp(),revision=revision+1,
+                   checkpoint_envelope=CAST(:checkpoint AS jsonb),updated_at=clock_timestamp()
+                   WHERE job_id=:job RETURNING *""",
+                {
+                    "job": row["job_id"],
+                    "checkpoint": self._seal(
+                        checkpoint, user_id, str(row["job_id"]), "owner-search-checkpoint"
+                    ),
+                },
+            )
+            return self._view(updated), True
+
+        return await self._transaction(operation)
+
     async def clear_legacy_completed_request(self, *, user_id, request_id):
         """Replace an old request search lacking current selection evidence.
 
@@ -1434,6 +1529,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "connection_changed",
                     "connector_unavailable",
                     "provider_response_invalid",
+                    "operation_not_allowed",
                 }
                 else "provider_unavailable"
                 if error

@@ -546,20 +546,18 @@ def entry(row: Any) -> dict[str, Any]:
     live_search = search_state in {"queued", "running"} or (
         search_state == "completed" and row.get("trusted_work_active") is True
     )
-    # V1 checks content before payment. A Trusted request needs no owner
-    # decision during this phase, even though its sealed evaluation uses the
-    # package store internally. This is presentation state, never authority.
+    # V1 checks content before payment for both Trusted and owner-reviewed
+    # requests. A running search/evaluation is not yet an owner decision.
+    # This is presentation state, never sharing authority.
     v1_checking = bool(
         request_open
         and row.get("v1_live_request") is True
         and row.get("agent_package") is True
-        and row.get("trusted_authority_ready") is True
         and row.get("owner_allowed") is not True
         and row.get("payment_status")
         not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
         and row.get("payment_reconciliation_required") is not True
         and row.get("trusted_recovery_needed") is not True
-        and preparation_code in {"trusted_auto_queued", "trusted_auto_active"}
         and (
             search_state in {"queued", "running"}
             or search_state == "completed"
@@ -570,11 +568,13 @@ def entry(row: Any) -> dict[str, Any]:
         request_open
         and row.get("v1_live_request") is True
         and row.get("agent_package") is True
-        and row.get("trusted_authority_ready") is True
         and row.get("owner_allowed") is not True
         and row.get("payment_status") is None
-        and search_state == "completed"
-        and evaluation_state in {"failed", "obsolete"}
+        and (
+            search_state in {"failed", "limited", "stopped", "expired"}
+            or search_state == "completed"
+            and evaluation_state in {"failed", "obsolete"}
+        )
     )
     legacy_progressing = bool(
         request_open
