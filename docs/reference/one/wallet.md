@@ -495,9 +495,15 @@ designs assigned automatically by the selected network during Add. It does not
 infer a bank from a sample number or claim an exact physical-card match. The
 bundled catalog is replaced by an explicitly configured private catalog.
 
-After publishing decrypted cards, Workspace recovers missing or neutral artwork
-from the approved network catalog in memory, including older saved cards.
-The normal owner read does not wait for optional artwork recovery.
+Vault unlock and the One dashboard warm a shared, memory-only Wallet display
+projection before entry. Wallet joins that protected read, including approved
+network artwork recovery for older saved cards. Returning to Wallet uses the
+same owner/session-scoped snapshot without restarting the card load. Quiet
+refreshes retain approved pixels until their original one-minute deadline;
+explicit denial hides them immediately. Lock, owner change, verification,
+vault epoch and Wallet mutation invalidate the projection. It never contains
+full card numbers, CVV, keys or consent tokens. A cold load still needs the
+protected read; unavailable artwork falls back to a readable neutral card.
 Different numbers prefer unused image digests; the full number is compared only
 inside the unlocked client. This display recovery does not write PKM, change
 credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
@@ -618,3 +624,8 @@ merge is part of this task.
 Manual entry inserts spaces after every four number digits and an expiry slash after the month. Generic Other cards support checksum-valid 12–19 digit numbers; known networks retain their own length rules, including 15-digit American Express. Formatting never adds separators to encrypted number storage or sends a full number to network lookup.
 
 Wallet swipe controls use a 3px header-to-details gap (75% less than the inherited 12px Profile margin), with a compact heading and 48px read-only summary rows; the close target remains 44px. The versioned Agent One artwork reduces the shushing mark by 20% in both dimensions; Apple Wallet actions use a transparent icon. Timed profile recipients see the canonical card face using only their permitted name; membership dates, wallet identifiers and public QR links are excluded from this projection. Existing contact actions and grant expiry/revocation still apply.
+
+The Scan to add card illustration composes the supplied shushing SVG unchanged
+on a slim black card, above a phone with gold sides. The scanner assembly has
+black faces and gold borders; the front card has no printed QR or profile text.
+The illustration and its surrounding Scan surface have transparent backgrounds.

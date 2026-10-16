@@ -1,3 +1,6 @@
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CacheService } from "@/lib/services/cache-service";
 vi.mock("@/lib/services/onboarding-local-service", () => ({
   OnboardingLocalService: {
     hasSeenWalletSwipeHint: vi.fn().mockResolvedValue(true),
@@ -36,7 +39,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: authMock.user, loading: false }),
+  useAuth: () => { publishValidatedAuthSessionOwner(authMock.user?.uid ?? null); return { user: authMock.user, loading: false }; },
 }));
 
 vi.mock("@/lib/observability/client", () => ({
@@ -88,12 +91,14 @@ vi.mock("@/lib/services/wallet-service", async () => {
       getCard: serviceMock.getCard,
       getCardSecurityCode: serviceMock.getCardSecurityCode,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
-      addCard: serviceMock.addCard,
+      addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
       matchesQuery: actual.WalletService.matchesQuery,
     },
   };
 });
 
+import { WalletPresentationResource } from "@/lib/services/wallet-presentation-resource";
+import { dispatchPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
@@ -164,10 +169,29 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByText("Your cards could not be loaded. Please try again.")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(3));
-    vaultMock.token = "renewed_after_recovery";
-    view.rerender(<WalletWorkspace />);
+    act(() => { vaultMock.token = "renewed_after_recovery"; advanceVaultSessionEpoch(); view.rerender(<WalletWorkspace />); });
     await waitFor(() => expect(serviceMock.listCardSummaries.mock.calls.some(([context]) => context.vaultOwnerToken === "renewed_after_recovery")).toBe(true));
     expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
+  });
+  it("uses preloaded cards on entry and remount without another private read", async () => {
+    publishValidatedAuthSessionOwner("user_1");
+    await WalletPresentationResource.load({ userId: "user_1", vaultKey: "vault_key", vaultOwnerToken: vaultMock.token });
+    const view = await open();
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+    view.unmount();
+    await open();
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
+  });
+  it("keeps visible cards during a quiet mutation refresh and publishes changed rows", async () => {
+    await open();
+    let finish!: (cards: ReturnType<typeof makeCards>) => void;
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    act(() => { bumpPkmInvalidationEpoch("user_1", "wallet"); dispatchPkmDomainChanged({ userId: "user_1", domain: "wallet", operation: "stored", dataVersion: null, updatedAt: null }); });
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.getByTestId("wallet-card-browser")).toBeVisible();
+    await act(async () => finish([{ ...makeCards(1)[0]!, nickname: "Changed card" }]));
+    expect(await screen.findByRole("button", { name: "Open Changed card, ending 1000" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open Card 1, ending 1001" })).toBeNull();
   });
   it("publishes the initial cards after the single artwork-aware read", async () => {
     let finish!: (cards: unknown[]) => void;
@@ -180,7 +204,7 @@ describe("Wallet video browser workspace", () => {
     expect(await screen.findByTestId("wallet-card-browser")).toBeVisible();
     expect(document.querySelector('[data-card-artwork="pending"]')).toBeNull();
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
-    expect(serviceMock.listCardSummaries).toHaveBeenCalledWith(expect.any(Object), { recoverArtwork: true });
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ recoverArtwork: true }));
   });
   it("shows a retry after the initial private read fails", async () => {
     let fail!: (reason: Error) => void;
@@ -202,7 +226,7 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(finishReload).toBeTypeOf("function"));
     const readsBeforeFocus = serviceMock.listCardSummaries.mock.calls.length;
     fireEvent.focus(window);
-    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(readsBeforeFocus + 1));
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(readsBeforeFocus));
     expect(serviceMock.listCardSummaries.mock.calls.at(-1)?.[1]).toMatchObject({ recoverArtwork: true });
     await act(async () => {});
     await act(async () => finishReload([{ ...makeCards(2)[1]!, nickname: "Updated card" }]));
@@ -452,3 +476,5 @@ describe("Wallet video browser workspace", () => {
 
 });
 vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
+
+beforeEach(() => CacheService.getInstance().clear());

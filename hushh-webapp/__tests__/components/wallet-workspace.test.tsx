@@ -1,3 +1,6 @@
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CacheService } from "@/lib/services/cache-service";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
@@ -36,7 +39,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: authMock.user, loading: false }),
+  useAuth: () => { publishValidatedAuthSessionOwner(authMock.user?.uid ?? null); return { user: authMock.user, loading: false }; },
 }));
 
 vi.mock("@/lib/observability/client", () => ({
@@ -95,7 +98,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       listCardShareReceipts: vi.fn().mockResolvedValue([]),
-      addCard: serviceMock.addCard,
+      addCard: async (...args: unknown[]) => { const saved = await serviceMock.addCard(...args); bumpPkmInvalidationEpoch("user_1", "wallet"); return saved; },
       matchesQuery: actual.WalletService.matchesQuery,
     },
   };
@@ -134,7 +137,7 @@ describe("WalletWorkspace at scale", () => {
     const view = render(<WalletWorkspace />);
     await waitFor(() => expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull());
     expect(load).toHaveBeenCalledTimes(1);
-    expect(load).toHaveBeenNthCalledWith(1, expect.any(Object), { recoverArtwork: true });
+    expect(load).toHaveBeenNthCalledWith(1, expect.any(Object), expect.objectContaining({ recoverArtwork: true }));
     now += elapsed; fireEvent.focus(window);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     expect(Boolean(view.container.querySelector('[data-card-artwork="catalog"]'))).toBe(elapsed < 60_000);
@@ -725,3 +728,5 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
   });
 });
+
+beforeEach(() => CacheService.getInstance().clear());

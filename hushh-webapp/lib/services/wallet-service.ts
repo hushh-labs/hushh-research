@@ -442,7 +442,7 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
-    options?: { recoverArtwork?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
+    options?: { recoverArtwork?: boolean; failOnArtworkUnavailable?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
@@ -479,7 +479,7 @@ export class WalletService {
       const validateSaved = async () => {
         for (let offset = 0; offset < catalogCards.length; offset += 24) {
           const batch = savedReferences.slice(offset, offset + 24);
-          const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(() => []);
+          const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(error => { if (options?.failOnArtworkUnavailable) throw error; return []; });
           assertDisplayCurrent();
           const rejected = batch.flatMap((artwork, index) => !approvals[index]?.approved ? [{ cardId: catalogCards[offset + index]!.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }] : []);
           if (rejected.length) options?.onArtworkRejected?.(rejected);
@@ -503,7 +503,7 @@ export class WalletService {
                 if (final?.approved && final.replacement?.catalogVersion === catalogVersion && final.replacement.variant.assetId === variant.assetId && final.replacement.variant.digest === variant.digest) {
                   row.artwork = { ...cleaned, allowOverlay: final.replacement.variant.allowOverlay, evidence: artwork.evidence };
                 } else options?.onArtworkRejected?.([{ cardId: row.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }]);
-              } catch { assertDisplayCurrent(); }
+              } catch (error) { assertDisplayCurrent(); if (options?.failOnArtworkUnavailable) throw error; }
             }
           };
           await Promise.all(Array.from({ length: Math.min(4, batch.length) }, refreshSaved));
@@ -564,7 +564,7 @@ export class WalletService {
           finally { signal.removeEventListener("abort", cancel); }
         }));
       }
-    }).catch(() => { assertCurrent(); });
+    }).catch(error => { assertCurrent(); if (options?.failOnArtworkUnavailable) throw error; });
     assertCurrent();
     return presentations;
   }
