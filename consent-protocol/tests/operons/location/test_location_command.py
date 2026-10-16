@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import json
@@ -35,6 +36,18 @@ class FakeCommandModel(BaseLlm):
         yield LlmResponse(content=types.Content(role="model", parts=[part]))
 
 
+class StalledCommandModel(BaseLlm):
+    model: str = "stalled-command-model"
+    cancelled: bool = False
+
+    async def generate_content_async(self, llm_request, stream=False):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled = True
+        yield LlmResponse()
+
+
 def test_all_current_location_capabilities_have_an_authored_destination():
     revision, actions = catalog()
     assert len(actions) >= 54
@@ -47,6 +60,41 @@ def test_all_current_location_capabilities_have_an_authored_destination():
     altered = list(actions.values())
     altered[0] = {**altered[0], "meaning": "changed owning contract"}
     assert compile_location_capabilities(altered)[0] != revision
+
+
+def test_semantic_catalog_preserves_all_authored_choices_after_compaction():
+    from api.routes.one.command_proposals import _catalog
+
+    _, actions = _catalog("location.plan.v2")
+    projected = semantic_catalog(actions)
+    indexed = {item.get("action_id") or item.get("workflow_id"): item for item in projected}
+    assert set(indexed) == set(actions)
+    for action_id, owner in actions.items():
+        if "workflow_id" in owner:
+            assert (
+                indexed[action_id]["workflow"]["entry_action_id"]
+                == owner["workflow"]["entry_action_id"]
+            )
+            continue
+        item = indexed[action_id]
+        assert item["meaning"] == (owner.get("meaning") or owner.get("label"))
+        assert item["inputs"] == owner["goal"]["required_inputs"]
+        assert item["command"] == (owner.get("command") or {})
+        assert item["policy"] == owner["execution_policy"]
+        if owner.get("semantic_boundaries") is not None:
+            assert item["boundaries"] == owner["semantic_boundaries"]
+    calendar = indexed["calendar.invitation.review"]
+    assert calendar["workflow"] == actions["calendar.invitation.review"]["goal"]["workflow_steps"]
+    assert calendar["execution_target"] == actions["calendar.invitation.review"]["execution_target"]
+    assert len(json.dumps(projected, ensure_ascii=False)) < 40_000
+
+
+def test_semantic_catalog_does_not_crash_on_nonstandard_workflow_shape():
+    _, actions = catalog()
+    action = next(item for item in actions.values() if "action_id" in item)
+    malformed = {**action, "goal": {**action["goal"], "workflow_steps": [None]}}
+    projected = semantic_catalog({action["action_id"]: malformed})
+    assert projected[0]["workflow"] == [None]
 
 
 def test_workflow_prompt_preserves_owning_semantics_without_execution_internals():
@@ -183,16 +231,38 @@ def wav(frames=160, rate=16000, silence=False):
 
 
 @pytest.mark.asyncio
-async def test_transcription_is_bounded_whole_recording_without_live_or_tools():
+@pytest.mark.parametrize("managed_client", [False, True])
+async def test_transcription_is_bounded_whole_recording_without_live_or_tools(
+    monkeypatch, managed_client
+):
     generate = AsyncMock(return_value=SimpleNamespace(text="मेरी location चालू करो"))
-    brain = LocationCommandBrain(
-        client=SimpleNamespace(
+    if managed_client:
+        from google.auth.credentials import AnonymousCredentials
+        from google.genai import Client
+
+        generate = AsyncMock(return_value={"transcript": "मेरी location चालू करो"})
+        monkeypatch.setattr("hushh_mcp.hushh_adk.single_turn.run_single_turn", generate)
+        client = Client(
+            vertexai=True,
+            project="synthetic-project",
+            location="global",
+            credentials=AnonymousCredentials(),
+        )
+    else:
+        client = SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
         )
-    )
+    brain = LocationCommandBrain(client=client)
     assert await brain.transcribe(wav()) == "मेरी location चालू करो"
-    config = generate.call_args.kwargs["config"]
+    config = (
+        generate.call_args.args[0].generate_content_config
+        if managed_client
+        else generate.call_args.kwargs["config"]
+    )
     assert not config.tools and not config.speech_config
+    if managed_client:
+        assert config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+        assert generate.call_args.kwargs["timeout_seconds"] == 30
     for invalid in ("!invalid", wav(0), wav(rate=44100), wav(960001)):
         with pytest.raises(ValueError):
             await brain.transcribe(invalid)
@@ -210,7 +280,7 @@ async def test_injected_model_uses_authored_transcriber_with_wrapped_client():
 
 
 @pytest.mark.asyncio
-async def test_semantic_agent_returns_typed_proposal_only():
+async def test_semantic_agent_returns_typed_proposal_only(monkeypatch):
     model = FakeCommandModel(
         responses=[
             SemanticAssessment(
@@ -221,7 +291,14 @@ async def test_semantic_agent_returns_typed_proposal_only():
             ).model_dump_json()
         ]
     )
-    brain = LocationCommandBrain(client=object(), adk_model=model)
+    options = []
+
+    def managed_model(_name, *, http_options):
+        options.append(http_options)
+        return model
+
+    monkeypatch.setattr("hushh_mcp.runtime_providers.build_managed_gemini_adk_model", managed_model)
+    brain = LocationCommandBrain(client=object())
     _, actions = catalog()
     result = await brain.assess(
         query="meri location dikhao", context={"vault_ready": True}, catalog=actions
@@ -229,7 +306,25 @@ async def test_semantic_agent_returns_typed_proposal_only():
     assert result.steps[0].action_id == "location.open_now"
     assert len(model.requests) == 1
     assert model.requests[0].config.response_schema is not None
+    assert model.requests[0].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
     assert not model.requests[0].config.speech_config
+    assert len(options) == 1
+    assert options[0].timeout == 60_000
+    assert options[0].retry_options.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_semantic_agent_cancels_a_stalled_model_at_assessment_deadline(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.agents.location.command_brain._SEMANTIC_ASSESS_TIMEOUT_SECONDS",
+        0.05,
+    )
+    model = StalledCommandModel()
+    with pytest.raises(TimeoutError):
+        await LocationCommandBrain(client=object(), adk_model=model).assess(
+            query="show location", context={}, catalog=catalog()[1]
+        )
+    assert model.cancelled
 
 
 @pytest.mark.asyncio

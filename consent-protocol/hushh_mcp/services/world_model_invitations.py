@@ -52,6 +52,8 @@ async def create(
     preview_draft_id=None,
     selected_fact_ids=None,
     introduction="",
+    secondary_contact=None,
+    subject_name=None,
 ):
     from hushh_mcp.services import world_model_source_review as reviews
 
@@ -78,11 +80,21 @@ async def create(
         )
         preview = {"report": report, "introduction": introduction[:500], "prepared_by": "inviter"}
 
+    if subject_name is not None:
+        subject_name = subject_name.strip()
+        if not subject_name or len(subject_name) > 160 or any(ord(c) < 32 for c in subject_name):
+            raise ValueError("Enter the recipient's name")
+        if preview is None:
+            preview = {"has_preview": False, "subject_name": subject_name}
+
     await verified_owner(user_id, consent_token)
     commitment = contact_commitment(contact)
+    secondary_commitment = contact_commitment(secondary_contact) if secondary_contact else None
+    if secondary_commitment == commitment:
+        secondary_commitment = None
     token = secrets.token_urlsafe(32)
     invitation_id = uuid.uuid4()
-    envelope = seal_preview(token, invitation_id, preview) if preview else None
+    envelope = seal_preview(token, invitation_id, preview) if preview is not None else None
     pool = await get_pool()
     # Transaction-scoped owner lock makes the outstanding-invitation cap shared.
     async with pool.acquire(timeout=5) as conn, conn.transaction():
@@ -105,12 +117,13 @@ async def create(
             raise ValueError("Revoke an invitation before creating another")
         row = await conn.fetchrow(
             """INSERT INTO pwm_claim_invitations
-            (id, inviter_user_id, token_hash, contact_commitment,preview_envelope,preview_version) VALUES ($1,$2,$3,$4,$5,$6)
+            (id, inviter_user_id, token_hash, contact_commitment,secondary_contact_commitment,preview_envelope,preview_version) VALUES ($1,$2,$3,$4,$5,$6,$7)
             RETURNING id, expires_at""",
             invitation_id,
             user_id,
             hashlib.sha256(token.encode()).hexdigest(),
             commitment,
+            secondary_commitment,
             envelope,
             1 if envelope else None,
         )
@@ -136,7 +149,8 @@ async def claim(user_id, consent_token, token):
         ]
         row = await conn.fetchrow(
             """SELECT * FROM pwm_claim_invitations WHERE token_hash=$1
-            AND contact_commitment=ANY($2::text[]) AND expires_at>clock_timestamp()
+            AND (contact_commitment=ANY($2::text[]) OR secondary_contact_commitment=ANY($2::text[]))
+            AND expires_at>clock_timestamp()
             AND inviter_user_id<>$3 FOR UPDATE""",
             token_hash,
             commitments,
@@ -158,45 +172,48 @@ async def claim(user_id, consent_token, token):
             }
         draft_id = None
         if row.get("preview_envelope"):
-            from hushh_mcp.services import world_model_source_review as reviews
-
             preview = open_preview(token, row["id"], row["preview_envelope"])
-            draft_id = uuid.uuid4()
-            prior = await reviews.STORE.get(user_id, conn=conn)
-            # Do not overwrite a recipient's unreviewed source draft.
-            if prior and (
-                (
-                    prior.get("status") == "pending"
-                    and time.time() - max(prior.get("starts") or [0]) < 180
-                )
-                or (
-                    prior.get("status") == "offered"
-                    and time.time() - prior.get("finished_at", 0) < 86400
-                )
-            ):
-                raise ValueError("Review or discard your existing source draft first")
-            result = {
-                "status": "offered",
-                "pkm_written": False,
-                "draft_id": str(draft_id),
-                "report": preview["report"],
-                "search_suggestions": [],
-            }
-            state = {
-                "job_id": str(draft_id),
-                "status": "offered",
-                "result": result,
-                "purpose": "owner",
-                "allowed_use": "reviewable_fact",
-                "source_origin": "claimed_professional_preview",
-                "finished_at": time.time(),
-                "starts": (prior or {}).get("starts", []),
-            }
-            if (
-                await reviews.scoped_store(consent_token).write(user_id, state, prior, conn=conn)
-                is None
-            ):
-                raise ValueError("Recipient draft changed")
+            if "report" in preview:
+                from hushh_mcp.services import world_model_source_review as reviews
+
+                draft_id = uuid.uuid4()
+                prior = await reviews.STORE.get(user_id, conn=conn)
+                # Do not overwrite a recipient's unreviewed source draft.
+                if prior and (
+                    (
+                        prior.get("status") == "pending"
+                        and time.time() - max(prior.get("starts") or [0]) < 180
+                    )
+                    or (
+                        prior.get("status") == "offered"
+                        and time.time() - prior.get("finished_at", 0) < 86400
+                    )
+                ):
+                    raise ValueError("Review or discard your existing source draft first")
+                result = {
+                    "status": "offered",
+                    "pkm_written": False,
+                    "draft_id": str(draft_id),
+                    "report": preview["report"],
+                    "search_suggestions": [],
+                }
+                state = {
+                    "job_id": str(draft_id),
+                    "status": "offered",
+                    "result": result,
+                    "purpose": "owner",
+                    "allowed_use": "reviewable_fact",
+                    "source_origin": "claimed_professional_preview",
+                    "finished_at": time.time(),
+                    "starts": (prior or {}).get("starts", []),
+                }
+                if (
+                    await reviews.scoped_store(consent_token).write(
+                        user_id, state, prior, conn=conn
+                    )
+                    is None
+                ):
+                    raise ValueError("Recipient draft changed")
         await conn.execute(
             """UPDATE pwm_claim_invitations SET state='claimed',recipient_user_id=$1,
             claimed_at=NOW(),consent_version='pwm-claim-v1',recipient_draft_id=$3,
@@ -276,7 +293,8 @@ async def reject(user_id, consent_token, token):
         ]
         await conn.execute(
             """DELETE FROM pwm_claim_invitations WHERE token_hash=$1
-            AND contact_commitment=ANY($2::text[]) AND state='pending'""",
+            AND (contact_commitment=ANY($2::text[]) OR secondary_contact_commitment=ANY($2::text[]))
+            AND state='pending'""",
             token_hash,
             commitments,
             timeout=5,

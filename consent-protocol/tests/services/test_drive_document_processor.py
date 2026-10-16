@@ -49,6 +49,50 @@ def scanned_pdf(*, resolution=200) -> bytes:
     return output.getvalue()
 
 
+def scanned_image(*, image_format="PNG") -> bytes:
+    """Original raster document, without a prepared text layer."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (1600, 550), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=48)
+    for number, line in enumerate(
+        ("Charles Schwab statement", "Account 12345678", "September 1, 2026 - September 30, 2026")
+    ):
+        draw.text((40, 50 + number * 100), line, fill="black", font=font)
+    output = io.BytesIO()
+    image.save(output, format=image_format)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("image_format,mime_type", [("PNG", "image/png"), ("JPEG", "image/jpeg")])
+def test_original_image_ocr_unavailable_is_explicit_gap(monkeypatch, image_format, mime_type):
+    from hushh_mcp.services import drive_document_pages as pages
+
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", "/nonexistent/tesseract")
+    original = scanned_image(image_format=image_format)
+    result = pages.extract_pages(original, mime_type)
+    assert result.complete and result.has_gaps and result.total_pages == 1
+    assert result.pages[0].method == "ocr"
+    assert result.pages[0].status == "unreadable"
+    assert result.pages[0].error_code == "ocr_unavailable"
+
+
+def test_original_image_ocr_reads_source_when_engine_available(monkeypatch):
+    from hushh_mcp.services import drive_document_pages as pages
+
+    binary = os.environ.get("DRIVE_TEST_TESSERACT_BINARY", "/usr/bin/tesseract")
+    if not Path(binary).is_file():
+        pytest.skip("local Tesseract engine not installed; image build installs it")
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", binary)
+    result = pages.extract_pages(scanned_image(), "image/png")
+    assert result.complete and not result.has_gaps
+    assert result.pages[0].method == "ocr"
+    assert "Charles Schwab" in result.pages[0].text
+    assert "12345678" in result.pages[0].text
+    assert "September 30, 2026" in result.pages[0].text
+
+
 def joined_pdf(*sources: bytes) -> bytes:
     import pypdfium2
 

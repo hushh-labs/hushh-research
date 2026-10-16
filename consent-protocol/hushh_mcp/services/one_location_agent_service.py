@@ -4635,15 +4635,21 @@ class OneLocationAgentService:
         otherwise make every half-registered account searchable, while people
         someone already knows stay reachable exactly as before.
 
-        Explicit opt-outs still hide a person who set
-        ``marketplace_public_profiles.is_discoverable = FALSE`` or the
-        contact-sync opt-out from strangers. They never hide someone the viewer
-        is already connected to: an active ``connections`` edge (or a trusted
-        edge) lifts the opt-out, because "My connections" already lists that
-        person by name and photo and a search that cannot find them says
-        "no one matches" about someone on the same screen. The trusted edge
-        alone was not a safe proxy: Circle and contact-sync connections never
-        mirrored one, so on UAT roughly half of all connection pairs had none.
+        A NAME is findable whatever the marketplace or contact-sync settings
+        say. ``marketplace_public_profiles.is_discoverable`` belongs to the
+        marketplace (it defaults to FALSE, and the investor toggle and adviser
+        rows write it), and the contact-sync consent version is raised by
+        every change to that setting and by an account reset. Reading either
+        as "hide me from Connect" made people unfindable for reasons they never
+        chose, and findable only to whoever happened to be connected to them,
+        so two accounts searching the same name got different answers.
+
+        The opt-outs still guard EMAIL and PHONE fragments, which would
+        otherwise let a stranger test whether an address or number is on the
+        platform. A person who set ``is_discoverable = FALSE`` or opted out of
+        contact sync is not matched by an email or phone fragment from
+        strangers. An active ``connections`` edge (or a trusted edge) lifts
+        that, since "My connections" already lists the person.
         Vault, relationship and auth eligibility are all applied
         before the logical page is cut, so ineligible rows cannot create empty
         pages or misleading ``hasMore`` values. ``candidate_user_id`` lookups
@@ -4793,7 +4799,46 @@ class OneLocationAgentService:
                 COALESCE(
                   NULLIF(BTRIM(identity.custom_photo_url), ''),
                   NULLIF(BTRIM(identity.photo_url), '')
-                ) AS photo_url
+                ) AS photo_url,
+                -- Whether an email or phone fragment may find this person. A
+                -- name is public in the directory; an email or phone is not, so
+                -- an explicit opt-out keeps a person out of contact lookups for
+                -- strangers. Someone the viewer is already connected to or
+                -- trusts stays findable.
+                (
+                  EXISTS (
+                    SELECT 1
+                    FROM trusted_connections tc
+                    WHERE tc.status = 'active'
+                      AND tc.owner_user_id = :owner_user_id
+                      AND tc.trusted_user_id = profile.user_id
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM connections known
+                    WHERE known.status = 'active'
+                      AND (
+                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
+                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
+                      )
+                  )
+                  OR (
+                    marketplace.is_discoverable IS DISTINCT FROM FALSE
+                    AND (
+                      (
+                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
+                        AND profile.contact_sync_consent_enabled_at IS NULL
+                        AND profile.contact_sync_consent_contract_version IS NULL
+                      )
+                      OR (
+                        profile.contact_discoverable = TRUE
+                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
+                        AND profile.contact_sync_consent_rule_version > 0
+                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
+                      )
+                    )
+                  )
+                ) AS contact_listed
               FROM actor_profiles profile
               LEFT JOIN actor_identity_cache identity
                 ON identity.user_id = profile.user_id
@@ -4844,42 +4889,6 @@ class OneLocationAgentService:
                 AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
                 AND (CAST(:candidate_user_ids AS TEXT[]) IS NULL
                      OR profile.user_id = ANY(CAST(:candidate_user_ids AS TEXT[])))
-                AND (
-                  EXISTS (
-                    SELECT 1
-                    FROM trusted_connections tc
-                    WHERE tc.status = 'active'
-                      AND tc.owner_user_id = :owner_user_id
-                      AND tc.trusted_user_id = profile.user_id
-                  )
-                  OR EXISTS (
-                    -- An opt-out hides a person from strangers, not from the
-                    -- people who are already connected to them.
-                    SELECT 1
-                    FROM connections known
-                    WHERE known.status = 'active'
-                      AND (
-                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
-                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
-                      )
-                  )
-                  OR (
-                    marketplace.is_discoverable IS DISTINCT FROM FALSE
-                    AND (
-                      (
-                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
-                        AND profile.contact_sync_consent_enabled_at IS NULL
-                        AND profile.contact_sync_consent_contract_version IS NULL
-                      )
-                      OR (
-                        profile.contact_discoverable = TRUE
-                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
-                        AND profile.contact_sync_consent_rule_version > 0
-                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
-                      )
-                    )
-                  )
-                )
             ) a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
@@ -4891,7 +4900,7 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE (
               (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND (
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
                 LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
                 OR (a.phone_verified = TRUE
                     AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains)

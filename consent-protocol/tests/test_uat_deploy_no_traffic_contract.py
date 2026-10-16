@@ -573,7 +573,7 @@ def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
     readiness_deploy = backend_build[deploy_start:execute_start]
 
     # A 1 vCPU cold start reached the 90s task kill before any verdict.
-    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=300s"):
+    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=420s"):
         assert flag in readiness_deploy
     assert "--task-timeout=90s" not in readiness_deploy
 
@@ -732,14 +732,14 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
     )
     assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
     for required in (
-        "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        "3ac26e6e1ceb835e257087f11bd274467708c217",
         '"$REQUESTED_SCOPE" != "all"',
         '"$LIVE_CHECKS" != "false"',
         '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
     ):
         assert required in validation["run"]
     allowed_dispatch = {
-        "REQUESTED_SHA": "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        "REQUESTED_SHA": "3ac26e6e1ceb835e257087f11bd274467708c217",
         "REQUESTED_SCOPE": "all",
         "LIVE_CHECKS": "false",
         "GITHUB_ACTOR": "ankitkumarsingh1702",
@@ -833,7 +833,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         "_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE": "true",
         "_DEPLOY_ENV": "uat",
         "_DEPLOY_SOURCE": "deploy-uat",
-        "_DEPLOY_SHA": "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        "_DEPLOY_SHA": "3ac26e6e1ceb835e257087f11bd274467708c217",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_VERIFY_MANAGED_VERTEX_RUNTIME": "true",
         "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,

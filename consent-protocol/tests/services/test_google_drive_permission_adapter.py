@@ -558,3 +558,50 @@ async def test_metadata_only_video_share_binds_identity_not_version_and_rechecks
     adapter._exchange.return_value = {**payload, "modifiedTime": "2026-09-21T00:00:00Z"}
     with pytest.raises(acl.DrivePermissionError, match="source_changed"):
         await adapter.inspect_shareable(**arguments(), **metadata_only)
+
+
+@pytest.mark.asyncio
+async def test_native_expiry_is_sent_and_exact_provider_expiry_is_required(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    expires = (datetime.now(UTC) + timedelta(days=7)).replace(microsecond=0)
+    expected = expires.isoformat()
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content))
+        return response(
+            payload=permission(expirationTime=expected.replace("+00:00", "Z"))
+            if len(calls) == 1
+            else permission()
+        )
+
+    install(monkeypatch, handler)
+    created = await acl.GoogleDrivePermissionAdapter().create_reader(
+        **arguments(),
+        verified_email="recipient@example.invalid",
+        expiration_time=expected,
+    )
+    assert acl.same_expiration(calls[0]["expirationTime"], expected)
+    assert acl.same_expiration(created.expiration_time, expected)
+    with pytest.raises(acl.DrivePermissionError, match="permission_outcome_unknown"):
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(),
+            verified_email="recipient@example.invalid",
+            expiration_time=expected,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expiry", ["garbage", "2000-01-01T00:00:00Z", "9999-01-01T00:00:00Z"])
+async def test_invalid_expiry_never_posts(monkeypatch, expiry):
+    def forbidden(request):
+        raise AssertionError("invalid expiry reached Google")
+
+    install(monkeypatch, forbidden)
+    with pytest.raises(acl.DrivePermissionError, match="operation_not_allowed"):
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(),
+            verified_email="recipient@example.invalid",
+            expiration_time=expiry,
+        )

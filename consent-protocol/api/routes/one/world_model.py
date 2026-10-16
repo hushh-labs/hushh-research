@@ -204,6 +204,8 @@ async def complete(
 class InvitationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     contact: str = Field(min_length=3, max_length=320)
+    secondary_contact: str | None = Field(default=None, min_length=3, max_length=320)
+    subject_name: str | None = Field(default=None, min_length=1, max_length=160)
     preview_draft_id: UUID | None = None
     selected_fact_ids: list[str] = Field(default_factory=list, max_length=8)
     introduction: str = Field(default="", max_length=500)
@@ -228,6 +230,8 @@ async def create_invitation(
             preview_draft_id=body.preview_draft_id,
             selected_fact_ids=body.selected_fact_ids,
             introduction=body.introduction,
+            secondary_contact=body.secondary_contact,
+            subject_name=body.subject_name,
         )
     except PermissionError:
         raise HTTPException(403, "Verify your contact and unlock your vault.") from None

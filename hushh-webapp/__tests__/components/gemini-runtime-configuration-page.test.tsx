@@ -1,10 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
+import { PWM_RESEARCH_DISCLOSURE_COMPACT } from "@/components/onboarding/setup/pwm-research-disclosure";
+import { buildInitialContactsWelcomeRoute } from "@/lib/navigation/routes";
 
 const state = vi.hoisted(() => ({
   user: { uid: "recipient" },
-  router: { replace: vi.fn() },
+  router: { replace: vi.fn(), push: vi.fn() },
   finalize: vi.fn(),
   acknowledge: vi.fn(),
   sync: vi.fn(),
@@ -33,9 +35,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/components/connections/gemini-runtime-settings-card", () => ({
   GeminiRuntimeSettingsCard: ({
     onCanContinueChange,
+    initiallyConfigured,
   }: {
     onCanContinueChange: (ready: boolean) => void;
-  }) => <button onClick={() => onCanContinueChange(true)}>Choose AI</button>,
+    initiallyConfigured: boolean;
+  }) => <button data-initially-configured={initiallyConfigured} onClick={() => onCanContinueChange(true)}>Choose AI</button>,
 }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: () => null,
@@ -47,10 +51,22 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
     hasOneRuntimeChoice: () => state.runtimeChoiceSaved,
   },
 }));
+vi.mock("@/lib/services/initial-contacts-onboarding-service", () => ({
+  InitialContactsOnboardingService: {
+    getSnapshot: () => ({ ownerId: null }),
+  },
+}));
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
   PreVaultSensitiveDraftService: {
     hasFinanceIntent: () => state.hasFinanceIntent,
+    hasGeminiRuntime: () => state.hasGeminiRuntimeDraft,
     finalizeForVault: state.finalize,
+  },
+}));
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  GEMINI_RUNTIME_CREDENTIAL_REF: "pkm:runtime_secrets.llm.gemini_api_key",
+  PersonalKnowledgeModelService: {
+    loadRuntimeSecret: () => state.savedGeminiKey ? "fixture-key" : null,
   },
 }));
 vi.mock("@/lib/services/post-unlock-sync-service", () => ({

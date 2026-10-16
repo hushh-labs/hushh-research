@@ -55,11 +55,9 @@ export const WorldModelInvitationsService = {
   async create(
     session: Session,
     contact: string,
-    preview?: {
-      preview_draft_id: string;
-      selected_fact_ids: string[];
-      introduction: string;
-    },
+    preview?:
+      | { preview_draft_id: string; selected_fact_ids: string[]; introduction: string }
+      | { subject_name: string; secondary_contact?: string },
   ) {
     const origin = resolveShareableAppOrigin();
     if (!origin) throw new Error("A shareable app address is unavailable.");
@@ -88,7 +86,7 @@ export const WorldModelInvitationsService = {
             prepared_by: z.literal("inviter"),
           })
           .strict(),
-        z.object({ has_preview: z.literal(false) }).strict(),
+        z.object({ has_preview: z.literal(false), subject_name: z.string().max(160).optional() }).strict(),
       ])
       .parse(
         await apiJson("/api/one/world-model/invitation-preview", {

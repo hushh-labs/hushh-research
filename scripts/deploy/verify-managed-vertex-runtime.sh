@@ -5,7 +5,7 @@
 
 set -euo pipefail
 if [[ "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE:-false}" == "true" ]]; then
-  echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice remain degraded."
+  echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice are unverified by this release gate."
   exit 0
 fi
 case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
@@ -46,7 +46,7 @@ gcloud run jobs deploy "${job_name}" \
   --cpu=2 \
   --memory=2Gi \
   --max-retries=0 \
-  --task-timeout=300s \
+  --task-timeout=420s \
   --quiet
 set +e
 gcloud run jobs execute "${job_name}" \

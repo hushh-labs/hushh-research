@@ -485,6 +485,9 @@ async function classifyVaultOwnerAuthFailure(
  * this only ever bounds a request the proxy itself could not bound.
  */
 const WEB_FETCH_TIMEOUT_MS = 60_000;
+// The Location proposal proxy can take up to 140 s; let its structured
+// response arrive before the browser or native transport gives up.
+const LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS = 150_000;
 const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
 // A scale-to-zero owner pod may need longer than a hub request to wake and
 // answer its first admission request. Keep the longer ceiling on these exact
@@ -529,6 +532,7 @@ export function webFetchTimeoutMsForPath(path: string): number {
   if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
+  if (pathname === "/api/one/agent-chat/proposals") return LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS;
   if (isLongDriveSharingPath(path) || pathname === "/api/one/world-model/source-reviews") return 180_000;
   if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
     return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
@@ -946,6 +950,8 @@ async function apiFetch(
       // Synchronous Drive work can take longer on web and native.
       const readTimeoutMs = requestTimeoutMs ?? (isLongDriveSharingPath(path) || path.split("?", 1)[0] === "/api/one/world-model/source-reviews"
           ? 180_000
+          : path.split("?", 1)[0] === "/api/one/agent-chat/proposals"
+            ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
           : isLongRunningRoute

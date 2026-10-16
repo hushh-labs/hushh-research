@@ -4,17 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { User } from "firebase/auth";
 import { toast } from "sonner";
-import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
 import { CircleInvitePeopleSheet } from "@/components/one-location/redesign/circles/circle-grow-actions";
+import { CircleOnboarding } from "./circles-v11/CircleOnboarding";
+import type { OnboardingPerson, ViewName } from "./circles-v11/types";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -22,7 +20,7 @@ import { useInitialContacts } from "./initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { useContactInvitationSession } from "@/lib/contacts/use-contact-invitations";
 import { OneLocationService } from "@/lib/one-location/service";
-import type { OneLocationCircleOverview, OneLocationCircleMember } from "@/lib/one-location/types";
+import type { OneLocationCircleOverview, OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import { ReferralService } from "@/lib/services/referral-service";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import { shareLink } from "@/lib/share/share-link";
@@ -57,8 +55,13 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   const [preview, setPreview] = useState<OneLocationCircleMember[]>([]);
   const [memberPage, setMemberPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [rosterOpen, setRosterOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [trustedCircle, setTrustedCircle] = useState<OneLocationCircleSummary | null>(null);
+  const [trustedMembers, setTrustedMembers] = useState<OneLocationCircleMember[]>([]);
+  const [trustedPage, setTrustedPage] = useState(0);
+  const [trustedHasMore, setTrustedHasMore] = useState(false);
+  const [trustedLoading, setTrustedLoading] = useState(false);
+  const [view, setView] = useState<ViewName>("home");
   const [removeTarget, setRemoveTarget] = useState<OneLocationCircleMember | null>(null);
   const [picker, setPicker] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,8 +131,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
 
   useBackLayer(ROUTES.ONE_WELCOME, 1, () => { void continueToOne(); return true; });
   useBackLayer(ROUTES.ONE_WELCOME, 2, () => {
-    if (inviteOpen) { setInviteOpen(false); return true; }
-    if (rosterOpen) { setRosterOpen(false); return true; }
+    if (view !== "home") { setView("home"); return true; }
     return false;
   });
   useBackLayer(ROUTES.ONE_WELCOME, 3, () => {
@@ -169,15 +171,43 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   }
 
   async function loadMembers(page: number) {
-    if (!circleId || busy || !currentOwner()) return;
-    setBusy(true);
+    if (!circleId || busy || membersLoading || !currentOwner()) return;
+    setMembersLoading(true);
     try {
       const result = await actions.loadCircleMembersPage(circleId, { page, limit: 50 });
       if (!currentOwner()) return;
       setMembers((current) => page === 1 ? result.items : [...current, ...result.items]);
       setMemberPage(page); setHasMore(result.hasMore);
     } catch { if (currentOwner()) toast.error("Could not load your circle. Try again."); }
-    finally { setBusy(false); }
+    finally { if (currentOwner()) setMembersLoading(false); }
+  }
+
+  async function loadTrustedMembers(page: number) {
+    if (trustedLoading || !currentOwner()) return;
+    setTrustedLoading(true);
+    try {
+      const circle = trustedCircle ?? (await OneLocationService.listCircles(vaultOwnerToken))
+        .find((item) => item.systemKind === "trusted") ?? null;
+      if (!currentOwner()) return;
+      if (!circle) {
+        setTrustedMembers([]); setTrustedHasMore(false); return;
+      }
+      setTrustedCircle(circle);
+      const result = await OneLocationService.listCircleMembersPage({
+        vaultOwnerToken, circleId: circle.id, page, limit: 50,
+      });
+      if (!currentOwner()) return;
+      setTrustedMembers((current) => page === 1 ? result.items : [...current, ...result.items]);
+      setTrustedPage(page); setTrustedHasMore(result.hasMore);
+    } catch { if (currentOwner()) toast.error("Could not load Trusted. Try again."); }
+    finally { if (currentOwner()) setTrustedLoading(false); }
+  }
+
+  function changeView(next: ViewName) {
+    if (next === view) return;
+    setView(next);
+    if (next === "contacts") void loadMembers(1);
+    if (next === "trusted") void loadTrustedMembers(1);
   }
 
   async function chooseTrusted() {
@@ -191,6 +221,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     try {
       const circle = await opening;
       if (!currentOwner()) return;
+      setTrustedCircle(circle);
       setPicker({ id: circle.id, name: circle.name });
     } catch {
       // The branded toast owns feedback; Continue remains available.
@@ -201,105 +232,116 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   const connected = (snapshot.result?.autoConnectedCount ?? 0) + (snapshot.result?.alreadyConnectedCount ?? 0);
   const peers = overview ? Math.max(0, overview.memberCount - 1) : null;
   const full = Boolean(overview && overview.memberCount >= (overview.memberLimit ?? 100));
-  const greeting = user.displayName?.trim().split(/\s+/)[0];
-  const summary = checking ? "We’re checking your contacts. You can continue whenever you’re ready."
-    : connected ? `${connected} ${connected === 1 ? "person you know is" : "people you know are"} already here.`
-    : peers ? `${peers} ${peers === 1 ? "person you know is" : "people you know are"} already here.`
-    : "Your space is ready. Bring your people with you whenever you like.";
-  const people = snapshot.people.length ? snapshot.people : preview;
+  const circleCode = overview?.activeInviteCode?.code ?? snapshot.circle?.code;
+  const people = (snapshot.people.length ? snapshot.people : preview).map((person): OnboardingPerson => ({
+    userId: person.userId,
+    displayName: person.displayName ?? "One member",
+    photoUrl: person.photoUrl,
+    isRia: person.isRia,
+  }));
+  const roster = members.map((person): OnboardingPerson => ({
+    userId: person.userId,
+    displayName: person.displayName ?? "One member",
+    photoUrl: person.photoUrl,
+    isRia: person.isRia,
+    isSelf: person.userId === user.uid,
+  }));
+  const trustedRoster = trustedMembers.filter((person) => person.userId !== user.uid).map((person): OnboardingPerson => ({
+    userId: person.userId,
+    displayName: person.displayName ?? "One member",
+    photoUrl: person.photoUrl,
+    isRia: person.isRia,
+  }));
+  const canFindContacts = (!['ready', 'reading', 'matching'].includes(snapshot.status) || snapshot.result?.partial)
+    && snapshot.source !== 'none';
 
-  return <AppPageShell as="main" width="reading" fitContent
-    nativeTest={{ routeId: ROUTES.ONE_WELCOME, marker: "native-route-one-welcome", authState: "authenticated", dataState: "loaded" }}>
-    <AppPageHeaderRegion><PageHeader title={greeting ? `Welcome to One, ${greeting}` : "Welcome to One"}
-      description={summary} accent="neutral" /></AppPageHeaderRegion>
-    <AppPageContentRegion className="space-y-4">
-      {people.length ? <SettingsGroup title="People you know" density="compact" separatorInset headingClassName="mt-0"
-        titleAction={<Button variant="ghost" className="min-h-11" aria-label="See your Contacts" disabled={!circleId} onClick={() => { setRosterOpen(true); void loadMembers(1); }}>See all</Button>}>
-        {people.map((person) => <SettingsRow key={person.userId} density="comfortable"
-          leading={<ConnectionPersonAvatar photoUrl={person.photoUrl} label={person.displayName ?? "One member"} size="comfortable" verified={person.isRia === true} />}
-          title={<span dir="auto">{person.displayName ?? "One member"}</span>}
-          description="Already on One" />)}
-      </SettingsGroup> : null}
-      <SettingsGroup separatorInset>
-        <SettingsRow title={overview?.name ?? "Contacts"} description={peers === null ? "Your shared circle is being prepared." : "Members can see the shared roster."}
-          trailing="Manage" chevron disabled={!circleId} onClick={() => { setRosterOpen(true); void loadMembers(1); }} />
-        <SettingsRow title="Trusted" description="Choose your closest people when you’re ready."
-          trailing="Choose" chevron disabled={busy} onClick={() => void chooseTrusted()} />
-        <SettingsRow title="Invite someone" description="Missing someone? Bring them along."
-          trailing="Invite" chevron onClick={() => setInviteOpen(true)} />
-      </SettingsGroup>
-      {snapshot.overflow > 0 ? <p className="text-sm text-muted-foreground">{snapshot.overflow} more people are connected. Contacts holds 99 people plus you.</p> : null}
-      {snapshot.error ? <p role="status" className="text-sm text-muted-foreground">{snapshot.error}</p> : null}
-      {snapshot.circleError ? <div className="space-y-2"><p role="status" className="text-sm text-muted-foreground">{snapshot.circleError}</p>
-        <Button variant="ghost" className="min-h-11" onClick={() => void InitialContacts.prepareCircle(vaultOwnerToken)}>Retry circle setup</Button></div> : null}
-      {(!["ready", "reading", "matching"].includes(snapshot.status) || snapshot.result?.partial) && snapshot.source !== "none" ?
-        <Button variant="ghost" className="min-h-11" onClick={() => InitialContacts.startSource()}>
-          {snapshot.source === "device" ? "Find people from my phone" : "Find people with Google Contacts"}
-        </Button> : null}
-      <Button className="min-h-11 w-full" disabled={continuing} onClick={() => void continueToOne()}>
-        {continuing ? "Opening One…" : "Continue to One"}
-      </Button>
-    </AppPageContentRegion>
-
-    <Sheet open={rosterOpen} onOpenChange={setRosterOpen}><SheetContent side="bottom" contentDragDismiss={false} className="flex max-h-[85dvh] flex-col">
-      <SheetHeader><SheetTitle>{overview?.name ?? "Contacts"}</SheetTitle>
-        <SheetDescription>Members can see the shared roster. Adding someone does not turn on private information sharing.</SheetDescription></SheetHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto"><SettingsGroup separatorInset>
-        {members.map((member) => <SettingsRow key={member.userId} density="compact"
-          leading={<ConnectionPersonAvatar photoUrl={member.photoUrl} label={member.displayName ?? "One member"} size="compact" verified={member.isRia === true} />}
-          title={<span dir="auto">{member.displayName ?? "One member"}</span>}
-          trailing={member.userId === user.uid ? "You" : overview?.viewerCapabilities?.canManageCircle ?
-            <Button variant="ghost" disabled={busy} className="min-h-11" onClick={() => {
-              if (!currentOwner()) return;
-              setRemoveTarget(member);
-            }}>Remove</Button> : undefined} trailingInteractive />)}
-      </SettingsGroup></div>
-      {hasMore ? <Button variant="ghost" disabled={busy} onClick={() => void loadMembers(memberPage + 1)}>Load more</Button> : null}
-      {overview?.viewerCapabilities?.canInviteMembers ? <Button variant="outline" disabled={full}
-        onClick={() => setPicker({ id: circleId!, name: overview.name })}>Add people</Button> : null}
+  return <FullscreenFlowShell as="main" width="expanded" className="oc-host">
+    <NativeTestBeacon routeId={ROUTES.ONE_WELCOME} marker="native-route-one-welcome"
+      authState="authenticated" dataState="loaded" />
+    <CircleOnboarding
+      displayName={user.displayName}
+      members={people}
+      rosterMembers={roster}
+      trustedMembers={trustedRoster}
+      circleName={overview?.name ?? snapshot.circle?.circleName ?? 'Contacts'}
+      circleReady={Boolean(circleId)}
+      circleCode={circleCode}
+      circleFull={full}
+      canManageCircle={Boolean(overview?.viewerCapabilities?.canManageCircle)}
+      canInviteMembers={Boolean(overview?.viewerCapabilities?.canInviteMembers)}
+      canInviteContacts={Boolean(invitations.enabled && invitations.candidates.length && personalInvite)}
+      canFindContacts={Boolean(canFindContacts)}
+      source={snapshot.source}
+      matching={checking}
+      matchCount={connected || peers}
+      inviteReady={Boolean(personalInvite)}
+      busy={continuing}
+      membersLoading={membersLoading}
+      trustedLoading={trustedLoading}
+      hasMoreMembers={hasMore}
+      hasMoreTrustedMembers={trustedHasMore}
+      statusMessage={snapshot.error}
+      circleError={snapshot.circleError}
+      overflowCount={snapshot.overflow}
+      view={view}
+      onViewChange={changeView}
+      nestedDialogOpen={Boolean(picker || removeTarget || invitations.active)}
+      onContinue={continueToOne}
+      onOpenTrusted={chooseTrusted}
+      onChooseContacts={() => {
+        if (!currentOwner() || !circleId || !overview?.viewerCapabilities?.canInviteMembers || full) return;
+        setPicker({ id: circleId, name: overview.name });
+      }}
+      onInviteContacts={() => invitations.open(async () => personalInvite)}
+      onFindContacts={() => { if (currentOwner() && canFindContacts) InitialContacts.startSource(); }}
+      onRetryCircle={() => InitialContacts.prepareCircle(vaultOwnerToken)}
+      onInviteToOne={() => {
+        if (!currentOwner() || !personalInvite) return;
+        return shareLink(personalInvite).catch(() => toast.error('Could not open sharing. Try again.'));
+      }}
+      onCopyCircleCode={() => {
+        if (!currentOwner() || !circleCode) return;
+        return actions.copyCode(circleCode);
+      }}
+      onShareCircle={overview ? () => {
+        if (!currentOwner() || !circleCode) return;
+        return actions.shareCode(overview, circleCode)
+          .catch(() => toast.error('Could not open sharing. Copy the code instead.'));
+      } : undefined}
+      onRequestRemoveMember={(person) => {
+        if (!currentOwner()) return;
+        setRemoveTarget(members.find((member) => member.userId === person.userId) ?? null);
+      }}
+      onLoadMoreMembers={() => loadMembers(memberPage + 1)}
+      onLoadMoreTrustedMembers={() => loadTrustedMembers(trustedPage + 1)}
+    />
 
     <AlertDialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open && !busy) setRemoveTarget(null); }}>
       <AlertDialogContent size="sm">
-        <AlertDialogHeader><AlertDialogTitle>Remove from {overview?.name ?? "Contacts"}?</AlertDialogTitle>
-          <AlertDialogDescription>{removeTarget?.displayName ?? "This person"} will leave this shared circle.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogHeader><AlertDialogTitle>Remove from {overview?.name ?? 'Contacts'}?</AlertDialogTitle>
+          <AlertDialogDescription>{removeTarget?.displayName ?? 'This person'} will leave this shared circle.</AlertDialogDescription></AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Keep person</AlertDialogCancel>
           <AlertDialogAction variant="destructive" disabled={busy} onClick={(event) => { event.preventDefault(); void confirmRemoval(); }}>
-            {busy ? "Removing…" : "Remove"}
+            {busy ? 'Removing…' : 'Remove'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    </SheetContent></Sheet>
-
-    <Sheet open={inviteOpen} onOpenChange={setInviteOpen}><SheetContent side="bottom">
-      <SheetHeader><SheetTitle>Bring your people</SheetTitle><SheetDescription>Choose whether to invite someone to One or into your shared circle.</SheetDescription></SheetHeader>
-      <div className="space-y-4">
-        <div><p className="font-normal">Join Contacts</p>
-          {snapshot.circle?.code ? <p className="font-mono tracking-wider" dir="ltr">{snapshot.circle.code}</p> : <p className="text-sm text-muted-foreground">Your circle code is being prepared.</p>}
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={!snapshot.circle?.code || full} onClick={() => { if (currentOwner()) void actions.copyCode(snapshot.circle!.code); }}>Copy code</Button>
-            <Button variant="outline" disabled={!overview || !snapshot.circle?.code || full} onClick={() => {
-              if (!currentOwner()) return;
-              void actions.shareCode(overview!, snapshot.circle!.code).catch(() => toast.error("Could not open sharing. Copy the code instead."));
-            }}>Share circle link</Button>
-          </div>
-          {full ? <p className="text-sm text-muted-foreground">This circle is full. You can still invite someone to One.</p> : null}
-        </div>
-        <Button variant="outline" disabled={!personalInvite} onClick={() => {
-          if (!currentOwner()) return;
-          void shareLink(personalInvite!).catch(() => toast.error("Could not open sharing. Try again."));
-        }}>Invite to One</Button>
-        {invitations.enabled && invitations.candidates.length > 0 ? <Button variant="outline" disabled={!personalInvite}
-          onClick={() => { void invitations.open(async () => personalInvite); }}>Invite contacts</Button> : null}
-      </div>
-    </SheetContent></Sheet>
 
     {picker ? <CircleInvitePeopleSheet open onOpenChange={(open) => { if (!open) setPicker(null); }}
       circleId={picker.id} circleName={picker.name} busy={busy}
       onLoadEligibleConnections={actions.loadEligibleConnections} onLoadEligibleConnectionsPage={actions.loadEligibleConnectionsPage}
-      onInviteConnections={async (id, ids) => { if (!currentOwner()) throw new Error("session_changed"); await actions.inviteConnections(id, ids); if (currentOwner()) setRefresh((value) => value + 1); }}
-      onCancelMemberInvite={actions.cancelMemberInvite} onInvited={() => setPicker(null)} /> : null}
+      onInviteConnections={async (id, ids) => {
+        if (!currentOwner()) throw new Error('session_changed');
+        await actions.inviteConnections(id, ids);
+        if (currentOwner()) setRefresh((value) => value + 1);
+      }}
+      onCancelMemberInvite={actions.cancelMemberInvite} onInvited={() => {
+        setPicker(null);
+        if (view === 'trusted') void loadTrustedMembers(1);
+        if (view === 'contacts') void loadMembers(1);
+      }} /> : null}
     <ContactInvitationSheet controller={invitations} onFinish={invitations.clear} />
-  </AppPageShell>;
+  </FullscreenFlowShell>;
 }

@@ -7,7 +7,11 @@ from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSourceRef
+from hushh_mcp.one_adk.profile_research import (
+    ProfileFact,
+    ProfileSection,
+    ProfileSourceRef,
+)
 
 Topic = Literal[
     "business",
@@ -32,6 +36,8 @@ Topic = Literal[
     "security",
 ]
 TOPICS = list(get_args(Topic))
+MAX_WORLD_MODEL_FACTS = 269
+MAX_WORLD_MODEL_FACTS_PER_TOPIC = 40
 ShortText = Annotated[str, Field(min_length=1, max_length=600)]
 Reference = Annotated[str, Field(pattern=r"^[acs][1-9][0-9]{0,3}$")]
 Seed = Literal["full_name", "email", "phone_number"]
@@ -148,13 +154,31 @@ class TopicCoverage(Contract):
     explanation: ShortText
 
 
-class WorldModelReport(ProfileReport[ProfileSourceRef]):
+class WorldModelSection(ProfileSection[ProfileSourceRef]):
+    """PWM can show a deep cited draft without widening other profile contracts."""
+
+    facts: list[ProfileFact[ProfileSourceRef]] = Field(
+        min_length=1, max_length=MAX_WORLD_MODEL_FACTS_PER_TOPIC
+    )
+
+
+class WorldModelReport(Contract):
+    """A PWM-specific deep report without changing other profile report bounds."""
+
+    match_status: Literal["matched", "uncertain", "no_match"]
+    name: str = Field(min_length=1, max_length=160)
+    summary: str = Field(min_length=1, max_length=500)
+    sections: list[WorldModelSection] = Field(max_length=20)
     identity: IdentityPivot
     coverage: list[TopicCoverage] = Field(min_length=20, max_length=20)
     gaps: list[ShortText] = Field(max_length=20)
 
     @model_validator(mode="after")
     def identity_contract(self):
+        if len({section.kind for section in self.sections}) != len(self.sections):
+            raise ValueError("Duplicate sections")
+        if (self.match_status == "no_match") != (len(self.sections) == 0):
+            raise ValueError("A report needs findings or an explicit no-match result")
         expected = {
             "owner_linked": "matched",
             "candidate_for_review": "uncertain",
@@ -165,6 +189,15 @@ class WorldModelReport(ProfileReport[ProfileSourceRef]):
             raise ValueError("Identity and report decisions disagree")
         if {row.topic for row in self.coverage} != set(TOPICS):
             raise ValueError("Report every topic, including unavailable and unattempted topics")
+        statements = [
+            " ".join(fact.statement.casefold().split())
+            for section in self.sections
+            for fact in section.facts
+        ]
+        if len(statements) > MAX_WORLD_MODEL_FACTS:
+            raise ValueError("PWM draft exceeds the reviewed fact limit")
+        if len(statements) != len(set(statements)):
+            raise ValueError("PWM draft repeats a finding")
         return self
 
     def validate_receipts(self, assessment: IdentityAssessment, attempts: dict, refs: set[str]):

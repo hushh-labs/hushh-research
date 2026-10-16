@@ -420,25 +420,77 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
+    options?: { recoverArtwork?: boolean },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
     const secrets = isRecord(data?.secrets) ? data.secrets : {};
-    const presentations = summariesFromDomain(data).map((summary) => {
+    const storedArtwork = isRecord(data?.artwork) ? data.artwork : {};
+    const presentations: WalletCardPresentation[] = summariesFromDomain(data).map((summary) => {
       const cardSecrets = secrets[summary.cardId];
       return {
         summary,
-        artwork: readWalletArtwork(isRecord(data?.artwork) ? data.artwork[summary.cardId] : undefined),
+        artwork: readWalletArtwork(storedArtwork[summary.cardId]),
         cardholderName: isRecord(cardSecrets) ? String(cardSecrets.cardholder_name ?? "") : "",
       };
     });
     const catalogCards = presentations.filter(row => row.artwork?.source === "catalog");
-    for (let offset = 0; offset < catalogCards.length; offset += 24) {
-      const batch = catalogCards.slice(offset, offset + 24);
-      const approvals = await artworkDeadline(undefined, signal => this.validateArtworkReferences(params, batch.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>), signal, "saved")).catch(() => []);
-      assertCurrent();
-      batch.forEach((row, index) => { if (!approvals[index]?.approved) row.artwork = { source: "neutral", version: 1 }; });
-    }
+    // Decide recovery from the saved record, before hiding unapproved copies.
+    // A withdrawn catalog design must never become a fresh automatic choice.
+    const recoverable = options?.recoverArtwork ? presentations.filter(row => {
+      const saved = storedArtwork[row.summary.cardId];
+      return row.summary.brand !== "other" && (saved === undefined || (isRecord(saved) && saved.source === "neutral"));
+    }) : [];
+    const savedReferences = catalogCards.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>);
+    catalogCards.forEach(row => { row.artwork = { source: "neutral", version: 1 }; });
+    if (catalogCards.length || recoverable.length) await artworkDeadline(undefined, async signal => {
+      const assertDisplayCurrent = networkSessionGuard(params, signal);
+      const validateSaved = async () => {
+        for (let offset = 0; offset < catalogCards.length; offset += 24) {
+          const batch = savedReferences.slice(offset, offset + 24);
+          const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(() => []);
+          assertDisplayCurrent();
+          batch.forEach((artwork, index) => {
+            if (approvals[index]?.approved) catalogCards[offset + index]!.artwork = { ...artwork, allowOverlay: approvals[index]!.allowOverlay };
+          });
+        }
+      };
+      // Read-only display enrichment: no PKM write or persistence approval.
+      // Keep allocation local so numbers and saved-card IDs never go on wire.
+      const allocation = { ...data, artwork: { ...storedArtwork } };
+      const networks = [...new Set(recoverable.map(row => row.summary.brand))];
+      let nextNetwork = 0;
+      const recoverNetwork = async () => {
+        while (nextNetwork < networks.length) {
+          const network = networks[nextNetwork++]!;
+          try {
+            const catalog = await this.networkArtwork(params, network, signal);
+            const unavailable = new Set<string>();
+            const images = new Map<string, Extract<WalletCardArtwork, { source: "catalog" }>>();
+            for (const row of recoverable.filter(card => card.summary.brand === network)) {
+              assertDisplayCurrent();
+              const secret = secrets[row.summary.cardId];
+              const pan = isRecord(secret) ? normalizePan(String(secret.pan ?? "")) : "";
+              if (!/^[0-9]{13,19}$/.test(pan)) continue;
+              while (!signal.aborted) {
+                const candidate = chooseUnusedWalletArtwork(allocation, pan, catalog.variants.filter(variant => !unavailable.has(variant.digest)));
+                if (!candidate) break;
+                try {
+                  const artwork = images.get(candidate.digest) ?? { ...await this.readCatalogArtwork(params, candidate, catalog.catalogVersion, signal), evidence: "network_assigned" as const };
+                  assertDisplayCurrent();
+                  images.set(candidate.digest, artwork);
+                  allocation.artwork[row.summary.cardId] = artwork;
+                  row.artwork = artwork;
+                  break;
+                } catch { assertDisplayCurrent(); unavailable.add(candidate.digest); }
+              }
+            }
+          } catch { assertDisplayCurrent(); }
+        }
+      };
+      // At most four concurrent downloads, under one total deadline.
+      await Promise.all([validateSaved(), ...Array.from({ length: Math.min(4, networks.length) }, recoverNetwork)]);
+    }).catch(() => { assertCurrent(); });
     assertCurrent();
     return presentations;
   }

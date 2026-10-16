@@ -46,7 +46,8 @@ type CachedMarkdownMemory = {
 
 type PwmClaims = Record<string, PwmClaim>;
 const PWM_DECISIONS = new Set(["accepted", "edited", "rejected", "removed"]);
-const MAX_DECLINED_PWM_CLAIMS = 150;
+// Keep every No from a full 269-point draft, plus room for later refreshes.
+const MAX_DECLINED_PWM_CLAIMS = 512;
 
 function readPwmClaims(value: unknown): PwmClaims {
   return Object.fromEntries(Object.entries(record(value)).filter(([key, raw]) => {

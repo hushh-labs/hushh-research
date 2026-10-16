@@ -306,7 +306,7 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     for invalid in [
         {**body, "user_id": "other"},
         {"owner_decisions": {**decisions, "inferred": []}},
-        {"owner_decisions": {"rejected": ["Likes blue."] * 51}},
+        {"owner_decisions": {"rejected": ["Likes blue."] * 270}},
         {"owner_decisions": {"rejected": ["x" * 601]}},
         {"owner_decisions": {"confirmed": [""]}},
     ]:

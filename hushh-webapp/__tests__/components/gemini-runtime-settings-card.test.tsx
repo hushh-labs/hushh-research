@@ -203,6 +203,22 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
   });
 
+  it("resumes a saved BYOK setup choice only after reading the encrypted key", async () => {
+    loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
+      credentialRef.endsWith("credential_mode") ? "byok" :
+      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
+    const onCanContinueChange = vi.fn();
+    render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture"
+      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured={false}
+      initialSetupChoice="byok_pending_vault"
+      onCanContinueChange={onCanContinueChange} />);
+
+    await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(true));
+    expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
+  });
+
   it("keeps the radio selection aligned after removing a saved key", async () => {
     loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
       credentialRef.endsWith("credential_mode")

@@ -411,12 +411,19 @@ recognition. No new official artwork or network partnership claim is introduced.
   with an ID-1 guide; every stream stops on cancel, hiding or unmount. Android
   uses the system camera through `HushhCardCapture`; iOS uses Capacitor Camera.
   Native system camera UI has its own guide controls; Wallet crop review follows capture.
+  The featured Add scanner also exposes photo selection. Live capture offers
+  the same fallback when permission is denied or a frame cannot be captured;
+  controls wrap on narrow screens. Partial and empty readings keep camera and
+  photo actions available for another attempt without clearing manual edits.
 - `wallet-card-scan.ts` validates headers before decoding, captures owner/session
   authority and supervises an owned worker. The previous worker depended on
   `OffscreenCanvas` and required a unique valid PAN before returning any fields.
   The new pipeline keeps fields independent and uses a portable RGBA/PNG codec.
   iOS Vision remains available; useful Vision fields survive optional artwork
   worker failures, with no partially inspected photo approved.
+  Full-photo Vision reads bypass redundant browser crop preparation. Missing,
+  failed or timed-out Vision recognition falls back to the bundled local OCR;
+  cancellation and owner changes stop both paths, and selected crops still apply.
 - `card-scan-worker.ts`, `card-scan-image.ts`, `card-scan-region.ts` and
   `card-scan-spatial.ts` perform bounded crop detection, a homography, rotations,
   lighting normalization and spatial number grouping locally. Transcript order
@@ -437,8 +444,10 @@ recognition. No new official artwork or network partnership claim is introduced.
 Inputs are JPEG, PNG or WebP, at most 15 MB compressed and 24 megapixels.
 Native acquisition converts compatible library images to a fresh JPEG; unsupported
 browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
-card recognition is bounded to 1600 pixels. There are at most five recognition
-passes plus four masking and four final-inspection passes. The complete scan has
+card recognition is bounded to 1600 pixels. Add requests fields only, with at most
+five recognition passes; it uses the existing automatic catalog artwork on save.
+Explicit photo-artwork callers can additionally use four masking and four
+final-inspection passes. The complete scan has
 a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,
 and acquisition 180. Pixel processing and OCR run in the owned local worker.
 No camera/photo/transcript goes to a cloud vision service. Real-device latency,
@@ -449,10 +458,12 @@ embossed metal and severe glare are not guaranteed by these bounds.
 `wallet_artwork_catalog.py` defines the `MetadataProvider` port and a strict
 versioned catalog. `HUSHH_WALLET_ARTWORK_CATALOG_PATH` optionally names a mounted,
 reviewed JSON file; its `assets/` directory contains digest-named rasters.
-There is **no licensed issuer provider configured and no bundled production bank artwork**
-in this change. The default-off approved-feed adapter, provider evaluation and
+The bundled reviewed card atlas supplies approved network illustrations; an
+issuer provider agreement is not needed for these authorized local images.
+There is no licensed issuer provider configured. The default-off approved-feed adapter, provider evaluation and
 activation conditions are documented in [Wallet artwork providers](./wallet-artwork-providers.md). No API keys, partnerships, scraped assets or exact product coverage
-are implied. The fully working fallback paths are a reviewed private photo or neutral.
+are implied. A reviewed private photo or neutral face remains available when
+approved artwork cannot be read.
 
 The catalog records issuer, product, family, variant, country, network, IINs,
 version, SHA-256 digest, raster MIME, provenance, rights reference, approving
@@ -465,12 +476,22 @@ invalidate their presentation on authorized reads and visible approval rechecks.
 encrypted copy, so a license requiring copy deletion is unsupported.
 
 The [supplied card atlas](./wallet-card-atlas.md) adds reviewed, adapted bank
-designs and owner-selected unused-image suggestions for manual Add. It does not
+designs assigned automatically by the selected network during Add. It does not
 infer a bank from a sample number or claim an exact physical-card match. The
 bundled catalog is replaced by an explicitly configured private catalog.
 
+After publishing decrypted cards, Workspace recovers missing or neutral artwork
+from the approved network catalog in memory, including older saved cards.
+The normal owner read does not wait for optional artwork recovery.
+Different numbers prefer unused image digests; the full number is compared only
+inside the unlocked client. This display recovery does not write PKM, change
+credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
+reference. Four background network workers share an eight-second deadline. Focus and
+visible-minute checks retry even when all initial faces were neutral; a newly
+saved fallback card also starts a quiet retry without delaying its appearance.
+
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
-`POST /resolve`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
+`POST /resolve`, `POST /banks`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
 a six/eight-digit IIN, PAN length and optional selected network. It refuses full
 credentials, names and photos without echoing them. Validate accepts at most
 24 explicit catalog references, within the private 16 KB body cap. Responses
@@ -536,11 +557,14 @@ Mastercard, AmEx, RuPay, Discover and Diners layouts; dim/low contrast/shadow,
 dark and embossed-style synthetic print, rotations, skew correction, partial
 fields, competing PANs, worker cancellation
 and language-asset failure. A production-component transport fixture proves
-capture → crop → local OCR → explicit photo approval → backend-shaped metadata
+visible camera/photo selection → crop → local OCR → owner review → backend-shaped metadata
 → **real PKM segmentation and AES encryption** → Cards → reload → lock at
 320/390/1440 px. Fixture authority and encrypted read/write endpoints are
 explicit test seams, not a live-account or production-backend rehearsal.
 Screenshots are generated as Playwright artifacts from synthetic information.
+Mobile-width cases exercise camera-permission rejection and the visible gallery
+fallback before recognition and saving. Native service tests exercise Vision
+failure/timeout recovery, full-photo reads and cancellation; they are not device proof.
 
 Unit/API checks cover private pixels/metadata, owner/epoch changes, final-byte
 approval, code removal, writer value differences, network fallback, stable retry

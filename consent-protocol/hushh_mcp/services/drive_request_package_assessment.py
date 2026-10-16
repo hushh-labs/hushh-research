@@ -7,8 +7,10 @@ model assessments, never calibrated probabilities or permission grants.
 
 from __future__ import annotations
 
+import calendar
 import json
-from datetime import date
+import re
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -49,6 +51,16 @@ class DocumentAssessment(BaseModel):
     document_ref: str = Field(min_length=1, max_length=128)
     decision: Literal["include", "exclude", "uncertain"]
     confidence: int = Field(ge=0, le=100)
+    # Legacy assessments omit this. V1 request-scoped selections require a
+    # separate comparative 1–10 judgment; neither value is a probability.
+    weightage_out_of_10: float | None = Field(default=None, ge=1, le=10, allow_inf_nan=False)
+    # Typed semantic claims are model judgments. The host binds their cited
+    # quotations to this exact source; independent eval grades their meaning.
+    record_type_claim: str | None = Field(default=None, max_length=120)
+    entity_claim: str | None = Field(default=None, max_length=120)
+    period_role: Literal[
+        "statement_coverage", "reporting_period", "event_date", "transaction_date", "unknown"
+    ] = "unknown"
     reason: str = Field(min_length=1, max_length=500)
     citations: list[EvidenceQuote]
     covered_periods: list[AssessedPeriod]
@@ -107,6 +119,283 @@ class PackageAssessment(BaseModel):
         if (self.decision == "ready") != (self.coverage_status == "complete"):
             raise ValueError("package decision and coverage disagree")
         return self
+
+
+_MONTHS = (
+    "jan(?:uary)?",
+    "feb(?:ruary)?",
+    "mar(?:ch)?",
+    "apr(?:il)?",
+    "may",
+    "jun(?:e)?",
+    "jul(?:y)?",
+    "aug(?:ust)?",
+    "sep(?:t(?:ember)?)?",
+    "oct(?:ober)?",
+    "nov(?:ember)?",
+    "dec(?:ember)?",
+)
+
+
+def _cited_day(day: date, quotation: str) -> bool:
+    """Require a claimed calendar endpoint in an exact source quotation.
+
+    This is a lexical evidence gate, not a substitute for semantic date-role
+    judgment. Both US and day-first numeric forms remain possible; the model
+    must use the document's locale/context to decide which one is its period.
+    """
+    year, month, number = day.year, day.month, day.day
+    yy = year % 100
+    numeric = (
+        rf"(?<!\d){year}[-/.]0?{month}[-/.]0?{number}(?!\d)",
+        rf"(?<!\d)0?{month}[-/.]0?{number}[-/.](?:{year}|{yy:02d})(?!\d)",
+        rf"(?<!\d)0?{number}[-/.]0?{month}[-/.](?:{year}|{yy:02d})(?!\d)",
+    )
+    if any(re.search(pattern, quotation) for pattern in numeric):
+        return True
+    month_name = _MONTHS[month - 1]
+    # A year elsewhere in the same short quotation can qualify an interval
+    # such as "September 1 – October 9, 2026".
+    if not re.search(rf"(?<!\d){year}(?!\d)", quotation):
+        return False
+    named = (
+        rf"\b{month_name}\.?\s+0?{number}(?:st|nd|rd|th)?\b",
+        rf"\b0?{number}(?:st|nd|rd|th)?\s+{month_name}\b",
+    )
+    if any(re.search(pattern, quotation, re.I) for pattern in named):
+        return True
+    # A monthly statement often says only "September 2026". Calendar-month
+    # endpoints can be normalized from that wording; arbitrary days cannot.
+    if number not in {1, calendar.monthrange(year, month)[1]}:
+        return False
+    return bool(re.search(rf"\b{month_name}\.?\s+{year}\b", quotation, re.I))
+
+
+_CLAIM_GENERIC = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "document",
+        "documents",
+        "file",
+        "files",
+        "for",
+        "from",
+        "of",
+        "record",
+        "records",
+        "the",
+    }
+)
+
+
+def _entity_cited(claim: str | None, quotation: str) -> bool:
+    """Require the full issuer/subject name in one cited quotation."""
+    if not claim:
+        return False
+    terms = [token.casefold() for token in re.findall(r"[^\W_]+", claim, re.UNICODE)]
+    while terms and terms[0] in _CLAIM_GENERIC:
+        terms.pop(0)
+    while terms and terms[-1] in _CLAIM_GENERIC:
+        terms.pop()
+    if not any(len(token) >= 3 and token not in _CLAIM_GENERIC for token in terms):
+        return False
+    cited = [token.casefold() for token in re.findall(r"[^\W_]+", quotation, re.UNICODE)]
+    return any(cited[index : index + len(terms)] == terms for index in range(len(cited)))
+
+
+def _record_type_cited(claim: str, quotation: str, *, institutional_statement: bool) -> bool:
+    """Evidence validation after retrieval, never a filename discovery rule."""
+    tokens = [
+        token.casefold()
+        for token in re.findall(r"[^\W_]+", claim, re.UNICODE)
+        if len(token) >= 4 and token.casefold() not in _CLAIM_GENERIC
+    ]
+    cited = {token.casefold() for token in re.findall(r"[^\W_]+", quotation, re.UNICODE)}
+    has_statement_alias = (
+        institutional_statement
+        and "statement" in tokens
+        and bool(cited.intersection({"estmt", "estatement", "stmt", "stmts"}))
+    )
+    if not tokens or not (any(term in cited for term in tokens) or has_statement_alias):
+        return False
+    if not institutional_statement:
+        return True
+    # An educational bulletin can mention statements without being one. A
+    # positive account-statement heading/eStatement cue must be cited.
+    for match in re.finditer(r"\b(?:(?:e-?)?statements?|e-?stmts?|stmts?)\b", quotation, re.I):
+        prefix = quotation[max(0, match.start() - 48) : match.start()]
+        if re.search(r"\b(?:not|never|how\s+to\s+read|guide\s+to|about)\b[^.!?\n]*$", prefix, re.I):
+            continue
+        if re.search(
+            r"\b(?:account|brokerage|bank|monthly|quarterly|annual|investment|portfolio)\s*$",
+            prefix,
+            re.I,
+        ):
+            return True
+        if re.search(r"\be-?statement\b", quotation[: match.end()], re.I):
+            return True
+    return False
+
+
+def verify_v1_document_batch(
+    assessment: BoundDocumentBatchAssessment, *, request: dict, retrieved: dict
+) -> BoundDocumentBatchAssessment:
+    """Downgrade unsupported V1 inclusions without losing the other candidates.
+
+    The model still decides meaning. The host binds typed claims to exact
+    same-document citations, checks cited period dates and overlaps the
+    selected window. Filename, modifiedTime and importance never substitute.
+    """
+    sources = {item["source_ref"]: item for item in retrieved["untrusted_external_content"]}
+    try:
+        start = date.fromisoformat(request["periodStart"])
+        end = date.fromisoformat(request["periodEnd"])
+    except (KeyError, TypeError, ValueError):
+        start = end = None
+    required_entities = request.get("requiredEntities")
+    if not isinstance(required_entities, list) or not all(
+        isinstance(entity, str) and 1 <= len(entity) <= 120 for entity in required_entities
+    ):
+        required_entities = []
+    institutional = request.get("semanticIntent") == "institutional_statement"
+    checked = []
+    for item in assessment.documents:
+        if item.decision != "include":
+            checked.append(item)
+            continue
+        citations = [
+            cite
+            for cite in item.citations
+            if sources.get(cite.source_ref, {}).get("document_ref") == item.document_ref
+            and cite.quote in sources[cite.source_ref]["text"]
+        ]
+        joined = "\n".join(cite.quote for cite in citations)
+        periods = []
+        for period in item.covered_periods:
+            period_quote = "\n".join(
+                cite.quote for cite in citations if cite.source_ref in period.source_refs
+            )
+            if _cited_day(date.fromisoformat(period.period_start), period_quote) and _cited_day(
+                date.fromisoformat(period.period_end), period_quote
+            ):
+                periods.append(period)
+        supported = (
+            bool(citations)
+            and bool(joined.strip())
+            and bool(item.record_type_claim and item.record_type_claim.strip())
+            and _record_type_cited(
+                item.record_type_claim, joined, institutional_statement=institutional
+            )
+            and (
+                not item.entity_claim
+                or any(_entity_cited(item.entity_claim, cite.quote) for cite in citations)
+            )
+            and all(
+                any(_entity_cited(entity, cite.quote) for cite in citations)
+                for entity in required_entities
+            )
+            and (
+                item.period_role == "statement_coverage"
+                if institutional
+                else item.period_role != "unknown"
+            )
+            and item.confidence >= 80
+            and item.weightage_out_of_10 is not None
+            and bool(periods)
+            and (
+                start is None
+                or any(
+                    date.fromisoformat(period.period_start) <= end
+                    and date.fromisoformat(period.period_end) >= start
+                    for period in periods
+                )
+            )
+        )
+        checked.append(
+            item
+            if supported
+            else item.model_copy(
+                update={
+                    "decision": "uncertain",
+                    "confidence": 0,
+                    "reason": "The cited content does not verify the requested record and period.",
+                    "covered_periods": [],
+                }
+            )
+        )
+    return BoundDocumentBatchAssessment(documents=checked)
+
+
+def verify_v1_package(
+    assessment: PackageAssessment, *, request: dict, documents: list[BoundDocumentAssessment]
+) -> PackageAssessment:
+    """A ready V1 selection must have gap-free cited content coverage."""
+    if assessment.decision != "ready":
+        return assessment
+    if assessment.confidence < 80:
+        return assessment.model_copy(
+            update={
+                "decision": "partial",
+                "coverage_status": "partial",
+                "gaps": ["The evidence assessment is below the V1 readiness threshold."],
+            }
+        )
+    # The model may rank a subset highly, but ranking cannot silently turn an
+    # exhaustive request into a partial delivery. Explicit result limits are
+    # permitted only when the requester did not ask for every matching file.
+    explicit_limit = request.get("resultLimit")
+    purpose = request.get("purpose", "")
+    exhaustive = (
+        type(explicit_limit) is not int
+        or not 1 <= explicit_limit <= 1000
+        or bool(re.search(r"\b(?:all|every)\b", purpose, re.I))
+    )
+    included = {item.document_ref for item in documents if item.decision == "include"}
+    selected = set(assessment.selected_document_refs)
+    if exhaustive and selected != included:
+        return assessment.model_copy(
+            update={
+                "decision": "partial",
+                "coverage_status": "partial",
+                "gaps": ["Additional verified matching documents were not selected."],
+            }
+        )
+    if request.get("semanticIntent") != "institutional_statement":
+        return assessment
+    try:
+        requested_start = date.fromisoformat(request["periodStart"])
+        requested_end = date.fromisoformat(request["periodEnd"])
+    except (KeyError, TypeError, ValueError):
+        return assessment.model_copy(
+            update={
+                "decision": "partial",
+                "coverage_status": "partial",
+                "gaps": ["The requested period could not be verified."],
+            }
+        )
+    spans = sorted(
+        (date.fromisoformat(period.period_start), date.fromisoformat(period.period_end))
+        for document in documents
+        if document.document_ref in selected and document.decision == "include"
+        for period in document.covered_periods
+        if date.fromisoformat(period.period_end) >= requested_start
+    )
+    covered_through = requested_start - timedelta(days=1)
+    for start, end in spans:
+        if start > covered_through + timedelta(days=1):
+            break
+        covered_through = max(covered_through, end)
+        if covered_through >= requested_end:
+            return assessment
+    return assessment.model_copy(
+        update={
+            "decision": "partial",
+            "coverage_status": "partial",
+            "gaps": ["The selected documents do not verify the full requested period."],
+        }
+    )
 
 
 def _prompt(payload: dict) -> str:

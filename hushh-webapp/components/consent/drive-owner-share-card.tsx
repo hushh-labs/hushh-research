@@ -228,7 +228,7 @@ function UnlockedDriveOwnerShareCard({
           : selectionExpired
             ? "This sharing attempt expired. Ask One to start a new share."
           : view?.status === "no_match"
-            ? "No matching files found."
+            ? "No file candidates in this search."
             : view?.status === "ready"
               ? reservedRefs ? "Retry sharing the selected files." : "Choose the files to share."
               : null;

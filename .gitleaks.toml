@@ -100,4 +100,8 @@ regexes = [
   # Anchored and matched against the SECRET, following the entries above: any
   # other value assigned to that name still trips the rule.
   '''^4633458b-17de-408a-b874-0445c86b69e6$''',
+  # Old unpushed V1 commit used this exact public checkpoint field name in a
+  # Python constant; the generic-key heuristic mistook that assignment for a
+  # credential. The constant is now renamed, but CI scans commit history.
+  '''^v1_evaluation_priority$''',
 ]

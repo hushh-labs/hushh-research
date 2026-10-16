@@ -17535,12 +17535,12 @@
     {
       "action_id": "profile.world_model.sources",
       "surface_id": "profile_world_model",
-      "label": "Add a public source",
+      "label": "Review a claimed source",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Read independently supplied permitted public URLs for owner review.",
+      "meaning": "Review a professional source attached to a legacy invitation claim.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17574,7 +17574,6 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_sources_open",
         "pwm_sources_prepare",
         "pwm_manage_sourced"
       ],
@@ -17610,107 +17609,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.sources",
-            "label": "Add a public source",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.world_model.preview",
-      "surface_id": "profile_world_model",
-      "label": "Prepare invitation preview",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "meaning": "Read a supplied professional source and review selected preview facts.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_preview"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/personal-world-model.md",
-        "components/profile/world-model-options.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/profile/world-model"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.world_model.preview",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.world_model.preview",
-            "label": "Prepare invitation preview",
+            "label": "Review a claimed source",
             "failure_behavior": "stop"
           }
         ],
@@ -17742,7 +17641,7 @@
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
+      "meaning": "Create an invitation from a name and email or phone. Either supplied verified contact can claim; the recipient's own model starts after claim. Explicit sharing uses the share sheet.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17843,7 +17742,7 @@
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "meaning": "Claim the invitation using a matching verified contact; owner preparation starts according to the recipient's research setting and grants no sharing.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

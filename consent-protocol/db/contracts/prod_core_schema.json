@@ -98,7 +98,9 @@
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding"
+    "enforce_stripe_payout_source_binding",
+    "mirror_drive_request_payment_obligation",
+    "mark_drive_bulk_share_v1_removal_source"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -842,7 +844,8 @@
       "status",
       "stopped_at",
       "updated_at",
-      "user_id"
+      "user_id",
+      "v1_statement_search"
     ],
     "drive_collection_sync": [
       "attempt_count",
@@ -1008,7 +1011,8 @@
       "status",
       "unshareable_count",
       "updated_at",
-      "user_id"
+      "user_id",
+      "v1_statement_search"
     ],
     "drive_owner_search_results": [
       "evaluated_at",
@@ -1133,7 +1137,8 @@
       "share_id",
       "state",
       "updated_at",
-      "user_id"
+      "user_id",
+      "v1_statement_search"
     ],
     "drive_request_owner_payouts": [
       "actual_processing_fee_cents",
@@ -1176,7 +1181,8 @@
       "transfer_attempt_id",
       "transferred_at",
       "updated_at",
-      "wallet_id"
+      "wallet_id",
+      "v1_statement_search"
     ],
     "drive_request_owner_pricing": [
       "amount_cents",
@@ -1203,7 +1209,8 @@
       "stripe_checkout_session_id",
       "stripe_mode",
       "stripe_payment_intent_id",
-      "updated_at"
+      "updated_at",
+      "v1_statement_search"
     ],
     "drive_request_payment_orders": [
       "amount_cents",
@@ -1340,7 +1347,11 @@
       "settlement_method",
       "status",
       "updated_at",
-      "user_id"
+      "user_id",
+      "v1_live_request",
+      "requested_access_days",
+      "approved_access_days",
+      "access_expires_at"
     ],
     "drive_share_reviews": [
       "connection_generation",
@@ -2972,7 +2983,8 @@
       "recipient_draft_id",
       "recipient_user_id",
       "state",
-      "token_hash"
+      "token_hash",
+      "secondary_contact_commitment"
     ],
     "pwm_completion_events": [
       "created_at",

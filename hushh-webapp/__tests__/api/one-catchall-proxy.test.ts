@@ -26,6 +26,22 @@ beforeEach(async () => {
 });
 
 describe("/api/one/[...path] proxy", () => {
+  it("gives only semantic Location proposals the longer upstream budget", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { headers: { "Content-Type": "application/json" } }),
+    );
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    for (const [segments, expected] of [
+      [["agent-chat", "proposals"], 140_000],
+      [["agent-chat", "proposals", "typed"], 45_000],
+    ] as const) {
+      const request = new NextRequest(`http://localhost:3000/api/one/${segments.join("/")}`, {
+        method: "POST", body: "{}", headers: { "Content-Type": "application/json" },
+      });
+      await route.POST(request, { params: Promise.resolve({ path: [...segments] }) });
+      expect(timeout).toHaveBeenLastCalledWith(expected);
+    }
+  });
   it("forwards owner-authorized Wallet network metadata with a private response", async () => {
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] }), { headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" } }));
     const body = JSON.stringify({ iinPrefix: "411111", panLength: 16 });

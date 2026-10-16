@@ -21,11 +21,19 @@ from hushh_mcp.operons.location.plan import (
     LocationStepDependency,
     LocationStepReference,
 )
-from hushh_mcp.runtime_providers.gemini_config import build_generate_content_config
+from hushh_mcp.runtime_providers.gemini_config import (
+    build_generate_content_config,
+    thinking_config_for,
+)
 
 _LOCATION_MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 _TRANSCRIBER_GENE_ID = "agent_location_transcriber"
 _LOCATION_CONSENT_SCOPE = "location.transcribe"
+_SEMANTIC_PROVIDER_TIMEOUT_MS = 60_000
+# A read-tool turn can require a second managed model call. Keep a bounded
+# assessment above two provider deadlines; the proxy and clients wait longer.
+_SEMANTIC_ASSESS_TIMEOUT_SECONDS = 130
+
 _TRANSCRIPTION_SCHEMA: dict[str, object] = {
     "type": "OBJECT",
     "properties": {"transcript": {"type": "STRING"}},
@@ -260,7 +268,14 @@ class LocationCommandBrain:
         agent = LlmAgent(
             name="location_command",
             mode="single_turn",
-            model=self.adk_model or build_managed_gemini_adk_model(self.model),
+            model=self.adk_model
+            or build_managed_gemini_adk_model(
+                self.model,
+                http_options=types.HttpOptions(
+                    timeout=_SEMANTIC_PROVIDER_TIMEOUT_MS,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
+            ),
             instruction=self.manifest.capabilities["command_instruction"],
             tools=read_tools or [],
             output_schema=SemanticAssessment.provider_schema(),
@@ -268,7 +283,11 @@ class LocationCommandBrain:
             disallow_transfer_to_parent=True,
             disallow_transfer_to_peers=True,
             generate_content_config=build_generate_content_config(
-                types, self.model, temperature=0, max_output_tokens=4096
+                types,
+                self.model,
+                temperature=0,
+                max_output_tokens=4096,
+                thinking_config=thinking_config_for(self.model, "low", types),
             ),
         )
         sessions = InMemorySessionService()
@@ -304,7 +323,7 @@ class LocationCommandBrain:
             ],
         )
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_SEMANTIC_ASSESS_TIMEOUT_SECONDS):
                 async for _event in runner.run_async(
                     user_id=transient_user,
                     session_id=session_id,

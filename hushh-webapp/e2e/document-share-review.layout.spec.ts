@@ -885,7 +885,7 @@ test("partial sharing outcomes and safe retry fit the sheet at 390px", async ({ 
   await expect(panel.getByRole("status")).toHaveText("Sharing incomplete");
   await expect(panel.getByText("71 of 72 files available", { exact: true })).toBeVisible();
   await expect(panel.getByText("1 not shared", { exact: true })).toBeVisible();
-  await expect(panel.getByText("36 unavailable matches were not included.", { exact: true })).toBeVisible();
+  await expect(panel.getByText("36 unavailable file candidates were not included.", { exact: true })).toBeVisible();
   await expect(panel.getByText(/7 files in matching folders were excluded because their names did not match this request/)).toBeVisible();
   await expect(panel.getByText(/0 failed/)).toHaveCount(0);
   await expect(panel.getByText(filename, { exact: true })).toBeVisible();

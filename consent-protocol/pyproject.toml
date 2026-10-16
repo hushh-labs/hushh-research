@@ -81,6 +81,7 @@ dependencies = [
     "redis==5.3.1",
     "cachetools==7.1.7",
     "stripe>=13,<20",
+    "openpyxl>=3.1.5,<4",
 ]
 
 [dependency-groups]

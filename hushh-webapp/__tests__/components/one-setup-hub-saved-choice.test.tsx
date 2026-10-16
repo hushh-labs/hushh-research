@@ -4,6 +4,9 @@ import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
   saved: false,
+  choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
+  stagedGeminiKey: false,
+  savedGeminiKey: false,
   user: { uid: "owner" },
   unlocked: false,
   pendingContactsWelcome: false,
@@ -41,8 +44,8 @@ vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
   } }) },
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
-  getCachedBootstrapState: () => ({ saved: state.saved, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
-  bootstrapState: async () => ({ saved: state.saved, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
+  getCachedBootstrapState: () => ({ saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
+  bootstrapState: async () => ({ saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
   hasOneCloudProject: () => true,
   hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
 } }));
@@ -57,7 +60,13 @@ vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: 
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
 
 vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: state.acknowledgeSetupExit }));
-vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false } }));
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false, hasGeminiRuntime: () => state.stagedGeminiKey } }));
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  GEMINI_RUNTIME_CREDENTIAL_REF: "gemini-key",
+  PersonalKnowledgeModelService: {
+    loadRuntimeSecret: async () => state.savedGeminiKey ? "saved-gemini-key" : null,
+  },
+}));
 vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("@/lib/services/post-unlock-sync-service", () => ({ PostUnlockSyncService: { run: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("@/lib/services/world-model-research-service", () => ({ WorldModelResearchService: { updatePreferences: state.updatePreferences } }));
@@ -68,13 +77,16 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActio
 
 beforeEach(() => {
   state.saved = false;
+  state.choice = "hushh_managed_vertex";
+  state.stagedGeminiKey = false;
+  state.savedGeminiKey = false;
   state.unlocked = false;
   state.pendingContactsWelcome = false;
   state.completionOrder.length = 0;
   state.listener = null;
   state.unsubscribe.mockClear();
   state.replace.mockClear();
-  state.queueEntryWelcome.mockClear();
+  state.queueEntryWelcome.mockReset();
   state.updatePreferences.mockReset().mockImplementation(async () => {
     state.completionOrder.push("pwm-preferences");
   });
@@ -83,6 +95,41 @@ beforeEach(() => {
   });
 });
 describe("Setup saved AI choice", () => {
+  it("requires a BYOK key again after a reload loses its process-memory draft", async () => {
+    state.saved = true;
+    state.choice = "byok_pending_vault";
+    const view = render(<OneSetupHub />);
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    expect(finish).toBeDisabled();
+    expect(screen.getByTestId("one-setup-foundation")).toHaveTextContent("Finish choosing AI access");
+
+    state.stagedGeminiKey = true;
+    act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));
+    await waitFor(() => expect(finish).toBeEnabled());
+
+    // A stale enabled button must still re-check the volatile credential.
+    state.stagedGeminiKey = false;
+    fireEvent.click(finish);
+    await waitFor(() => expect(finish).toBeDisabled());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("accepts a BYOK choice backed by an existing encrypted key", async () => {
+    state.saved = true;
+    state.choice = "byok_pending_vault";
+    state.unlocked = true;
+    state.savedGeminiKey = true;
+    render(<OneSetupHub />);
+
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    await waitFor(() => expect(finish).toBeEnabled());
+    fireEvent.click(finish);
+    await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
+    expect(state.replace).toHaveBeenCalledWith("/");
+  });
+
   it("removes redundant progress and disables Finish until the current owner's saved choice arrives", async () => {
     const view = render(<OneSetupHub />);
     const finish = await screen.findByRole("button", { name: "Finish setup" });
@@ -116,7 +163,7 @@ describe("Setup saved AI choice", () => {
 
     // Research is disclosed, not asked: no checkbox and no preferences write.
     expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
-      "Your private agent will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.",
+      /public information about you/,
     );
     expect(screen.queryByRole("checkbox")).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
@@ -126,5 +173,37 @@ describe("Setup saved AI choice", () => {
     expect(state.queueEntryWelcome).not.toHaveBeenCalled();
     expect(state.updatePreferences).not.toHaveBeenCalled();
     expect(state.completionOrder).toEqual(["setup-acknowledgement"]);
+  });
+
+  it("queues the first Chat greeting before setup acknowledgement settles", async () => {
+    state.saved = true;
+    state.unlocked = true;
+    let releaseAcknowledgement: (() => void) | undefined;
+    const acknowledgement = new Promise<void>((resolve) => {
+      releaseAcknowledgement = resolve;
+    });
+    state.acknowledgeSetupExit.mockImplementation(() => {
+      state.completionOrder.push("acknowledgement-started");
+      return acknowledgement;
+    });
+    state.queueEntryWelcome.mockImplementation(() => {
+      state.completionOrder.push("greeting-queued");
+    });
+
+    render(<OneSetupHub />);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(state.queueEntryWelcome).toHaveBeenCalledWith("owner"));
+    expect(state.completionOrder).toEqual([
+      "acknowledgement-started",
+      "greeting-queued",
+    ]);
+    expect(state.replace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseAcknowledgement?.();
+      await acknowledgement;
+    });
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
   });
 });

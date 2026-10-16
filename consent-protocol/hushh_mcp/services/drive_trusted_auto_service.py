@@ -12,7 +12,10 @@ import asyncio
 
 from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_statement_plan,
+)
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_store import OWNER_SETUP_CODES, DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -77,11 +80,12 @@ class DriveTrustedAutoService:
                     await require_current()
                     if reader._generation != file["generation"]:
                         raise DriveReadError("connection_changed")
-                    actual = await reader.adapter.get_metadata(
+                    actual = await reader.adapter.get_share_metadata(
                         file_id=file["id"],
                         access_token=credential["accessToken"],
-                        require_app_authorized=False,
-                        require_genai_eligibility=False,
+                        **(
+                            {"resource_key": file["resourceKey"]} if file.get("resourceKey") else {}
+                        ),
                     )
                     if actual.version != file["sourceVersion"] or actual.name != file["name"]:
                         raise DriveReadError("source_changed")
@@ -110,7 +114,8 @@ class DriveTrustedAutoService:
             return True
         # The order is committed. The sharing drain binds a Stripe deadline
         # before it writes and dispatches the payment-ready notification.
-        await self.wake("sharing")
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        await self.wake("v1" if context.get("v1LiveRequest") else "sharing")
         return False
 
     def _authority(self, user_id: str, request_id: str):
@@ -158,15 +163,17 @@ class DriveTrustedAutoService:
         return guarded
 
     async def start_pending(
-        self, *, max_jobs: int = 1, deadline_at: float | None = None
+        self, *, max_jobs: int = 1, deadline_at: float | None = None, v1_only: bool = False
     ) -> dict[str, int]:
         """Plan new trusted requests while reserving time for worker continuation."""
         outcomes = {"started": 0, "deferred": 0}
-        for item in await self.sharing.due_trusted_searches(limit=min(20, max_jobs * 4)):
+        for item in await self.sharing.due_trusted_searches(
+            limit=min(20, max_jobs * 4), **({"v1_only": True} if v1_only else {})
+        ):
             if outcomes["started"] >= max_jobs:
                 break
             if deadline_at is not None and deadline_at - asyncio.get_running_loop().time() < 20:
-                await self.wake("suggestions")
+                await self.wake("v1" if v1_only else "suggestions")
                 break
             user_id, request_id = item["user_id"], item["request_id"]
             package = item.get("agent_package") is True
@@ -207,7 +214,7 @@ class DriveTrustedAutoService:
                 outcomes["started"] += 1
                 # The durable search may have no committed rows yet. Wake its
                 # own slice before spending this invocation on empty batches.
-                await self.wake("suggestions")
+                await self.wake("v1" if v1_only else "suggestions")
             except (DriveReadError, TimeoutError) as error:
                 await self.sharing.defer_trusted_search(
                     user_id=user_id, request_id=request_id, code=_defer_code(error)
@@ -219,12 +226,28 @@ class DriveTrustedAutoService:
         """Queue at most eight 25-file batches; wake again if more are committed."""
         if type(max_batches) is not int or not 1 <= max_batches <= 16:
             raise ValueError("invalid trusted batch bound")
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        if (
+            context.get("v1LiveRequest")
+            and context.get("trustedAuto")
+            and not context.get("packageAllowed")
+        ):
+            if not await self.sharing.freeze_trusted_selection(
+                user_id=user_id, request_id=request_id
+            ):
+                return 0
+            context = await self.sharing.request_bulk_context(
+                user_id=user_id, request_id=request_id
+            )
         require_current = self._authority(user_id, request_id)
         await require_current()
-        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             await self._undated_packet_current(user_id=user_id, context=context)
+        if not context.get("agentPackageRequired") and _deterministic_statement_plan(purpose):
+            # A saved one-query job may still carry the older file-activity
+            # marker until its lease is replanned. It cannot auto-select files.
+            return 0
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its
             # candidates need exact owner review before a batch or order exists.
@@ -360,13 +383,15 @@ class DriveTrustedAutoService:
             )
             return 0
 
-    async def continue_batches(self, *, max_jobs: int = 2) -> int:
+    async def continue_batches(self, *, max_jobs: int = 2, v1_only: bool = False) -> int:
         """Continue after search completion, when the search job is no longer due."""
         count = 0
         # due_trusted_batches rotates each selected row. Claim only work this
         # invocation can process so older unpaid or busy requests cannot keep
         # a paid frozen review behind them indefinitely.
-        for item in await self.sharing.due_trusted_batches(limit=max_jobs):
+        for item in await self.sharing.due_trusted_batches(
+            limit=max_jobs, **({"v1_only": True} if v1_only else {})
+        ):
             if count >= max_jobs:
                 break
             try:

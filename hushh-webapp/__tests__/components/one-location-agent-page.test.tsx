@@ -980,6 +980,18 @@ async function openLocationPermissionsStep() {
   });
   await waitFor(() => expect(setupButton).toBeEnabled());
   fireEvent.click(setupButton);
+  // Continue offers the optional Save a place step whenever Location is
+  // available. Most flows are not about it, so decline it and land on Ready.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Skip saving this place" }) ??
+        screen.queryByRole("heading", { name: /You're (on the map|all set)/ }),
+    ).toBeTruthy(),
+  );
+  const skipPlace = screen.queryByRole("button", {
+    name: "Skip saving this place",
+  });
+  if (skipPlace) fireEvent.click(skipPlace);
 }
 
 async function switchLocationTab(
@@ -4055,9 +4067,13 @@ describe("OneLocationAgentPage", () => {
       "aria-pressed",
       "true",
     );
+    fireEvent.click(screen.getByRole("button", { name: "Reason" }));
     expect(
       screen.getByRole("radio", { name: "Safety check-in" }),
     ).toHaveAttribute("aria-checked", "true");
+    fireEvent.keyDown(screen.getByRole("radio", { name: "Safety check-in" }), {
+      key: "Escape",
+    });
     expect(screen.queryByDisplayValue("Old draft")).toBeNull();
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
@@ -4758,7 +4774,10 @@ describe("OneLocationAgentPage", () => {
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Skip saving this place" }),
+    );
+    expect(await screen.findByTestId("one-location-onboarding-ready")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(onNavigationRequest).not.toHaveBeenCalled();
@@ -4896,20 +4915,28 @@ describe("OneLocationAgentPage", () => {
     vi.useRealTimers();
   });
 
-  it.each(["prompt", "denied", "granted"] as const)("finishes the introduction without requesting location when %s", async (state) => {
+  it("never makes a location grant a condition of finishing the introduction", async () => {
     const onSetupComplete = vi.fn();
-    const readiness = vi.fn();
-    mockGetPermissionState.mockResolvedValue({ state, precise: null, background: "foreground-only", locationServicesEnabled: true });
-    render(<OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} onSetupReadinessChange={readiness} />);
+    mockGetPermissionState.mockResolvedValue({ state: "denied", precise: null, background: "foreground-only", locationServicesEnabled: true });
+    render(<OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />);
     await reachLocationOnboardingFinalStep();
-    expect(screen.getByText("2 of 2")).toBeTruthy();
+    expect(screen.getByText("3 of 3")).toBeTruthy();
     expect(screen.queryByTestId("save-location-modal")).toBeNull();
-    expect(screen.queryByText("Private until you share.")).toBeNull();
     fireEvent.click(await locationFinishButton());
     await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
-    expect(readiness).toHaveBeenCalledWith(true);
-    expect(mockRequestLocationPermission).not.toHaveBeenCalled();
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockStageSavedLocation).not.toHaveBeenCalled();
+  });
+
+  it("offers Save a place after Continue and leaves nothing open when it is skipped", async () => {
+    mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
+    render(<OneLocationAgentPage mode="setup" />);
+    await openLocationFeatureStep();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByTestId("one-location-onboarding-save-place-surface")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Skip saving this place" }));
+    await expectLocationInviteStep();
+    await waitFor(() => expect(screen.queryByTestId("save-location-modal")).toBeNull());
+    expect(mockStageSavedLocation).not.toHaveBeenCalled();
   });
 
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
@@ -4923,14 +4950,31 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
   });
 
-  it("keeps pre-vault setup passive without staging a place", async () => {
+  it("keeps pre-vault setup from staging a place the person did not save", async () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
     render(<OneLocationAgentPage mode="setup" />);
     await reachLocationOnboardingFinalStep();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStageSavedLocation).not.toHaveBeenCalled();
+  });
+
+  it("stages the onboarding place in memory before the vault exists and then reaches Ready", async () => {
+    mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
+    render(<OneLocationAgentPage mode="setup" />);
+    await openLocationFeatureStep();
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByTestId("one-location-onboarding-save-place-surface")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    const save = await screen.findByRole("button", { name: /^Save/ });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await expectLocationInviteStep();
+    expect(mockStageSavedLocation).toHaveBeenCalledWith(
+      "user_a",
+      expect.objectContaining({ category: "home", latitude: 28.6139, longitude: 77.209 }),
+    );
+    expect(mockAddSavedLocation).not.toHaveBeenCalled();
   });
 
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
@@ -5087,9 +5131,10 @@ describe("OneLocationAgentPage", () => {
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
     let rejectCapture!: (error: Error) => void;
     const capture = new Promise((_, reject) => { rejectCapture = reject; });
-    mockCaptureCurrentPosition.mockReturnValue(capture);
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
+    // Held only now: onboarding's own place step needs a real fix to get past.
+    mockCaptureCurrentPosition.mockReturnValue(capture);
     await screen.findByRole("button", { name: "Save a place" });
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
@@ -6416,6 +6461,13 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
     expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
     const navigateBack = vi.fn();
+    fireEvent.click(screen.getByRole("button", { name: "Reason" }));
+    expect(screen.getByRole("radiogroup", { name: "Reason" })).toBeTruthy();
+    act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reason" })).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Who, then how long?" })).toBeTruthy();
+    expect(navigateBack).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
     expect(await screen.findByRole("heading", { name: "Ask for location" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Who, then how long?" })).toBeNull();

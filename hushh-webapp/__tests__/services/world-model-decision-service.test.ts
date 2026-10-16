@@ -133,6 +133,26 @@ describe("PWM owner decisions in encrypted memory", () => {
     expect(context.text).not.toMatch(/blue/i);
   });
 
+  it("carries every No from a full 269-statement draft into the next research request", () => {
+    const claims = Object.fromEntries(
+      Array.from({ length: 269 }, (_, index) => [
+        `key-${index}`,
+        {
+          text: `Rejected statement ${index}`,
+          decision: "rejected",
+          decided_at: new Date(2026, 0, 1, 0, index).toISOString(),
+        },
+      ]),
+    );
+    const decisions = WorldModelDecisionService.ownerDecisions({
+      claims,
+      saved: [],
+      decidedKeys: new Set(),
+    } as unknown as Parameters<typeof WorldModelDecisionService.ownerDecisions>[0]);
+    expect(decisions.rejected).toHaveLength(269);
+    expect(decisions.rejected).toContain("Rejected statement 0");
+  });
+
   it("keeps only the corrected wording after an edit", async () => {
     await WorldModelDecisionService.confirm({
       ...owner,

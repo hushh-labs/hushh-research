@@ -13,6 +13,7 @@ from hushh_mcp.services import drive_work_wake as wake
 @pytest.fixture(autouse=True)
 def _no_cached_credentials(monkeypatch):
     monkeypatch.setattr(wake, "_cached_credentials", None)
+    monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
 
 
 class _Credentials:
@@ -75,6 +76,35 @@ async def test_prompt_wake_uses_only_fixed_job_in_matching_project(
             "Bearer test-token-1",
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_v1_wake_targets_fixed_scheduler_and_isolated_worker_cannot_wake_broad_stage(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", "true")
+    monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
+    monkeypatch.setattr(wake, "default_credentials", lambda **_: (_Credentials(), "hushh-pda-uat"))
+    calls = _scheduler(monkeypatch)
+
+    # An API request can wake the isolated lane immediately after its commit.
+    assert await wake.wake_drive_work("v1")
+    monkeypatch.setenv("DRIVE_WORKER_V1_ONLY", "true")
+    assert not await wake.wake_drive_work("sharing")
+    assert await wake.wake_drive_work("v1")
+    assert (
+        calls
+        == [
+            (
+                "https://cloudscheduler.googleapis.com/v1/projects/hushh-pda-uat/locations/"
+                "us-central1/jobs/drive-work-v1-uat:run",
+                "Bearer test-token-1",
+            )
+        ]
+        * 2
+    )
 
 
 @pytest.mark.asyncio

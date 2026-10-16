@@ -81,6 +81,319 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
 
 
+def _offline_absent_drive_acl(monkeypatch):
+    """Replace only live Google reads in persisted payment lifecycle tests.
+
+    The exact frozen source selection and current request authority still run
+    against PostgreSQL before this synthetic absent-ACL result is returned.
+    """
+    from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
+    async def inspect(self, *, user_id, request_id, require_current, files=None):
+        assert files and len({file["id"] for file in files}) == len(files)
+        assert all(file["name"] and file["modifiedTime"] and file["generation"] for file in files)
+        await require_current()
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        await require_current()
+        return SimpleNamespace(status="none", request_revision=context["revision"])
+
+    monkeypatch.setattr(DrivePackageAccessPreflight, "inspect", inspect)
+
+
+@pytest.mark.parametrize(
+    "access_status,error",
+    [
+        ("all_existing", "request_already_accessible"),
+        ("mixed", "package_existing_access_requires_review"),
+        ("unknown", "payment_not_ready"),
+    ],
+)
+async def test_legacy_auto_checkout_checks_exact_buyer_access_before_stripe(
+    monkeypatch, access_status, error
+):
+    from hushh_mcp.services import drive_package_access_preflight as access_module
+    from hushh_mcp.services import drive_request_payment_service as payment_module
+
+    request_id = str(uuid4())
+    files = [
+        {
+            "id": "source-1",
+            "name": "Statement.pdf",
+            "modifiedTime": "2026-10-01T00:00:00Z",
+            "generation": 1,
+        }
+    ]
+    sources = AsyncMock(return_value=files)
+    inspect_access = AsyncMock(
+        return_value=SimpleNamespace(status=access_status, request_revision=1)
+    )
+    monkeypatch.setattr(
+        payment_module, "_config", lambda: ("synthetic", "synthetic", "https://example.invalid")
+    )
+    monkeypatch.setattr(
+        DriveBulkShareStore,
+        "legacy_checkout_sources",
+        sources,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_sharing_store.DriveSharingStore.trusted_request_authority",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        access_module,
+        "DrivePackageAccessPreflight",
+        lambda **kw: SimpleNamespace(inspect=inspect_access),
+    )
+    stripe_api = Mock()
+    payment = DriveRequestPaymentService(db=object(), stripe_api=stripe_api)
+    payment.payment_state = AsyncMock(
+        return_value={"status": "awaiting_payment", "_legacy_auto_owner_user_id": "owner"}
+    )
+    payment._transaction = AsyncMock(
+        side_effect=AssertionError("An access failure must not reserve Stripe")
+    )
+
+    with pytest.raises(DriveSharingError, match=error):
+        await payment.checkout(requester_user_id="buyer", request_id=request_id)
+
+    sources.assert_awaited_once_with(user_id="owner", request_id=request_id)
+    assert inspect_access.await_args.kwargs["files"] is files
+    payment._transaction.assert_not_awaited()
+    stripe_api.checkout.Session.create.assert_not_called()
+
+
+async def test_legacy_checkout_source_set_is_complete_before_access_preflight():
+    request_id, job_id = str(uuid4()), str(uuid4())
+    metadata = [
+        {
+            "id": f"source-{position}",
+            "name": f"Statement {position}.pdf",
+            "modifiedTime": "2026-10-01T00:00:00Z",
+            "shareable": True,
+        }
+        for position in (1, 2)
+    ]
+    request_row = {
+        "request_id": request_id,
+        "status": "pending",
+        "access_stop_requested_at": None,
+        "revision": 2,
+        "request_envelope": {"trusted_auto": True},
+    }
+    search_row = {
+        "job_id": job_id,
+        "status": "completed",
+        "incomplete_search": False,
+        "connection_generation": 1,
+        "matched": 2,
+        "checkpoint_envelope": {
+            "request_origin_id": request_id,
+            "request_revision": 2,
+            "request_shareability_version": 1,
+        },
+    }
+    results = [
+        {"position": position, "file_digest": f"digest-{position}", "metadata_envelope": item}
+        for position, item in enumerate(metadata, 1)
+    ]
+    frozen = [
+        {
+            "source_position": 1,
+            "file_digest": "digest-1",
+            "metadata_envelope": metadata[0],
+            "source_job_id": job_id,
+            "search_job_id": job_id,
+            "connection_generation": 1,
+            "origin_request_revision": 2,
+            "status": "review_ready",
+            "approved_at": None,
+        }
+    ]
+
+    def execute(query, _params):
+        statement = str(query)
+        if "FROM drive_owner_search_results WHERE" in statement:
+            rows = results
+        elif "FROM drive_bulk_share_files f JOIN drive_bulk_shares b" in statement:
+            rows = frozen
+        else:
+            raise AssertionError(statement)
+        return SimpleNamespace(mappings=lambda: rows)
+
+    connection = SimpleNamespace(execute=execute)
+    store = DriveBulkShareStore(db=object())
+    store.live_active = Mock(return_value={"connection_generation": 1})
+    store._row = Mock(
+        side_effect=lambda _, query, _params: (
+            request_row if "share_requests" in query else search_row
+        )
+    )
+    store._open = Mock(side_effect=lambda envelope, **_: envelope)
+    store._transaction = AsyncMock(side_effect=lambda operation: operation(connection))
+
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await store.legacy_checkout_sources(user_id="owner", request_id=request_id)
+    metadata[1]["shareable"] = False
+    sources = await store.legacy_checkout_sources(user_id="owner", request_id=request_id)
+    assert [source["id"] for source in sources] == ["source-1"]
+    search_row["status"] = "running"
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await store.legacy_checkout_sources(user_id="owner", request_id=request_id)
+    search_row["status"] = "completed"
+    request_row["status"] = "approved"
+    frozen[0].update(
+        {
+            "progressive_batch": False,
+            "approval_source": "owner",
+            "approved_at": datetime.now(UTC),
+            "status": "queued",
+            "file_count": 1,
+            "share_id": str(uuid4()),
+        }
+    )
+    manual_sources = await store.legacy_manual_checkout_sources(
+        user_id="owner", request_id=request_id
+    )
+    assert [source["id"] for source in manual_sources] == ["source-1"]
+    frozen[0]["file_digest"] = "different-file"
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await store.legacy_manual_checkout_sources(user_id="owner", request_id=request_id)
+
+
+async def test_owner_reviewed_legacy_checkout_blocks_preexisting_file_before_stripe(monkeypatch):
+    from hushh_mcp.services import drive_package_access_preflight as access_module
+    from hushh_mcp.services import drive_request_payment_service as payment_module
+
+    request_id = str(uuid4())
+    sources = AsyncMock(
+        return_value=[
+            {
+                "id": "source-1",
+                "name": "Statement.pdf",
+                "modifiedTime": "2026-10-01T00:00:00Z",
+                "generation": 1,
+            }
+        ]
+    )
+    inspect_access = AsyncMock(
+        return_value=SimpleNamespace(status="all_existing", request_revision=1)
+    )
+    monkeypatch.setattr(
+        payment_module, "_config", lambda: ("synthetic", "synthetic", "https://example.invalid")
+    )
+    monkeypatch.setattr(DriveBulkShareStore, "legacy_manual_checkout_sources", sources)
+    monkeypatch.setattr(
+        access_module,
+        "DrivePackageAccessPreflight",
+        lambda **kw: SimpleNamespace(inspect=inspect_access),
+    )
+    stripe_api = Mock()
+    payment = DriveRequestPaymentService(db=object(), stripe_api=stripe_api)
+    payment.payment_state = AsyncMock(
+        return_value={"status": "awaiting_payment", "_legacy_manual_owner_user_id": "owner"}
+    )
+    payment._transaction = AsyncMock(
+        side_effect=AssertionError("Existing access must not reserve Stripe")
+    )
+
+    with pytest.raises(DriveSharingError, match="request_already_accessible"):
+        await payment.checkout(requester_user_id="buyer", request_id=request_id)
+
+    sources.assert_awaited_once_with(user_id="owner", request_id=request_id)
+    payment._transaction.assert_not_awaited()
+    stripe_api.checkout.Session.create.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "prior_status,prior_ids,expected_error",
+    [
+        ("paid", ("source-1", "source-2"), "payment_already_paid"),
+        ("checkout_open", ("source-2", "source-1"), "payment_not_ready"),
+        ("paid", ("source-1", "source-3"), "package_existing_access_requires_review"),
+        ("checkout_open", ("source-1",), "payment_not_ready"),
+        ("paid", ("source-3", "source-4"), None),
+    ],
+)
+def test_legacy_checkout_blocks_cross_request_duplicate_file_set(
+    monkeypatch, prior_status, prior_ids, expected_error
+):
+    prior_request = str(uuid4())
+    observed = []
+
+    def execute(statement, params):
+        sql = str(statement)
+        observed.append((sql, params))
+        if "FROM drive_request_payment_orders o" in sql:
+            rows = [{"request_id": prior_request, "status": prior_status}]
+        elif "FROM drive_bulk_share_files f" in sql:
+            rows = [
+                {
+                    "source_job_id": "job-1",
+                    "source_position": position,
+                    "metadata_envelope": {"id": source_id},
+                }
+                for position, source_id in enumerate(prior_ids, 1)
+            ]
+        else:
+            raise AssertionError(sql)
+        return SimpleNamespace(mappings=lambda: rows)
+
+    monkeypatch.setattr(DriveBulkShareStore, "_open", lambda _, envelope, **kw: envelope)
+    payment = DriveRequestPaymentService(db=object())
+
+    def guard():
+        payment._guard_legacy_duplicate_purchase(
+            SimpleNamespace(execute=execute),
+            owner_user_id="owner",
+            requester_user_id="buyer",
+            request_id=str(uuid4()),
+            selected_ids=frozenset({"source-1", "source-2"}),
+        )
+
+    if expected_error:
+        with pytest.raises(DriveSharingError, match=expected_error):
+            guard()
+    else:
+        guard()
+    assert len(observed) == 2
+    assert all("source-1" not in str(params) for _, params in observed)
+
+
+async def test_machine_selected_request_checks_prior_purchase_before_reserving_stripe(monkeypatch):
+    from hushh_mcp.services import drive_package_access_preflight as access_module
+
+    sources = [{"id": "source-1", "name": "Statement.pdf", "sourceVersion": "7", "generation": 1}]
+    monkeypatch.setattr(DriveBulkShareStore, "package_sources", AsyncMock(return_value=sources))
+    monkeypatch.setattr(DriveSharingStore, "trusted_request_authority", AsyncMock())
+    monkeypatch.setattr(
+        access_module,
+        "DrivePackageAccessPreflight",
+        lambda **kw: SimpleNamespace(
+            inspect=AsyncMock(return_value=SimpleNamespace(status="none", request_revision=1))
+        ),
+    )
+    create = Mock()
+    payment, request_id, _, connection = _checkout_fixture(monkeypatch, create)
+    payment.payment_state = AsyncMock(
+        return_value={"status": "awaiting_payment", "_package_owner_user_id": "owner"}
+    )
+    payment._current_checkout_authority.return_value.update(user_id="owner")
+    payment._guard_legacy_duplicate_purchase = Mock(
+        side_effect=DriveSharingError("payment_already_paid")
+    )
+    with pytest.raises(DriveSharingError, match="payment_already_paid"):
+        await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    payment._guard_legacy_duplicate_purchase.assert_called_once_with(
+        connection,
+        owner_user_id="owner",
+        requester_user_id="recipient",
+        request_id=request_id,
+        selected_ids=frozenset({"source-1"}),
+    )
+    connection.execute.assert_not_called()
+    create.assert_not_called()
+
+
 class _CommerceStripe:
     """Synthetic provider boundary; all settlement decisions stay in real services."""
 
@@ -202,6 +515,7 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
     sharing, monkeypatch, trusted, confirmed, retained, refund, commission, earning, refund_first
 ):
     """Exercise persisted commerce boundaries without Stripe or Google network calls."""
+    _offline_absent_drive_acl(monkeypatch)
     for key, value in {
         "ENVIRONMENT": "test",
         "STRIPE_MODE": "test",
@@ -261,7 +575,9 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
             bulk,
             request_id=request_id,
             count=3,
-            selection=FILE_ACTIVITY_SELECTION if trusted else None,
+            selection={**FILE_ACTIVITY_SELECTION, "authority_mode": "trusted_auto"}
+            if trusted
+            else None,
         ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
@@ -603,6 +919,48 @@ def _owner_allow(sharing, request_id: str, *, amount_cents: int | None) -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_legacy_checkout_requires_every_shareable_search_result_frozen(request_bulk, sharing):
+    async def prepare(*, shareability=None):
+        request_id = (await request(sharing))["requestId"]
+        _owner_allow(sharing, request_id, amount_cents=1000)
+        search_id = _search(
+            request_bulk,
+            request_id=request_id,
+            count=2,
+            shareability=shareability,
+            selection=FILE_ACTIVITY_SELECTION,
+        )
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=search_id,
+            client_request_id=str(uuid4()),
+            origin_request_id=request_id,
+            recipients=[
+                {
+                    "userId": "recipient",
+                    "email": "recipient@example.invalid",
+                    "subject": "1234567",
+                    "kind": "google_provider",
+                }
+            ],
+            excluded=[],
+            selected_positions=[1],
+        )
+        return request_id
+
+    partial = await prepare()
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await request_bulk.legacy_checkout_sources(user_id="owner", request_id=partial)
+
+    complete = await prepare(shareability={2: False})
+    sources = await request_bulk.legacy_checkout_sources(user_id="owner", request_id=complete)
+    assert len(sources) == 1
+    assert sources[0]["id"] == "standup-file-1"
+    assert sources[0]["modifiedTime"] == "2026-09-27T00:00:00Z"
+    assert sources[0]["generation"] == 1
+
+
 def _signed_event(
     request_id: str,
     *,
@@ -735,7 +1093,7 @@ def test_paid_grant_guard_blocks_reconciliation_hold():
 @pytest.mark.parametrize(
     "owner_price,quoted_price,amount",
     [
-        (None, None, 1000),
+        (None, None, 50),
         (3000, None, 3000),
         (None, 2500, 2500),
         (3000, 2500, 2500),
@@ -800,7 +1158,7 @@ def test_new_owner_settlement_never_falls_back_to_platform_price():
             _order_amount_cents({"quoted_amount_cents": missing_price}, private)
     assert _order_amount_cents({"quoted_amount_cents": 1050}, private) == 1050
     assert _order_amount_cents({"quoted_amount_cents": 200}, private) == 200
-    assert _order_amount_cents({}, {}) == 1000  # Legacy payment terms stay unchanged.
+    assert _order_amount_cents({}, {}) == 50  # New unquoted requests use the fifty-cent default.
 
 
 @pytest.mark.parametrize(
@@ -1001,7 +1359,7 @@ def test_bulk_identity_writes_gate_participant_graph_before_row_locks(monkeypatc
     )
 
 
-@pytest.mark.parametrize("owner_price,amount", [(None, 1000), (3000, 3000)])
+@pytest.mark.parametrize("owner_price,amount", [(None, 50), (3000, 3000)])
 def test_first_frozen_batch_orders_at_the_owner_allowed_price(monkeypatch, owner_price, amount):
     request_id = str(uuid4())
     participant = {"user_id": "owner", "recipient_user_id": "recipient"}
@@ -2117,6 +2475,30 @@ async def test_checkout_charges_the_order_amount_and_binds_only_that_amount(monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("amount_cents", [10, 11, 49])
+async def test_subminimum_owner_price_never_reserves_checkout_or_rounds_up(
+    monkeypatch, amount_cents
+):
+    create = Mock()
+    service, request_id, _, connection = _checkout_fixture(
+        monkeypatch, create, amount_cents=amount_cents
+    )
+    with pytest.raises(DriveSharingError, match="payment_unavailable"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+    create.assert_not_called()
+    connection.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount_cents", [50, 51, 50000])
+async def test_checkout_preserves_supported_boundary_prices(monkeypatch, amount_cents):
+    create = Mock(side_effect=lambda **params: _checkout_sdk_response(params))
+    service, request_id, _, _ = _checkout_fixture(monkeypatch, create, amount_cents=amount_cents)
+    await service.checkout(requester_user_id="recipient", request_id=request_id)
+    assert create.call_args.kwargs["line_items"][0]["price_data"]["unit_amount"] == amount_cents
+
+
+@pytest.mark.asyncio
 async def test_checkout_recovers_rejected_legacy_attempt_with_stable_retry_key(monkeypatch):
     def create_session(**params):
         if params["idempotency_key"] == original_key:
@@ -2367,15 +2749,19 @@ async def test_checkout_candidates_exclude_pending_without_approved_or_frozen_ba
 
 @pytest.mark.asyncio
 async def test_owner_allowed_request_pays_the_owner_price_without_trusted_membership(
-    request_bulk, sharing
+    request_bulk, sharing, monkeypatch
 ):
     # The requester is connected, but the owner's Trusted circle holds someone else.
+    _offline_absent_drive_acl(monkeypatch)
     request_id = (await request(sharing))["requestId"]
     _owner_allow(sharing, request_id, amount_cents=3000)
     review = await request_bulk.create_review(
         user_id="owner",
         search_job_id=_search(
-            request_bulk, request_id=request_id, count=1, selection=FILE_ACTIVITY_SELECTION
+            request_bulk,
+            request_id=request_id,
+            count=1,
+            selection={**FILE_ACTIVITY_SELECTION, "authority_mode": "trusted_auto"},
         ),
         client_request_id=str(uuid4()),
         origin_request_id=request_id,
@@ -2947,6 +3333,7 @@ def test_payment_view_has_one_definition_of_link_and_request_expiry():
 
 async def _withdrawable_checkout(sharing, monkeypatch, *, files=3):
     """A non-trusted request whose owner-approved batch waits at an open Checkout."""
+    _offline_absent_drive_acl(monkeypatch)
     for key, value in {
         "ENVIRONMENT": "test",
         "STRIPE_MODE": "test",
@@ -3384,6 +3771,11 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
         lambda **kw: SimpleNamespace(inspect=preflight),
     )
     monkeypatch.setattr(payment_module, "DriveSharingStore", lambda **kw: SimpleNamespace())
+    monkeypatch.setattr(
+        DriveBulkShareStore,
+        "package_sources",
+        AsyncMock(return_value=[{"id": "source", "sourceVersion": "1"}]),
+    )
     create = Mock()
     service = object.__new__(DriveRequestPaymentService)
     service.db = object()

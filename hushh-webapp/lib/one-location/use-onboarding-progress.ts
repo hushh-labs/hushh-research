@@ -8,7 +8,8 @@ function readScreen(key: string | null): OneLocationOnboardingScreen {
   try {
     const screen = window.sessionStorage.getItem(key);
     if (screen === "ready" || screen === "features") return screen;
-    // Legacy welcome/place checkpoints restart at the first of two screens.
+    // A saved "place" checkpoint restarts at Features: the place draft is
+    // memory-only, so a remounted editor must capture a fresh one.
   } catch {
     // Storage can be unavailable; mounted navigation still works.
   }

@@ -5,6 +5,7 @@ import {
   classifyDebateFeedState,
   isActiveSmsEmergencyGrant,
   isConsentFeedActionable,
+  documentDecisionErrorCopy,
   isIncomingLocationRequestActionable,
   isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
@@ -38,6 +39,9 @@ function documentRequest(attention: boolean | undefined): ConsentCenterEntry {
 }
 
 describe("isConsentFeedActionable", () => {
+  it("uses the current owner price floor in validation copy", () => {
+    expect(documentDecisionErrorCopy("invalid_payment_amount")).toBe("Choose a price from $0.50 to $500.");
+  });
   it("hides Trusted Circle automation from Needs you but preserves owner work", () => {
     expect(isConsentFeedActionable(documentRequest(false))).toBe(false);
     expect(isConsentFeedActionable(documentRequest(true))).toBe(true);
