@@ -143,6 +143,20 @@ else
     --headers="Content-Type=application/json" >/dev/null
 fi
 
+# Editing a paused Cloud Scheduler job keeps it paused. A full UAT worker
+# rollout requires the ordinary document, suggestion and sharing drains to run.
+# The maintenance-preserving release path does not call this helper.
+JOB_STATE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+  --format='value(state)')"
+if [[ "${JOB_STATE}" == "PAUSED" ]]; then
+  gcloud scheduler jobs resume "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --quiet >/dev/null
+elif [[ "${JOB_STATE}" != "ENABLED" ]]; then
+  echo "Cloud Scheduler job is not ready to resume: ${JOB_NAME}" >&2
+  exit 1
+fi
+
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" \

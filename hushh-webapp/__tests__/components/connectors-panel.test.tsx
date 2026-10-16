@@ -1514,7 +1514,7 @@ describe("supported connector catalog", () => {
       return view;
     };
 
-    it("explains automatic preparation before starting full Drive access", async () => {
+    it("explains request sharing before starting full Drive access with packages off", async () => {
       state.overview.mockResolvedValue({
         ...liveDrive(),
         connectors: [{ ...liveDrive().connectors[0], status: "not_connected" }],
@@ -1523,7 +1523,7 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Review Google Drive access" }));
       expect(state.startOAuthConnect).not.toHaveBeenCalled();
       const drive = screen.getByRole("region", { name: "Google Drive" });
-      const disclosure = within(drive).getByText("Agent One prepares packets from your Drive automatically.");
+      const disclosure = within(drive).getByText("Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime.");
       expect(disclosure).toBeVisible();
       const connect = within(drive).getByRole("button", { name: "Connect Drive" });
       expect(connect).toBeEnabled();

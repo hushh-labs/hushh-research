@@ -283,10 +283,10 @@ function errorCopy(cause: unknown): string {
 }
 
 /** Why the price sheet could not allow the request. */
-function allowErrorCopy(cause: unknown): string {
+function allowErrorCopy(cause: unknown, allowCents: boolean): string {
   const code = cause instanceof DriveSharingError ? cause.code : "request_failed";
   if (code === "invalid_payment_amount" || code === "invalid_argument")
-    return DOCUMENT_REQUEST_PRICE_RULE;
+    return allowCents ? DOCUMENT_REQUEST_PRICE_RULE : "Choose a whole-dollar price from $1 to $500.";
   if (code === "review_changed" || code === "request_already_decided")
     return "This request changed. Check it and try again.";
   return errorCopy(cause);
@@ -426,6 +426,25 @@ function UnlockedDocumentReview({
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
+  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAgentPackagesEnabled(false);
+      return;
+    }
+    let current = true;
+    setAgentPackagesEnabled(false);
+    void ExternalConnectorService.overview(token)
+      .then((overview) => {
+        if (current && getToken() === token)
+          setAgentPackagesEnabled(overview.driveAgentPackagesEnabled === true);
+      })
+      .catch(() => {
+        if (current) setAgentPackagesEnabled(false);
+      });
+    return () => { current = false; };
+  }, [getToken]);
   const [ownerAccessDays, setOwnerAccessDays] = useState<number | null>(null);
   const openedPricePackageKey = useRef<string | null>(null);
   const [allowError, setAllowError] = useState<string | null>(null);
@@ -437,6 +456,7 @@ function UnlockedDocumentReview({
     ids: [],
   });
   const [excluded, setExcluded] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
+  const [reviewSelected, setReviewSelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   // Recovery requires an affirmative tick; fresh unclaimed files retain their default selection.
   const [recoverySelected, setRecoverySelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   const [unshareableSeen, setUnshareableSeen] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
@@ -814,6 +834,10 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
+  const allowCents = agentPackagesEnabled || review?.agentPackage !== undefined ||
+    review?.v1ManualReview === true ||
+    (review?.estimateCents != null && review.estimateCents % 100 !== 0) ||
+    (review?.priceCents != null && review.priceCents % 100 !== 0);
   const v1ManualReview = review?.v1ManualReview === true;
   const requestedAccessDays = review?.requestedAccessDays ?? 30;
   const accessDayChoices = [7, 30, 90].filter(days => days <= requestedAccessDays);
@@ -1011,12 +1035,15 @@ function UnlockedDocumentReview({
     .filter((id) => !unselectedIds.includes(id));
   const allSelected = !!review && selectedIds.length === review.files.length;
   const excludedPositions = search && excluded.jobId === search.jobId ? excluded.positions : [];
+  const reviewSelectedPositions = search && reviewSelected.jobId === search.jobId ? reviewSelected.positions : [];
   const selectedRecoveryPositions = search && recoverySelected.jobId === search.jobId ? recoverySelected.positions : [];
   const blockedPositions = search && unshareableSeen.jobId === search.jobId ? unshareableSeen.positions : [];
   const manualExcludedCount = excludedPositions.filter(position => !blockedPositions.includes(position)).length;
   const selectedPositions = progressive && searchPage && search
     ? searchPage.files.filter(file => file.shareable === true &&
-        (recoverablePositions.includes(file.position)
+        (ownerReviewRequired
+          ? !claimedPositions.includes(file.position) && reviewSelectedPositions.includes(file.position)
+          : recoverablePositions.includes(file.position)
           ? selectedRecoveryPositions.includes(file.position)
           : !claimedPositions.includes(file.position) && !excludedPositions.includes(file.position)))
       .map(file => file.position)
@@ -1080,7 +1107,7 @@ function UnlockedDocumentReview({
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
-          setAllowError(allowErrorCopy(cause));
+          setAllowError(allowErrorCopy(cause, allowCents));
           return load(token, guard, report);
         }
         guard();
@@ -1504,8 +1531,8 @@ function UnlockedDocumentReview({
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.paymentRequired === true
-          ? "Allow to set a price. Agent One searches Drive and shares selected files after payment."
-          : "Allow Agent One to search Drive and share selected files."}</HelperText>
+          ? "Allow to set a price and search Drive. You may need to choose the exact files before payment and sharing."
+          : "Allow Agent One to search Drive. You may need to choose the exact files before sharing."}</HelperText>
         <FlowActionGroup
           primary={
             <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
@@ -1523,7 +1550,7 @@ function UnlockedDocumentReview({
           }
         />
         <DocumentRequestPriceSheet
-          moneyPolicy="drive_cents"
+          moneyPolicy={allowCents ? "drive_cents" : "legacy_whole_dollars"}
           open={priceOpen}
           requesterLabel={review.recipientEmail}
           purpose={review.purpose.purpose}
@@ -1637,7 +1664,7 @@ function UnlockedDocumentReview({
             {v1ManualReview ? <HelperText>
               Only Agent One&apos;s verified matches can be selected.
             </HelperText> : ownerReviewRequired ? <HelperText>
-              Dates inside files haven&apos;t been checked; review before sharing.
+              Dates inside files haven&apos;t been checked. Select the exact files before sharing.
             </HelperText> : search.coverage.requestedPeriod ? <HelperText>
               Dates match file names first, then creation or modification dates. Dates inside file contents were not checked.
             </HelperText> : null}
@@ -1697,12 +1724,21 @@ function UnlockedDocumentReview({
                         <Checkbox
                           aria-label={file.name}
                           className={CHECKBOX_CLASS}
-                          checked={file.shareable !== false && (recoverable
+                          checked={file.shareable !== false && (ownerReviewRequired
+                            ? !alreadyClaimed && reviewSelectedPositions.includes(file.position)
+                            : recoverable
                             ? selectedRecoveryPositions.includes(file.position)
                             : !excludedPositions.includes(file.position) && !alreadyClaimed)}
                           disabled={locked || file.shareable === false || progressive &&
                             (file.shareable !== true || alreadyClaimed || bulkShare?.status === "review_ready")}
                           onCheckedChange={checked => {
+                            if (ownerReviewRequired) {
+                              setReviewSelected({ jobId: search.jobId,
+                                positions: checked === true
+                                  ? [...new Set([...reviewSelectedPositions, file.position])]
+                                  : reviewSelectedPositions.filter(position => position !== file.position) });
+                              return;
+                            }
                             if (recoverable) {
                               setRecoverySelected({ jobId: search.jobId,
                                 positions: checked === true

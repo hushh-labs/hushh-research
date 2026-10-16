@@ -21,6 +21,7 @@ REQUEST_ID = "5d0c7a4e-2f61-4c3b-9a8e-0d51a7e3b001"
 
 
 def test_packet_catalog_requires_owner_and_validated_listing_consent(setup, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     client, app, _, current = setup
     service = SimpleNamespace(
         list_packets=AsyncMock(return_value={"packets": [], "nextCursor": None}),
@@ -68,6 +69,7 @@ def test_packet_catalog_requires_owner_and_validated_listing_consent(setup, monk
 
 
 def test_packet_request_binds_verified_recipient_and_rejects_injected_members(setup, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     client, app, _, _ = setup
     service = SimpleNamespace(
         request_packet=AsyncMock(return_value={"requestId": REQUEST_ID, "existingAccess": False})
@@ -89,6 +91,38 @@ def test_packet_request_binds_verified_recipient_and_rejects_injected_members(se
     for patch in ({"sourceIds": ["private"]}, {"priceCents": 50}, {"version": "2"}):
         assert client.post(path, json=body | patch).status_code == 422
     assert service.request_packet.await_count == 1
+
+
+def test_packet_mutations_stop_when_new_packages_are_disabled(setup, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    client, app, _, _ = setup
+    service = SimpleNamespace(
+        set_listing=AsyncMock(),
+        request_packet=AsyncMock(),
+    )
+    monkeypatch.setattr(routes, "_packet_service", lambda: service)
+    unlock(app)
+    app.dependency_overrides[routes._recipient] = lambda: SimpleNamespace(user_id="recipient")
+    path = f"/api/connectors/google_drive/sharing/packets/{REQUEST_ID}"
+    listing = {
+        "version": 1,
+        "decision": "allow",
+        "priceCents": 100,
+        "expectedRevision": 0,
+        "disclosure": "drive-packet-listing-connections-v1",
+    }
+    assert client.post(path + "/listing", json=listing).status_code == 404
+    assert (
+        client.post(
+            path + "/requests", json={"version": 1, "clientRequestId": REQUEST_ID}
+        ).status_code
+        == 404
+    )
+    service.set_listing.assert_not_called()
+    service.request_packet.assert_not_called()
+    service.set_listing.return_value = {"revision": 2}
+    assert client.post(path + "/listing", json={**listing, "decision": "deny"}).status_code == 200
+    service.set_listing.assert_awaited_once()
 
 
 @pytest.fixture
@@ -595,6 +629,7 @@ def test_request_uses_fresh_verified_google_identity_not_drive_connection(setup,
     assert response.status_code == 202
     recipient = service.create.await_args.kwargs["recipient"]
     assert recipient.user_id == "recipient" and recipient.subject == "12345"
+    assert service.create.await_args.kwargs["access_days"] is None
     verifier.assert_called_once_with("synthetic-firebase", app=marker, check_revoked=False)
 
 

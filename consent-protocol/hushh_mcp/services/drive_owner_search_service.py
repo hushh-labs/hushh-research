@@ -1086,7 +1086,7 @@ class DriveOwnerSearchService:
         purpose = context["purpose"]
         plan = _deterministic_statement_plan(purpose)
         if plan is None or context.get("agentPackageRequired"):
-            return None, False
+            return None, False, None
         queries, period = compile_request_queries(
             plan.model_dump(mode="json"),
             purpose,
@@ -1221,17 +1221,7 @@ class DriveOwnerSearchService:
                 requested_at=requested_at,
                 v1_live_request=v1_live_request,
             )
-        from hushh_mcp.services.drive_request_bulk_service import (
-            _deterministic_statement_plan,
-        )
-
-        statement_plan = _deterministic_statement_plan(purpose)
-        v1_statement_search = v1_live_request or (
-            authority_mode in {"owner", "trusted_auto"}
-            and route["kind"] == "provider"
-            and statement_plan is not None
-            and plan == statement_plan.model_dump(mode="json")
-        )
+        v1_statement_search = v1_live_request
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
@@ -2117,14 +2107,14 @@ class DriveOwnerSearchService:
                 except DriveSharingError:
                     await self.store.release(job, error="connection_changed")
                     return finish("superseded")
-                _, changed = await self.replan_legacy_statement_request(
+                _, changed, worker_stage = await self.replan_legacy_statement_request(
                     user_id=user_id,
                     request_id=checkpoint["request_origin_id"],
                     context=context,
                     expected_lease=job["lease_id"],
                 )
                 if changed:
-                    await wake_drive_work("v1")
+                    await wake_drive_work(worker_stage)
                     return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ token: "owner-token" as string | null, epoch: 1, owner: vi.fn(), save: vi.fn() }));
+const state = vi.hoisted(() => ({ token: "owner-token" as string | null, epoch: 1, owner: vi.fn(), save: vi.fn(), overview: vi.fn() }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token }) }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
@@ -9,6 +9,9 @@ vi.mock("@/lib/vault/session-epoch", () => ({
 }));
 vi.mock("@/lib/services/drive-request-pricing-service", () => ({
   DriveRequestPricingService: { owner: state.owner, save: state.save },
+}));
+vi.mock("@/lib/services/external-connector-service", () => ({
+  ExternalConnectorService: { overview: state.overview },
 }));
 
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
@@ -24,6 +27,7 @@ describe("owner Drive request price", () => {
     state.epoch = 1;
     state.owner.mockReset().mockResolvedValue({ enabled: false, amountCents: 1000, version: 4 });
     state.save.mockReset().mockResolvedValue({ enabled: true, amountCents: 2500, version: 5 });
+    state.overview.mockReset().mockResolvedValue({ driveAgentPackagesEnabled: false });
   });
 
   it("starts unset, validates the amount, and saves a default with state invalidation", async () => {
@@ -42,9 +46,12 @@ describe("owner Drive request price", () => {
       enterPrice("25.501");
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
       enterPrice("25.50");
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.getByText("Whole dollars, $1–$500.")).toBeVisible();
+      enterPrice("25");
       save();
       await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
-        enabled: true, amountCents: 2550, expectedVersion: 4,
+        enabled: true, amountCents: 2500, expectedVersion: 4,
       }));
       expect(await screen.findByText("Default price saved.")).toBeVisible();
       expect(screen.getByText(/Trusted requests use this price automatically/)).toBeVisible();
@@ -54,6 +61,19 @@ describe("owner Drive request price", () => {
     } finally {
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
     }
+  });
+
+  it("retains cent pricing when agent packages are enabled", async () => {
+    state.overview.mockResolvedValue({ driveAgentPackagesEnabled: true });
+    state.save.mockResolvedValue({ enabled: true, amountCents: 2550, version: 5 });
+    render(<DocumentRequestPricingCard />);
+    await screen.findByLabelText("Default price (USD)");
+    expect(await screen.findByText("$0.50–$500, including cents.")).toBeVisible();
+    enterPrice("25.50");
+    save();
+    await waitFor(() => expect(state.save).toHaveBeenCalledWith("owner-token", {
+      enabled: true, amountCents: 2550, expectedVersion: 4,
+    }));
   });
 
   it("refreshes a changed price while keeping the draft for explicit review", async () => {

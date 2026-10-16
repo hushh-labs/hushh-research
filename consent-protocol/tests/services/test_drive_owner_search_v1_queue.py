@@ -1,4 +1,4 @@
-"""The V1 queue only handles server-planned statement searches."""
+"""Only explicitly marked historical V1 requests use the V1 search queue."""
 
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock
@@ -13,17 +13,18 @@ from hushh_mcp.services.drive_request_bulk_service import _deterministic_stateme
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("authority_mode", "route", "plan_matches", "marked"),
+    ("authority_mode", "route", "plan_matches", "v1_live_request", "marked"),
     [
-        ("owner", None, True, True),
-        ("trusted_auto", None, True, True),
-        ("agent_package", None, True, False),
-        ("owner", {"kind": "index", "index_snapshot": {}}, True, False),
-        ("owner", None, False, False),
+        ("owner", None, True, False, False),
+        ("trusted_auto", None, True, False, False),
+        ("agent_package", None, True, False, False),
+        ("agent_package", None, True, True, True),
+        ("owner", {"kind": "index", "index_snapshot": {}}, True, False, False),
+        ("owner", None, False, False, False),
     ],
 )
-async def test_request_search_marks_only_canonical_provider_statement_plan(
-    monkeypatch, authority_mode, route, plan_matches, marked
+async def test_request_search_uses_v1_lane_only_for_marked_live_request(
+    monkeypatch, authority_mode, route, plan_matches, v1_live_request, marked
 ):
     purpose = {
         "purpose": "I need all Schwab brokerage statements from 2026",
@@ -53,10 +54,14 @@ async def test_request_search_marks_only_canonical_provider_statement_plan(
         plan=plan,
         require_current=AsyncMock(),
         authority_mode=authority_mode,
+        v1_live_request=v1_live_request,
         **({"evidence_route": route} if route is not None else {}),
     )
 
-    assert store.create.await_args.kwargs["v1_statement_search"] is marked
+    created = store.create.await_args.kwargs
+    assert created["v1_statement_search"] is marked
+    assert created["checkpoint"]["v1_live_request"] is v1_live_request
+    assert created["checkpoint"]["evidence_route"] == (route or {"kind": "provider"})["kind"]
     wake.assert_awaited_once_with("v1" if marked else "suggestions")
 
 
