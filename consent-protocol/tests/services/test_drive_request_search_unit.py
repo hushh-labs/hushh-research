@@ -120,6 +120,42 @@ async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("draw", "retry_count", "delay"), [(0.0, 0, 2.5), (0.999, 1, 9.995)])
+async def test_rate_limited_search_retries_back_off_with_jitter(
+    monkeypatch, draw, retry_count, delay
+):
+    from hushh_mcp.services import drive_owner_search_store as store_module
+
+    store = DriveOwnerSearchStore(db=SimpleNamespace())
+    updated = []
+    connection = SimpleNamespace(execute=lambda _statement, params: updated.append(params))
+    monkeypatch.setattr(store, "_lock", lambda *_args: None)
+    monkeypatch.setattr(
+        store,
+        "_owned",
+        lambda *_args, **_kwargs: {
+            "status": "running",
+            "lease_id": "lease",
+            "retry_count": retry_count,
+            "job_id": "job",
+        },
+    )
+    monkeypatch.setattr(
+        store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
+    )
+    monkeypatch.setattr(store_module.random, "random", lambda: draw)
+    state = await store.release(
+        {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
+        error="provider_unavailable",
+        retryable=True,
+    )
+    # Same durable cursor, queued again within [half, full] of 5s, 10s, 20s.
+    assert state == "queued"
+    assert updated[0]["delay"] == pytest.approx(delay)
+    assert updated[0]["retries"] == retry_count + 1
+
+
 @pytest.mark.parametrize(
     ("search_status", "incomplete"),
     [("failed", False), ("limited", True), ("stopped", False), ("completed", True)],

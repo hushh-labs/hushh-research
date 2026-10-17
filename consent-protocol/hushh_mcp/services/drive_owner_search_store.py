@@ -12,6 +12,7 @@ import base64
 import hmac
 import json
 import math
+import random
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -1562,7 +1563,11 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "code": code,
                     "checkpoint": checkpoint,
                     "retries": min(retries, 3),
-                    "delay": 5 * 2 ** (retries - 1) if retry else 0,
+                    # Equal jitter: owners rate limited together (429 or a
+                    # userRateLimitExceeded 403) do not all retry in lockstep.
+                    "delay": 5 * 2 ** (retries - 1) * (0.5 + random.random() / 2)  # noqa: S311
+                    if retry
+                    else 0,
                 },
             )
             return state
