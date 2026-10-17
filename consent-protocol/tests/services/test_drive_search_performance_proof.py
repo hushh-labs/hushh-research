@@ -33,6 +33,7 @@ from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoServic
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
+    DriveReadError,
     GoogleDriveAdapter,
     query_has_full_text_term,
 )
@@ -832,8 +833,10 @@ async def stream_request(monkeypatch, *, incomplete_page=None, v1=False):
             await auto.after_search_slice(user_id=STREAM_OWNER, job_id=STREAM_JOB)
         slices.append(progress())
     # continue_batches: a completed search keeps draining its committed rows.
+    drains = 0
     while not v1 and await auto.share_available(user_id=STREAM_OWNER, request_id=STREAM_REQUEST):
-        pass
+        drains += 1
+        assert drains < 500, "continue_batches did not terminate"
     return {
         "elapsed": time.perf_counter() - started,
         "drive": drive,
@@ -1020,6 +1023,46 @@ def test_compound_titles_reach_the_live_query_within_its_budget(request_text, te
     clause = f" or name contains {compound}"
     assert clause in q
     assert not drive_query(q.replace(clause, ""))(compact)
+
+
+def test_compound_clause_never_costs_a_near_budget_query_its_search(monkeypatch):
+    real = rest.compile_search_terms
+    padding = {"length": 0}
+
+    def padded(terms, **kwargs):
+        # Longer compiled subjects push the query toward Drive's 1800-character budget.
+        return real(terms, **kwargs)[:-1] + " or name contains '" + "z" * padding["length"] + "')"
+
+    monkeypatch.setattr(rest, "compile_search_terms", padded)
+
+    def primary_query():
+        queries, _ = compile_request_queries(
+            {"mode": "find", "terms": ["meeting", "notes"], "file_kind": "document"},
+            {"purpose": "meeting notes", **STREAM_PERIOD},
+            "UTC",
+            requested_at=datetime(2026, 10, 3, tzinfo=UTC),
+        )
+        return queries[0]["arguments"]["query"]
+
+    clause = " or name contains 'meetingnotes'"
+    with_compound = None
+    for length in range(0, 1000, 4):
+        padding["length"] = length
+        query = primary_query()
+        if clause in query:
+            with_compound = query
+            continue
+        # The first length the clause no longer fits: the request still searches,
+        # within budget, exactly as it would without the optional clause.
+        assert with_compound is not None
+        assert len(query) <= 1800 < len(query) + len(clause) + len("()")
+        break
+    else:
+        pytest.fail("the compound clause never reached the query budget")
+    # A query too long even without the optional clause is still refused.
+    padding["length"] = 2000
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        primary_query()
 
 
 @pytest.mark.asyncio

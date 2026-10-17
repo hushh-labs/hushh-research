@@ -523,6 +523,7 @@ def compile_request_queries(
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
     broader_subject = None
+    compound_free_subject = None
     entity_subject = (
         "("
         + " or ".join(compile_search_terms([entity]) for entity in parsed.required_entities)
@@ -567,6 +568,7 @@ def compile_request_queries(
             character for group in term_groups for character in group[0] if character.isalnum()
         )
         if joiner == " and " and 2 <= len(groups) <= 3 and 4 <= len(compound) <= 50:
+            compound_free_subject = subject
             subject = f"({subject} or name contains {quote_literal(compound.casefold())})"
         if parsed.time_intent == "document_coverage" and len(groups) > 1 and joiner == " and ":
             # A Drive full-text index can omit one of several request words
@@ -584,6 +586,10 @@ def compile_request_queries(
             raise DriveReadError("narrow_selection_required")
         clauses = ["trashed = false"]
     query = " and ".join(clauses)
+    if len(query) > 1800 and compound_free_subject is not None:
+        # The optional compound clause never costs a request its search: drop
+        # it and keep the query main already accepted.
+        query = " and ".join([compound_free_subject, *base])
     if len(query) > 1800:
         raise DriveReadError("invalid_argument")
     # Google warns that createdTime sorting can time out on large collections.
