@@ -30119,7 +30119,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_search_performance_proof.py",
       "symbol": null,
-      "value": 1085
+      "value": 1087
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -64330,5 +64330,15 @@
       "adk_frontend_conflicts"
     ],
     "scanner_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c"
+  },
+  "main_a049_drive_shared_fixture_review_20261017": {
+    "evidence_revision": "04df0a0d1e202a645e44a5f6cd614ea4cbbf088b",
+    "key": "module_size|consent-protocol/tests/services/test_drive_search_performance_proof.py||module exceeds the advisory operon budget",
+    "slot_index": 0,
+    "before": 1085,
+    "after": 1087,
+    "source_sha256": "b7c7b3e6a35127f3282c9bbc2be88e97a0bac54e6aec3c9e0ba4c735b57f92db",
+    "reviewer": "adk_authority_review",
+    "review": "Two per-case existing Shared fixture decorators. Actual hub content guard remains active, and private/unknown refusal coverage stays in its owner suite. No runtime, function-size, budget, scanner, exclusion or other ceiling changes. Original full-core failures retained; unchanged restart timeout is not raised."
   }
 }

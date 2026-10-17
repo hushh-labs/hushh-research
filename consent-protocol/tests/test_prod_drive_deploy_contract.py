@@ -6,7 +6,6 @@ import base64
 import importlib.util
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -457,6 +456,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             f"scripts/deploy/{name}"
             for name in (
                 "backend-deploy.sh",
+                "verify-managed-vertex-runtime.sh",
                 *("backend-model-settings.sh", "backend-drive-secret-settings.sh"),
                 "commerce-preview-bindings.sh",
                 "scope-commerce-secrets.sh",
@@ -500,12 +500,11 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
     build = yaml.safe_load((repo / "deploy/backend.cloudbuild.yaml").read_text())
-    referenced = set()
-    for step in build["steps"]:
-        for argument in step.get("args", []):
-            referenced.update(
-                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
-            )
+    from tests.fixtures.cloudbuild_sources import cloudbuild_sourced_shell_helpers
+
+    referenced = cloudbuild_sourced_shell_helpers(repo, build)
+    assert "scripts/deploy/backend-deploy.sh" in referenced
+    assert "scripts/deploy/verify-managed-vertex-runtime.sh" in referenced
     assert referenced, "Exercise the preserved Cloud Build source dependencies"
     upload_filter = pathspec.GitIgnoreSpec.from_lines(
         (repo / ".gcloudignore").read_text().splitlines()

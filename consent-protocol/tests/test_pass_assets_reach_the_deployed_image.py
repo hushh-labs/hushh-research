@@ -18,12 +18,13 @@ contain a segment matching an ignored directory.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pathspec
 import pytest
 import yaml
+
+from tests.fixtures.cloudbuild_sources import cloudbuild_sourced_shell_helpers
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -162,30 +163,7 @@ def test_every_apple_image_slot_is_produced_from_the_real_asset() -> None:
 def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter(config: str) -> None:
     """Local preflight passes are useless when Cloud Build never receives its script."""
     build = yaml.safe_load((REPO_ROOT / "deploy" / config).read_text())
-    referenced = set()
-    sources = []
-    for step in build["steps"]:
-        for argument in step.get("args", []):
-            script = REPO_ROOT / argument
-            if argument.endswith(".sh") and script.is_file():
-                referenced.add(argument)
-                sources.append((Path(argument), script.read_text()))
-            else:
-                sources.append((Path("."), argument))
-    while sources:
-        parent, source = sources.pop()
-        helpers = re.findall(
-            r"(?m)^\s*source\s+((?:deploy|scripts/deploy)/[A-Za-z0-9_./-]+\.sh)\b",
-            source,
-        )
-        helpers.extend(
-            (parent.parent / name).as_posix()
-            for name in re.findall(r'\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([\w.-]+\.sh)', source)
-        )
-        for helper in helpers:
-            if helper not in referenced:
-                referenced.add(helper)
-                sources.append((Path(helper), (REPO_ROOT / helper).read_text()))
+    referenced = cloudbuild_sourced_shell_helpers(REPO_ROOT, build)
     required = (
         "backend-deploy.sh"
         if config == "backend.cloudbuild.yaml"

@@ -95,7 +95,14 @@ welcome styling. This UI is not deployed. The subsequent combined core stopped
 at inherited architecture debt. Independent source review qualified exact
 inherited ceilings; bounded stream, connector and checkpoint extractions plus
 unchanged notification-test relocation pass all 187 affected checks. The debt
-ratchet, core coverage and release gates remain unchanged.
+ratchet, core coverage and release gates remain unchanged. The full parallel
+backend run then passed 21,229 cases with four failures: two missing Shared
+fixtures, one obsolete inline-deploy test and one unchanged restart timeout.
+All 85 affected checks pass after fixture/dependency-test repairs; restart keeps
+its 30-second limit. Dependency checks refuse missing direct or sourced scripts.
+The branch also preserves the already-invoked Vertex verifier for old production
+targets; no production deployment occurred. Serial database and remaining core
+stages must complete before publication.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
