@@ -186,6 +186,7 @@ import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/conn
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
+  CHAT_WELCOME_COPY_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
   OneChatBubble,
   OneChatTimeSeparator,
@@ -1595,7 +1596,7 @@ function AgentWelcomePanel({
         <h2 className="max-w-full break-words text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
+        <p className={cn("mt-3 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
           What would you like to do today?
         </p>
         <AgentPromptSuggestions
