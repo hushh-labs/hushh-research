@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -30,10 +30,12 @@ export function RequestCardsButton({
   personRef,
   personName,
   className,
+  renderTrigger,
 }: {
   personRef: string;
   personName: string;
   className?: string;
+  renderTrigger?: (label: string) => ReactNode;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
@@ -181,7 +183,7 @@ export function RequestCardsButton({
         disabled={sent}
         data-voice-control-id="person-profile-request-card"
       >
-        {sent ? "Card request sent" : "Request cards"}
+        {renderTrigger?.(sent ? "Card request sent" : "Request cards") ?? (sent ? "Card request sent" : "Request cards")}
       </Button>
       <Dialog
         open={open && isVaultUnlocked}
