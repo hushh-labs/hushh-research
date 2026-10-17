@@ -55,6 +55,28 @@ WHERE b.origin_request_id=:request AND b.user_id=:owner
   AND e.state IN ('succeeded','preexisting')
 """
 
+# While a batch settles, a repeated first file leaves the card alone.
+_FILES_SENT_CREATE_SQL = """
+INSERT INTO feed_events(user_id,source_domain,event_type,actor_label,metadata,source_row_id)
+VALUES(:owner,'connected_systems',:event,CAST(:label AS text),CAST(:metadata AS jsonb),:source)
+ON CONFLICT (user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL
+DO NOTHING
+RETURNING id
+"""
+# A finished batch writes the count; GREATEST keeps it from going down.
+_FILES_SENT_UPSERT_SQL = """
+INSERT INTO feed_events(user_id,source_domain,event_type,actor_label,metadata,source_row_id)
+VALUES(:owner,'connected_systems',:event,CAST(:label AS text),CAST(:metadata AS jsonb),:source)
+ON CONFLICT (user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL
+DO UPDATE SET metadata=feed_events.metadata || jsonb_build_object(
+    'shared_count', GREATEST(
+      COALESCE((feed_events.metadata->>'shared_count')::int, 0), :count))
+    || CASE WHEN CAST(:label AS text) IS NULL THEN '{}'::jsonb
+       ELSE jsonb_build_object('counterpart_label', CAST(:label AS text)) END,
+  actor_label=COALESCE(CAST(:label AS text), feed_events.actor_label)
+RETURNING id
+"""
+
 
 def _file_ref(share_id: object, position: int) -> str:
     return f"{share_id}:{position}"
@@ -120,25 +142,8 @@ def _upsert_files_sent_card(connection, *, request_id, share_id) -> None:
     # settling, later files leave it alone (one Feed wake per batch, not per
     # file); a finished batch writes the count. GREATEST keeps the count from
     # ever going down; read, dismissal and Clear state are never touched.
-    conflict = (
-        """DO UPDATE SET metadata=feed_events.metadata || jsonb_build_object(
-             'shared_count', GREATEST(
-               COALESCE((feed_events.metadata->>'shared_count')::int, 0), :count))
-             || CASE WHEN CAST(:label AS text) IS NULL THEN '{}'::jsonb
-                ELSE jsonb_build_object('counterpart_label', CAST(:label AS text)) END,
-           actor_label=COALESCE(CAST(:label AS text), feed_events.actor_label)"""
-        if batch_done
-        else "DO NOTHING"
-    )
     feed_id = connection.execute(
-        text(f"""INSERT INTO feed_events(
-            user_id,source_domain,event_type,actor_label,metadata,source_row_id)
-          VALUES(:owner,'connected_systems',:event,CAST(:label AS text),
-            CAST(:metadata AS jsonb),:source)
-          ON CONFLICT (user_id,source_domain,event_type,source_row_id)
-            WHERE source_row_id IS NOT NULL
-          {conflict}
-          RETURNING id"""),  # noqa: S608 - fixed SQL fragments; values are bound.
+        text(_FILES_SENT_UPSERT_SQL if batch_done else _FILES_SENT_CREATE_SQL),
         {
             "owner": owner,
             "event": FILES_SENT_EVENT,
