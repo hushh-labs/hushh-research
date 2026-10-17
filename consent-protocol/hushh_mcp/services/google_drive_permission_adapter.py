@@ -423,10 +423,14 @@ class GoogleDrivePermissionAdapter:
             raise
         finally:
             # No file/permission ID, email, URL, token, or provider body in telemetry.
+            # The outcome is dotted on purpose: the log redactor masks any 24-128
+            # character token of letters, digits, `_` and `-` as a possible
+            # identifier, which would hide permission_target_unavailable and the
+            # other long outcome codes in the very line meant to count them.
             logger.info(
                 "drive_permission_rest.timing operation=%s outcome=%s duration_ms=%.2f reason=%s",
                 safe_operation,
-                outcome,
+                outcome.replace("_", "."),
                 (time.perf_counter() - started) * 1000,
                 reason_class,
             )

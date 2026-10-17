@@ -373,7 +373,11 @@ async def test_definitive_grant_refusals_are_one_per_file_outcome(
     assert len(seen) == 1 and seen[0].url.params["sendNotificationEmail"] == "false"
     # Provider reasons are counted by fixed class, never logged verbatim.
     assert reason not in caplog.text
-    assert f"outcome={code} " in caplog.text
+    # The logged label survives the production redactor, which masks long
+    # `_`-joined tokens as possible identifiers.
+    label = code.replace("_", ".")
+    assert f"outcome={label} " in caplog.text
+    assert redact_log_value(label) == label
 
 
 @pytest.mark.asyncio
