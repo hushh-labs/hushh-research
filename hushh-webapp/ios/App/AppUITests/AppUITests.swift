@@ -3199,6 +3199,16 @@ final class AppUITests: XCTestCase {
                 if account.exists && account.isHittable { break }
                 menu.swipeDown()
             }
+            let rootPhoto = app.buttons["native-profile-row-identity"].firstMatch
+            let rootName = app.staticTexts["native-profile-identity-name"].firstMatch
+            let rootEmail = app.staticTexts["native-profile-identity-email"].firstMatch
+            guard waitForAdmittedControl(rootPhoto) else { XCTFail("PROFILE_PHOTO_TOP_PORTRAIT_UNAVAILABLE"); return }
+            XCTAssertEqual(rootPhoto.frame.width, 44, accuracy: 1, "PROFILE_PHOTO_ROOT_DIFFERS_FROM_WEB_PANE")
+            XCTAssertEqual(rootPhoto.frame.height, 44, accuracy: 1)
+            guard rootName.exists, rootEmail.exists else { XCTFail("PROFILE_PHOTO_TOP_IDENTITY_HEADER_UNAVAILABLE"); return }
+            XCTAssertEqual(rootName.frame.minX - rootPhoto.frame.maxX, 13, accuracy: 1)
+            XCTAssertEqual(rootName.frame.minX, rootEmail.frame.minX, accuracy: 1)
+            XCTAssertLessThan(rootPhoto.frame.maxY, account.frame.minY, "PROFILE_PHOTO_NOT_AT_TOP")
             guard waitForAdmittedControl(account) else { XCTFail("PROFILE_PHOTO_ACCOUNT_UNAVAILABLE"); return }
             account.tap()
             let options = app.buttons["native-profile-row-account-photo"].firstMatch
@@ -3206,9 +3216,16 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(options), waitForAdmittedControl(portrait) else {
                 XCTFail("PROFILE_PHOTO_HEADER_UNAVAILABLE"); return
             }
-            XCTAssertEqual(portrait.frame.midX, options.frame.midX, accuracy: 1, "PROFILE_PHOTO_HEADER_MISALIGNED")
-            XCTAssertLessThanOrEqual(portrait.frame.maxY, options.frame.minY, "PROFILE_PHOTO_OPTIONS_NOT_BELOW_PHOTO")
-            XCTAssertGreaterThanOrEqual(options.frame.height, 44)
+            let name = app.staticTexts["native-profile-account-photo-name"].firstMatch
+            let email = app.staticTexts["native-profile-account-photo-email"].firstMatch
+            XCTAssertTrue(name.exists && email.exists, "PROFILE_PHOTO_IDENTITY_COPY_MISSING")
+            XCTAssertEqual(app.buttons.matching(identifier: "native-profile-row-account-photo").count, 1)
+            XCTAssertEqual(portrait.frame, options.frame, "PROFILE_PHOTO_HAS_DUPLICATE_ACTIONS")
+            XCTAssertEqual(portrait.frame.width, 44, accuracy: 1, "PROFILE_PHOTO_DIFFERS_FROM_WEB_PANE")
+            XCTAssertEqual(portrait.frame.height, 44, accuracy: 1, "PROFILE_PHOTO_HIT_REGION_INCOMPLETE")
+            XCTAssertEqual(name.frame.minX - portrait.frame.maxX, 13, accuracy: 1, "PROFILE_PHOTO_HEADER_COLUMN_GAP")
+            XCTAssertEqual(name.frame.minX, email.frame.minX, accuracy: 1)
+            XCTAssertLessThan(name.frame.minY, portrait.frame.maxY, "PROFILE_PHOTO_NAME_NOT_ALONGSIDE")
             options.tap()
             let preview = app.buttons["View photo"].firstMatch
             guard waitForAdmittedControl(preview) else {
@@ -3230,7 +3247,7 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(openProfile) else { XCTFail("PROFILE_PHOTO_CHAT_NOT_RESTORED"); return }
             XCTAssertEqual(hosts.count, 1)
             XCTAssertFalse(webView.buttons["Unlock"].exists)
-            print("PROFILE_PHOTO_PREVIEW_CONTINUITY native_header_options_preview_return_without_mutation")
+            print("PROFILE_PHOTO_PREVIEW_CONTINUITY native_header_options_preview_return_without_mutation web_aligned_hero")
             return
         }
         // The pane can resume a nested setting from the same session. Reach

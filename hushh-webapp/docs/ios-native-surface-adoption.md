@@ -34,8 +34,12 @@ gap on the old code and passes with vertical safe-area expansion. UIKit retains
 content and navigation-bar insets; no outer-frame or global-padding workaround.
 
 The capability-negotiated `profilePortrait` header replaces the Account photo
-list row with an image above its photo-action button, and supplies the same
-effective photo to the root identity header. Native receives bounded JPEG bytes
+list row with a top identity hero, and supplies the same effective photo to the
+root identity header. The shared native hero now follows the web pane's geometry:
+44pt leading portrait, 13pt column gap and adjacent name/email. Only the portrait
+is a button, retaining its existing authored action; the surrounding identity
+copy is not a selectable settings row. This replaces the oversized root portrait
+and separate centered Account photo/options block. Native receives bounded JPEG bytes
 only, decoded with bounded ImageIO dimensions; there is no native URL fetch or
 image persistence. The existing provider fallback can request a larger Google
 avatar using its documented FIFE size option; uploaded images remain unchanged.
@@ -76,8 +80,17 @@ That evidence is retained for the current lease when retirement precedes parent
 readiness, and delivered once the port closes. The incoming detail owns its
 fallback; a second failure pane must not block that same handoff.
 Its nearest regression fails when early modal mounting, a stale visit binding,
-or a missing confirmed-absence callback is restored. Installation/physical proof is recorded
-separately after the combined candidate is prepared. No full visual,
+or a missing confirmed-absence callback is restored.
+
+Installed `d35566d7ba` (UAT-backed Debug qualification, 1.4.0/69) passes the actual
+native Account portrait → photo options → preview → Close → Account → Chat
+journey, with one WebView and no photo mutation. Its executable digest is
+`1fc01be3487d3e5a705f28d8b86c390fa03e9a84fc5654e8be513811b49025c9`;
+the exported/bundled assets match. This proves the repaired hit target and modal
+layer/handoff on that installed source, not the subsequent web-aligned hero's
+geometry. The updated nearest physical journey measures both root and Account
+headers before exercising the same photo flow; its evidence is recorded after
+installing the combined candidate. No full visual,
 accessibility, staged-resume or Release-performance acceptance is inferred.
 
 Vault methods now have one extracted React feature model for reads, enrollment,

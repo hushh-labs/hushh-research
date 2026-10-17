@@ -4686,7 +4686,7 @@ function ProfilePageContent({
     (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT), legalParent === true);
   const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
     { id: "account-portrait", rows: [
-      { id: "account-photo", label: user.displayName || "Your account", enabled: true, portrait: true,
+      { id: "account-photo", label: user.displayName || "Your account", detail: user.email || undefined, enabled: true, portrait: true,
         ...(nativePortrait ? { portraitData: nativePortrait } : {}) },
     ] },
     { id: "account-identity", title: "Identity", rows: [

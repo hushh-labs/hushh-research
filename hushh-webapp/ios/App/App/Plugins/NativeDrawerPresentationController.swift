@@ -848,7 +848,8 @@ struct NativeDrawerContent: View {
     var profilePage: ProfilePage? = nil
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
-    @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
+    @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 19
+    @ScaledMetric(relativeTo: .footnote) private var profileIdentityDetailFont: CGFloat = 10.5
     @ScaledMetric(relativeTo: .body) private var historyTitleFont: CGFloat = 15
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var renameFocused: String?
@@ -1011,40 +1012,10 @@ struct NativeDrawerContent: View {
                 ForEach(sections) { section in
                     if section.id == "identity-section" {
                         ForEach(section.rows) { row in
-                            Button { model.choice("row", row: row.id) } label: {
-                                HStack(spacing: 12) {
-                                    NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
-                                        .frame(width: 56, height: 56).accessibilityHidden(true)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(row.label).font(.system(size: profileNameFont, weight: .bold))
-                                            .foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-                                        if let detail = row.detail {
-                                            Text(detail).font(.footnote).foregroundStyle(.secondary)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
-                                .disabled(!row.enabled || !model.controlsEnabled)
-                                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
-                                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                            profileIdentityHeader(row, photoOptions: false)
                         }
                     } else if section.id == "account-portrait", let row = section.rows.first, row.portrait == true {
-                        VStack(spacing: 8) {
-                            Button { model.choice("row", row: row.id) } label: {
-                                NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
-                                    .frame(width: 88, height: 88)
-                            }.buttonStyle(.plain).accessibilityLabel("Profile photo options")
-                            Button { model.choice("row", row: row.id) } label: {
-                                Text("Photo options")
-                                    .frame(minWidth: 44, minHeight: 44)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                                .accessibilityIdentifier("native-profile-row-\(row.id)")
-                        }.frame(maxWidth: .infinity)
-                            .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
+                        profileIdentityHeader(row, photoOptions: true)
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             if let title = section.title {
@@ -1074,6 +1045,35 @@ struct NativeDrawerContent: View {
     }
     private func profileInitials(_ name: String) -> String {
         name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
+    }
+    /// The web pane's top identity hero: 44pt portrait, 13pt column gap and
+    /// leading name/email. It is not a settings row or a second photo picker.
+    /// Both destinations retain their authored action; only the portrait is a
+    /// button. Text grows with Dynamic Type instead of becoming an ellipsis.
+    private func profileIdentityHeader(_ row: NativeDrawerRow, photoOptions: Bool) -> some View {
+        HStack(spacing: 13) {
+            Button { model.choice("row", row: row.id) } label: {
+                NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
+                    .frame(width: 44, height: 44).contentShape(Circle())
+            }.buttonStyle(.plain)
+                .accessibilityLabel(photoOptions ? "Profile photo options" : "Your account")
+                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: "\(row.id)-portrait"))
+                .disabled(!row.enabled || !model.controlsEnabled)
+                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.label).font(.system(size: profileNameFont, weight: .semibold))
+                    .foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("native-profile-\(row.id)-name")
+                if let detail = row.detail {
+                    Text(detail).font(.system(size: profileIdentityDetailFont)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("native-profile-\(row.id)-email")
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: "\(row.id)-copy"))
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+            .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
     }
     @ViewBuilder private func profileRow(_ row: NativeDrawerRow) -> some View {
         if row.toggle == true, let options = row.options, options.count == 2 {
