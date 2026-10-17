@@ -3290,6 +3290,9 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Preferences proof must attach to the existing session")
         }
         app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let nativeSettings = app.segmentedControls["chat-agent-surface"].firstMatch.exists
         func accentOption(_ name: String) -> XCUIElement {
             // Radix hides the underlying Profile accessibility subtree while
             // its portal is open. Query the owned popup, not that hidden body.
@@ -3325,6 +3328,7 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
+        let hostFrame = web.frame
         addTeardownBlock {
             guard (self.testRun?.failureCount ?? 0) > 0 else { return }
             // Observe the failure before another runner activation/privacy
@@ -3335,8 +3339,9 @@ final class AppUITests: XCTestCase {
         // The product Profile pane deliberately retains shared body controls.
         // Its native Back/Close are qualified independently. Do not enable an
         // unqualified renderer just to satisfy a historical native-only test.
-        let accent = web.descendants(matching: .any).matching(NSPredicate(
-            format: "label == %@", "App accent color")).firstMatch
+        let nativeTheme = app.buttons["native-profile-row-preferences-theme"].firstMatch
+        let accent = nativeSettings ? app.buttons["native-profile-row-preferences-accent"].firstMatch :
+            web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "App accent color")).firstMatch
         func themeOption(_ name: String) -> XCUIElement {
             web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
         }
@@ -3345,11 +3350,12 @@ final class AppUITests: XCTestCase {
         }
         func controlsReady() -> Bool {
             accent.exists && accent.isHittable &&
-                ["Light", "Dark", "System"].allSatisfy { themeOption($0).exists && themeOption($0).isHittable }
+                (nativeSettings ? nativeTheme.exists && nativeTheme.isHittable :
+                    ["Light", "Dark", "System"].allSatisfy { themeOption($0).exists && themeOption($0).isHittable })
         }
         func openPreferences() -> Bool {
             print("NATIVE_PREFERENCES_STAGE stage=enter")
-            if !themeOption("System").exists || !accent.exists {
+            if !controlsReady() {
                 let close = app.buttons["Close Profile"].firstMatch
                 if !close.exists {
                     let opener = app.buttons["Open Profile"].firstMatch
@@ -3366,7 +3372,7 @@ final class AppUITests: XCTestCase {
                 // through authored Back controls, never a cold route/reset.
                 for _ in 0..<4 {
                     if row.exists && row.isHittable { break }
-                    let back = app.buttons["profile-back"].firstMatch
+                    let back = nativeSettings ? app.navigationBars.buttons["Profile"].firstMatch : app.buttons["profile-back"].firstMatch
                     if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
                     back.tap()
                 }
@@ -3387,11 +3393,23 @@ final class AppUITests: XCTestCase {
             return true
         }
         func selectedTheme(_ name: String) -> Bool {
+            if nativeSettings { return nativeTheme.exists && nativeTheme.value as? String == name }
             let option = themeOption(name)
             return option.exists && (option.isSelected || (option.value as? String) == "1")
         }
         func selectTheme(_ name: String) {
             print("NATIVE_PREFERENCES_STAGE stage=theme_select")
+            if nativeSettings {
+                guard waitForAdmittedControl(nativeTheme) else { XCTFail("NATIVE_APPEARANCE_TRIGGER_UNAVAILABLE"); return }
+                if selectedTheme(name) { return }
+                nativeTheme.tap()
+                let option = app.buttons[name].firstMatch
+                guard waitForAdmittedControl(option) else { XCTFail("NATIVE_APPEARANCE_MENU_UNAVAILABLE"); return }
+                option.tap()
+                let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: app)
+                XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_APPEARANCE_NOT_ACKNOWLEDGED")
+                return
+            }
             let segment = themeOption(name)
             XCTAssertTrue(segment.exists && segment.isHittable)
             if !selectedTheme(name) { segment.tap() }
@@ -3450,7 +3468,7 @@ final class AppUITests: XCTestCase {
         let reopenOnly = ProcessInfo.processInfo.environment["HUSHH_PREFERENCES_REOPEN_ONLY"] == "true"
         if !reopenOnly {
             for name in ["Light", "Dark", "System"] {
-                let segment = themeOption(name)
+                let segment = nativeSettings ? nativeTheme : themeOption(name)
                 XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
                 XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
                 selectTheme(name)
@@ -3466,9 +3484,8 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(accentValue(), value, "Cancellation changed the preference")
             }
         }
-        let hostFrame = web.frame
         for cycle in 0..<10 {
-            let close = app.buttons.matching(NSPredicate(
+            let close = nativeSettings ? app.buttons["native-profile-drawer-close"].firstMatch : app.buttons.matching(NSPredicate(
                 format: "identifier == %@ AND label == %@", "profile-close", "Close Profile")).firstMatch
             XCTAssertTrue(close.exists && close.isHittable, "NATIVE_PROFILE_CLOSE_REOPEN_FELL_BACK")
             XCTAssertFalse(web.buttons.matching(NSPredicate(
@@ -3479,7 +3496,7 @@ final class AppUITests: XCTestCase {
             let point = cycle.isMultiple(of: 2) ? CGVector(dx: 0.1, dy: 0.5) : CGVector(dx: 0.9, dy: 0.5)
             close.coordinate(withNormalizedOffset: point).tap()
             print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=tapped privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
-            let openProfile = web.buttons["Open Profile"].firstMatch
+            let openProfile = nativeSettings ? app.buttons["Open Profile"].firstMatch : web.buttons["Open Profile"].firstMatch
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 !close.exists && !themeOption("System").exists && !accent.exists && openProfile.exists && openProfile.isHittable
             }, object: app)
@@ -3488,6 +3505,8 @@ final class AppUITests: XCTestCase {
                 XCTFail("NATIVE_PROFILE_CLOSE_NOT_CONFIRMED"); return
             }
             print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=closed privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
+            XCTAssertEqual(hosts.count, 1, "Profile return replaced or duplicated Chat's host")
+            XCTAssertEqual(web.frame, hostFrame, "Profile return moved the Chat host")
             openProfile.tap()
             let reopened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 close.exists && close.isHittable
@@ -3497,9 +3516,15 @@ final class AppUITests: XCTestCase {
             }
             guard openPreferences() else { return }
             XCTAssertEqual(accentValue(), value, "Profile reopen lost the applied Accent")
-            XCTAssertEqual(hosts.count, 1)
-            XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
-            XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
+            if nativeSettings {
+                // The complete native modal intentionally excludes Chat from
+                // accessibility. Prove the same host at the exposed return.
+                XCTAssertEqual(hosts.count, 0, "Profile leaked covered web accessibility")
+            } else {
+                XCTAssertEqual(hosts.count, 1)
+                XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
+                XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
+            }
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
         print(reopenOnly
