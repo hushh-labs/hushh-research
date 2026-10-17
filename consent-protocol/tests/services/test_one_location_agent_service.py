@@ -8737,7 +8737,7 @@ def test_location_and_connect_read_one_circle_list() -> None:
 
     from hushh_mcp.services import one_location_agent_service as agent_module
 
-    source = inspect.getsource(agent_module.OneLocationAgentService.list_state)
+    source = inspect.getsource(agent_module.OneLocationAgentService._list_state)
     assert "circle_service.list_circles(user_id=user_id)" in source
     # And it is handed to the caller unchanged -- no per-surface filtering.
     assert '"circles": named_circles,' in source
