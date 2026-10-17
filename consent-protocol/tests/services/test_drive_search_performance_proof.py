@@ -336,7 +336,8 @@ _Q_TOKEN = re.compile(r"\s*(?:(\(|\))|('(?:\\.|[^'\\])*')|(!=|>=|<=|=|<|>)|([A-Z
 
 
 def _words(text):
-    return re.findall(r"[0-9a-z]+", text.lower())
+    # Letters and digits in any script; punctuation and underscores separate.
+    return re.findall(r"[^\W_]+", text.lower())
 
 
 def drive_query(q):
@@ -940,3 +941,25 @@ async def test_incomplete_drive_search_is_surfaced_and_stops_automatic_batches(m
     shared = _shared_ids(run)
     assert len(shared) == len(set(shared))
     assert not {run["labels"][identity] for identity in shared} - {"qualifying"}
+
+
+@pytest.mark.parametrize(
+    "term,name",
+    [
+        ("O'Brien", "O'Brien minutes.pdf"),
+        ("C:\\Notes", "C:\\Notes archive.pdf"),
+        ("Café", "Café minutes.pdf"),
+        ("会議", "会議 notes.pdf"),
+        ("a" * 50, "a" * 50 + " notes.pdf"),
+    ],
+)
+def test_compiled_literals_round_trip_through_drive_q_grammar(term, name):
+    from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, rest_query
+
+    q = rest_query(compile_search_terms([term]))
+    matches = drive_query(q)
+    item = {"name": name, "content": "", "mimeType": PDF, "trashed": False, "parents": []}
+    # The escaped value parses back to the requester's exact characters.
+    assert matches(item)
+    assert not matches({**item, "name": "unrelated.pdf"})
+    assert not matches({**item, "trashed": True})
