@@ -146,6 +146,7 @@ import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
+  CONNECT_DIRECTORY_CONTENT_CLASSNAME,
   CONNECT_PAGER_BUTTON_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
@@ -3436,7 +3437,7 @@ export default function ConnectPageClient() {
                                 )
                               }
                               shellClassName="!overflow-visible !rounded-none !bg-transparent !shadow-none"
-                              contentClassName="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 [&>[data-slot=settings-row]]:col-span-full [&>[data-testid=connect-load-more-row]]:col-span-full"
+                              contentClassName={CONNECT_DIRECTORY_CONTENT_CLASSNAME}
                               separatorInset
                               // The search row belongs to THIS list, so it is read after
                               // the heading that names the list -- not before it. It used

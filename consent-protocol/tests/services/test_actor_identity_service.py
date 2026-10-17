@@ -41,6 +41,43 @@ class _AliasFakeAcquire:
         return None
 
 
+async def test_missing_phone_backfill_continues_past_phone_less_batches(monkeypatch):
+    from scripts import backfill_actor_identity_cache as backfill
+
+    user_ids = ["synthetic-001", "synthetic-002", "synthetic-003"]
+
+    class Rows:
+        async def fetch(self, query, limit, cursor):
+            return [{"user_id": uid} for uid in user_ids if uid > cursor][:limit]
+
+    repair = AsyncMock(return_value={"phone_verified": True, "phone_number": "+919000000001"})
+    monkeypatch.setattr(backfill, "get_pool", AsyncMock(return_value=_AliasFakePool(Rows())))
+    monkeypatch.setattr(
+        backfill,
+        "ActorIdentityService",
+        lambda: types.SimpleNamespace(sync_verified_phone_from_firebase=repair),
+    )
+    monkeypatch.setattr(backfill, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        backfill.auth,
+        "get_users",
+        lambda ids, **kwargs: types.SimpleNamespace(
+            users=[
+                types.SimpleNamespace(
+                    uid=identifier.uid,
+                    disabled=False,
+                    phone_number="+919000000001" if identifier.uid == user_ids[-1] else None,
+                )
+                for identifier in ids
+            ]
+        ),
+    )
+    await backfill.run_batches(missing_phones_only=True, execute=False, limit=2, all_batches=True)
+    repair.assert_not_awaited()
+    await backfill.run_batches(missing_phones_only=True, execute=True, limit=2, all_batches=True)
+    repair.assert_awaited_once_with("synthetic-003", missing_only=True)
+
+
 class _AliasFakePool:
     def __init__(self, conn):
         self.conn = conn
@@ -252,7 +289,8 @@ class _PhoneClaimFakeConnection:
         self.statement_order.append("claim")
         if self.fail_claim:
             raise RuntimeError("simulated identity insert failure")
-        if len(args) == 8:
+        preserve_phone = len(args) == 9 and args[8]
+        if len(args) in (8, 9):
             (
                 user_id,
                 display_name,
@@ -262,7 +300,7 @@ class _PhoneClaimFakeConnection:
                 email_verified,
                 verified,
                 source,
-            ) = args
+            ) = args[:8]
         else:
             user_id, phone_number, source = args
             display_name = email = photo_url = email_verified = None
@@ -279,6 +317,8 @@ class _PhoneClaimFakeConnection:
                 "created_at": now,
             },
         )
+        if preserve_phone and row.get("phone_verified") is True and row.get("phone_number"):
+            phone_number = verified = None
         for key, value in (
             ("display_name", display_name),
             ("email", email),
@@ -300,6 +340,46 @@ class _PhoneClaimFakeConnection:
             for row in self.rows.values()
             if row["user_id"] == user_id or row["phone_number"] == phone_number
         ]
+
+
+@pytest.mark.parametrize("concurrent_claim", [False, True])
+async def test_missing_phone_repair_preserves_a_claim_committed_during_provider_lookup(
+    monkeypatch, concurrent_claim
+):
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+    uid = "firebase-user-123456789012"
+    conn.rows.pop("other-firebase-user-1234567890", None)
+    initial = dict(conn.rows[uid])
+    monkeypatch.setattr(service, "get_many", AsyncMock(return_value={uid: initial}))
+
+    async def provider(*args, **kwargs):
+        if concurrent_claim:
+            conn.rows[uid].update(phone_number="+14155550199", phone_verified=True)
+        return types.SimpleNamespace(phone_number="+16505550101", disabled=False)
+
+    monkeypatch.setattr(service, "_get_firebase_user_record", provider)
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
+    )
+    referral = AsyncMock()
+    monkeypatch.setattr(service, "_sync_referral_qualification_best_effort", referral)
+
+    result = await service.sync_verified_phone_from_firebase(uid, missing_only=True)
+    assert result["phone_verified"] is True
+    assert result["phone_number"] == ("+14155550199" if concurrent_claim else "+16505550101")
+    assert result["display_name"] == initial["display_name"]
+    referral.assert_not_awaited()
+
+
+async def test_missing_phone_repair_skips_complete_backend_claim_even_if_stale(monkeypatch):
+    service = ActorIdentityService()
+    current = {"user_id": "short", "phone_verified": True, "phone_number": "+14155550199"}
+    monkeypatch.setattr(service, "get_many", AsyncMock(return_value={"short": current}))
+    provider = AsyncMock(side_effect=AssertionError("Must not replace an existing claim"))
+    monkeypatch.setattr(service, "_get_firebase_user_record", provider)
+    assert await service.sync_verified_phone_from_firebase("short", missing_only=True) == current
+    provider.assert_not_awaited()
 
 
 @pytest.mark.asyncio
