@@ -30,7 +30,10 @@ from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
 )
-from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from hushh_mcp.services.email_delivery_queue_service import (
+    EmailDeliveryQueueUnavailable,
+    get_email_delivery_queue_service,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
@@ -7866,26 +7869,29 @@ class RIAIAMService:
                 },
             )
 
-        await queue_service.enqueue(
-            kind="invite_email",
-            send_callable=lambda: invite_email_service.send_ria_invite(
-                target_email=normalized_target_email,
-                target_display_name=target_display_name,
-                advisor_name=advisor_name,
-                firm_name=firm_name,
-                invite_token=invite_token,
-                invite_path=invite_path,
-                expires_at=expires_at,
-                reason=reason,
-            ),
-            on_success=_mark_success,
-            on_failure=_mark_failure,
-            context={
-                "invite_id": invite_id,
-                "invite_token": invite_token,
-                "target_email": normalized_target_email,
-            },
-        )
+        try:
+            await queue_service.enqueue(
+                kind="invite_email",
+                send_callable=lambda: invite_email_service.send_ria_invite(
+                    target_email=normalized_target_email,
+                    target_display_name=target_display_name,
+                    advisor_name=advisor_name,
+                    firm_name=firm_name,
+                    invite_token=invite_token,
+                    invite_path=invite_path,
+                    expires_at=expires_at,
+                    reason=reason,
+                ),
+                on_success=_mark_success,
+                on_failure=_mark_failure,
+                context={
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "target_email": normalized_target_email,
+                },
+            )
+        except EmailDeliveryQueueUnavailable as exc:
+            await _mark_failure(exc)
 
     async def set_ria_marketplace_discoverability(
         self,

@@ -1,0 +1,43 @@
+{
+  "displayName": "[Managed] Vertex Provider Availability",
+  "documentation": {
+    "content": "Provider429/5xx responses are sustained in this inference project. Inspect model/region, other callers, retry amplification and service impact. This alert does not limit AI usage. Dedicated throughput remains a separately governed action.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "provider",
+    "incident_purpose": "actionable"
+  },
+  "conditions": [
+    {
+      "displayName": "Provider429/5xx >0.02requests/s for5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"aiplatform.googleapis.com/PublisherModel\" AND metric.type=\"aiplatform.googleapis.com/publisher/online_serving/model_invocation_count\" AND (metric.labels.response_code=\"429\" OR metric.labels.response_code=monitoring.regex.full_match(\"5[0-9][0-9]\"))",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.02,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
+}

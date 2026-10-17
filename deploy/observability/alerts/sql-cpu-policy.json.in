@@ -1,0 +1,42 @@
+{
+  "displayName": "[Managed] Cloud SQL CPU Saturation",
+  "documentation": {
+    "content": "Selected Cloud SQL instance mean CPU exceeds 90% for 10 minutes. Correlate slow queries, locks, pool waits and affected routes before increasing application replicas.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "capacity",
+    "incident_purpose": "actionable"
+  },
+  "conditions": [
+    {
+      "displayName": "SQL mean CPU >90% for10m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.9,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
+}

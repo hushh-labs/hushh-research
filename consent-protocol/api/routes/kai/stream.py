@@ -49,6 +49,12 @@ router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
 _RUN_MANAGER = KaiAnalyzeRunManager()
 
+
+async def shutdown_analyze_run_retention() -> None:
+    """Stop the analyze owner's expiry worker during application shutdown."""
+    await _RUN_MANAGER.stop_retention()
+
+
 # ---------------------------------------------------------------------------
 # Input bounds (CWE-400 — Uncontrolled Resource Consumption)
 # Attach points:

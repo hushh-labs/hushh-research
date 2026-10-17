@@ -981,6 +981,14 @@ async def shutdown_email_delivery_queue():
 
 
 @app.on_event("shutdown")
+async def shutdown_kai_retention():
+    """Release the shared analyze manager's expiry worker."""
+    from api.routes.kai.stream import shutdown_analyze_run_retention
+
+    await shutdown_analyze_run_retention()
+
+
+@app.on_event("shutdown")
 async def shutdown_magic_discovery():
     from hushh_mcp.services.profile_research_jobs import profile_research_jobs
 
