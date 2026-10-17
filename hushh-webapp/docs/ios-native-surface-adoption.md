@@ -18,6 +18,16 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Complete Profile and linked-workspace program — 2026-10-17
 
+Profile-first correction: native and web detail Back now compose the same local
+feature and query-parent owners. Account phone entry binds its existing OTP Back
+callback, so code entry returns to number entry before leaving Account. Missing
+Memory domain/connection queries retain a loading/unavailable detail instead of
+silently displaying their parent. Nearest navigation/phone/destination checks
+pass. The existing physical Profile batch now also enters Phone, Gemini, Voice
+and Vault methods from native parents; its former early return skipped those
+handoffs. The earlier nine-destination pass is not proof of these nested flows
+or complete native conversion. Candidate installation/acceptance is tracked below.
+
 Scope now includes protected and rich Profile bodies and linked workspaces.
 Older entries calling these deliberate retained bodies describe the installed
 baseline, **not exclusions from the approved conversion**. Qualification remains

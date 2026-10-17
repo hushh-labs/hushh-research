@@ -162,6 +162,8 @@ import {
   stripProfilePaneTransientParams,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   resolveGmailConnectionPresentation,
   resolveGmailStatusSummary,
@@ -760,6 +762,13 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const phoneBackStep = useRef<(() => boolean) | null>(null);
+  const bindPhoneBackStep = useCallback((handler: (() => boolean) | null) => {
+    phoneBackStep.current = handler;
+  }, []);
+  useBackLayer(pathname, isVaultUnlocked && activePanel === "account" && activeDetail === "phone" &&
+    (presentation !== "native-page" || nativeMenuOpen) ? 2 : 0,
+  () => phoneBackStep.current?.() ?? false, isPanePresentation ? { profile_pane: "1" } : undefined);
   useEffect(() => {
     if (activePanel !== "account" || activeDetail) {
       setNativeAccountException(null); setEditingDisplayName(false);
@@ -4155,6 +4164,7 @@ function ProfilePageContent({
                 phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
               }
               onCompleted={handleAccountPhoneCompleted}
+              onBackStepChange={bindPhoneBackStep}
               onCancel={popProfileStack}
               confirmLabel="Save phone number"
               className={cn(
@@ -4351,6 +4361,23 @@ function ProfilePageContent({
             />
           </div>
         ),
+      });
+    }
+    // A query destination must keep its own body while its record resolves,
+    // and after access disappears. Showing the parent here made navigation
+    // appear not to respond and changed the visible Back depth on refresh.
+    const missingDomain = activeDetail?.startsWith("domain:") && !selectedDomain;
+    const missingConnection = activeDetail?.startsWith("connection:") && !selectedConnection;
+    if (missingDomain || missingConnection) {
+      const pending = profileManagerLoading;
+      const failed = !!pkmError || !!consentCenterError;
+      profileStackEntries.push({
+        key: `detail:${activeDetail}`,
+        title: missingDomain ? "Memory details" : "Connection access",
+        content: <p role="status" className="px-4 py-5 text-sm text-muted-foreground">
+          {pending ? "Loading…" : failed ? "Couldn’t load these details. Go back and try again." :
+            "These details are no longer available. Go back to Memory."}
+        </p>,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "connected-systems") {
@@ -4948,7 +4975,7 @@ function ProfilePageContent({
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
       owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
-      onClose: () => onNativeMenuClose?.(), onBack: () => popProfilePaneLocation(pathname, searchParams) }}>
+      onClose: () => onNativeMenuClose?.(), onBack: () => backProfilePane(pathname, searchParams) }}>
     {page}
   </NativeProfilePresentation>;
 }

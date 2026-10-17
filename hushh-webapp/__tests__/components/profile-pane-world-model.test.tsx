@@ -47,6 +47,7 @@ const vault = vi.hoisted(() => ({
   vaultOwnerToken: "token-a",
   isVaultUnlocked: true,
   tokenExpiresAt: null,
+  getVaultOwnerToken: async () => "token-a",
 }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
 vi.mock("@/lib/persona/persona-context", () => ({
@@ -78,6 +79,7 @@ import { WorldModelProvider } from "@/components/profile/world-model-provider";
 import { WorldModelResearchService } from "@/lib/services/world-model-research-service";
 import { WorldModelDecisionService } from "@/lib/services/world-model-decision-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -106,6 +108,14 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it.each(["domain:missing", "connection:missing"] as const)("retains a destination body when %s cannot resolve", detail => {
+    nav.query = `profile_pane=1&profile_panel=my-data&profile_detail=${encodeURIComponent(detail)}`;
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "my-data", detail }} /></StepProgressProvider>);
+    expect(activeScreen()?.dataset.profileStackScreen).toBe(`detail:${detail}`);
+    expect(within(activeScreen()!).getByRole("status")).toHaveTextContent(/Loading|Couldn’t load|no longer available/);
+    expect(nav.router.replace).not.toHaveBeenCalled();
+  });
   it("renders the model in the pane instead of the Profile root menu", async () => {
     render(
       <ProfilePage

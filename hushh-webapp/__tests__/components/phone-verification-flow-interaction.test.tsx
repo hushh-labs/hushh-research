@@ -27,6 +27,7 @@ function renderPhoneVerificationFlow(options?: {
   mode?: "link" | "replace";
   startVerification?: ReturnType<typeof vi.fn>;
   onContinueExisting?: ReturnType<typeof vi.fn>;
+  onBackStepChange?: (handler: (() => boolean) | null) => void;
 }) {
   const startVerification = options?.startVerification ?? (options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
@@ -46,6 +47,7 @@ function renderPhoneVerificationFlow(options?: {
       confirmVerification={confirmVerification}
       onCompleted={onCompleted}
       onContinueExisting={options?.onContinueExisting}
+      onBackStepChange={options?.onBackStepChange}
     />
   );
 
@@ -735,7 +737,9 @@ describe("the country picker starts on the person's own country", () => {
 
 describe("onboarding code presentation", () => {
   it("keeps resend and change-number actions connected to the existing flow", async () => {
-    const { startVerification } = renderPhoneVerificationFlow({ codePresentation: "onboarding" });
+    let stepBack: (() => boolean) | null = null;
+    const { startVerification } = renderPhoneVerificationFlow({ codePresentation: "onboarding",
+      onBackStepChange: handler => { stepBack = handler; } });
     await reachCodeStep(startVerification);
     const resend = screen.getByRole("button", { name: "Resend code" });
     expect(resend.closest("p")?.textContent).toContain("Enter the code sent to");
@@ -743,6 +747,13 @@ describe("onboarding code presentation", () => {
     await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Use a Different number" }));
     expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeTruthy();
+    expect(stepBack).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await screen.findByRole("textbox", { name: "One-time code" });
+    expect(stepBack).not.toBeNull();
+    act(() => { expect(stepBack?.()).toBe(true); });
+    expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeTruthy();
+    expect(stepBack).toBeNull();
   });
   it("marks a rejected code and clears its error when corrected", async () => {
     const confirmVerification = vi.fn().mockRejectedValue(Object.assign(new Error("Wrong code"), { code: "auth/invalid-verification-code" }));

@@ -30,6 +30,8 @@ import {
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 const ACCOUNT = { panel: "account" as const, detail: null };
 const PHONE = { panel: "account" as const, detail: "phone" as const };
@@ -39,6 +41,23 @@ function currentUrl() {
 }
 
 describe("Profile pane navigation state", () => {
+  it("unwinds the pane's local step before its query parent without touching the covered workspace", () => {
+    window.history.replaceState(null, "", "/one?profile_pane=1&profile_panel=account&profile_detail=phone");
+    const workspaceBack = vi.fn(() => true);
+    const phoneBack = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    const removeWorkspace = registerBackLayer({ pathname: "/one", depth: 100, back: workspaceBack });
+    const removePhone = registerBackLayer({ pathname: "/one", depth: 2, query: { profile_pane: "1" }, back: phoneBack });
+    try {
+      backProfilePane("/one", new URLSearchParams(window.location.search));
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(PHONE);
+      expect(phoneBack).toHaveBeenCalledOnce();
+      expect(workspaceBack).not.toHaveBeenCalled();
+      backProfilePane("/one", new URLSearchParams(window.location.search));
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      expect(phoneBack).toHaveBeenCalledTimes(2);
+      expect(workspaceBack).not.toHaveBeenCalled();
+    } finally { removePhone(); removeWorkspace(); }
+  });
   it.each(["payouts", "world-model", "request-pricing"] as const)("opens %s in the existing pane and returns to Profile", (panel) => {
     const state = resolveProfilePaneUrlState(`profile_pane=1&profile_panel=${panel}`);
     expect(state).toEqual({ open: true, location: { panel, detail: null } });

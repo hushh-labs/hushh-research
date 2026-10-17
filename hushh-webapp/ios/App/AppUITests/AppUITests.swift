@@ -4468,6 +4468,28 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
                 }
                 XCTAssertTrue(close.exists && close.isHittable)
+                // A native parent passing Back is not proof of its nested
+                // bodies. Exercise the real handoff and return in this batch;
+                // the old early-continue skipped precisely these transitions.
+                let children: [String] = id == "account" ? ["account-phone"] :
+                    id == "preferences" ? ["preferences-gemini", "preferences-voice"] : ["security-vault"]
+                for childID in children {
+                    let child = app.buttons["native-profile-row-\(childID)"].firstMatch
+                    guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
+                    child.tap()
+                    let childBack = app.buttons["Back in Profile"].firstMatch
+                    guard waitForAdmittedControl(childBack), publicPaneLevel() == 2,
+                          waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {
+                        XCTFail("PROFILE_NATIVE_CHILD_HANDOFF_UNAVAILABLE"); return
+                    }
+                    XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                    XCTAssertFalse(close.exists && close.isHittable, "PROFILE_CHILD_EXPOSED_PARENT_ACTION")
+                    childBack.tap()
+                    guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else {
+                        XCTFail("PROFILE_NATIVE_CHILD_PARENT_NOT_RESTORED"); return
+                    }
+                    print("PROFILE_NESTED_CONTINUITY family=\(id) child=\(childID) returned=true")
+                }
                 nativeAccountBack.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     close.exists && close.isHittable && destination.exists && destination.isHittable

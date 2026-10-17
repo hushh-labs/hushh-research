@@ -27,13 +27,12 @@ import {
   PROFILE_PANE_PREVIEW_EVENT,
   type ProfilePanePreview,
   canGoBackProfilePane,
-  popProfilePaneLocation,
   profilePaneLocationKey,
   resolveProfilePaneUrlState,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
 import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
-import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
 import {
   Sheet,
   SheetClose,
@@ -390,8 +389,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
                 eligible={false}
                 onActivate={() => {
-                  if (unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) return;
-                  popProfilePaneLocation(pathname, searchParams);
+                  backProfilePane(pathname, searchParams);
                 }}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
@@ -401,8 +399,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                   aria-label="Back in Profile"
                   onClick={() => {
                     appHaptic("light");
-                    if (unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) return;
-                    popProfilePaneLocation(pathname, searchParams);
+                    backProfilePane(pathname, searchParams);
                   }}
                   className="size-11"
                 >
