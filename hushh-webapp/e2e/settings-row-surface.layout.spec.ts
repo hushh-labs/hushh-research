@@ -345,61 +345,6 @@ for (const width of [393, 1440]) {
   });
 }
 
-for (const width of [393, 1440])
-  for (const theme of ["light", "dark"] as const)
-    for (const motion of ["no-preference", "reduce"] as const)
-      test(`Profile tap feedback stays rounded at ${width}px ${theme} ${motion}`, async ({ page }, info) => {
-        await page.emulateMedia({ reducedMotion: motion });
-        await openFixture(page, width, theme);
-        await clearEvents(page);
-        for (const id of ["pane-connectors", "pane-notifications", "pane-help"]) {
-          const row = page.getByTestId(id);
-          await row.scrollIntoViewIfNeeded();
-          const surface = row.locator(":scope > button, :scope > a").first();
-          const box = (await surface.boundingBox())!;
-          await page.mouse.move(box.x + 10, box.y + box.height / 2);
-          await page.mouse.down();
-          const geometry = await row.evaluate((element) => {
-            const corners = (style: CSSStyleDeclaration) => [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
-            const action = element.querySelector(":scope > button, :scope > a")!;
-            const feedback = element.querySelector(":scope > span[aria-hidden]");
-            const ripple = element.querySelector(".morphy-ripple-host")!;
-            const paneHighlight = getComputedStyle(element, "::before");
-            return {
-              row: corners(getComputedStyle(element)),
-              action: corners(getComputedStyle(action)),
-              feedback: feedback ? corners(getComputedStyle(feedback)) : null,
-              ripple: corners(getComputedStyle(ripple)),
-              paneHighlight: paneHighlight.content === "none" ? null : corners(paneHighlight),
-              clip: getComputedStyle(ripple).overflow,
-            };
-          });
-          expect(geometry.row, id).toEqual(["12px", "12px", "12px", "12px"]);
-          expect(geometry.action, id).toEqual(geometry.row);
-          expect(geometry.ripple, id).toEqual(geometry.row);
-          if (geometry.paneHighlight) expect(geometry.paneHighlight, id).toEqual(geometry.row);
-          expect(geometry.clip, id).toBe("hidden");
-          if (geometry.feedback) expect(geometry.feedback, id).toEqual(geometry.row);
-          if (motion === "reduce") {
-            const flatPress = row.locator("[data-ripple-flat]");
-            await expect(flatPress).toHaveAttribute("data-pressed", "true");
-            await expect(flatPress).toHaveCSS("border-radius", "12px");
-          }
-          if (id === "pane-connectors") {
-            await page.getByTestId("consumer-profile-pane").screenshot({
-              path: info.outputPath("profile-pressed.png"), animations: "disabled",
-            });
-          }
-          await page.mouse.up();
-          await page.keyboard.press("Tab");
-          await surface.focus();
-          expect(await surface.evaluate((element) => element.matches(":focus-visible")), id).toBe(true);
-          expect(await surface.evaluate((element) => getComputedStyle(element).boxShadow), id).toContain("inset");
-          await surface.blur();
-        }
-        expect(await events(page)).toEqual(["pane:connectors", "pane:notifications", "pane:help"]);
-      });
-
 /**
  * Evidence captures, not assertions. Run with ROW_SHOTS_DIR and ROW_SHOTS_PHASE
  * to write the before/after screenshots the change was reviewed against.

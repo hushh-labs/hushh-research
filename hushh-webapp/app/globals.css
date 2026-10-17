@@ -2213,8 +2213,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-section-line: 14px;
   --app-side-pane-section-weight: 600;
   --app-side-pane-section-tracking: 0.02em;
-  /* Reading panes must not blend with the dimmed canvas behind the scrim. */
-  --profile-pane-surface: var(--background);
+  --profile-pane-surface: rgba(255, 255, 255, 0.48);
   --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
   --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
@@ -2319,7 +2318,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark [data-agent-history-drawer],
 .dark [data-app-side-pane],
 .dark [data-app-pane-material="profile"] {
-  --profile-pane-surface: var(--background);
+  --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
   --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
@@ -2651,8 +2650,6 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 .profile-pane-scroll-root [data-row-layout="settings"] {
   background: transparent !important;
-  /* Match the pane highlight even for rows in the middle of a group. */
-  border-radius: 12px;
 }
 
 /* Profile can be a narrow pane in a wide viewport. Size controls to the
@@ -2906,18 +2903,11 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 @media (prefers-reduced-transparency: reduce) {
   .profile-pane-sheet[data-slot="sheet-content"],
-  [data-app-side-pane],
   [data-agent-history-drawer],
   [data-app-pane-material="profile"] {
     background: var(--app-card-surface-default-solid) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-  }
-
-  .profile-pane-sheet[data-slot="sheet-content"],
-  [data-app-side-pane],
-  [data-agent-history-drawer] {
-    background: var(--background) !important;
   }
 
   .profile-pane-sheet[data-slot="sheet-content"]::after,
@@ -6450,7 +6440,6 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 .agent-chat-composer-field {
   box-sizing: border-box;
-  font-size: 1rem;
   min-height: 2.75rem;
   max-height: min(10rem, 24dvh);
   border-radius: 0;
@@ -7946,7 +7935,7 @@ html.native-android .chrome-glass-surface {
 html.native-android .profile-pane-sheet[data-slot="sheet-content"],
 html.native-android [data-agent-history-drawer],
 html.native-android [data-app-pane-material="profile"] {
-  --profile-pane-surface: var(--background);
+  --profile-pane-surface: var(--app-card-surface-default-solid);
   --profile-pane-card-surface: var(--app-card-surface-default-solid);
 }
 

@@ -144,31 +144,6 @@ function query(page: Page) {
   return new URL(page.url()).searchParams;
 }
 
-for (const width of [390, 1280])
-  for (const theme of ["light", "dark"] as const)
-    test(`Profile keeps the opaque theme canvas at ${width}px in ${theme}`, async ({ page }, info) => {
-      const errors = await mount(page, { width, theme });
-      const readCanvas = () => page.evaluate(() => {
-        const swatch = document.createElement("div");
-        swatch.style.backgroundColor = "var(--background)";
-        document.body.append(swatch);
-        const color = getComputedStyle(swatch).backgroundColor;
-        swatch.remove();
-        return { color, route: [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor] };
-      });
-      const before = await readCanvas();
-      await page.getByTestId("open-profile").click();
-      await expect(page.getByTestId("profile-account-row")).toBeVisible();
-      await expect(pane(page)).toHaveCSS("background-color", before.color);
-      expect(before.color).toMatch(/^rgb\([^)]+\)$/);
-      expect((await readCanvas()).route).toEqual(before.route);
-      await pane(page).screenshot({ path: info.outputPath("profile-theme-canvas.png"), animations: "disabled" });
-      await pane(page).getByRole("button", { name: "Close Profile", exact: true }).click();
-      await expect(pane(page)).not.toBeVisible();
-      expect((await readCanvas()).route).toEqual(before.route);
-      expect(errors).toEqual([]);
-    });
-
 test("Profile root and nested screens share one gutter", async ({ page }) => {
   for (const [width, rightInset] of [[320, 12], [393, 12], [768, 18]] as const) {
     await mount(page, { width, at: "/one?profile_pane=1" });

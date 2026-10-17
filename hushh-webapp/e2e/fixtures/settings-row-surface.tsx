@@ -163,36 +163,6 @@ function ProfileSettings() {
   );
 }
 
-function ProfilePaneMenu() {
-  return (
-    <section className="profile-pane-scroll-root" data-testid="consumer-profile-pane">
-      <div className="profile-home-content">
-        <SettingsGroup title="Your settings" separatorInset>
-          <SettingsRow title="Your account" onClick={() => record("pane:account")} />
-          <SettingsRow
-            icon={Bell}
-            title="Connectors"
-            description="Google Workspace and finance connections"
-            chevron
-            onClick={() => record("pane:connectors")}
-            testId="pane-connectors"
-          />
-          <SettingsRow
-            title="Notifications"
-            onClick={() => record("pane:notifications")}
-            trailing={<Switch aria-label="Pane notifications" />}
-            testId="pane-notifications"
-          />
-          <SettingsRow title="Help" asChild chevron testId="pane-help">
-            <a href="#help" onClick={(event) => { event.preventDefault(); record("pane:help"); }} />
-          </SettingsRow>
-          <SettingsRow title="Sign out" onClick={() => record("pane:signout")} />
-        </SettingsGroup>
-      </div>
-    </section>
-  );
-}
-
 function ConsentCenterList() {
   return (
     <section data-testid="consumer-consent-center">
@@ -320,7 +290,6 @@ function Fixture() {
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
       <PersonProfileAvailable />
       <ProfileSettings />
-      <ProfilePaneMenu />
       <ConsentCenterList />
       <ChatRequestCard />
       <LegacySplitRow />
