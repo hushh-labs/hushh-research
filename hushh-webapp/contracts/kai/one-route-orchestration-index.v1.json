@@ -3403,7 +3403,7 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.pkm",
-        "purpose": "Memory has Saved and Add tabs. Saved includes private-agent memory, owner-controlled scope sharing, pricing and earnings. Private-agent memory remains private; the owner can edit and save it. Back cancels its editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+        "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
         "screen": "pkm",
         "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
         "proactivity": "on_entry",
@@ -3421,19 +3421,21 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Opening sharing price review does not save a tariff or confirm a purchase. A price changes only after the person confirms in the existing editor and persistence succeeds.",
+        "completion_boundary": "Opening bundle or price review changes nothing. Listing changes only after an explicit visibility control succeeds. Prices change only after confirmation and persistence; listing and pricing never grant recipient access or purchase confirmation.",
         "next_route": "/one/pkm",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": [
-          "sharing_price_review"
+          "sharing_price_review",
+          "sharing_bundle_review"
         ]
       },
       "canonical_screen": "pkm",
       "voice_contract_file": "app/one/pkm/page.voice-action-contract.json",
       "action_ids": [
+        "pkm.close_sharing_bundle_review",
         "pkm.close_sharing_price_review",
         "pkm.review_sharing_price",
         "route.one_pkm",

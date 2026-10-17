@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 export type SharingPriceReviewRequest = { id: string; proposedPriceCents?: number; proposedBaseHours?: number };
 
 /** Tariffs belong to the exact authored scope handle, independently of its sharing switch. */
-export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedPrice = false, reviewRequest, onReviewClose }: { scopeHandle: string; machineScope: string; label: string; showSavedPrice?: boolean; reviewRequest?: SharingPriceReviewRequest; onReviewClose?: () => void }) {
+export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedPrice = false, reviewRequest, onReviewClose, onPaymentsNavigate }: { scopeHandle: string; machineScope: string; label: string; showSavedPrice?: boolean; reviewRequest?: SharingPriceReviewRequest; onReviewClose?: () => void; onPaymentsNavigate?: () => boolean }) {
   const { user, capture } = useCommerceSession(`tariff:${scopeHandle}:${machineScope}`);
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -86,7 +86,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
       <p className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
       {!readiness?.capabilities.set_paid_tariff ? <ProfilePaymentsLink className="inline-flex min-h-11 items-center text-sm underline" onClick={event => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        if (busy || review) { event.preventDefault(); return; }
+        if (busy || review || onPaymentsNavigate?.() === false) { event.preventDefault(); return; }
         closeEditor();
       }}>{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Payments and earnings" : "Check payment availability in Payments and earnings"}</ProfilePaymentsLink> : null}
       {message ? <p role="status" className="text-sm">{message}</p> : null}

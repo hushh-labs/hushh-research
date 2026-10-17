@@ -129,6 +129,14 @@ to free while paid admission is unavailable. Positive tariffs fail closed and
 never become free because setup is missing. Accepted quotes retain their terms.
 Existing financial obligations and access enforcement survive an admission pause.
 
+Owner-bound `GET /api/pkm/scopes/{user_id}` includes an authoritative `scope_handle`
+on each compact `scope_entries` row. It preserves the registry handle when present
+and otherwise uses the canonical owner/scope fallback. Memory and chat consume this
+metadata to review an eligible whole-bundle tariff; they never invent domain handles
+or infer a wildcard from child sections. Existing vault-owner matching, exposure
+rules and restricted-domain policies remain authoritative. The web proxy and native
+transports preserve the additive metadata without a separate payment endpoint.
+
 Authenticated `POST /api/scope-commerce/payouts/manage` accepts an empty object
 and returns a short-lived Stripe Express login URL for the caller's existing
 information-access payout account. The server checks the pinned platform, test/live

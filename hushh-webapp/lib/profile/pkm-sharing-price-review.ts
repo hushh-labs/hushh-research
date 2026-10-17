@@ -3,6 +3,7 @@ import { buildPkmShareBundles } from "@/lib/profile/pkm-memory-tree";
 import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import type { SharingPriceReviewRequest } from "@/components/consent/scope-tariff-editor";
+import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
 export type SharingPriceTarget = {
   domain: string; scopeHandle: string; machineScope: string; label: string; manifestVersion: number;
@@ -25,10 +26,10 @@ export function parseSharingPriceProposal(slots: Record<string, unknown>): Omit<
 }
 
 /** Only unique materialized handles in the current manifest can open pricing. */
-export function sharingPriceTargets(manifest: DomainManifest): SharingPriceTarget[] {
+export function sharingPriceTargets(manifest: DomainManifest, scopeEntries: ReadonlyArray<Record<string, unknown>> = []): SharingPriceTarget[] {
   if (!Number.isSafeInteger(manifest.manifest_version) || manifest.manifest_version < 1) return [];
   const bundles = buildPkmShareBundles(manifest);
-  return bundles.filter(bundle => bundle.scopeHandle?.trim() &&
+  const sections = bundles.filter(bundle => bundle.scopeHandle?.trim() &&
     bundles.filter(other => other.scopeHandle === bundle.scopeHandle).length === 1 &&
     bundles.filter(other => other.topLevelScopePath === bundle.topLevelScopePath).length === 1,
   ).map(bundle => ({
@@ -36,11 +37,19 @@ export function sharingPriceTargets(manifest: DomainManifest): SharingPriceTarge
     machineScope: consentScopeForPermission(manifest.domain, bundle.topLevelScopePath),
     label: bundle.label, manifestVersion: manifest.manifest_version,
   }));
+  const whole = scopeEntries.filter(entry => entry.scope === `attr.${manifest.domain}.*` &&
+    entry.domain === manifest.domain && entry.wildcard === true && entry.path === null &&
+    entry.consumer_visible !== false && entry.internal_only !== true && entry.exposure_eligibility !== false &&
+    entry.materialization_state === "materialized" && typeof entry.scope_handle === "string" && entry.scope_handle.trim());
+  if (isPrivatePkmExportScope(`attr.${manifest.domain}.*`) || whole.length !== 1 || !bundles.length || bundles.some(bundle => !bundle.enabled)) return sections;
+  return [{ domain: manifest.domain, scopeHandle: String(whole[0]!.scope_handle), machineScope: String(whole[0]!.scope),
+    label: `${manifest.domain.replaceAll("_", " ")} bundle`, manifestVersion: manifest.manifest_version }, ...sections];
 }
 
 /** An exact locator can select a section; a leaf never selects its parent. */
 export function matchesSharingPriceSection(target: SharingPriceTarget, section: string): boolean {
   const normalized = section.trim().toLowerCase();
-  return [target.label, `${target.domain}: ${target.label}`, target.machineScope]
+  return [target.label, `${target.domain}: ${target.label}`, target.machineScope,
+    ...(target.machineScope === `attr.${target.domain}.*` ? [target.domain] : [])]
     .some(value => value.toLowerCase() === normalized);
 }

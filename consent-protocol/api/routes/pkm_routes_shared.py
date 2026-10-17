@@ -3138,8 +3138,14 @@ async def get_user_scopes(
     raw_scope_entries = (
         await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
     )
+    from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
+
     scope_entries = [
-        entry
+        {
+            **entry,
+            "scope_handle": entry.get("registry_handle")
+            or scope_handle_for_machine_scope(user_id, str(entry.get("scope") or "")),
+        }
         for entry in raw_scope_entries
         if isinstance(entry, dict)
         and entry.get("consumer_visible") is not False

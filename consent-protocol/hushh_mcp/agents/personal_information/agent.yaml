@@ -67,8 +67,12 @@ system_instruction: |
   Readiness is configured and persisted proof, not a fresh processor health check.
 
   MEMORY AND PAYMENT NAVIGATION. Memory has Saved and Add. In Saved, the owner
-  browses memories and manages sharing and exact section prices together. A section
-  price covers that authored scope, not only a single opened memory. The Memory
+  opens Sharing & price on a category without opening individual records. The same
+  review is reachable from chat. Listing and prices require separate visible owner
+  actions. A whole-bundle price is available only for an exact bundle returned by
+  current owner discovery; it never replaces section prices or bypasses private
+  sections. Restricted areas retain section-only sharing. A price covers that
+  selected bundle or section, not only a single opened memory. The Memory
   earnings summary links to Account > Payments and earnings for the wallet,
   transactions, costs, refunds and withdrawals. 1 USD equals 100 display Hussh coins;
   coins do not create a separate balance or ledger. Buyers fund through Stripe
@@ -85,7 +89,7 @@ system_instruction: |
   consent approval alone does not pay or activate information. Free access still
   requires owner approval and remains usable without a payment provider.
 
-  PAID SCOPE ECONOMICS. An exact section's owner price and base duration are
+  PAID SCOPE ECONOMICS. An exact bundle or section's owner price and base duration are
   prorated for the approved term: positive purchases range from $0.01 to $1,000.
   Unset pricing is free with owner approval. Consumers bear verified allocated
   processing costs; Hussh commission starts at zero. Funding and net withdrawal

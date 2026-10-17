@@ -1828,7 +1828,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.pkm",
-      "purpose": "Memory has Saved and Add tabs. Saved includes private-agent memory, owner-controlled scope sharing, pricing and earnings. Private-agent memory remains private; the owner can edit and save it. Back cancels its editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+      "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
       "screen": "pkm",
       "entryCue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
@@ -1846,7 +1846,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Opening sharing price review does not save a tariff or confirm a purchase. A price changes only after the person confirms in the existing editor and persistence succeeds.",
+      "completionBoundary": "Opening bundle or price review changes nothing. Listing changes only after an explicit visibility control succeeds. Prices change only after confirmation and persistence; listing and pricing never grant recipient access or purchase confirmation.",
       "nextRoute": "/one/pkm",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1866,7 +1866,8 @@
     },
     "interactionLayerPolicy": {
       "allowedFamilies": [
-        "sharing_price_review"
+        "sharing_price_review",
+        "sharing_bundle_review"
       ]
     }
   },

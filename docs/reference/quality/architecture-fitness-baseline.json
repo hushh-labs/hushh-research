@@ -18322,7 +18322,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/pkm_routes_shared.py",
       "symbol": null,
-      "value": 3228
+      "value": 3234
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22714,7 +22714,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx",
       "symbol": null,
-      "value": 1409
+      "value": 1414
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28849,7 +28849,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx",
       "symbol": null,
-      "value": 533
+      "value": 544
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -61196,5 +61196,34 @@
       }
     ],
     "unchanged_budgets": true
+  },
+  "scope_commerce_domain_price_review_20261016": {
+    "reviewer": "architecture_review",
+    "classification": "three bounded extensions in existing owner projection and core regressions",
+    "slots": [
+      {
+        "key": "module_size|consent-protocol/api/routes/pkm_routes_shared.py||module exceeds the advisory operon budget",
+        "before": 3228,
+        "after": 3234,
+        "source_sha256": "72bd9ebda1d7f339a40dfe8df9a6a6df8fd682c407658f45e27317f5ef6a0680"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx||module exceeds the advisory operon budget",
+        "before": 1409,
+        "after": 1414,
+        "source_sha256": "4445b479b599d7d5250a350763a99e61fc2cd6f03963f839625efbdccfa214a9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx||module exceeds the advisory operon budget",
+        "before": 533,
+        "after": 544,
+        "source_sha256": "d51758312fccf174adbb8ce8e55b4d5736634e21dc247b4e60edb3c96d0a04d7"
+      }
+    ],
+    "replaced_occurrences": 3,
+    "appended_occurrences": 0,
+    "finding_count_preserved": 2803,
+    "unchanged_budgets": true,
+    "reason": "Reuse canonical scope-handle gene with existing owner and discovery filters. Extend existing domain-navigation and real nested-dialog recovery tests; no duplicate test module or authority. Static independent review; runtime acceptance remains separate."
   }
 }

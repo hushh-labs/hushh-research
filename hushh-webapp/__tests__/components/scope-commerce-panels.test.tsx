@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode, ButtonHTMLAttributes } from "react";
+import { useState, type ReactNode, type ButtonHTMLAttributes } from "react";
 import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/lib/services/scope-commerce-service";
 
 const mocks = vi.hoisted(() => ({
@@ -41,6 +41,7 @@ import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activ
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
@@ -361,7 +362,15 @@ describe("free sharing independent of payment setup", () => {
   });
   it("shows a saved section price before opening review and directs eligible onboarding to Payments and earnings", async () => {
     mocks.tariff.mockResolvedValue({ price_cents: 1, base_duration_seconds: 3600 });
-    render(<ScopeTariffEditor scopeHandle="exact_handle" machineScope="attr.food.preferences.*" label="Food preferences" showSavedPrice />);
+    const leaveOverview = vi.fn();
+    function Overview() {
+      const [open, setOpen] = useState(true);
+      return <Dialog open={open}><DialogContent><DialogTitle>Bundle overview</DialogTitle>
+        <ScopeTariffEditor scopeHandle="exact_handle" machineScope="attr.food.preferences.*" label="Food preferences" showSavedPrice
+          onPaymentsNavigate={() => { leaveOverview(); setOpen(false); return true; }} />
+      </DialogContent></Dialog>;
+    }
+    render(<Overview />);
     const button = screen.getByRole("button", { name: "Set sharing price for Food preferences" });
     await waitFor(() => expect(button).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
     expect(mocks.tariff).toHaveBeenCalledWith("owner-token", "exact_handle", "attr.food.preferences.*");
@@ -371,8 +380,10 @@ describe("free sharing independent of payment setup", () => {
     expect(setup).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=payouts");
     fireEvent.click(setup, { ctrlKey: true });
     expect(screen.getByRole("heading", { name: "Price for Food preferences" })).toBeVisible();
+    expect(leaveOverview).not.toHaveBeenCalled();
     fireEvent.click(setup);
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(leaveOverview).toHaveBeenCalledOnce();
     expect(mocks.saveTariff).not.toHaveBeenCalled();
   });
 

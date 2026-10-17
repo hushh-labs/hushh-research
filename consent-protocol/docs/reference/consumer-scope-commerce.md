@@ -1334,7 +1334,15 @@ bank payout; pending, failed or uncertain status never becomes a success message
 
 Memory has two workspace tabs: Saved and Add. Saved combines browsable memories,
 exact-section sharing switches, saved tariff values and a canonical earnings summary.
-Prices apply to the authored section scope, not just one opened memory. Its wallet
+Category rows expose **Sharing & price** without opening a record. The domain view
+and chat's bundle review reuse the same listing and tariff controls. Eligible whole
+bundles have their own exact price from current owner discovery; that price does not
+replace or cascade into section prices. Financial and other restricted areas retain
+their section-only policy. Listing remains a separate explicit visibility change;
+opening a review or saving a price never grants recipient access. Owner scope
+discovery supplies authoritative handles across web, iOS and Android. Source and
+focused checks cover these controls; deployed reviewer acceptance remains required.
+Prices apply to the selected bundle or section, not just one opened memory. Its wallet
 link opens Payments and earnings; missing seller setup leads to Connect onboarding there. Checkout
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
 The Memory and PKM Structure agent manifests describe these boundaries; organizing

@@ -11,6 +11,7 @@ import {
 } from "@/components/icons";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { PkmSavedSharing } from "@/components/profile/pkm-saved-sharing";
+import { PkmDomainSharing } from "@/components/profile/pkm-domain-sharing";
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
@@ -1375,6 +1376,9 @@ export function PkmNaturalPanel({
         chevron
         ariaLabel={`Open category: ${domain.title}`}
         testId={`memory-category-${domain.key}`}
+        trailingInteractive
+        trailing={domain.key !== "location" ? <Button variant="none" effect="fade" size="sm"
+          data-voice-control-id="pkm-review-sharing-bundle" aria-label={`Sharing and price for ${domain.title}`} onClick={() => setSelectedDomainKey(domain.key)}>Sharing &amp; price</Button> : undefined}
       />
     );
   }
@@ -1519,6 +1523,13 @@ export function PkmNaturalPanel({
           onDrill={(segment) => setPathStack((stack) => [...stack, segment])}
           onBack={unwindMemory}
           onOpenLeaf={openMemory}
+          sharingControls={sharingManifests[selectedMetadataDomain.key] ? <PkmDomainSharing
+            key={`${user.uid}:${selectedMetadataDomain.key}`}
+            userId={user.uid} title={selectedMetadataDomain.displayName} manifest={sharingManifests[selectedMetadataDomain.key]!}
+            pendingKey={sharingActionKey} onChange={updateSharingBundles} /> : <SurfaceInset className="space-y-2 p-4 text-sm text-muted-foreground">
+              <p>{sharingManifestsLoading ? "Checking sharing and prices…" : "Sharing and prices could not be checked."}</p>
+              {!sharingManifestsLoading ? <Button variant="muted" size="sm" onClick={() => setRefreshNonce(value => value + 1)}>Retry sharing settings</Button> : null}
+            </SurfaceInset>}
         />
       </>
     );

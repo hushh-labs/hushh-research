@@ -157,6 +157,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       recent_activity: [],
     } as never);
     vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    vi.spyOn(PersonalKnowledgeModelService, "getAvailableScopes").mockResolvedValue({ userId: "reviewer", availableDomains: [], allScopes: [], wildcardScopes: [], scopeEntries: [] });
     vi.spyOn(ScopeCommerceService, "account").mockRejectedValue(new Error("Payments unavailable"));
     vi.spyOn(ScopeCommerceService, "tariff").mockResolvedValue(null);
     vi.spyOn(ScopeCommerceService, "readiness").mockRejectedValue(new Error("Payments unavailable"));
@@ -464,6 +465,10 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);
     expect(screen.queryByText("Your copy")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sharing and price for Financial" }));
+    expect(await screen.findByRole("region", { name: "Sharing and price for Financial" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Set sharing price for Financial · Profile" })).toBeVisible();
+    expect(screen.queryByText("Whole bundle price")).toBeNull();
   });
 
   it("lists only consumer-visible, non-empty categories with correct counts", async () => {
