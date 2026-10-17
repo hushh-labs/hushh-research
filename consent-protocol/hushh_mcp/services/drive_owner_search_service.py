@@ -552,6 +552,15 @@ def compile_request_queries(
             else " and "
         )
         subject = "(" + joiner.join(groups) + ")"
+        # Drive's "name contains" matches word prefixes, so "MeetingNotes.pdf"
+        # has no "notes" word for a conjunction to find when its body never
+        # says "notes". One bounded clause, the concepts' first spellings run
+        # together, finds such a compound title. Title checks still decide.
+        compound = "".join(
+            character for group in term_groups for character in group[0] if character.isalnum()
+        )
+        if joiner == " and " and 2 <= len(groups) <= 3 and 4 <= len(compound) <= 50:
+            subject = f"({subject} or name contains {quote_literal(compound.casefold())})"
         if parsed.time_intent == "document_coverage" and len(groups) > 1 and joiner == " and ":
             # A Drive full-text index can omit one of several request words
             # even when the original document is relevant. Exhaust a second,

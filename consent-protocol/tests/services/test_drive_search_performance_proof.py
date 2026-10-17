@@ -963,3 +963,43 @@ def test_compiled_literals_round_trip_through_drive_q_grammar(term, name):
     assert matches(item)
     assert not matches({**item, "name": "unrelated.pdf"})
     assert not matches({**item, "trashed": True})
+
+
+@pytest.mark.parametrize(
+    "request_text,terms,compound",
+    [
+        ("meeting notes", ["meeting", "notes"], "'meetingnotes'"),
+        ("standup notes", ["standup", "notes"], "'standupnotes'"),
+        # Separate subjects are a union; no single title needs both words.
+        ("contracts and invoices", ["contracts", "invoices"], None),
+    ],
+)
+def test_compound_titles_reach_the_live_query_within_its_budget(request_text, terms, compound):
+    from hushh_mcp.services.google_drive_rest_transport import rest_query
+
+    queries, _ = compile_request_queries(
+        {"mode": "find", "terms": terms, "file_kind": "document", "time_intent": "file_activity"},
+        {"purpose": request_text, **STREAM_PERIOD},
+        "UTC",
+        requested_at=datetime(2026, 10, 3, tzinfo=UTC),
+    )
+    q = rest_query(queries[0]["arguments"]["query"])
+    assert len(q) <= 1800 + len("() and trashed = false")
+    title = "".join(term.title() for term in terms) + ".pdf"
+    compact = {
+        "name": title,
+        "content": "sprint review",
+        "mimeType": PDF,
+        "trashed": False,
+        "parents": [],
+    }
+    spaced = {**compact, "name": " ".join(terms) + ".pdf"}
+    assert drive_query(q)(compact) and drive_query(q)(spaced)
+    if compound is None:
+        assert " or name contains 'contractsinvoices'" not in q
+        return
+    # The body never repeats the second word, so without the compound clause
+    # Drive would not return this title at all.
+    clause = f" or name contains {compound}"
+    assert clause in q
+    assert not drive_query(q.replace(clause, ""))(compact)
