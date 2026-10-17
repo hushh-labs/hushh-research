@@ -9,6 +9,9 @@ import { WebPlugin } from "@capacitor/core";
 import type { HushhNotificationsPlugin } from "../index";
 
 export class HushhNotificationsWeb extends WebPlugin implements HushhNotificationsPlugin {
+  async getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean }> {
+    throw this.unavailable("Detailed device notification settings are only available on native apps.");
+  }
   async playEmergencySmsCue(): Promise<{ played: boolean }> { return { played: false }; }
   async stopEmergencySmsCue(): Promise<void> {}
   async setActiveChat(): Promise<void> {}

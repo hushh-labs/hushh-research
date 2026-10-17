@@ -3,6 +3,7 @@ package com.hussh.app.plugins.HushhNotifications
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.core.app.NotificationManagerCompat
 import android.content.Context
 import android.graphics.Color
 import android.media.AudioAttributes
@@ -44,6 +45,22 @@ import java.util.concurrent.TimeUnit
 class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
+    @PluginMethod
+    fun getNotificationSettings(call: PluginCall) {
+        val allowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        fun audible(channelId: String): Boolean {
+            if (!allowed) return false
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+            val channel = manager?.getNotificationChannel(channelId) ?: return false
+            return channel.importance >= NotificationManager.IMPORTANCE_DEFAULT && channel.sound != null
+        }
+        val alerts = allowed && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            (manager?.getNotificationChannel(ACTIVITY_CHANNEL_ID)?.importance ?: 0) > NotificationManager.IMPORTANCE_NONE)
+        call.resolve(JSObject().put("alertsEnabled", alerts)
+            .put("soundsEnabled", audible(ACTIVITY_CHANNEL_ID))
+            .put("emergencySoundEnabled", audible(EMERGENCY_SMS_CHANNEL_ID)))
+    }
     private val emergencyHandler = Handler(Looper.getMainLooper())
     private var emergencyRingtone: Ringtone? = null
     private var emergencyGrantId: String? = null
@@ -123,7 +140,25 @@ class HushhNotificationsPlugin : Plugin() {
 
     override fun load() {
         super.load()
+        ensureActivityChannel(context)
         ensureEmergencySmsChannel(context)
+    }
+
+    private fun ensureActivityChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        // Channel choices belong to the person. Never recreate/reset a muted channel.
+        if (manager.getNotificationChannel(ACTIVITY_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(ACTIVITY_CHANNEL_ID,
+            context.getString(R.string.activity_channel_name), NotificationManager.IMPORTANCE_HIGH).apply {
+            description = context.getString(R.string.activity_channel_description)
+            enableVibration(true)
+            setBypassDnd(false)
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+        }
+        manager.createNotificationChannel(channel)
     }
 
     private fun ensureEmergencySmsChannel(context: Context) {
@@ -168,6 +203,7 @@ class HushhNotificationsPlugin : Plugin() {
         .build()
 
     companion object {
+        const val ACTIVITY_CHANNEL_ID = "hushh_activity_alerts_v1"
         const val EMERGENCY_SMS_CHANNEL_ID = "one_location_sms_emergency_v1"
         @Volatile var activityActive = false
         @Volatile var activeChatTag = ""

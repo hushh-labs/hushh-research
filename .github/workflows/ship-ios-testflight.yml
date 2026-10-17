@@ -377,6 +377,7 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
+            HUSSH_APP_ENTITLEMENTS="App/AppRelease.entitlements" \
             archive
 
       - name: Verify archive assets, privacy, and own symbols
@@ -387,6 +388,7 @@ jobs:
           set -euo pipefail
           npm run --prefix hushh-webapp verify:capacitor:product-assets
           node hushh-webapp/scripts/native/verify-ios-voice-privacy-preflight.mjs
+          python3 scripts/ci/verify-ios-push-entitlements.py --app-bundle "$IOS_APP_BUNDLE_PATH"
           npm run --prefix hushh-webapp ios:verify-archive-symbols \
             -- "$RUNNER_TEMP/App.xcarchive"
 

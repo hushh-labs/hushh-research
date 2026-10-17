@@ -4856,6 +4856,156 @@
     },
     {
       "aliases": [
+        "Check Location notification settings",
+        "location notifications",
+        "SMS alert sound",
+        "Save My Soul notifications"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.review_notifications",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens Location settings to review device notification readiness. The person explicitly chooses Turn on, Retry, or Open settings; opening this screen never requests permission or changes a phone setting.",
+      "execution": {
+        "binding_ref": "route:/one/location?action=settings",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/location?action=settings"
+        }
+      },
+      "goal_id": "goal.location.review_notifications",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Check Location notification settings",
+      "navigation": {
+        "fallback": "/one/location?action=settings",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "notifications",
+        "sound",
+        "alerts",
+        "SMS",
+        "push"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Location overview",
         "location overview",
         "overview tab",
@@ -39202,7 +39352,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "c8210924ba08f328a8fab5be",
+      "brain_revision": "6b5d5cba5d004a489d67a601",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -40061,6 +40211,21 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [],
           "semantic_boundary": "Turns location updates back on for this device and refreshes your live position. Uses only existing, unexpired sharing grants and requests device permission only when needed. It does not create or restore sharing access.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.review_notifications",
+          "capability_id": "location.review_notifications",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "safety",
+          "intent": "Check Location notification settings",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens Location settings to review device notification readiness. The person must explicitly choose Turn on, Retry, or Open settings; navigation never requests permission, changes a phone setting, or proves physical alert delivery.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -41455,6 +41620,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.review_notifications",
+          "capability_id": "location.review_notifications",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "safety",
+          "intent": "Check Location notification settings",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens Location settings to review device notification readiness. The person must explicitly choose Turn on, Retry, or Open settings; navigation never requests permission, changes a phone setting, or proves physical alert delivery.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.revoke_public_link",
           "capability_id": "location.revoke_public_link",
           "confirmation_class": "none",
@@ -42043,7 +42223,7 @@
         }
       ],
       "known_unbound_implementation_count": 76,
-      "package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+      "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -42108,7 +42288,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0b633835a49202795af0875c92365f354f9a026861e80991e5b22826d9d2753d",
+      "projection_digest": "15163f534b3ebd5d9a253a25744dd25c6504963079afbe194e05721a61129aa2",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42122,12 +42302,12 @@
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
-        "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+        "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
+        "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "463b7d0356056f19",
+      "source_revision": "2b85a6a97747a2d6",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43645,7 +43825,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "463b7d0356056f19",
+    "source_revision": "2b85a6a97747a2d6",
     "web": {
       "actions": [
         {
@@ -43688,7 +43868,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "a6965596130f0355e353005c1b0b01e4b0e3e45d66700212d4e5cb5deef3c8f3",
+      "projection_digest": "468541c438f5e27a3a7674a73f99c2269b41e565faa9221ba28f0e87a806a8ea",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43702,12 +43882,12 @@
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
-        "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+        "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
+        "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "463b7d0356056f19",
+      "source_revision": "2b85a6a97747a2d6",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45264,7 +45444,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "463b7d0356056f19",
+  "revision": "2b85a6a97747a2d6",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46016,6 +46196,7 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.review_notifications",
         "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
@@ -47133,12 +47314,21 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:location.review_notifications"
+    ],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "brains:location",
+      "screens:screen:/one/location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
+    ],
+    "compatible": [
+      "workflows:workflow.setup.location"
+    ],
     "deprecated": [],
-    "from_revision": "e9620aafd44c12ae",
+    "from_revision": "463b7d0356056f19",
     "migrated": [],
     "removed": []
   },
@@ -47889,6 +48079,7 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.review_notifications",
         "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
@@ -48855,6 +49046,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.review_notifications",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.revoke_public_link",
           "disposition": "NAVIGATE"
         },
@@ -48971,7 +49166,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 76,
-        "declared_capability_count": 72
+        "declared_capability_count": 73
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -49081,9 +49276,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "c8210924ba08f328a8fab5be",
+        "brain_revision": "6b5d5cba5d004a489d67a601",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+        "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -49373,18 +49568,18 @@
     "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "03fd2ea83ef71de7625a9d5cfcb0d0438c6e3f005e947c4c79a5ca2c54567034",
+    "kai_action_gateway": "62f86bc6b8c430ce0f88f7907620d5d72c60c9a6ab2fcb27a7d77e71092a0363",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
-    "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+    "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "9a092434cd1d1238f8873e3be6d0fc0eadba592feb8ccbc2f4a4e93dafef1f2a",
-    "route_orchestration_index": "19612a36e008f965520cca4623710e2ad971be410102add29e9b51e270d2c1ba",
-    "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
+    "route_orchestration_index": "4c57da4f7f666c2c3b79faaf0e661f4ea82fe7fea2cb63ece7c9bd79de826830",
+    "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "463b7d0356056f19",
+  "source_revision": "2b85a6a97747a2d6",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "463b7d0356056f19",
+    "current_graph_revision": "2b85a6a97747a2d6",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49440,6 +49635,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -49650,6 +49846,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -49845,6 +50042,7 @@
           "4290bffc350511d9",
           "4498aedb2e5e2aca",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d6e699fcd39cfe3",
@@ -50071,6 +50269,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -50281,6 +50480,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -50491,6 +50691,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -50644,7 +50845,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "38030e658d7c7ffa958fdbe3ffabc2a9f2963bbe9aac212385ce059e8d35f838",
+        "workflow_digest": "66407f6994814d614757572e20b4c068c439c5afedbb410cd9ce3604da95a410",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -50701,6 +50902,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "463b7d0356056f19",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
@@ -54160,6 +54362,7 @@
           "location.remove_from_circle",
           "location.rename_circle",
           "location.resume_updates",
+          "location.review_notifications",
           "location.revoke_public_link",
           "location.save_current_location",
           "location.select_ask_recipient",
@@ -54192,7 +54395,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721"
+        "source_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -54415,7 +54618,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
+        "knowledge_package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [
