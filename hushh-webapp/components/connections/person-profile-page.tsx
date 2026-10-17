@@ -870,7 +870,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 ) : null}
                 {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
                 <RequestScopeButton
-                  key={`scope:${user.uid}:${resolvedPersonRef}`}
+                  key={`question:${user.uid}:${resolvedPersonRef}`}
                   personRef={resolvedPersonRef}
                   personName={profile.displayName || "this person"}
                   canRequest={viewerProfile?.relationship.status === "connected"}
