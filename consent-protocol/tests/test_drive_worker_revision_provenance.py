@@ -34,21 +34,24 @@ def _deployed_revision() -> dict:
         "metadata": {
             "name": "consent-protocol-drive-worker-00002-wuc",
             "labels": {"deploy-sha": DEPLOY_SHA},
+            # The serving UAT revision (2026-10-18) has no zero-floor annotation.
+            "annotations": {"autoscaling.knative.dev/maxScale": "2"},
         },
         "spec": {
+            "containerConcurrency": 1,
             "containers": [
                 {"name": "drive-worker", "image": APP_IMAGE},
                 {
                     "name": "clamav",
                     "image": f"mirror.gcr.io/clamav/clamav@{SCANNER_AMD64_DIGEST}",
                 },
-            ]
+            ],
         },
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }
 
 
-def _verify(revision: dict, *, drain_enabled: str | None = None) -> None:
+def _verify(revision: dict, *, drain_enabled: str | None = None, **scaling: str) -> None:
     MODULE.verify_revision(
         revision,
         deploy_sha=DEPLOY_SHA,
@@ -56,6 +59,7 @@ def _verify(revision: dict, *, drain_enabled: str | None = None) -> None:
         scanner_index_digest=SCANNER_INDEX_DIGEST,
         scanner_amd64_digest=SCANNER_AMD64_DIGEST,
         drain_enabled=drain_enabled,
+        **scaling,
     )
 
 
@@ -81,6 +85,50 @@ def test_paused_release_requires_disabled_worker_in_fresh_revision(actual: str |
     else:
         with pytest.raises(ValueError, match="background processing state mismatch"):
             _verify(revision, drain_enabled="false")
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        None,
+        "explicit_zero_floor",
+        "revision_floor",
+        "two_requests",
+        "wider_cap",
+        "missing_scale",
+        "partial_expectation",
+    ],
+)
+def test_budgeted_scaling_is_attested_when_the_release_requests_it(tamper: str | None) -> None:
+    """The connection budget counts each revision at its cap and one request.
+
+    A revision-level floor would keep every tagged rollback revision warm, so
+    warm capacity must come only from the service-level floor.
+    """
+    revision = deepcopy(_deployed_revision())
+    expected = {"max_instances": "2", "concurrency": "1"}
+    annotations = revision["metadata"]["annotations"]
+    if tamper == "explicit_zero_floor":
+        annotations["autoscaling.knative.dev/minScale"] = "0"
+    elif tamper == "revision_floor":
+        annotations["autoscaling.knative.dev/minScale"] = "1"
+    elif tamper == "two_requests":
+        revision["spec"]["containerConcurrency"] = 2
+    elif tamper == "wider_cap":
+        annotations["autoscaling.knative.dev/maxScale"] = "3"
+    elif tamper == "missing_scale":
+        del revision["metadata"]["annotations"]
+        del revision["spec"]["containerConcurrency"]
+    elif tamper == "partial_expectation":
+        del expected["concurrency"]
+
+    # The V1 and production releases pass no scaling expectation.
+    _verify(revision)
+    if tamper in {None, "explicit_zero_floor"}:
+        _verify(revision, **expected)
+    else:
+        with pytest.raises(ValueError, match="revision scaling mismatch"):
+            _verify(revision, **expected)
 
 
 @pytest.mark.parametrize(
