@@ -3549,6 +3549,24 @@
       "updated_at",
       "user_id"
     ],
+    "system_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "accepted_at"
+    ],
+    "system_push_outbox": [
+      "id",
+      "source_kind",
+      "source_id",
+      "source_revision",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at",
+      "expires_at",
+      "lease_id",
+      "created_at"
+    ],
     "trusted_connections": [
       "created_at",
       "id",
@@ -3747,24 +3765,6 @@
       "expires_at",
       "owner_user_id",
       "request_id"
-    ],
-    "system_push_device_deliveries": [
-      "event_id",
-      "device_id",
-      "accepted_at"
-    ],
-    "system_push_outbox": [
-      "id",
-      "source_kind",
-      "source_id",
-      "source_revision",
-      "recipient_user_id",
-      "status",
-      "attempts",
-      "due_at",
-      "expires_at",
-      "lease_id",
-      "created_at"
     ]
   },
   "expected_schema_head": 406
