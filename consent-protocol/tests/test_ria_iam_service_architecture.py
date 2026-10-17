@@ -1066,11 +1066,7 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
     async def _location(_user_id: str):
         contributor_calls["location"] += 1
-        return {
-            "incoming_requests": [],
-            "active_grants": [],
-            "history": [],
-        }
+        return {"pending": 0, "active": 0, "previous": 0}
 
     async def _marketplace(_user_id: str):
         contributor_calls["marketplace"] += 1
@@ -1088,9 +1084,17 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
     monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
     monkeypatch.setattr(service, "_load_investor_active_entries", _active)
     monkeypatch.setattr(service, "_load_investor_previous_entries", _previous)
-    monkeypatch.setattr(service, "_location_buckets_async", _location)
+    monkeypatch.setattr(service, "_location_counts_async", _location)
     monkeypatch.setattr(service, "_marketplace_buckets_async", _marketplace)
     monkeypatch.setattr(service, "_incoming_connection_request_count", _connections)
+
+    monkeypatch.setattr(
+        service,
+        "_drive_counts",
+        lambda user_id: asyncio.sleep(
+            0, result={"incoming_requests": 0, "active_grants": 0, "history": 0}
+        ),
+    )
 
     payload = await service.get_center_summary("investor_1", actor="investor")
 

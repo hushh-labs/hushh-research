@@ -86,8 +86,10 @@ class WalletCardAccessService:
         )
 
     def require_available(self, conn):
+        if not self.flag_enabled():
+            raise WalletCardAccessError("WALLET_CARD_ACCESS_DISABLED", 503)
         if not self.available(conn):
-            raise WalletCardAccessError("WALLET_CARD_ACCESS_UNAVAILABLE", 503)
+            raise WalletCardAccessError("WALLET_CARD_ACCESS_NOT_READY", 503)
 
     @staticmethod
     def _universal_installed(conn):

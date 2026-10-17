@@ -880,7 +880,9 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         if not isinstance(user_id, str) or not user_id:
             raise ConnectBankPayoutError("invalid_owner")
         position = None if cursor is None else _decode_cursor(cursor, mode=self.mode)
-        _, _, livemode = self._configuration()
+        # This is an owner- and mode-bound local ledger read. Provider keys
+        # and webhook signing secrets are required only for provider operations.
+        livemode = self.mode == "live"
 
         def read(connection: Any) -> dict[str, Any]:
             account = (
