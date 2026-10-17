@@ -43,6 +43,13 @@ from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
 )
+from hushh_mcp.services.drive_request_queue import (
+    STARTED_WORK_SQL,
+    queue_view,
+    request_queued_since,
+    started_work_view,
+    started_work_waiting_since,
+)
 from hushh_mcp.services.drive_request_requester_store import (
     REQUESTER_ORIGIN,
     requester_price_view,
@@ -356,6 +363,32 @@ class DriveSharingStore(DriveDocumentStore):
             {"user": row["user_id"], "policy": LIVE_POLICY_HASH},
         ).scalar_one()
         return {} if ready else {"ownerDriveReady": False}
+
+    @staticmethod
+    def _started_work(connection, row, now) -> dict:
+        """Both participants: started work that no worker has moved for a while.
+
+        Read from durable search and grant rows only; never "paused", and a
+        read never dispatches work. Absent while the work moves.
+        """
+        if (
+            row["status"] != "pending"
+            or row["bulk_search_started_at"] is None
+            or row["access_stop_requested_at"] is not None
+            or row["expires_at"] <= now
+        ):
+            return {}
+        clocks = (
+            connection.execute(text(STARTED_WORK_SQL), {"request": row["request_id"]})
+            .mappings()
+            .one()
+        )
+        return started_work_view(
+            started_work_waiting_since(
+                clocks["search_waiting_since"], clocks["sharing_waiting_since"], now=now
+            ),
+            now,
+        )
 
     @staticmethod
     def _notify_setup_changed(connection, row) -> None:
@@ -2678,9 +2711,13 @@ class DriveSharingStore(DriveDocumentStore):
                     }
                 )
             )
+            now = datetime.now(UTC)
             return {
                 **self._summary(row, recipient=recipient),
                 "direction": "outgoing" if recipient else "incoming",
+                # Waiting in the durable queue with no search yet; never "paused".
+                **queue_view(request_queued_since(row, now), now),
+                **self._started_work(connection, row, now),
                 **(
                     {"ownerPayoutStatus": row["owner_payout_status"]}
                     if not recipient and row["owner_payout_status"] is not None
@@ -2745,6 +2782,7 @@ class DriveSharingStore(DriveDocumentStore):
             """,
                 {"id": request_id, "revision": row["revision"]},
             )
+            now = datetime.now(UTC)
             result = {
                 **self._summary(row),
                 "purpose": private["purpose"],
@@ -2803,6 +2841,15 @@ class DriveSharingStore(DriveDocumentStore):
                 # What the requester saw when sending; the owner may still
                 # choose another price before an order exists. NULL if unknown.
                 "estimateCents": row.get("initial_quote_cents"),
+                # This request's sealed price contract. Allow and Set price
+                # refuse anything else, so every price step offers only it.
+                **(
+                    {"wholeDollarPrice": True}
+                    if private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY
+                    else {}
+                ),
+                **queue_view(request_queued_since(row, now), now),
+                **self._started_work(connection, row, now),
             }
             if (
                 private.get("v1_live_request") is True
@@ -3105,13 +3152,13 @@ class DriveSharingStore(DriveDocumentStore):
             self._participant_gate(connection, user_id, identity)
             DriveLivePreferences(db=self.db).live_active(connection, user_id=user_id)
             row = self._related_request(connection, user_id, identity)
-            if row["revision"] != revision:
-                raise DriveSharingError("review_changed")
             private = self._open_request(row)
             allowed = owner_allowed_marker(private)
             if allowed is not None:
                 # A repeated tap or a retry after a lost response; never a new
                 # price, and never an Allow that a disconnect already ended.
+                # It changes nothing, so a revision that moved on since does
+                # not turn the same Allow into an error.
                 if (
                     allowed["amount_cents"] != amount_cents
                     or row["owner_allowed_at"] is None
@@ -3129,6 +3176,8 @@ class DriveSharingStore(DriveDocumentStore):
                     "amountCents": amount_cents,
                     **self._request_setup(connection, row, private),
                 }
+            if row["revision"] != revision:
+                raise DriveSharingError("review_changed")
             if (
                 amount_cents is not None
                 and private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY

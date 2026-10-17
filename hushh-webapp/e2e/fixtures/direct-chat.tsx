@@ -7,6 +7,7 @@ import { AppBottomShell } from "../../components/app-ui/app-bottom-shell";
 import { DirectMessagesRoute } from "../../components/direct-messages/direct-messages-route";
 import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
 import { ThemeProvider } from "../../components/theme-provider";
+import { Toaster } from "../../components/ui/sonner";
 import { unwindBackLayer } from "../../lib/navigation/back-layers";
 function OverlayFixture() {
   const [open, setOpen] = useState(false);
@@ -20,4 +21,4 @@ const offset = resolveSignedInShellContentOffset({ shellVisible: shell.metrics.s
 createRoot(document.getElementById("root")!).render(<ThemeProvider attribute="class" defaultTheme="system" enableSystem><AgentDockProvider><div data-app-shell-root="true" style={{ ...offset.style, ...resolveTopShellGeometryStyle({ hasTabs: shell.metrics.hasTabs }) } as React.CSSProperties}><div data-app-scroll-root="true" data-app-scroll-mode={offset.mode} style={{ height: "100dvh", overflowY: "auto", paddingBottom: "var(--app-scroll-bottom-pad,112px)" } as React.CSSProperties}>
   <style>{`[data-app-scroll-root] { --app-scroll-bottom-pad: var(--app-bottom-shell-height,112px); }`}</style>
   <DirectMessagesRoute />{document.documentElement.dataset.modalFixture === "true" && <OverlayFixture />}
-</div></div><AppBottomShell model={{ navigationHidden: false, agentBarHidden: true, includeComposerHeight: true }} /></AgentDockProvider></ThemeProvider>);
+</div></div><AppBottomShell model={{ navigationHidden: false, agentBarHidden: true, includeComposerHeight: true }} /><Toaster /></AgentDockProvider></ThemeProvider>);

@@ -3235,7 +3235,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
-                "metadata": {},
+                "metadata": {"notify_owner": params.get("notify_owner", True)},
             }
             self.requests[request_id] = row
             return row
@@ -3264,6 +3264,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 request["extends_grant_id"] = params.get("extends_grant_id")
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
+                    request["metadata"]["notify_owner"] = params.get("notify_owner", True)
                     request["requested_at"] = datetime.now(timezone.utc)
                     if params.get("expires_after_hours") is not None:
                         request["expires_at"] = datetime.now(timezone.utc) + timedelta(
@@ -5976,11 +5977,15 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert len(service.requests) == 1
     assert next(iter(service.requests.values()))["status"] == "pending"
     assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
+    assert next(iter(service.requests.values()))["metadata"]["notify_owner"] is False
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
+    }
+    assert "location_access_request" not in {
+        item["notification_type"] for item in service.notifications
     }
 
 

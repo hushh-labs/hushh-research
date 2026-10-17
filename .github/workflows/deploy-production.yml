@@ -158,6 +158,13 @@ jobs:
           # is older than this workflow's production voice enablement.
           cp deploy/backend.cloudbuild.yaml \
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          # Source upload admission belongs to the same current tooling bundle.
+          cp .gcloudignore "${RUNNER_TEMP}/release-tools/.gcloudignore"
+          # Preserve the companion sourced by current Cloud Build tooling when
+          # the approved application SHA predates email-auth deployment support.
+          mkdir -p "${RUNNER_TEMP}/release-tools/email-auth"
+          cp deploy/email-auth/bind_secrets.sh \
+            "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Orchestration must remain current when rolling back to an older image.
@@ -196,6 +203,10 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          cp "${RUNNER_TEMP}/release-tools/.gcloudignore" .gcloudignore
+          mkdir -p deploy/email-auth
+          cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \
+            deploy/email-auth/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
           mkdir -p deploy/drive

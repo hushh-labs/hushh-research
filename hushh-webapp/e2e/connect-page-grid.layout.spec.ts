@@ -18,6 +18,7 @@ const STUBBED = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/firebase/config",
+  "@/lib/services/auth-service",
   "@/lib/services/direct-messages-service",
   "@/lib/services/connections-service",
   "@/lib/services/cache-service",
@@ -297,9 +298,22 @@ for (const width of [320, 393, 1440]) {
     await expect(empty).toHaveCount(1);
     await expect(invite).toBeVisible();
     await expect(group.getByTestId("directory-person-card")).toHaveCount(0);
-    const emptyBox = await empty.boundingBox();
-    const inviteBox = await invite.boundingBox();
-    const groupBox = await group.boundingBox();
+    // Search focus can still be smoothly scrolling the page. Read all viewport
+    // boxes in one turn so scrolling cannot move between measurements.
+    const { emptyBox, inviteBox, groupBox } = await group.evaluate((node, label) => {
+      const row = [...node.querySelectorAll('[data-testid="settings-row"]')]
+        .find((candidate) => candidate.textContent?.includes(label));
+      const box = (element: Element | null | undefined) => {
+        if (!element) return null;
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      return {
+        emptyBox: box(row),
+        inviteBox: box(node.querySelector('[data-testid="connect-invite-to-one"]')),
+        groupBox: box(node),
+      };
+    }, `No one matches "${query}"`);
     expect(emptyBox).not.toBeNull();
     expect(inviteBox).not.toBeNull();
     expect(groupBox).not.toBeNull();
