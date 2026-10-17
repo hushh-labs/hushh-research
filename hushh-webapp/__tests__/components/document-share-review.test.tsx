@@ -1128,6 +1128,17 @@ describe("exact-file document review", () => {
       await tick;
     });
 
+    it("tells the requester a queued request is waiting, not being prepared", async () => {
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing",
+        queuedAt: new Date(Date.now() - 5 * 60_000).toISOString(), queueDelayed: true });
+      state.delivery.mockResolvedValue({ status: "pending", files: [] });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Taking longer than usual · 5 min"));
+      expect(screen.getByText("Your request is saved and continues automatically.")).toBeVisible();
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+      expect(screen.getByRole("status")).not.toHaveTextContent(/paused|preparing/i);
+    });
+
     it("keeps an outgoing request readable when recipient verification is unavailable", async () => {
       state.status.mockResolvedValue({ ...pending(), direction: "outgoing" });
       state.delivery.mockRejectedValue(
@@ -1179,6 +1190,28 @@ describe("exact-file document review", () => {
     const decision = (overrides: Record<string, unknown> = {}) => partial({ durableAvailable: true,
       search: null, bulkShare: null, allowAvailable: true, paymentRequired: true,
       ownerAllowed: false, priceCents: null, ...overrides });
+
+    it("shows a queued request as waiting, then taking longer than usual, never as working", async () => {
+      const queuedAt = new Date(Date.now() - 30_000).toISOString();
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({ trustedAuto: true, allowAvailable: false,
+        ownerAllowed: true, priceCents: 100, queuedAt, queueDelayed: false }));
+      const view = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Waiting to start"));
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+      expect(screen.getByText("Request allowed. The Drive search starts soon.")).toBeVisible();
+      view.unmount();
+
+      state.review.mockResolvedValue(decision({ trustedAuto: true, allowAvailable: false,
+        ownerAllowed: true, priceCents: 100, queueDelayed: true,
+        queuedAt: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString() }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Taking longer than usual · 12 min"));
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+      expect(screen.getByText("This request is saved and continues automatically.")).toBeVisible();
+      expect(screen.getByRole("status")).not.toHaveTextContent(/paused|preparing/i);
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+    });
 
     it("offers only whole-dollar prices for a whole-dollar request even when packages are on", async () => {
       // 2026-10-17: a cents price on this request got a 422 from Allow.
@@ -1261,7 +1294,7 @@ describe("exact-file document review", () => {
       expect(await screen.findByRole("link", { name: "Set price" })).toHaveAttribute(
         "href", expect.stringContaining("/one/profile/request-pricing?from=%2Fone%2Fconsent%3Ftab%3Dpending"),
       );
-      expect(screen.queryByText("Preparing automatic sharing")).toBeNull();
+      expect(screen.queryByText("Waiting to start")).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(state.prepareStream).not.toHaveBeenCalled();
     });
@@ -1283,7 +1316,7 @@ describe("exact-file document review", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Set price" }));
       expect(priceSheet.props?.priceOnly).toBe(true);
       expect(priceSheet.props?.initialAmountCents).toBe(draftPrice);
-      expect(screen.queryByText("Preparing automatic sharing")).toBeNull();
+      expect(screen.queryByText("Waiting to start")).toBeNull();
       expect(screen.queryByRole("button", { name: /Deny/ })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
       await waitFor(() => expect(state.setRequestPrice).toHaveBeenCalledExactlyOnceWith(
@@ -1330,7 +1363,10 @@ describe("exact-file document review", () => {
       expect(changed).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
-      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preparing automatic sharing"));
+      // Allowed, nothing started yet: it waits, and it never spins or claims work.
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Waiting to start"));
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+      expect(screen.getByText("Request allowed. The Drive search starts soon.")).toBeVisible();
       expect(state.allow).toHaveBeenCalledTimes(2);
       expect(state.allow).toHaveBeenLastCalledWith("owner-a", requestId,
         { revision: 0, amountCents: 2000 }, expect.any(Function));
@@ -1563,7 +1599,7 @@ describe("exact-file document review", () => {
       expect(screen.queryByRole("button", { name: /Share \d+ files/ })).toBeNull();
       fireEvent.click(enable);
       await waitFor(() => expect(state.setLiveBackground).toHaveBeenCalledExactlyOnceWith("owner-a", true));
-      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preparing automatic sharing"));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Waiting to start"));
       expect(screen.queryByRole("button", { name: "Enable background Drive access" })).toBeNull();
     });
 
@@ -1601,7 +1637,7 @@ describe("exact-file document review", () => {
       }));
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       expect(await screen.findByText("40 of 50 files available")).toBeVisible();
-      expect(screen.getByRole("status")).toHaveTextContent("Sharing selected files");
+      expect(screen.getByRole("status")).toHaveTextContent("Sharing files · 40 shared so far");
       expect(screen.queryByRole("button", { name: /Review \d+ files|Share \d+ files/ })).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
     });
