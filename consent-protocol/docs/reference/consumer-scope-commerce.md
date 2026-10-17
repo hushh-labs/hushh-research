@@ -1379,7 +1379,10 @@ so its truthful `sandbox-readiness.schema_head` is null. An explicit operator-on
 `dev_minimum_schema` guard against the serving application's bound database.
 The harness validates complete table/function results, no skipped database check,
 account/origin, current source, contract/checker digests and verification freshness.
-Resume checkpoints bind the same source, database and configuration; observed
+Resume checkpoints bind the same source, database and protected configuration
+fingerprint. The operator excludes only the planned new-provider-admission
+pause/resume flag from that fingerprint; it freshly verifies the current secret
+version on every invocation. Policy/account/database changes still refuse resume; observed
 release head remains separate from the expected contract head. Missing, stale or
 mismatched evidence refuses the run. This QA adapter grants no migration, consent
 or financial authority; production/isolated-preview ledger checks and migration

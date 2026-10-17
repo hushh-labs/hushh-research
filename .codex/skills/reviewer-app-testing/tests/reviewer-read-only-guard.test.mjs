@@ -328,17 +328,19 @@ test("provider and application attestations must agree before mutations", () => 
 test("shared Dev accepts only fresh complete canonical schema evidence and binds resume identity", () => {
   const origin = "https://dev.one.hussh.ai", now = Date.now();
   const binding = { kind: "shared_dev_minimum_schema", sourceSha: "a".repeat(40),
-    databaseBinding: "b".repeat(64), configurationVersion: "2",
+    databaseBinding: "b".repeat(64), configurationSha256: "e".repeat(64),
     contractSha256: "c".repeat(64), checkerSha256: "d".repeat(64) };
   const expected = { appOrigin: origin, platformAccountId: "acct_synthetic", schemaHead: 406,
     contractSha256: binding.contractSha256, checkerSha256: binding.checkerSha256 };
   const contract = { contract_name: "dev_minimum_schema", migration_version_policy: "minimum",
     expected_migration_version: 406, required_tables: { scope_commerce_purchases: ["id"] }, required_functions: ["commit_scope"] };
-  const evidence = { ...expected, binding, startedAt: new Date(now - 1000).toISOString(), verifiedAt: new Date(now).toISOString(),
+  const evidence = { ...expected, binding, configurationVersion: "2", startedAt: new Date(now - 1000).toISOString(), verifiedAt: new Date(now).toISOString(),
     report: { checked_at: new Date(now - 500).toISOString(), status: "ok", policy: { skip_db_check: false, migration_version_policy: "minimum" },
       migrations: { expected_contract_version: 406 }, violations: [],
       db_contract: { tables: { scope_commerce_purchases: { exists: true, missing_columns: [] } }, functions: { commit_scope: true } } } };
   assert.deepEqual(verifySharedDevReadiness(evidence, expected, contract, now), binding);
+  // Pausing new provider admission creates a secret version, not a new financial policy.
+  assert.deepEqual(verifySharedDevReadiness({ ...evidence, configurationVersion: "3" }, expected, contract, now), binding);
   for (const mutate of [e => { e.appOrigin = APP_ORIGIN; }, e => { e.platformAccountId = "acct_other"; },
     e => { e.startedAt = new Date(now - 300_001).toISOString(); }, e => { e.verifiedAt = new Date(now + 1).toISOString(); },
     e => { e.binding.contractSha256 = "e".repeat(64); }, e => { e.binding.checkerSha256 = "e".repeat(64); },

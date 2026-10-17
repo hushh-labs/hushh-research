@@ -77,14 +77,14 @@ export function verifyProviderPreflight(proof) {
   return proof;
 }
 
-const BINDING_KEYS = ["kind", "sourceSha", "databaseBinding", "configurationVersion", "contractSha256", "checkerSha256"];
+const BINDING_KEYS = ["kind", "sourceSha", "databaseBinding", "configurationSha256", "contractSha256", "checkerSha256"];
 const digest = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
 /** Sanitized resume identity; this is QA evidence, never migration or payment authority. */
 export function validateDevReadinessBinding(binding) {
   commerceEvidence(exactKeys(binding, BINDING_KEYS) && binding.kind === "shared_dev_minimum_schema" &&
     typeof binding.sourceSha === "string" && /^[a-f0-9]{40}$/.test(binding.sourceSha) && digest(binding.databaseBinding) &&
-    typeof binding.configurationVersion === "string" && /^[1-9][0-9]*$/.test(binding.configurationVersion) &&
+    digest(binding.configurationSha256) &&
     digest(binding.contractSha256) && digest(binding.checkerSha256), "SHARED_DEV_READINESS_BINDING_INVALID");
   return binding;
 }

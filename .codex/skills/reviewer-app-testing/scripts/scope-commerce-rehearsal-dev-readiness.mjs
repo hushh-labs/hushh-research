@@ -11,6 +11,7 @@ export function verifySharedDevReadiness(value, expected, contract, now = Date.n
   const checked = Date.parse(value.report?.checked_at);
   commerceEvidence(expected.appOrigin === ORIGIN && value.appOrigin === ORIGIN &&
     value.platformAccountId === expected.platformAccountId &&
+    typeof value.configurationVersion === "string" && /^[1-9][0-9]*$/.test(value.configurationVersion) &&
     binding.contractSha256 === expected.contractSha256 && binding.checkerSha256 === expected.checkerSha256 &&
     Number.isFinite(started) && started <= checked && checked <= verified && verified <= now && now - started <= 300_000,
   "SHARED_DEV_READINESS_FRESH_BINDING_REQUIRED");
