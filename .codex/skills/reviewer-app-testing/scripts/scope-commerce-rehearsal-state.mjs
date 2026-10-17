@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
-import { commerceEvidence, exactKeys, validateFixture, uuid, opaqueId } from "./scope-commerce-rehearsal-contract.mjs";
+import { commerceEvidence, exactKeys, validateFixture, uuid, opaqueId, validateDevReadinessBinding } from "./scope-commerce-rehearsal-contract.mjs";
 
 const ROLES = ["primary", "counterpart"];
 const RECORD_KEYS = ["kind", "seller", "buyer", "priceCents", "operationId", "bundleId", "requestId", "quoteId", "purchaseId", "recipientFingerprint", "approvedAt", "activationMs", "expiryMs", "stage", "checks", "refundedCents", "revokedBeforeMs", "revokedAfterMs", "buyerBalanceBeforeRevocation"];
@@ -48,10 +48,16 @@ function validateMoneyRecord(record) {
 
 /** Strict checkpoint projection excludes tokens, ciphertext, payloads, UIDs and keys. */
 export function validateCommerceState(state) {
-  commerceEvidence(exactKeys(state, ["version", "runId", "appOrigin", "platformAccountId", "schemaHead", "fixtures", "records", "funding", "refunds", "withdrawals", "checks"]) &&
+  commerceEvidence(exactKeys(state, ["version", "runId", "appOrigin", "platformAccountId", "schemaHead", "readinessBinding", "observedSchemaHead", "fixtures", "records", "funding", "refunds", "withdrawals", "checks"]) &&
     state.version === 1 && uuid(state.runId) && /^acct_[A-Za-z0-9]+$/.test(state.platformAccountId) &&
     Number.isSafeInteger(state.schemaHead) && new URL(state.appOrigin).origin === state.appOrigin,
   "CHECKPOINT_INVALID");
+  if (state.readinessBinding !== undefined) {
+    validateDevReadinessBinding(state.readinessBinding);
+    commerceEvidence(state.appOrigin === "https://dev.one.hussh.ai" &&
+      (state.observedSchemaHead === undefined || state.observedSchemaHead === null || state.observedSchemaHead === state.schemaHead),
+      "CHECKPOINT_READINESS_INVALID");
+  } else commerceEvidence(state.observedSchemaHead === undefined, "CHECKPOINT_READINESS_INVALID");
   commerceEvidence(exactKeys(state.fixtures, ROLES) && exactKeys(state.funding, ROLES) &&
     exactKeys(state.refunds, ROLES) && exactKeys(state.withdrawals, ROLES), "CHECKPOINT_ROLE_INVALID");
   for (const role of ROLES) {
@@ -70,8 +76,8 @@ export function validateCommerceState(state) {
   return state;
 }
 
-export function newCommerceState({ appOrigin, platformAccountId, schemaHead, fixtures }) {
-  return validateCommerceState({ version: 1, runId: randomUUID(), appOrigin, platformAccountId, schemaHead, fixtures,
+export function newCommerceState({ appOrigin, platformAccountId, schemaHead, fixtures, readinessBinding = null }) {
+  return validateCommerceState({ version: 1, runId: randomUUID(), appOrigin, platformAccountId, schemaHead, fixtures, ...(readinessBinding ? { readinessBinding } : {}),
     records: [
       { kind: "oneCent", seller: "primary", buyer: "counterpart", priceCents: 1 },
       { kind: "earlyRevocation", seller: "primary", buyer: "counterpart", priceCents: 450 },

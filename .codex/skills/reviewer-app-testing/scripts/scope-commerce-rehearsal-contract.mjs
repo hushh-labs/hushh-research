@@ -77,7 +77,20 @@ export function verifyProviderPreflight(proof) {
   return proof;
 }
 
-export function verifyApplicationReadiness(value, proof, appOrigin, expectedHead) {
+const BINDING_KEYS = ["kind", "sourceSha", "databaseBinding", "configurationVersion", "contractSha256", "checkerSha256"];
+const digest = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+
+/** Sanitized resume identity; this is QA evidence, never migration or payment authority. */
+export function validateDevReadinessBinding(binding) {
+  commerceEvidence(exactKeys(binding, BINDING_KEYS) && binding.kind === "shared_dev_minimum_schema" &&
+    typeof binding.sourceSha === "string" && /^[a-f0-9]{40}$/.test(binding.sourceSha) && digest(binding.databaseBinding) &&
+    typeof binding.configurationVersion === "string" && /^[1-9][0-9]*$/.test(binding.configurationVersion) &&
+    digest(binding.contractSha256) && digest(binding.checkerSha256), "SHARED_DEV_READINESS_BINDING_INVALID");
+  return binding;
+}
+
+export function verifyApplicationReadiness(value, proof, appOrigin, expectedHead, sharedDevBinding = null) {
+  if (sharedDevBinding !== null) validateDevReadinessBinding(sharedDevBinding);
   commerceEvidence(proof.appOrigin === appOrigin && value?.app_origin === appOrigin && value.environment === "sandbox" &&
     value.livemode === false && value.persisted_pin_matches === true &&
     value.platform_account_id === proof.platformAccountId,
@@ -85,7 +98,8 @@ export function verifyApplicationReadiness(value, proof, appOrigin, expectedHead
   commerceEvidence(value.reviewer_funding_cap_cents === COMMERCE_REHEARSAL.fundingCapCents &&
     value.operating_capital_cap_cents === COMMERCE_REHEARSAL.capitalCapCents,
   "APPLICATION_SANDBOX_BUDGET_MISMATCH");
-  commerceEvidence(Number.isInteger(expectedHead) && value.schema_head === expectedHead,
+  commerceEvidence(Number.isInteger(expectedHead) && (value.schema_head === expectedHead ||
+    value.schema_head === null && appOrigin === "https://dev.one.hussh.ai" && sharedDevBinding !== null),
     "APPLICATION_SCHEMA_HEAD_MISMATCH");
 }
 

@@ -1366,10 +1366,33 @@ remain intact; that grant was not reset, revoked or relabelled to make the test
 pass. Authoritative lineage recovery remains separate acceptance work.
 As of 2026-10-17 08:01 UTC, the read-only Dev ledger still records no scope
 purchases for either reviewer. Existing $10.50 funding per reviewer and tagged
-capital must not be repeated. The previous general-Sandbox attestation is over
-seven days old; the existing Stripe Dashboard tab requires platform sign-in
-before its isolation evidence can be renewed. Application SDK keys and owner
-vault unlock do not supply that sign-in. Paid purchase/delivery, refunds,
+capital must not be repeated. The general-Sandbox attestation was renewed on 2026-10-17 after the owner's
+sign-in confirmation, authenticated Dashboard Sandbox1/account-row inspection,
+and independent read-only SDK verification of the exact test account. Existing
+tagged operating capital totals $15; no further capital or funding was submitted
+for that verification.
+
+The paid reviewer harness defaults to requiring complete release-ledger evidence.
+Shared Dev deliberately uses the declared replay/minimum-schema deployment lane,
+so its truthful `sandbox-readiness.schema_head` is null. An explicit operator-only
+`verifySharedDevSchema` adapter may freshly execute the unchanged canonical
+`dev_minimum_schema` guard against the serving application's bound database.
+The harness validates complete table/function results, no skipped database check,
+account/origin, current source, contract/checker digests and verification freshness.
+Resume checkpoints bind the same source, database and configuration; observed
+release head remains separate from the expected contract head. Missing, stale or
+mismatched evidence refuses the run. This QA adapter grants no migration, consent
+or financial authority; production/isolated-preview ledger checks and migration
+249's cutover requirements remain unchanged. The first corrected-target run passed
+all 238 Dev table and 97 function checks, both reviewer authentication/unlock
+flows and application Sandbox pin checks. It then observed a deployed 401 at the
+public client-connector read, before any tariff, consent or purchase write.
+The extracted GET/POST handlers incorrectly combined Firebase authentication
+with the existing vault-owner bearer contract and treated a Firebase UID string
+as token metadata. The correction uses the documented vault-owner dependency
+and retains requested-owner matching, missing/revoked refusal and public-key-only
+storage. Focused route tests mount the actual router and exercise those boundaries.
+A deployed rerun remains required; no paid exchange is inferred from this fix. Paid purchase/delivery, refunds,
 maturity, payouts, PII exchange and the private agent's authenticated Stripe
 reads remain unaccepted; existing owner-pod releases are preserved.
 Prices apply to the selected bundle or section, not just one opened memory. Its wallet

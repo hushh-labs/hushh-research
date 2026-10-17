@@ -1266,6 +1266,12 @@ one eligible request actually creates or advances work.
 | POST   | `/api/one/kyc/workflows/{workflow_id}/redraft`                              | VAULT_OWNER Bearer          | Record typed or voice-originated redraft instruction metadata; draft revision is client-local                                                                                                                                                                         |
 | POST   | `/api/one/kyc/retention/purge`                                              | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window                                                                                                                                                                                                            |
 
+The retained public client-connector registry authenticates its GET and POST with
+`require_vault_owner_token` and requires the requested `user_id` to equal that
+validated owner. It accepts the existing VAULT_OWNER bearer used by web and native
+clients; it does not reinterpret a Firebase UID string as consent-token metadata.
+Missing or revoked owner authority refuses registry access before any service call.
+
 ### One Owner-Approved Gmail Email
 
 Personal Gmail delivery is separate from the One Email KYC platform mailbox.

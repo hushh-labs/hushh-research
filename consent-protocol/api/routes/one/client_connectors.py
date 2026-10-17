@@ -7,7 +7,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_vault_owner_token, verify_user_id_match
 from hushh_mcp.services.client_connector_service import (
     ClientConnectorError,
     get_client_connector_service,
@@ -43,8 +43,7 @@ def _error(exc: ClientConnectorError) -> HTTPException:
 @router.get("/client-connector")
 async def get_client_connector(
     user_id: str = Query(min_length=1, max_length=128),
-    token_data: dict[str, Any] = Depends(require_firebase_auth),
-    _: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     result = await get_client_connector_service().get(user_id=_owner(token_data, user_id))
     return cast(dict[str, Any], result)
@@ -53,8 +52,7 @@ async def get_client_connector(
 @router.post("/client-connector")
 async def register_client_connector(
     request: ClientConnectorRequest,
-    token_data: dict[str, Any] = Depends(require_firebase_auth),
-    _: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     try:
         result = await get_client_connector_service().register(

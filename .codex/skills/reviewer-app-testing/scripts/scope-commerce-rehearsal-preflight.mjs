@@ -1,4 +1,6 @@
 import { resolveReviewerAuthMode } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
+import { createHash } from "node:crypto";
+import { verifySharedDevReadiness } from "./scope-commerce-rehearsal-dev-readiness.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -68,5 +70,18 @@ export async function commercePreflight(repoRoot, options) {
   const proof = await providerPreflight(repoRoot, options);
   const schema = JSON.parse(await fs.readFile(path.join(repoRoot, "consent-protocol/db/contracts/prod_core_schema.json"), "utf8"));
   commerceEvidence(Number.isSafeInteger(schema.expected_migration_version), "CANONICAL_SCHEMA_HEAD_REQUIRED");
-  return { identities, fixtures, proof, authMode, schemaHead: schema.expected_migration_version };
+  let readinessBinding = null;
+  if (options.verifySharedDevSchema !== undefined) {
+    commerceEvidence(typeof options.verifySharedDevSchema === "function" && options.appOrigin === "https://dev.one.hussh.ai",
+      "EXPLICIT_SHARED_DEV_VERIFIER_REQUIRED");
+    const contractBytes = await fs.readFile(path.join(repoRoot, "consent-protocol/db/contracts/dev_minimum_schema.json"));
+    const checkerBytes = await fs.readFile(path.join(repoRoot, "scripts/ops/db_migration_release_guard.py"));
+    const expected = { appOrigin: options.appOrigin, platformAccountId: options.accountId,
+      schemaHead: schema.expected_migration_version,
+      contractSha256: createHash("sha256").update(contractBytes).digest("hex"),
+      checkerSha256: createHash("sha256").update(checkerBytes).digest("hex") };
+    const evidence = await options.verifySharedDevSchema(Object.freeze(expected));
+    readinessBinding = verifySharedDevReadiness(evidence, expected, JSON.parse(contractBytes));
+  }
+  return { identities, fixtures, proof, authMode, schemaHead: schema.expected_migration_version, readinessBinding };
 }

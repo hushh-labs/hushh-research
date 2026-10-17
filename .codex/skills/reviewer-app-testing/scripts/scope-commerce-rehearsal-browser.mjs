@@ -58,7 +58,8 @@ export async function openCommerceBrowsers(repoRoot, options, preflight) {
       await harness.navigateInApp(session.page, "/one/connect");
       await session.capture.identityToken();
       const readiness = await checkedCall(session, `/api/scope-commerce/sandbox-readiness?app_origin=${encodeURIComponent(options.appOrigin)}`);
-      verifyApplicationReadiness(readiness, preflight.proof, options.appOrigin, preflight.schemaHead);
+      verifyApplicationReadiness(readiness, preflight.proof, options.appOrigin, preflight.schemaHead, preflight.readinessBinding);
+      actors[role].observedSchemaHead = readiness.schema_head;
       commerceEvidence(typeof readiness.new_activity_enabled === "boolean", "APPLICATION_ADMISSION_STATE_REQUIRED");
       actors[role].newActivityEnabled = readiness.new_activity_enabled;
     }

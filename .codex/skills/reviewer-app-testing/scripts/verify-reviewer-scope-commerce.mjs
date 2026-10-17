@@ -54,13 +54,15 @@ export async function verifyReviewerScopeCommerce(options) {
     runtime.releaseState = await acquireCommerceStateLease(repoRoot, options.stateFile);
     runtime.proof = preflight.proof; runtime.identities = preflight.identities;
     runtime.state = await loadCommerceState(repoRoot, options.stateFile) || newCommerceState({
-      appOrigin: options.appOrigin, platformAccountId: options.accountId, schemaHead: preflight.schemaHead, fixtures: preflight.fixtures,
+      appOrigin: options.appOrigin, platformAccountId: options.accountId, schemaHead: preflight.schemaHead, fixtures: preflight.fixtures, readinessBinding: preflight.readinessBinding,
     });
     commerceEvidence(runtime.state.appOrigin === options.appOrigin && runtime.state.platformAccountId === options.accountId &&
-      runtime.state.schemaHead === preflight.schemaHead && sameJson(runtime.state.fixtures, preflight.fixtures), "CHECKPOINT_ENVIRONMENT_OR_FIXTURE_CHANGED");
+      runtime.state.schemaHead === preflight.schemaHead &&
+      sameJson(runtime.state.readinessBinding || null, preflight.readinessBinding) && sameJson(runtime.state.fixtures, preflight.fixtures), "CHECKPOINT_ENVIRONMENT_OR_FIXTURE_CHANGED");
     runtime.save = () => saveCommerceState(repoRoot, options.stateFile, runtime.state);
     runtime.phase = "authenticated-application-pin";
     Object.assign(runtime, await openCommerceBrowsers(repoRoot, options, preflight));
+    if (preflight.readinessBinding) runtime.state.observedSchemaHead = runtime.actors.primary.observedSchemaHead;
     runtime.phase = "canonical-fixture-and-recipient-binding";
     await bindCommerceFixtures(runtime.actors, runtime.identities, preflight.fixtures);
     if (!runtime.state.checks.includes("pairBound")) runtime.state.checks.push("pairBound");
