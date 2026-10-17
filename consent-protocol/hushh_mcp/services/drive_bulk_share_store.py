@@ -2575,6 +2575,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                             "revision": request["revision"],
                         },
                     )
+                    # The owner's one Feed card for this request ("One sent N
+                    # files to B"), under the request lock taken above.
+                    from hushh_mcp.services.drive_owner_shared_files import (
+                        record_owner_files_sent,
+                    )
+
+                    record_owner_files_sent(
+                        connection, request_id=request["request_id"], share_id=share
+                    )
             return
         connection.execute(
             text("""
@@ -3609,6 +3618,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             if latest is None:
                 raise DriveSharingError("bulk_not_found")
             self._require_paid_for_origin(connection, request)
+            # A file whose access the owner removed leaves B's list at once.
             count = connection.execute(
                 text("""SELECT count(*)
                 FROM drive_bulk_share_effects e
@@ -3616,7 +3626,10 @@ class DriveBulkShareStore(DriveLivePreferences):
                 WHERE b.origin_request_id=:request AND b.approved_at IS NOT NULL
                   AND b.expires_at>clock_timestamp()
                   AND e.recipient_user_id=:recipient
-                  AND e.state IN ('succeeded','preexisting')"""),
+                  AND e.state IN ('succeeded','preexisting')
+                  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+                    WHERE removal.share_id=e.share_id AND removal.position=e.position
+                      AND removal.recipient_user_id=e.recipient_user_id)"""),
                 {"request": request, "recipient": recipient_user_id},
             ).scalar_one()
             rows = (
@@ -3634,6 +3647,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                   AND b.expires_at>clock_timestamp()
                   AND e.recipient_user_id=:recipient
                   AND e.state IN ('succeeded','preexisting')
+                  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+                    WHERE removal.share_id=e.share_id AND removal.position=e.position
+                      AND removal.recipient_user_id=e.recipient_user_id)
                   AND (CAST(:after_at AS timestamptz) IS NULL OR (e.updated_at,b.share_id,f.position)
                     > (CAST(:after_at AS timestamptz),CAST(:after_share AS uuid),:after_position))
                 ORDER BY e.updated_at,b.share_id,f.position LIMIT :limit"""),
