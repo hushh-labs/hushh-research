@@ -54,6 +54,7 @@ struct NativeProfilePage: Codable, Identifiable {
     let id: String
     let title: String
     let sections: [NativeDrawerSection]
+    var legalDocument: NativeLegalDocument? = nil
 }
 
 struct NativeDrawerProjection: Codable {
@@ -91,7 +92,10 @@ struct NativeDrawerProjection: Codable {
         if let stack = options["profileStack"] {
             guard let pages = stack as? [[String: Any]] else { return false }
             for page in pages {
-                guard Set(page.keys).isSubset(of: ["id", "title", "sections"]), let sections = page["sections"] as? [[String: Any]] else { return false }
+                guard Set(page.keys).isSubset(of: ["id", "title", "sections", "legalDocument"]), let sections = page["sections"] as? [[String: Any]] else { return false }
+                if let document = page["legalDocument"] {
+                    guard let document = document as? [String: Any], NativeLegalDocument.hasClosedShape(document) else { return false }
+                }
                 allSections += sections
             }
         }
@@ -117,8 +121,12 @@ struct NativeDrawerProjection: Codable {
             guard family == "profile", stack.count <= 2, Set(stack.map(\.id)).count == stack.count,
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["account", "preferences", "security"].contains(page.id) : page.id == "session" && stack.first?.id == "security") &&
-                          Self.text(page.title, 256) && page.sections.count <= 32
+                      (index == 0 ? ["account", "preferences", "security", "legal"].contains(page.id) :
+                        page.id == "session" && stack.first?.id == "security" ||
+                        ["privacy", "terms"].contains(page.id) && stack.first?.id == "legal") &&
+                          Self.text(page.title, 256) && page.sections.count <= 32 &&
+                          (["privacy", "terms"].contains(page.id) ? page.legalDocument?.valid == true &&
+                            page.legalDocument?.type == page.id && page.sections.isEmpty : page.legalDocument == nil)
                   }) else { return false }
         }
         if let id = profileDestinationId { guard profileStack?.isEmpty == false, NativeDrawerIdentity.identifier(id) else { return false } }
@@ -154,6 +162,11 @@ struct NativeDrawerProjection: Codable {
                 }
             }
         }
+        for page in profileStack ?? [] {
+            for action in page.legalDocument?.actionIds ?? [] {
+                guard ids.insert(action).inserted else { return false }
+            }
+        }
         return true
     }
     private static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
@@ -171,6 +184,7 @@ struct NativeDrawerProjection: Codable {
         if action == "back" { return backEnabled && row == nil }
         if action == "root" { return family == "profile" && backEnabled && (profileStack?.count ?? 0) > 1 && row == nil }
         guard action == "row", let row else { return false }
+        if text == nil, profileStack?.last?.legalDocument?.actionIds.contains(row) == true { return true }
         return activeSections.contains { $0.rows.contains {
             guard $0.enabled, $0.readOnly != true, $0.pending != true else { return false }
             if $0.renameActionId == row {

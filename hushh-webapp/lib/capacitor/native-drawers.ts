@@ -3,6 +3,7 @@ import type { NativeControlAppearance } from "./native-control-appearance";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
 import type { NativeSupportScenePort } from "./native-profile-support-scene";
+import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
  * process-local replicas of the existing feature owner, not another store. */
@@ -30,7 +31,8 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativeProfilePage = { id: "account" | "preferences" | "security" | "session"; title: string; sections: readonly NativeDrawerSection[] };
+export type NativeProfilePage = { id: "account" | "preferences" | "security" | "session" | "legal" | "privacy" | "terms";
+  title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument };
 export type NativeDrawerIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -76,7 +78,7 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
   getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
   applyProfileSupportScene?(options: Parameters<NativeSupportScenePort["applyProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["applyProfileSupportScene"]>;
   confirmProfileSupportAction?(options: Parameters<NativeSupportScenePort["confirmProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["confirmProfileSupportAction"]>;
@@ -212,8 +214,12 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
       value.profileStack.length > 2 || new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
-      value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections"]) ||
-        !(index === 0 ? ["account", "preferences", "security"].includes(page.id) : page.id === "session" && value.profileStack?.[0]?.id === "security") ||
+      value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument"]) ||
+        !(index === 0 ? ["account", "preferences", "security", "legal"].includes(page.id) :
+          page.id === "session" && value.profileStack?.[0]?.id === "security" ||
+          ["privacy", "terms"].includes(page.id) && value.profileStack?.[0]?.id === "legal") ||
+        (["privacy", "terms"].includes(page.id) ? !page.legalDocument || !validNativeLegalDocument(page.legalDocument) ||
+          page.legalDocument.type !== page.id || !Array.isArray(page.sections) || page.sections.length !== 0 : page.legalDocument !== undefined) ||
         !validText(page.title, 256) || !Array.isArray(page.sections) || page.sections.length > 32) ||
       value.profileStack.length > 0 && (!value.backEnabled || !validIdentifier(value.profileDestinationId)))) return false;
   if (value.profileDestinationId !== undefined && (!value.profileStack?.length || !validIdentifier(value.profileDestinationId))) return false;
@@ -253,6 +259,13 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       }
     }
   }
+  for (const page of value.profileStack ?? []) {
+    if (!page.legalDocument) continue;
+    for (const id of nativeLegalActionIds(page.legalDocument)) {
+      if (ids.has(id)) return false;
+      ids.add(id);
+    }
+  }
   return true;
 }
 
@@ -271,9 +284,15 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "back") return state.backEnabled && choice.rowId === undefined;
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
+  const document = valueDocument(state);
+  if (document && choice.text === undefined && nativeLegalActionIds(document).includes(choice.rowId)) return true;
   return activeNativeDrawerSections(state).some(section => section.rows.some(row => row.enabled && !row.readOnly && !row.pending &&
     (row.renameActionId === choice.rowId ? typeof choice.text === "string" && choice.text.trim().length > 0 && choice.text.length <= 160 :
       (row.options ? row.options.some(option => option.id === choice.rowId && !option.selected) : row.id === choice.rowId || row.deleteActionId === choice.rowId) && choice.text === undefined)));
+}
+
+function valueDocument(state: NativeDrawerProjection): NativeLegalDocument | undefined {
+  return state.profileStack?.at(-1)?.legalDocument;
 }
 
 /** The native receipt is not permission to call an operation later. Revalidate

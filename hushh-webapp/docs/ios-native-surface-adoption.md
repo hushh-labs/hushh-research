@@ -16,6 +16,40 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Native Legal reader — 2026-10-17
+
+The qualification build now has a complete SwiftUI Privacy/Terms reader in the
+retained UIKit Profile stack: full authored sections, paragraphs, subheadings,
+lists, inline links, effective date/version, contents scrolling and See also.
+`legal-documents.ts` remains the only content source; nothing is summarized or
+flattened into settings rows. Document switches replace the current detail via
+the existing Profile query owner. Back retains Legal → Profile ancestry.
+
+NativeDrawers v1 negotiates `profileLegalReader`. Older wrappers keep the
+established React reader before reveal. Only bounded document content and
+current action handles cross the bridge; URLs stay with authored React
+callbacks. Those callbacks retain in-pane document switching, the existing
+account-deletion entry route and external/mail handling. An action never deletes
+an account itself. Current document/owner/update/privacy fences reject late
+links, and pending projections deep-copy the Legal content.
+
+Focused Legal/chrome contracts, typecheck, native compilation, fresh UAT static
+export, plugin parity, surface-map freshness, docs and source-performance checks
+pass. The undeclared-field negative control fails when the closed-shape check
+is removed. Independent read-only native/security review found no blocker.
+The isolated headless native host contract passes (one executed, zero skipped),
+including rejected executable fields and inactive-document links. The new
+reader's physical interaction/accessibility acceptance remains separate; the
+host contract is not visual acceptance. The
+current iPhone remains on `ad6c04cdad`: the new reader has not been installed
+because the preparation check found an unsent One draft. No draft was discarded,
+no session was restarted, and ordinary-build admission remains disabled.
+
+Rollback: revert the Legal-family increment, or leave the existing global
+qualification flag off. NativeChrome v2, NativeDock v1 and the normal web/Android
+renderers are unchanged. The broader Profile/linked-workspace program below is
+not complete.
+
 ### Complete Profile and linked-workspace program — 2026-10-17
 
 Profile-first correction: native and web detail Back now compose the same local

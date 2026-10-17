@@ -5,6 +5,31 @@ import Capacitor
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testLegalReaderRejectsExecutableFieldsAndAdmitsOnlyCurrentDocumentLinks() throws {
+        let object: [String: Any] = ["type": "privacy", "version": "1", "effectiveDate": "October 17, 2026", "summary": "Synthetic public document",
+            "sections": [["id": "first", "title": "Section", "blocks": [
+                ["kind": "h", "text": "Heading"], ["kind": "p", "text": [["text": "Contact", "actionId": "public-contact"]]],
+                ["kind": "list", "items": [[["text": "List item"]]]],
+            ]]], "related": ["label": "Terms", "actionId": "public-terms"]]
+        XCTAssertTrue(NativeLegalDocument.hasClosedShape(object))
+        let document = try JSONDecoder().decode(NativeLegalDocument.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(document.valid)
+        var state = privateDrawerState(backEnabled: true)
+        state.surfaceOpen = true; state.profileDestinationId = "public-legal-visit"
+        state.profileStack = [NativeProfilePage(id: "legal", title: "Legal", sections: []),
+            NativeProfilePage(id: "privacy", title: "Privacy", sections: [], legalDocument: document)]
+        XCTAssertTrue(state.valid)
+        XCTAssertTrue(state.allows(action: "row", row: "public-contact"))
+        XCTAssertFalse(state.allows(action: "row", row: "https://example.com"))
+        XCTAssertFalse(state.allows(action: "row", row: "public-contact", text: "arbitrary"))
+        state.profileStack?.removeLast()
+        XCTAssertFalse(state.allows(action: "row", row: "public-contact"))
+        var malformed = object; malformed["url"] = "https://example.com"
+        XCTAssertFalse(NativeLegalDocument.hasClosedShape(malformed))
+        malformed = object; malformed["related"] = ["label": "Terms", "actionId": "public-contact"]
+        XCTAssertFalse(try JSONDecoder().decode(NativeLegalDocument.self, from: JSONSerialization.data(withJSONObject: malformed)).valid)
+    }
+
     @MainActor
     func testSupportRequiresCommittedAcknowledgedTextAndScrubsOnRetirement() throws {
         func projection(update: Int = 1, ack: Int = 0, message: String = "Synthetic report only", sent: Bool = false) -> NativeSupportProjection {

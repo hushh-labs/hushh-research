@@ -4324,6 +4324,7 @@ final class AppUITests: XCTestCase {
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
         let nativeAccountBack = app.navigationBars.buttons["Profile"].firstMatch
+        let nativeLegalBack = app.navigationBars.buttons["Legal"].firstMatch
         var back: XCUIElement {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
@@ -4384,6 +4385,13 @@ final class AppUITests: XCTestCase {
         // Back must restore the roster; opening Profile is not a root reset.
         for _ in 0..<3 {
             if close.exists && close.isHittable && root("account").exists { break }
+            if nativeLegalBack.exists && nativeLegalBack.isHittable {
+                nativeLegalBack.tap()
+                guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-privacy"].firstMatch) else {
+                    XCTFail("PROFILE_LEGAL_PARENT_NOT_RESTORED"); return
+                }
+                continue
+            }
             if nativeAccountBack.exists && nativeAccountBack.isHittable {
                 nativeAccountBack.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -4444,6 +4452,39 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
+            if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
+                let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch
+                guard waitForAdmittedControl(nativeLegalBack), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_LEGAL_HEADER_UNAVAILABLE"); return
+                }
+                XCTAssertFalse(app.buttons["Back in Profile"].firstMatch.exists, "PROFILE_LEGAL_DUPLICATE_WEB_HEADER")
+                let contact = app.buttons["native-legal-contents-contact"].firstMatch
+                for _ in 0..<6 {
+                    if contact.exists && contact.isHittable { break }
+                    reader.swipeUp()
+                }
+                guard waitForAdmittedControl(contact) else { XCTFail("PROFILE_LEGAL_CONTENTS_UNAVAILABLE"); return }
+                contact.tap()
+                let related = app.buttons["native-legal-related"].firstMatch
+                for _ in 0..<3 {
+                    if related.exists && related.isHittable { break }
+                    reader.swipeUp()
+                }
+                guard waitForAdmittedControl(related) else { XCTFail("PROFILE_LEGAL_RELATED_UNAVAILABLE"); return }
+                related.tap()
+                let other = id == "privacy" ? "terms" : "privacy"
+                guard app.scrollViews["native-legal-reader-\(other)"].firstMatch.waitForExistence(timeout: 5),
+                      waitForAdmittedControl(nativeLegalBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_UNAVAILABLE"); return }
+                nativeLegalBack.tap()
+                guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-\(id)"].firstMatch),
+                      waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_LEGAL_ROOT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_LEGAL family=\(id) contents=true replaced=true returned=true")
+                continue
+            }
             if id == "support", app.buttons["native-support-cancel"].firstMatch.waitForExistence(timeout: 5) {
                 let cancel = app.buttons["native-support-cancel"].firstMatch
                 guard waitForAdmittedControl(cancel), waitForAdmittedControl(app.textViews["native-support-message"].firstMatch) else {

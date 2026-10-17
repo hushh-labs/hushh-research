@@ -850,7 +850,10 @@ struct NativeDrawerContent: View {
         if let profilePage {
             switch profilePage {
             case .menu: profileContent(model.projection.sections)
-            case .page(let id): profileContent(model.page(id)?.sections ?? [])
+            case .page(let id):
+                if let document = model.page(id)?.legalDocument {
+                    NativeProfileLegalReader(model: model, document: document)
+                } else { profileContent(model.page(id)?.sections ?? []) }
             }
         } else if model.projection.family == "profile", model.projection.profileStack != nil {
             profileNavigation

@@ -1,4 +1,5 @@
 import type { PluginListenerHandle } from "@capacitor/core";
+import { nativeLegalActionIds } from "./native-profile-legal";
 import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
   subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
@@ -117,6 +118,7 @@ export class NativeDrawerPresentation {
     if (!this.ownerIsCurrent() || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
         [...state.sections, ...(state.profileStack?.flatMap(page => page.sections) ?? [])].some(section => section.rows.some(row => !row.readOnly && (row.options ? row.options.map(option => option.id) : [row.id, row.renameActionId, row.deleteActionId])
           .some(id => id !== undefined && !actions.rows.has(id)))) ||
+        state.profileStack?.some(page => page.legalDocument && nativeLegalActionIds(page.legalDocument).some(id => !actions.rows.has(id))) ||
         state.backEnabled && !actions.back || (state.profileStack?.length ?? 0) > 1 && !actions.root) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
@@ -124,6 +126,7 @@ export class NativeDrawerPresentation {
       sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
         ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })),
       ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
+        ...(page.legalDocument ? { legalDocument: structuredClone(page.legalDocument) } : {}),
         sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
           ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;

@@ -58,7 +58,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
@@ -67,10 +67,12 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
   settings?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
+  legal?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void };
 }) {
   const [stackSupported, setStackSupported] = useState<boolean | null>(null);
   const [settingsSupported, setSettingsSupported] = useState(false);
   const [supportSupported, setSupportSupported] = useState(false);
+  const [legalSupported, setLegalSupported] = useState(false);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
   const [presentedDestination, setPresentedDestination] = useState<string | undefined>();
   const hasAccount = account !== undefined;
@@ -88,6 +90,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setSettingsSupported(stack && capability.profileSettingsPages === true && capability.profileStyleScene === true &&
           hasNativeProfileScene(nativeDrawers, "writing-style"));
         setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
+        setLegalSupported(stack && capability.profileLegalReader === true);
       }
     }).catch(() => { if (current) setStackSupported(false); });
     return () => { current = false; };
@@ -95,13 +98,14 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const nativeAccount = stackSupported === true && account?.active === true;
   const nativeSettings = settingsSupported && settings?.active === true;
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
-  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page] : nativeSettings ? settings!.pages : [];
+  const nativeLegal = legalSupported && legal?.active === true;
+  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
     nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id)]) : "";
   // A new destination visit gets a new token, including A → B → A. Compatible
   // theme/content updates preserve it; an old form cannot act in a later visit.
   const destinationId = useMemo(() => destinationKey && lifetime ? crypto.randomUUID() : undefined, [lifetime, destinationKey]);
-  const webDetail = detail && !nativeAccount && !nativeSettings && !nativeSupport;
+  const webDetail = detail && !nativeAccount && !nativeSettings && !nativeSupport && !nativeLegal;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
   // Retain the committed display, not its operation authority. On Back the
@@ -138,8 +142,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     <NativeProfileMenu {...menu} open={active && (!webDetail || prepared !== lifetime)}
       stack={stackSupported && account ? { pages: nativePath, destinationId: nativeSupport ? undefined : destinationId,
         supportDestinationId: nativeSupport ? destinationId : undefined,
-        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : [])]), back: page.onBack,
-        ...(nativeSettings ? { root: settings!.root } : {}) } : undefined}
+        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : [])]), back: page.onBack,
+        ...(nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : {}) } : undefined}
       onPresented={appliedDestination => {
       setPresentedDestination(appliedDestination);
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }

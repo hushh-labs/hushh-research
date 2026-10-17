@@ -45,6 +45,7 @@ import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
 import { NativeSupportComposer } from "./native-support-composer";
+import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
@@ -4910,6 +4911,8 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
+  const nativeLegal = projectNativeProfileLegal(activeDetail === "privacy" || activeDetail === "terms" ? activeDetail : null,
+    (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT));
   const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
     { id: "account-identity", title: "Identity", rows: [
       { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
@@ -4936,6 +4939,8 @@ function ProfilePageContent({
     ] },
   ] };
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    legal={{ active: activePanel === "legal" && !showVaultUnlock, ...nativeLegal,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
       <NativeSupportComposer destinationId={destinationId} onFallback={onFallback} model={{
         userId: user.uid, ready: isVaultUnlocked, draft: { kind: supportKind, message: supportMessage },

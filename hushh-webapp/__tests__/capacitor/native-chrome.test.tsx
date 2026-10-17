@@ -4,6 +4,8 @@ import { createRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NativeChromeLease, chromeOwnerEpoch, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { projectNativeLegalDocument } from "@/lib/capacitor/native-profile-legal";
+import { projectNativeProfileLegal } from "@/components/profile/profile-native-legal";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
@@ -457,6 +459,23 @@ describe("private native drawer action boundary", () => {
     expect(nameFence.update(name)).toBe(true);
     expect(nameFence.update({ ...name, updateSequence: 2, destinationId: "account-returned" })).toBe(false);
     expect(nameFence.allows({ ...name, sequence: 1, editRevision: 0, action: "save", destinationId: "account-returned" })).toBe(false);
+    const privacy = projectNativeLegalDocument("privacy").document;
+    const terms = projectNativeLegalDocument("terms").document;
+    const legal = (document: typeof privacy, updateSequence: number): NativeDrawerProjection => ({ ...root, updateSequence,
+      profileDestinationId: `visit-${document.type}`, profileStack: [
+        { id: "legal", title: "Legal", sections: [] },
+        { id: document.type, title: "Document", sections: [], legalDocument: document },
+      ] });
+    expect(validNativeDrawerProjection(legal(privacy, 4))).toBe(true);
+    const privacyLink = { ...event, updateSequence: 4, sequence: 3, rowId: privacy.related.actionId };
+    expect(nativeDrawerChoiceAllowed(privacyLink, legal(privacy, 4))).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...privacyLink, rowId: "https://example.com" }, legal(privacy, 4))).toBe(false);
+    fence.update(legal(privacy, 4));
+    const linkReply = deferred<{ valid: boolean }>();
+    const oldLink = fence.consume(privacyLink, () => linkReply.promise, () => true);
+    fence.update(legal(terms, 5)); linkReply.resolve({ valid: true });
+    expect(await oldLink).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...privacyLink, updateSequence: 5 }, legal(terms, 5))).toBe(false);
   });
 
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
@@ -3190,14 +3209,14 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const scene = (account: boolean, settings?: "preferences" | "security" | "session", support = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support}
+    const scene = (account: boolean, settings?: "preferences" | "security" | "session", support = false, legal?: "privacy" | "terms") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, pages: settings === "preferences" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
@@ -3207,6 +3226,7 @@ describe("native chrome presentation lease", () => {
       ] }] }] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
         rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()]]), root: vi.fn() }}
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
+      legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
       ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
@@ -3264,6 +3284,16 @@ describe("native chrome presentation lease", () => {
       expect(support.revision).toBe(identity.revision);
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
       expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(false, undefined, false, "privacy"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["legal", "privacy"]));
+      const legalVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(false, undefined, false, "terms"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["legal", "terms"]));
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].profileDestinationId).not.toBe(legalVisit.profileDestinationId);
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+      expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
       view.unmount();
       await act(async () => { await Promise.resolve(); });
       for (const target of ["account", "preferences", "support"] as const) {
@@ -3284,6 +3314,17 @@ describe("native chrome presentation lease", () => {
           Object.assign(nativeDrawers, { [method]: complete });
           await act(async () => { await Promise.resolve(); });
         }
+      }
+      const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileLegalReader: false });
+      drawerBridge.apply.mockClear();
+      const legacyLegal = render(scene(false, undefined, false, "privacy"));
+      try {
+        await waitFor(() => expect(legacyLegal.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "legal"))).toBe(false);
+      } finally {
+        legacyLegal.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
       }
     } finally {
       view.unmount(); await act(async () => { await Promise.resolve(); }); publishValidatedAuthSessionOwner(null);

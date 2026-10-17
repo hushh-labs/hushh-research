@@ -26,6 +26,7 @@
 		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
 		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
 		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
+		5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000011 /* NativeProfileLegal.swift */; };
 		5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */; };
 		5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */; };
 		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
@@ -132,6 +133,7 @@
 		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000011 /* NativeProfileLegal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileLegal.swift; path = Plugins/NativeProfileLegal.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000007 /* NativeProfileArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileArtwork.swift; path = Plugins/NativeProfileArtwork.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerPresentationController.swift; path = Plugins/NativeDrawerPresentationController.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhNativeDrawersPlugin.swift; path = Plugins/HushhNativeDrawersPlugin.swift; sourceTree = "<group>"; };
@@ -323,6 +325,7 @@
 				5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */,
 				5E5510C1000000000000000D /* NativeProfileStyleScene.swift */,
 				5E5510C1000000000000000F /* NativeProfileSupportScene.swift */,
+				5E5510C10000000000000011 /* NativeProfileLegal.swift */,
 				5E5510C10000000000000007 /* NativeProfileArtwork.swift */,
 				5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */,
 				5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */,
@@ -574,6 +577,7 @@
 				5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */,
 				5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */,
 				5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */,
+				5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */,
 				5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */,
 				5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */,
 				5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */,
