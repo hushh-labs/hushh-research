@@ -1,6 +1,6 @@
 "use client";
 
-import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { create } from "zustand";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
@@ -40,6 +40,7 @@ export type AgentChatHandoff = {
   transcript?: string | null;
   calendarSlot?: CalendarSlotHandoff;
   calendarInvitation?: CalendarInvitationHandoff;
+  calendarAttendance?: CalendarAttendanceHandoff;
   calendarRequest?: { ownerId: string; request: string; meeting?: { calendar_id: string; event_id: string; expected_account_email: string } };
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
