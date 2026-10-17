@@ -3396,6 +3396,35 @@ def test_payment_view_has_one_definition_of_link_and_request_expiry():
     assert _view(request_status="expired")["state"] == "request_expired"
 
 
+@pytest.mark.parametrize(
+    "changes,checkout_pending",
+    [
+        pytest.param({"quoted_amount_cents": 2500}, False, id="no-order-yet"),
+        pytest.param({"order": _view_order("awaiting_payment")}, True, id="order-link-pending"),
+        pytest.param({"order": _view_order(bound=False)}, True, id="open-order-unbound"),
+        pytest.param({"order": _view_order()}, False, id="payable"),
+        pytest.param({"order": _view_order("paid")}, False, id="paid"),
+        pytest.param(
+            {"order": _view_order("paid"), "refund": {"status": "succeeded", "amount_cents": 833}},
+            False,
+            id="partial-refund",
+        ),
+        pytest.param({"request_status": "cancelled", "order": _view_order()}, False, id="closed"),
+    ],
+)
+def test_autoshare_payment_view_marks_only_the_flow_and_a_pending_link(changes, checkout_pending):
+    # 2026-10-18: an autoshare requester read "You pay only if files are found"
+    # while their order waited for its link. Only a caller that opened the
+    # envelope knows the flow; the marker never changes state or money fields.
+    legacy = _view(**changes)
+    marked = _view(**changes, autoshare=True)
+    assert "autoshare" not in legacy and "checkoutPending" not in legacy
+    assert marked["autoshare"] is True
+    assert ("checkoutPending" in marked) is checkout_pending
+    extra = {"autoshare", "checkoutPending"}
+    assert {key: value for key, value in marked.items() if key not in extra} == legacy
+
+
 async def _withdrawable_checkout(sharing, monkeypatch, *, files=3):
     """A non-trusted request whose owner-approved batch waits at an open Checkout."""
     _offline_absent_drive_acl(monkeypatch)

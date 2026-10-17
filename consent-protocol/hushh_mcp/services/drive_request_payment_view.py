@@ -21,6 +21,15 @@ State precedence, first match wins:
 Request expiry always wins over link expiry, so a link is only ever "expired"
 while its request is still open. Money states win over everything: a late
 payment on a closed request is never shown as closed or unpaid.
+
+An autoshare request (the sealed ``oct17_autoshare`` flow) asks for payment
+when the owner allows, before any file is found, and refunds what is not
+sent. Only a caller that opened the request envelope knows that, so it passes
+``autoshare=True`` and the view carries ``autoshare``; ``checkoutPending``
+then tells "the order exists, its link is being made" apart from "nothing
+is due yet" within ``preparing``. Both keys are absent otherwise, so every
+older request keeps its exact shape and copy. Presentation only, never
+payment authority.
 """
 
 from __future__ import annotations
@@ -131,6 +140,7 @@ def requester_payment_view(
     configured_mode: str | None = None,
     package_disclosure_required: bool = False,
     package_disclosure: dict[str, Any] | None = None,
+    autoshare: bool = False,
 ) -> dict[str, Any]:
     """Return the closed RequesterPaymentView shape for one request.
 
@@ -138,7 +148,8 @@ def requester_payment_view(
     projections may build it directly). ``refund`` is the request's refund row
     (``status``, ``amount_cents``). ``owner_payout_ready`` is ``False`` only
     when an enrolled bank-settled order is waiting for the owner's payout
-    account, ``None`` when unknown or not applicable.
+    account, ``None`` when unknown or not applicable. ``autoshare`` is the
+    request's sealed flow (``autoshare_request``); it never changes the state.
     """
 
     def disclosed_view(*args, **kwargs) -> dict[str, Any]:
@@ -147,6 +158,10 @@ def requester_payment_view(
             result["packageDisclosureRequired"] = True
             if package_disclosure is not None:
                 result["packageDisclosure"] = package_disclosure
+        if autoshare is True:
+            result["autoshare"] = True
+            if result["state"] == "preparing" and order is not None:
+                result["checkoutPending"] = True
         return result
 
     withdrawn = request_status == "cancelled"
