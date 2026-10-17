@@ -449,13 +449,14 @@ Rules:
 
 ## Search and Filter Surface Contract
 
-Use the shared command/search surface for app-wide agent search and route action discovery.
+App-wide Search is disabled and archived under `archive/app-wide-search/`.
+Existing page-local filters remain available.
 
 Rules:
 
-1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal`, not route-local floating search bars.
+1. Do not mount the archived global palette or add replacement app-wide Search launchers.
 2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
-3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
+3. Local filters must stay inside the surface they filter.
 4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
 5. Search empty/loading/error states should use existing list/table/surface primitives and Sonner for transient failures, not page-level banners that shift layout.
 6. Mobile search overlays must respect `--top-shell-reserved-height`, bottom command chrome, and the shared scroll root; do not add raw viewport or safe-area math in route files.
@@ -467,7 +468,7 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 The iOS 26+ native wrapper is the presentation exception: Apple's standard
 `UITabBar` replaces the DOM segments only after native acknowledgement. The
-same React action resolver and five-item sequence remain authoritative; web,
+same React action resolver and four-item sequence remain authoritative; web,
 Android and older wrappers retain the segmented control. The native bar and
 web voice slot remain pinned, with measured bottom clearance and one home
 inset. Shared overlay mounts, vault/session gates, keyboard and native privacy
@@ -476,7 +477,7 @@ state must isolate native controls as well as DOM controls. See the
 
 Rules:
 
-1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.
+1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, and `Feed`, in that order. `Chat` is the canonical `/` route. App-wide Search is disabled: no palette mount, Search segment, keyboard/event launcher, or URL-based activation remains. Inert source snapshots live in `archive/app-wide-search/`.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`,
    `Clients`, and `Picks`. The central route registry remains the selection
@@ -928,14 +929,14 @@ Rules:
 8. Empty or single-page list views must not render pagination chrome.
 9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
 10. A stock-analysis preview is a reversible decision state. It must retain a
-    visible path to the recommendations/history view and to the shared stock
-    search; a selected ticker must never trap a person in a preview or require
+    visible path to the recommendations/history view and research starters;
+    a selected ticker must never trap a person in a preview or require
     browser navigation to research a different stock.
 
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed / Search`; Profile remains the rightmost top-bar action.
+2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed`; Profile remains the rightmost top-bar action.
 3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
 5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.

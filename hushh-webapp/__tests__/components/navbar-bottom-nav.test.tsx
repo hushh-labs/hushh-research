@@ -33,7 +33,7 @@ const kaiSessionMock = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams("search=1"),
   useRouter: () => ({ push: navigationMock.push }),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -84,8 +84,9 @@ describe("Navbar bottom utilities", () => {
       within(routeNav)
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["Chat", "One", "Connect", "Feed", "Search"]);
+    ).toEqual(["Chat", "One", "Connect", "Feed"]);
     expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Search" })).toBeNull();
     unmount();
   });
 
@@ -158,7 +159,7 @@ describe("Navbar bottom utilities", () => {
       within(screen.getByRole("radiogroup", { name: "Route navigation" }))
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["Chat", "One", "Connect", "Feed", "Search"]);
+    ).toEqual(["Chat", "One", "Connect", "Feed"]);
     expect(
       screen.queryByRole("radiogroup", { name: "Workspace navigation" }),
     ).toBeNull();
@@ -166,7 +167,7 @@ describe("Navbar bottom utilities", () => {
       screen
         .getByRole("radiogroup", { name: "Route navigation" })
         .getAttribute("style"),
-    ).toContain("grid-template-columns: repeat(5, minmax(0, 1fr))");
+    ).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "max-w-[var(--app-bottom-shell-max-width)]",
     );
@@ -177,7 +178,7 @@ describe("Navbar bottom utilities", () => {
 
   // Regression: a `lg:hidden` was added to the nav root in a chrome-polish pass,
   // which removed the primary navigation entirely above 1024px. Nothing renders
-  // One / Connect / Feed / Search at desktop widths, so the bar must never be
+  // One / Connect / Feed at desktop widths, so the bar must never be
   // gated behind a viewport breakpoint.
   it.each(["fixed", "slot"] as const)(
     "renders the %s bottom nav at every viewport width",

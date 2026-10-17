@@ -76,7 +76,6 @@ import { WorldModelProvider } from "@/components/profile/world-model-provider";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 import { WalletProfileBootstrap } from "@/components/wallet-card/wallet-profile-bootstrap";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
-import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
 import { useNativeNavigationInstalled } from "@/lib/capacitor/native-navigation";
@@ -343,11 +342,6 @@ function AppShellFrame({ children }: ProvidersProps) {
           : effectiveHideCommandBar
             ? "calc(var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem)) + var(--bottom-chrome-fade-overscan))"
             : "calc(var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))) + var(--bottom-chrome-fade-overscan))",
-        "--bottom-chrome-search-height": bottomChromeHidden
-          ? "0px"
-          : effectiveHideCommandBar
-            ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
-            : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         // Sticky actions need only the clearance not already reserved on the
         // scroll root. Fullscreen flows put that padding on their child shell.
         "--app-sticky-bottom-offset":
@@ -398,10 +392,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   // bar follow scroll progress and visibly bounce on research, blog, and
   // developers pages.
   const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;
-  // The canonical root is dual-mode: anonymous visitors get onboarding, while
-  // authenticated owners get Chat plus the signed-in shell. Its command
-  // palette is mounted as a global dialog even though it has no idle chrome;
-  // Search therefore remains available from the first bottom-nav segment.
   const hideBottomNavigation =
     effectiveHideCommandBar || foundationVoiceOnlyChrome;
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
@@ -689,12 +679,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                         >
                           {!hidesPersistentChrome && !isCanonicalChatRoute ? (
                             <AppTopShell model={topShellModel} />
-                          ) : null}
-                          {/* Search is requested from bottom navigation even on
-                          Chat; the closed palette adds no idle shell chrome. */}
-                          {!hidesPersistentChrome &&
-                          !effectiveHideCommandBar ? (
-                            <KaiCommandBarGlobal />
                           ) : null}
                           <Suspense
                             fallback={

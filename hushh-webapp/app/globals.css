@@ -3352,21 +3352,6 @@ html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
     visibility 0s linear 150ms;
 }
 
-/* The search palette sits above the bottom chrome so the tab bar stays
- * reachable. With a keyboard up the tab bar is not on screen (the keyboard
- * covers it on iOS, it steps aside on Android), yet its height was still
- * reserved: the palette floated ~160 dp above the keyboard and its top ran
- * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
-[data-keyboard-anchor="bottom"][data-search-surface] {
-  /* Bound the entire surface, including its input and padding, to the band
-   * between the status bar and the keyboard/chrome. Results alone may shrink. */
-  max-height: max(0px, calc(
-    100dvh - var(--kb-height, 0px) -
-    var(--palette-chrome-clearance, var(--bottom-chrome-stack-height, 0px)) -
-    var(--app-safe-area-top-effective, 0px) - 1rem
-  )) !important;
-}
-
 /* The small iPhone keyboard leaves room for the Circle search, result list,
    and invite action only when its already-read helper line is collapsed. */
 html.kb-open [data-circle-invite-picker] [data-slot="sheet-description"] {
@@ -3393,10 +3378,6 @@ html.kb-open [data-circle-invite-picker] .circle-invite-group > div:first-child 
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
-  --palette-chrome-clearance: 0px;
 }
 
 /* Android shrinks the viewport for the keyboard (html.kb-resizes), so the

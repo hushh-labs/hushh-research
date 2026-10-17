@@ -3,9 +3,10 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
-import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 
-export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
+export const NATIVE_NAVIGATION_CONTRACT_VERSION = 3;
+export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
 type Geometry = { supported: boolean; contentHeight: number; bottomInset: number };
 type Selection = { documentId: string; interactionEpoch: number; privacyGeneration: number; sequence: number; tab: NativeNavigationTab };
@@ -128,7 +129,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     void (async () => {
       try {
         const capability = await nativeNavigation.getCapabilities();
-        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
+        if (!capability.supported || capability.contractVersion !== NATIVE_NAVIGATION_CONTRACT_VERSION || cancelled) return;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {

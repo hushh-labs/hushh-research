@@ -3,7 +3,8 @@ import UIKit
 
 /// Presentation metadata only. React retains routing, consent and session authority.
 struct HushhNativeNavigationState {
-    static let tabs = ["chat", "dashboard", "connect", "feed", "search"]
+    static let contractVersion = 3
+    static let tabs = ["chat", "dashboard", "connect", "feed"]
     private(set) var documentId: String?
     private(set) var revision = -1
     private(set) var visible = false
@@ -81,9 +82,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
         }
     }
@@ -149,9 +150,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.isHidden = true
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
-        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
+        let labels = ["Chat", "One", "Connect", "Feed"]
         // Solid glyphs: full silhouette with the semantic detail cut out as negative space.
-        let symbols = ["bubble.left.and.bubble.right.fill", "square.grid.2x2.fill", "safari.fill", "newspaper.fill", "magnifyingglass.circle.fill"]
+        let symbols = ["bubble.left.and.bubble.right.fill", "square.grid.2x2.fill", "safari.fill", "newspaper.fill"]
         bar.unselectedItemTintColor = .label
         bar.items = zip(labels, symbols).enumerated().map { index, pair in
             let item = UITabBarItem(title: pair.0, image: UIImage(systemName: pair.1), tag: index)
