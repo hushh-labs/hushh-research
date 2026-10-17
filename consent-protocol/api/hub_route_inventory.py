@@ -172,6 +172,10 @@ GET,POST /api/one/referrals/circle
 GET,POST /api/one/referrals/handle
 GET /api/one/referrals/leaderboard
 GET /api/one/referrals/circles/leaderboard
+GET /api/one/referrals/circle-wars
+GET /api/one/referrals/circle-wars/circles/{circle_id}
+GET /api/one/referrals/circle-wars/leaderboard
+POST /api/one/referrals/circle-wars/participation
 GET /api/one/referrals/milestones
 GET /api/one/referrals/engagement
 POST /api/one/capabilities/execute
