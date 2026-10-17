@@ -2216,6 +2216,22 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(onAction).toHaveBeenCalledWith("one"));
     expect(bridge.prepare.mock.calls.at(-1)![0].value).toBe("puppy"); // No second selector state.
   });
+  it("returns web focus without native eligibility while refusing covered fallback", async () => {
+    bridge.platform = "web";
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    const handle = createRef<NativeChatChromeHandle>();
+    const view = render(<ChatHarness owner="" eligible={false} handle={handle} />);
+    const button = view.getByRole("button", { name: "Authored history" });
+    await act(async () => { expect(await handle.current!.restoreFocus()).toBe(true); });
+    expect(button).toHaveFocus();
+    button.blur();
+    button.parentElement!.setAttribute("inert", "");
+    await act(async () => { expect(await handle.current!.restoreFocus()).toBe(false); });
+    expect(button).not.toHaveFocus();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(bridge.restoreFocus).not.toHaveBeenCalled();
+  });
+
   it("restores authored focus only after native retirement and holds fallback until blur", async () => {
     admitChat(); measureSlot();
     const handle = createRef<NativeChatChromeHandle>();

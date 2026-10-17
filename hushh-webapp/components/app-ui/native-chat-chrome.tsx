@@ -160,10 +160,11 @@ export function NativeChatChrome(props: Props) {
     setRehearsalStatus(previous => previous ? JSON.stringify({ ...JSON.parse(previous), choice }) : previous);
   }, []);
 
-  const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
+  const canFocusDom = useCallback(() => !nativeShellOverlayBlocked(current.current.owningLayer) &&
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
+  const canAct = useCallback(() => current.current.allowed && canFocusDom(), [canFocusDom]);
   // Preparing presentation grants no operation authority. A detail destination
   // is laid out while its native menu is still closing; rejecting preparation
   // solely for that coverage would expose a web Back or leave an empty slot.
@@ -248,6 +249,16 @@ export function NativeChatChrome(props: Props) {
     const attempt = ++focusAttempt.current;
     const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
       current.current.epoch === request.epoch && current.current.context === request.context;
+    // Web fallback remains keyboard-accessible while logged out or locked.
+    // Native eligibility never grants or removes that authored DOM behavior.
+    if (kind === "history" && !Capacitor.isNativePlatform() && !customNativePresentationEnabled() &&
+        !lease.current && !hasOutstandingNativeChrome(controlId)) {
+      const target = request.props.focusRef.current;
+      if (!isCurrentAttempt() || !canFocusDom() || !target?.isConnected ||
+          target.closest("[hidden], [inert]") || getComputedStyle(target).visibility === "hidden") return false;
+      target.focus({ preventScroll: true });
+      return document.activeElement === target;
+    }
     // Focus is not authority to retire a covered or moving presentation.
     // The owning admission effect reconciles it after the overlay releases.
     if (!canAct()) return false;
