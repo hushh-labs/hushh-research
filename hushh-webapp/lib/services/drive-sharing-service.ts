@@ -41,6 +41,16 @@ export type SharingStatus = DocumentRequestSetup & {
   payment?: RequesterPaymentView | null;
   /** Requester only: estimate, current and final price; null when absent or malformed. */
   price?: RequesterPriceView | null;
+} & DocumentRequestQueue;
+/**
+ * An allowed or Trusted request waiting in the durable queue with no search
+ * started. Both fields are present together, or neither (older servers).
+ */
+export type DocumentRequestQueue = {
+  /** When the request became due for the scheduled drain. */
+  queuedAt?: string;
+  /** Still waiting past the server's threshold; the request is saved and continues. */
+  queueDelayed?: boolean;
 };
 /** A decision's acknowledgement; a withdrawal also carries the payment view. */
 export type SharingDecision = Record<string, unknown> & {
@@ -197,7 +207,9 @@ export type SharingReview = DocumentRequestSetup & {
   estimateCents?: number;
   /** Owner-only, current ledger projection for a paid document request. */
   ownerPayout?: OwnerDocumentPayout | null;
-};
+  /** This request accepts whole-dollar prices from $1 only; the server refuses others. */
+  wholeDollarPrice?: boolean;
+} & DocumentRequestQueue;
 export type OwnerDocumentPayoutStatus =
   | "awaiting_delivery"
   | "awaiting_refund"
@@ -941,6 +953,15 @@ function withoutEmptySearchProgress(value: RecordValue): RecordValue {
 }
 
 /** Absent on older servers; otherwise strictly a boolean. */
+/** Additive queue fields; a malformed pair is dropped, never a failed read. */
+function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueue {
+  const { queuedAt, queueDelayed } = result;
+  return typeof queuedAt === "string" && !Number.isNaN(Date.parse(queuedAt)) &&
+    typeof queueDelayed === "boolean"
+    ? { queuedAt, queueDelayed }
+    : {};
+}
+
 function optionalFlag(value: unknown): boolean | undefined {
   if (value === undefined || typeof value === "boolean") return value;
   throw new DriveSharingError("invalid_response");
@@ -1268,6 +1289,7 @@ export class DriveSharingService {
         ? { price: parseRequesterPriceView(result.price) }
         : {}),
       ...parseRequestSetup(result),
+      ...parseRequestQueue(result),
     };
   }
 
@@ -1557,7 +1579,9 @@ export class DriveSharingService {
         ? { estimateCents: result.estimateCents }
         : {}),
       ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
+      ...(result.wholeDollarPrice === true ? { wholeDollarPrice: true } : {}),
       ...parseRequestSetup(result),
+      ...parseRequestQueue(result),
     };
   }
 
