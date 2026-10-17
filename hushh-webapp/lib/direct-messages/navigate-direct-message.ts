@@ -1,20 +1,29 @@
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import { DirectMessagesService } from "@/lib/services/direct-messages-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 type Selection = { conversationId?: string | null; personRef?: string | null };
 
 /** Mint before navigation so business identifiers never enter browser history. */
 export async function resolveDirectMessageHref(selection: Selection): Promise<string | null> {
-  const { auth } = await import("@/lib/firebase/config");
-  const user = auth.currentUser;
-  if (!user) throw new Error("Sign in required");
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner) throw new Error("Sign in required");
+  // Native auth can be restored before Firebase JS has a currentUser. Reuse
+  // the bounded platform-aware lookup and reject another account's token.
+  const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: owner.userId });
+  if (!isValidatedAuthSessionOwnerCurrent(owner)) return null;
+  if (!idToken) throw new Error("Sign in required");
   const href = await DirectMessagesService.routeHref({
-    idToken: await user.getIdToken(),
+    idToken,
     ...(selection.conversationId
       ? { conversationId: selection.conversationId }
       : { personRef: selection.personRef || "" }),
   });
-  return auth.currentUser?.uid === user.uid ? href : null;
+  return isValidatedAuthSessionOwnerCurrent(owner) ? href : null;
 }
 
 export async function navigateDirectMessage(
