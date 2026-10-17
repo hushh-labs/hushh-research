@@ -65,7 +65,6 @@ import {
 } from "@/lib/profile/gmail-receipts-cache";
 
 import styles from "./one-agent-profile-sheet.module.css";
-import panelStyles from "@/components/app-ui/profile-panel-surface.module.css";
 
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
@@ -449,7 +448,7 @@ export function OneAgentProfileSheet({
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
-        className={`${panelStyles.surface} ${styles.sheet}`}
+        className={styles.sheet}
         showCloseButton={false}
         contentDragDismiss={false}
         onCloseAutoFocus={(event) => {
