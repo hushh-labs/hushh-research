@@ -365,24 +365,6 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         assert "duplicate PLAYWRIGHT_SHARD" in str(error)
     else:
         raise AssertionError("duplicated workflow environment was accepted")
-    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
-
-    full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
-    shards = re.search(r"shard: \[([0-9, ]+)\]", full)
-    assert shards, "web-full-suite-check has no shard matrix"
-    indexes = [int(value) for value in shards.group(1).split(",")]
-    count = len(indexes)
-    assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
-    assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
-    assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
-    assert "fail-fast: false" in full
-
-    gate = workflow[workflow.index("  ci-status:") :]
-    assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
-    assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
-    assert '[ "$WEB_TARGETED" != "success" ]' in gate
-    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
-    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:

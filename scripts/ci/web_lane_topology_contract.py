@@ -61,6 +61,7 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
     gate = workflow[workflow.index("  ci-status:") :]
     assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
     assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
+    assert '[ "$WEB_TARGETED" != "success" ]' in gate
     assert (
         "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\""
         in gate
