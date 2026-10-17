@@ -17,6 +17,7 @@ an Allow, as it never restores revoked scope grants or named Circles.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -38,6 +39,15 @@ LEGACY_DEFAULT_PRICE_CENTS = 1_000
 # payment with no owner file selection, at a price from $0.50 in cents. Older
 # sealed requests keep their own price and review contract.
 AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
+
+
+def autoshare_enabled() -> bool:
+    """New requests seal the autoshare flow everywhere except production.
+
+    Production keeps the owner-review flow until it is approved there; requests
+    already sealed keep their own contract either way.
+    """
+    return os.getenv("ENVIRONMENT", "").strip().lower() != "production"
 
 
 def autoshare_request(private: Mapping[str, Any]) -> bool:
