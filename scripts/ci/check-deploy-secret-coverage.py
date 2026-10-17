@@ -50,6 +50,10 @@ _CURATED = re.compile(
     r"for s in \$\(echo \"\$\{(_[A-Z0-9_]+_SECRETS)\}\" \| tr '\+' ' '\); do"
 )
 _DEFAULT = re.compile(r"^  (_[A-Z0-9_]+_SECRETS?):[ ]*(.*?)[ ]*$", re.MULTILINE)
+_OPTIONAL_NAMES = re.compile(r'^\s+- "OPTIONAL_SECRET_NAMES=([^"]+)"$', re.MULTILINE)
+_OPTIONAL_BINDINGS = re.compile(
+    r'^\s+- "OPTIONAL_SECRET_BINDINGS=([^"]+)"$', re.MULTILINE
+)
 
 
 def _defaults(text: str) -> dict[str, str]:
@@ -58,6 +62,37 @@ def _defaults(text: str) -> dict[str, str]:
         name: value.strip().strip('"').strip("'")
         for name, value in _DEFAULT.findall(text)
     }
+
+
+def _bundled_optional_substitutions(text: str) -> list[str]:
+    """Recognize the counted, name-checked env bundle used by deploy-backend."""
+    marker = '    id: "deploy-backend"'
+    if marker not in text:
+        raise ValueError("deploy-backend Cloud Build step is missing")
+    step = text.split(marker, 1)[0].rsplit("\n  - name:", 1)[-1]
+    names_match = _OPTIONAL_NAMES.search(step)
+    bindings_match = _OPTIONAL_BINDINGS.search(step)
+    if not names_match and not bindings_match:
+        return []
+    if not names_match or not bindings_match:
+        raise ValueError("Optional secret names and bindings must both be present")
+    if 'add_secret "$secret_name" "${optional_secret_names[i]}"' not in step:
+        raise ValueError("Optional secret bundle is not consumed by deploy-backend")
+
+    names = names_match.group(1).split("|")
+    bindings = bindings_match.group(1).split("|")
+    if len(names) != len(bindings) or len(names) != len(set(names)):
+        raise ValueError("Optional secret bundle has missing or duplicate names")
+    substitutions: list[str] = []
+    for name, binding in zip(names, bindings, strict=True):
+        substitution = f"_{name}_SECRET"
+        if (
+            not re.fullmatch(r"[A-Z][A-Z0-9_]*", name)
+            or binding != f"{name}=${{{substitution}}}"
+        ):
+            raise ValueError(f"Optional secret binding does not match {name}")
+        substitutions.append(substitution)
+    return substitutions
 
 
 def bound_substitutions() -> list[str]:
@@ -73,10 +108,11 @@ def bound_substitutions() -> list[str]:
     defaults = _defaults(text)
     names: list[str] = list(_BIND.findall(text))
     names.extend(_CURATED.findall(text))
+    names.extend(_bundled_optional_substitutions(text))
     for match in _LOOP.finditer(text):
         # Ordinary environment loops use _${n}, not _${n}_SECRET. They must
         # not create fictitious secret bindings or baseline exemptions.
-        body = text[match.end():].split("done", 1)[0]
+        body = text[match.end() :].split("done", 1)[0]
         if 'v="_${n}_SECRET"' not in body or 'add_secret "${!v}" "${n}"' not in body:
             continue
         names.extend(f"_{env}_SECRET" for env in match.group(1).split())
@@ -147,7 +183,9 @@ def main() -> int:
         return 1
 
     lanes = ", ".join(baseline["lanes"])
-    print(f"Deploy secret coverage OK: {len(bound)} bound secrets checked across {lanes}.")
+    print(
+        f"Deploy secret coverage OK: {len(bound)} bound secrets checked across {lanes}."
+    )
     return 0
 
 

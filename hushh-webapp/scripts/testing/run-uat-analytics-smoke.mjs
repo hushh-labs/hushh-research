@@ -352,7 +352,65 @@ page.setDefaultNavigationTimeout(defaultTimeoutMs);
 page.setDefaultTimeout(defaultTimeoutMs);
 await installAnalyticsCapture(page);
 const candidateAsset5xx = [];
+const browserErrors = [];
+const failedRequests = [];
 let smokePhase = "initial_navigation";
+
+// Keep failure diagnostics useful without logging browser console text, URLs
+// with query strings, reviewer identifiers, or values from the page.
+function classifyBrowserError(message) {
+  const value = String(message || "");
+  if (/ChunkLoadError|loading (?:css )?chunk/i.test(value)) return "chunk_load";
+  if (/hydration|react error|text content does not match/i.test(value)) {
+    return "hydration";
+  }
+  if (/content security policy|refused to (?:load|execute)/i.test(value)) {
+    return "content_security_policy";
+  }
+  if (/SyntaxError/i.test(value)) return "syntax_error";
+  if (/ReferenceError|is not defined/i.test(value)) return "reference_error";
+  if (/TypeError|cannot read properties/i.test(value)) return "type_error";
+  if (/net::ERR_|failed to fetch|NetworkError/i.test(value)) return "network";
+  return "other";
+}
+
+function safeRequestLocation(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname;
+    return {
+      origin: parsed.origin === appOrigin ? "candidate" : "external",
+      path:
+        pathname === "/login" || pathname === "/one/kai"
+          ? pathname
+          : pathname.startsWith("/_next/static/")
+            ? "/_next/static/*"
+            : pathname.startsWith("/api/")
+              ? "/api/*"
+              : "<redacted>",
+    };
+  } catch {
+    return { origin: "unknown", path: "<redacted>" };
+  }
+}
+
+function recordFailedRequest(request, status = 0) {
+  if (failedRequests.length >= 8) return;
+  failedRequests.push({
+    ...safeRequestLocation(request.url()),
+    resourceType: request.resourceType(),
+    status,
+  });
+}
+
+page.on("pageerror", (error) => {
+  if (browserErrors.length >= 8) return;
+  browserErrors.push({ source: "pageerror", kind: classifyBrowserError(error.message) });
+});
+page.on("console", (message) => {
+  if (message.type() !== "error" || browserErrors.length >= 8) return;
+  browserErrors.push({ source: "console", kind: classifyBrowserError(message.text()) });
+});
 
 page.on("response", (response) => {
   if (
@@ -363,6 +421,9 @@ page.on("response", (response) => {
     })
   ) {
     candidateAsset5xx.push(response.status());
+  }
+  if (response.status() >= 400) {
+    recordFailedRequest(response.request(), response.status());
   }
 });
 
@@ -421,6 +482,7 @@ async function recordCollectRequestFailure(request) {
 }
 
 page.on("requestfailed", (request) => {
+  recordFailedRequest(request);
   void recordCollectRequestFailure(request);
 });
 
@@ -660,6 +722,14 @@ try {
     events: [],
     measurementIds: [],
   }));
+  const pageState = await page.evaluate(() => ({
+    pathname: window.location.pathname,
+    title: document.title,
+    readyState: document.readyState,
+    gaBasePresent: Boolean(document.getElementById("ga-base")),
+    gaLoaderPresent: Boolean(document.getElementById("ga-loader")),
+  })).catch(() => null);
+  const pageLocation = safeRequestLocation(page.url());
   const reason = error instanceof Error ? error.message : String(error);
   const observedEventNames = [
     ...new Set((state.events || []).map((entry) => entry.event)),
@@ -700,6 +770,26 @@ try {
               .map((entry) => `${entry.eventName}:${entry.status}`),
           ),
         ].sort(),
+        page: {
+          origin: pageLocation.origin,
+          pathname:
+            pageState?.pathname === "/login" ||
+            pageState?.pathname === "/kai" ||
+            pageState?.pathname === "/one/kai"
+              ? pageState.pathname
+              : "<redacted>",
+          title:
+            pageState?.title === "Hussh One | Your Private Agent"
+              ? pageState.title
+              : pageState?.title
+                ? "<redacted>"
+                : "",
+          readyState: pageState?.readyState || "unavailable",
+          gaBasePresent: pageState?.gaBasePresent ?? false,
+          gaLoaderPresent: pageState?.gaLoaderPresent ?? false,
+        },
+        browserErrors,
+        failedRequests,
       },
       null,
       2,
