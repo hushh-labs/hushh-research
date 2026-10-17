@@ -11,6 +11,7 @@ import pytest
 from hushh_mcp.services import drive_owner_search_service as search_module
 from hushh_mcp.services import google_drive_rest_transport as rest
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_match_evidence import POSSIBLE_KINDS, awaiting_owner
 from hushh_mcp.services.drive_owner_allowed import LEGACY_REQUEST_POLICY
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
@@ -1554,6 +1555,16 @@ def _request_candidate(identity, name, mime="application/vnd.google-apps.documen
     return {**_provider_file(identity, name, mime, **changes), "title": name}
 
 
+def _auto_claimable(checkpoint, files):
+    """What autoshare may claim: a possible match (D3) never counts."""
+    return {file["id"]: file["shareable"] for file in files if not awaiting_owner(checkpoint, file)}
+
+
+def _possible_ids(files):
+    """Results kept only as owner-only possible matches, tagged by the search."""
+    return {file["id"] for file in files if file.get("evidenceKind") in POSSIBLE_KINDS}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("order", ["modifiedTime desc", "createdTime desc"])
 async def test_folder_continuation_keeps_its_saved_provider_order(order):
@@ -1899,10 +1910,13 @@ async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(
     files, _ = await service._request_candidates(
         {"user_id": "owner"}, checkpoint, candidates, folder_scoped=folder_scoped, drive_id=None
     )
-    assert {file["id"]: file["shareable"] for file in files} == {
-        "pricing": True,
-        "titled": True,
-    }
+    assert _auto_claimable(checkpoint, files) == {"pricing": True, "titled": True}
+    # The unrelated notes never autoshare. An autoshare brain search keeps
+    # them only as owner-only possible matches (D3); a topical folder's
+    # children and a model plan keep none.
+    possible = {"hr", "therapy", "acme"} if planned_by == "brain" and not folder_scoped else set()
+    assert _possible_ids(files) == possible
+    assert {file["id"] for file in files} == {"pricing", "titled"} | possible
 
 
 @pytest.mark.asyncio
@@ -1943,7 +1957,8 @@ async def test_autoshare_specific_meeting_kind_never_shares_every_gemini_note(te
         {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
     )
     # A Gemini title stands in for the generic ask only; the kind must be named.
-    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+    assert _auto_claimable(checkpoint, files) == {"own": True}
+    assert _possible_ids(files) == ({"therapy"} if planned_by == "brain" else set())
     # Negative control: the generic ask shares every in-period Gemini note.
     service, generic = await _autoshare_checkpoint(text="meeting notes", planned_by=planned_by)
     files, _ = await service._request_candidates(
@@ -2083,7 +2098,9 @@ async def test_brain_autoshare_never_shares_a_title_the_request_did_not_name(tex
         drive_id=None,
     )
     # Positive control: the title the request names is still shared.
-    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+    assert _auto_claimable(checkpoint, files) == {"own": True}
+    # Every other title waits for the owner's tap as a possible match.
+    assert _possible_ids(files) == {f"other{n}" for n in range(len(unrelated))}
 
 
 @pytest.mark.parametrize(

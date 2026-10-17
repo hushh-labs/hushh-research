@@ -841,6 +841,25 @@ describe("exact-file document review", () => {
     expect(screen.queryByText("No file candidates in this search")).toBeNull();
   });
 
+  it("says all files were sent only when the owner's search reached every file", async () => {
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "completed" });
+    state.delivery.mockResolvedValue({ status: "completed", files: [], bulkShareId,
+      fileCount: 3, sharedCount: 3 });
+    const full = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    await waitFor(() => expect(screen.getAllByRole("status")[0])
+      .toHaveTextContent("All files sent · 3 files"));
+    full.unmount();
+
+    // Partial coverage (a shared folder only partly searched, or files left
+    // unread): the requester never reads "All files sent".
+    state.delivery.mockResolvedValue({ status: "completed", files: [], bulkShareId,
+      fileCount: 3, sharedCount: 3, coveragePartial: true });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    await waitFor(() => expect(screen.getAllByRole("status")[0])
+      .toHaveTextContent("Files sent · 3 files"));
+    expect(screen.getAllByRole("status")[0]).not.toHaveTextContent("All files sent");
+  });
+
   it("tells A when matching files couldn't be read", async () => {
     state.review.mockResolvedValue({
       ...review(),

@@ -21,6 +21,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_match_evidence import EVIDENCE_KIND_FIELD, TITLE
 from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     automatic_recipient_current,
@@ -368,6 +369,28 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 and not checkpoint.get("request_rank_pruned", False)
                 and checkpoint.get("evidence_route") not in {"index", "packet"},
             }
+            if "contentCheck" in manifest:
+                # Owner-only counts for possible matches (D3) and the content
+                # phase: how many files were read, never which or what they say.
+                counts = checkpoint.get("coverage_counts", {})
+                result["coverage"].update(
+                    {
+                        "contentCheck": manifest["contentCheck"],
+                        **{
+                            key: counts.get(key, 0)
+                            for key in (
+                                "possibleMatchCount",
+                                "possibleMatchesDropped",
+                                "contentCheckPages",
+                                "contentFilesSelected",
+                                "contentFilesRead",
+                                "contentPossibleMatches",
+                                "contentCandidatesDropped",
+                            )
+                        },
+                        "contentCheckIncomplete": counts.get("contentCheckIncomplete") is True,
+                    }
+                )
         if checkpoint.get("request_origin_id"):
             # This owner-only bit lets an old completed request search be
             # refreshed before review. The checkpoint and result metadata
@@ -1523,6 +1546,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 raise DriveReadError("search_superseded")
             count = row["matched"]
             unshareable = row.get("unshareable_count", 0)
+            # Possible matches (D3) this commit adds, after the dedupe above.
+            possible = 0
             limited = False
             invalid_ranking = False
             if len(files) > 100 and count + len(files) <= MAX_RESULTS:
@@ -1554,6 +1579,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     existing.add(digest)
                     count += 1
                     unshareable += int(item.get("shareable") is False)
+                    possible += int(item.get(EVIDENCE_KIND_FIELD, TITLE) != TITLE)
                     pending.append(
                         {
                             "job": job["job_id"],
@@ -1601,6 +1627,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         checkpoint["request_candidate_pool_pruned"] = True
                     count += 1
                     unshareable += int(item.get("shareable") is False)
+                    possible += int(item.get(EVIDENCE_KIND_FIELD, TITLE) != TITLE)
                     connection.execute(
                         text(
                             "INSERT INTO drive_owner_search_results(job_id,user_id,position,file_digest,metadata_envelope) VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"
@@ -1618,6 +1645,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             ),
                         },
                     )
+            if possible:
+                counts = checkpoint.setdefault("coverage_counts", {})
+                counts["possibleMatchCount"] = counts.get("possibleMatchCount", 0) + possible
             limited = limited or selection is None and count == MAX_RESULTS and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
             if selection is not None:

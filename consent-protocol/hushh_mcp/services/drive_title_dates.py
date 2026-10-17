@@ -24,7 +24,13 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hushh_mcp.services.drive_text_tokens import ascii_digits
+# The content check's parser child loads this module beside its own file,
+# with no hushh_mcp package on its path (drive_content_check_leaf): import the
+# pure sibling the same way, never through the package.
+if __package__:
+    from .drive_text_tokens import ascii_digits
+else:  # pragma: no cover - exercised in the parser child process
+    from drive_text_tokens import ascii_digits
 
 _MONTHS = {
     "jan": 1,

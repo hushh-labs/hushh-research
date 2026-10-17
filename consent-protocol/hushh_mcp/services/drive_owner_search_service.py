@@ -15,11 +15,26 @@ import re
 import time
 from calendar import monthrange
 from contextlib import nullcontext
+from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from hushh_mcp.services.drive_content_check_port import (
+    ContentCheckBudget,
+    brain_concept_groups,
+    default_content_check,
+)
+from hushh_mcp.services.drive_file_routing import content_route
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
+from hushh_mcp.services.drive_match_evidence import (
+    CONTENT,
+    CORRECTED,
+    SYNONYM,
+    WALK,
+    possible_match_fields,
+)
+from hushh_mcp.services.drive_owner_allowed import autoshare_enabled
 from hushh_mcp.services.drive_owner_index_port import MAX_LOCAL_CANDIDATES, default_owner_index
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
@@ -108,6 +123,38 @@ _WALK_SEEDS = {
     "seed_folders": f"sharedWithMe = true and mimeType = '{FOLDER_MIME}'",
     "seed_shortcuts": f"mimeType = '{SHORTCUT_MIME}'",
 }
+# Possible matches (decision D3). An autoshare search keeps a candidate that
+# passes the kind, period and shareability checks but lacks title evidence,
+# tagged with how it was found (drive_match_evidence). Claims never send it
+# without the owner's tap. Planned only where autoshare is enabled
+# (autoshare_enabled: production keeps the owner-review flow, #8180).
+#
+# Request-time content check (research P1-8; drive_content_check_port). After
+# Drive's passes and the walk, a bounded phase reads Drive-blind candidates
+# (big, long or scanned PDFs, images, fresh uploads, non-Latin titles, files
+# reached only through a shared folder) in the parser child and keeps content
+# hits as possible matches. Candidates come from the walk's unmatched rows and
+# Gear 1's recent rows; they live in the encrypted checkpoint, bounded.
+CONTENT_CHECK_PHASE = "content_check"
+# Possible matches one search keeps. The owner's list shows at most 100; the
+# cap keeps discovery rows from crowding the result store title matches use.
+MAX_POSSIBLE_MATCHES = 200
+MAX_CONTENT_CANDIDATES = 40
+# Gear 1 rows scanned for Drive-blind candidates, newest change first.
+CONTENT_INDEX_ROWS = 400
+# Content pages one search may spend; the rest is reported as partial coverage.
+MAX_CONTENT_CHECK_PAGES = 12
+# One content page's wall clock, inside the 90-second slice.
+CONTENT_CHECK_PAGE_SECONDS = 40
+CONTENT_CHECK_BUDGET = ContentCheckBudget(
+    max_files=MAX_CONTENT_CANDIDATES,
+    max_bytes=256 * 1024 * 1024,
+    slice_seconds=CONTENT_CHECK_PAGE_SECONDS,
+    max_files_per_slice=6,
+    max_ocr_pages_per_slice=6,
+)
+# The slice's absolute deadline (``_clock`` time), so a content page fits it.
+_SLICE_DEADLINE: ContextVar[float | None] = ContextVar("drive_search_slice_deadline", default=None)
 _WALK_STAGES = frozenset({*_WALK_SEEDS, "folders", "done"})
 _MONTH_WINDOW = re.compile(
     r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
@@ -416,6 +463,32 @@ def _brain_title_evidence(brain, title: str) -> bool:
     )
 
 
+def _brain_discovery_named(brain, title: str) -> bool:
+    """The title names the request only through discovery spellings.
+
+    The same shape as ``_brain_title_evidence`` over every searched variant:
+    spelling fixes and loose synonyms included. Discovery only: it labels a
+    possible match ("Similar spelling", "Similar word") and never authorises
+    a share.
+    """
+    if not brain.topics and not brain.parts:
+        return False
+
+    def named(concept) -> bool:
+        return any(_brain_title_has(variant, title) for variant in concept.variants)
+
+    if not all(named(concept) for concept in brain.topics):
+        return False
+    if not brain.parts:
+        return True
+    return any(
+        part.concepts
+        and all(named(concept) for concept in part.concepts)
+        or any(_brain_title_has(item.phrase, title) for item in part.standalone)
+        for part in brain.parts
+    )
+
+
 def _brain_cased_evidence(brain, title: str) -> bool:
     """A cased abbreviation the requester typed ("MoM") in its own case."""
     return any(
@@ -700,6 +773,200 @@ def _shareability(source: dict) -> dict:
 def _counter(checkpoint: dict, key: str, amount: int = 1) -> None:
     counts = checkpoint.setdefault("coverage_counts", {})
     counts[key] = counts.get(key, 0) + amount
+
+
+def _possible_kind(
+    checkpoint: dict, match: dict, *, source: str, folder_scoped: bool
+) -> str | None:
+    """How a candidate without title evidence was found, when it may be listed.
+
+    Only a search planned with possible matches keeps one (D3); None keeps
+    the previous exclusion. A topical folder's generic children and a notes
+    request's agenda or recording are never possible matches. The label is
+    the evidence, not the gear: a walked file, then a title that names the
+    request only through a spelling fix or a loose synonym, then a Gear 1 name
+    found with typo or prefix tolerance, else a Drive content (fullText) hit.
+    """
+    if checkpoint.get("request_possible_matches") is not True or folder_scoped:
+        return None
+    if checkpoint.get("request_notes"):
+        from hushh_mcp.services.drive_content_compilation import _NON_NOTE_TITLE
+
+        if _title_search(_NON_NOTE_TITLE, match["name"]) or _title_search(
+            _NON_NOTE_TITLE, match.get("shortcut_name") or ""
+        ):
+            return None
+    if source == "walk":
+        return WALK
+    brain = _request_brain(checkpoint)
+    if brain is not None and _brain_discovery_named(brain, match["name"]):
+        return CORRECTED if brain.corrected else SYNONYM
+    if source == "index":
+        return CORRECTED
+    return CONTENT
+
+
+def _content_planned(checkpoint: dict) -> bool:
+    state = checkpoint.get("content_phase")
+    return isinstance(state, dict) and state.get("stage") == "planned"
+
+
+def _content_window_start(checkpoint: dict) -> str | None:
+    """The day before the picked period starts: older files are not read.
+
+    A file last changed before the period began rarely holds that period's
+    content; the content check still decides by the dates it reads.
+    """
+    period = checkpoint.get("requested_period")
+    start = period.get("start") if isinstance(period, dict) else None
+    try:
+        return (date.fromisoformat(start) - timedelta(days=1)).isoformat() if start else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _content_rest_row(compact: dict) -> dict:
+    """The REST shape the content check selects from (name, size, walk source)."""
+    return {
+        "id": compact["id"],
+        "name": compact["title"],
+        "mimeType": compact["mimeType"],
+        "createdTime": compact.get("createdTime"),
+        "modifiedTime": compact.get("modifiedTime"),
+        **({"size": compact["size"]} if type(compact.get("size")) is int else {}),
+        **({"source": "walk"} if compact.get("source") == "walk" else {}),
+    }
+
+
+def _content_candidate(checkpoint: dict, row: object, *, source: str) -> dict | None:
+    """A compact Drive-blind candidate for the content phase, or None.
+
+    Only files this request could share: the requested kind, a type the
+    parser child reads, downloadable (the routing facts: not restricted and
+    not client-side encrypted), canShare, not trashed, changed since the
+    period began, and not already named by the request's discovery spellings
+    (Gears 1 and 2 own those). A row outside a shared folder must also be
+    Drive-blind: too big for Drive's index, a likely long PDF, an image, a
+    fresh upload or a non-Latin title.
+    """
+    from hushh_mcp.services.drive_file_routing import file_size
+    from hushh_mcp.services.drive_request_content_check import (
+        READABLE_MIMES,
+        drive_blind_reasons,
+    )
+
+    match = DriveLiveReader._match(row)
+    if match is None or row.get("trashed") is True:
+        return None
+    mime = match["mime_type"]
+    kind = checkpoint.get("request_file_kind", "any")
+    if (
+        mime in {FOLDER_MIME, SHORTCUT_MIME}
+        or mime not in READABLE_MIMES
+        or not _request_candidate_kind_matches(checkpoint, kind, mime)
+        or not content_route(row).may_read_content
+        or _shareability(row).get("shareable") is not True
+    ):
+        return None
+    start = _content_window_start(checkpoint)
+    changed = [value[:10] for value in (match["modified_time"], match["created_time"]) if value]
+    if start is not None and (not changed or max(changed) < start):
+        return None
+    brain = _request_brain(checkpoint)
+    if brain is None or _brain_discovery_named(brain, match["name"]):
+        return None
+    compact = {
+        "id": match["file_id"],
+        "title": match["name"],
+        "mimeType": mime,
+        "createdTime": match["created_time"],
+        "modifiedTime": match["modified_time"],
+        "capabilities": {"canShare": True},
+        "source": "walk" if source == "walk" else "index",
+    }
+    size = file_size(row)
+    if size is not None:
+        compact["size"] = size
+    key = row.get("resourceKey")
+    if isinstance(key, str) and RESOURCE_KEY.fullmatch(key):
+        compact["resourceKey"] = key
+    if source != "walk" and not drive_blind_reasons(
+        _content_rest_row(compact), now=datetime.now(UTC)
+    ):
+        return None
+    return compact
+
+
+def _remember_content_candidates(checkpoint: dict, rows, *, source: str) -> int:
+    """Keep the newest Drive-blind candidates for the content phase, bounded.
+
+    The pool lives in the encrypted checkpoint (MAX_CONTENT_CANDIDATES rows,
+    within MAX_CHECKPOINT_BYTES). Candidates that do not fit are counted; the
+    content phase then reports partial coverage.
+    """
+    if not _content_planned(checkpoint) or not rows:
+        return 0
+    state = checkpoint["content_phase"]
+    pool = state.get("candidates")
+    if not isinstance(pool, list):
+        pool = state["candidates"] = []
+    known = {item.get("id") for item in pool if isinstance(item, dict)}
+    added = 0
+    for row in rows:
+        compact = _content_candidate(checkpoint, row, source=source)
+        if compact is None or compact["id"] in known:
+            continue
+        known.add(compact["id"])
+        pool.append(compact)
+        added += 1
+    if not added:
+        return 0
+    pool.sort(key=lambda item: item["id"])
+    pool.sort(key=lambda item: item.get("modifiedTime") or "", reverse=True)
+    dropped = max(0, len(pool) - MAX_CONTENT_CANDIDATES)
+    del pool[MAX_CONTENT_CANDIDATES:]
+    while pool and (
+        len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8")) > MAX_CHECKPOINT_BYTES
+    ):
+        pool.pop()
+        dropped += 1
+    if dropped:
+        _counter(checkpoint, "contentCandidatesDropped", dropped)
+    return added
+
+
+def _content_or_done(checkpoint: dict) -> bool:
+    """After Drive's passes and the walk: the planned content phase; else done."""
+    if checkpoint.get("request_origin_id") and _content_planned(checkpoint):
+        _phase(checkpoint, CONTENT_CHECK_PHASE)
+        return False
+    return True
+
+
+def _end_content(checkpoint: dict, outcome: str) -> bool:
+    """Close the content phase, the search's last pass: the search is done.
+
+    outcome: complete, partial (page cap), budget_exhausted, disabled (the
+    flag is off, or this is not the drained worker), not_needed or invalid.
+    Candidates and per-file results are dropped from the checkpoint; only
+    counts remain. Drive-blind candidates left unread make coverage partial.
+    """
+    state = checkpoint.get("content_phase")
+    if isinstance(state, dict):
+        for key in ("candidates", "check", "committed"):
+            state.pop(key, None)
+        state["stage"] = "done"
+    counts = checkpoint.setdefault("coverage_counts", {})
+    unread = outcome in {"partial", "budget_exhausted"} or (
+        outcome == "complete" and bool(counts.get("contentCandidatesDropped"))
+    )
+    if unread:
+        counts["contentCheckIncomplete"] = True
+        counts["coveragePartial"] = True
+    manifest = checkpoint.get("coverage_manifest")
+    if isinstance(manifest, dict):
+        manifest["contentCheck"] = "partial" if unread and outcome == "complete" else outcome
+    return True
 
 
 def _queue_folder(checkpoint: dict, match: dict, candidate: dict, *, drive_id=None) -> bool:
@@ -1488,7 +1755,8 @@ def _walk_planned() -> bool:
 
 
 def _walk_or_done(checkpoint) -> bool:
-    """After Drive's own passes, the planned shared-folder walk; else done."""
+    """After Drive's own passes, the planned shared-folder walk, then the content
+    phase; else done."""
     walk = checkpoint.get("shared_walk")
     if (
         checkpoint.get("request_origin_id")
@@ -1497,7 +1765,12 @@ def _walk_or_done(checkpoint) -> bool:
     ):
         _phase(checkpoint, "shared_walk")
         return False
-    return True
+    return _content_or_done(checkpoint)
+
+
+def _finish_walk(checkpoint, outcome: str) -> bool:
+    """Close the walk (see ``_end_walk``), then the planned content phase, if any."""
+    return _end_walk(checkpoint, outcome) and _content_or_done(checkpoint)
 
 
 def _walk_digest(identity: str) -> str:
@@ -1630,6 +1903,7 @@ class DriveOwnerSearchService:
         packet_matcher=None,
         packet_checker=None,
         owner_index=None,
+        content_check=None,
     ):
         self.store = store or DriveOwnerSearchStore()
         self.transport = transport or GoogleDriveRestTransport()
@@ -1640,6 +1914,9 @@ class DriveOwnerSearchService:
         self.packet_checker = packet_checker
         # Gear 1: the owner's local metadata index. The default is a no-op.
         self.owner_index = owner_index or default_owner_index()
+        # The request-time content check; None resolves the flag-gated
+        # default (a no-op outside the drained worker) at each phase page.
+        self.content_check = content_check
 
     def _facts_store(self):
         if self.facts is None:
@@ -2059,8 +2336,16 @@ class DriveOwnerSearchService:
             plan.get("exact_title")
             or (parsed_brain.concepts if parsed_brain is not None else plan.get("terms"))
         )
+        # A walked file can widen what an automatic search shares (by title,
+        # as any file). Production keeps the old flow until autoshare is
+        # approved there (#8180): its automatic searches do not walk. An
+        # owner-reviewed search may walk anywhere: the owner picks each file.
         walk_applies = bool(
-            not indexed and not v1_live_request and not direct_originals and walk_subject
+            not indexed
+            and not v1_live_request
+            and not direct_originals
+            and walk_subject
+            and (owner_review_required or autoshare_enabled())
         )
         walk_state = (
             {"stage": "seed_folders", "queue": [], "visited": [], "token": None, "tokens": []}
@@ -2069,6 +2354,18 @@ class DriveOwnerSearchService:
         )
         walk_manifest = (
             "planned" if walk_state else "disabled" if walk_applies else "not_applicable"
+        )
+        # Possible matches and the content phase (D3, P1-8): an autoshare
+        # search with a subject the brain holds it to, where autoshare is on.
+        # Neither ever widens what shares itself: claims still need title
+        # evidence or the owner's Send.
+        possible_matches = bool(
+            autoshare_dates
+            and autoshare_enabled()
+            and parsed_brain is not None
+            and parsed_brain.concepts
+            and result_limit is None
+            and not plan.get("exact_title")
         )
         state, created = await self.store.create(
             user_id=user_id,
@@ -2112,6 +2409,14 @@ class DriveOwnerSearchService:
                 **({"request_brain": parsed_brain.as_checkpoint()} if parsed_brain else {}),
                 **({"local_offset": 0} if local_first else {}),
                 **({"shared_walk": walk_state} if walk_state else {}),
+                **(
+                    {
+                        "request_possible_matches": True,
+                        "content_phase": {"stage": "planned", "candidates": []},
+                    }
+                    if possible_matches
+                    else {}
+                ),
                 **({"request_shared_with_me": True} if plan.get("shared_with_me") else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
@@ -2173,6 +2478,13 @@ class DriveOwnerSearchService:
                     **({"planSource": plan_source} if plan_source else {}),
                     **({"localIndexFirst": True} if local_first else {}),
                     "sharedFolderWalk": walk_manifest,
+                    # Owner-only: planned, then complete, partial,
+                    # budget_exhausted, disabled, not_needed or invalid.
+                    **(
+                        {"contentCheck": "planned", "possibleMatches": True}
+                        if possible_matches
+                        else {}
+                    ),
                     **(
                         {"sharedWithMeScope": "not_owned_user_corpus_and_walk"}
                         if plan.get("shared_with_me")
@@ -2348,7 +2660,14 @@ class DriveOwnerSearchService:
         await require_current()
         return result
 
-    async def _request_candidates(self, job, checkpoint, candidates, *, folder_scoped, drive_id):
+    async def _request_candidates(
+        self, job, checkpoint, candidates, *, folder_scoped, drive_id, found_by="drive"
+    ):
+        """Kind, title-evidence, period and shareability checks for one page.
+
+        found_by: "drive" (Gear 2), "index" (Gear 1) or "walk". It only labels
+        a possible match; every row passes the same checks whatever found it.
+        """
         targets = {}
         for candidate in candidates:
             if not isinstance(candidate, dict) or candidate.get("mimeType") != SHORTCUT_MIME:
@@ -2523,12 +2842,23 @@ class DriveOwnerSearchService:
             if not _request_candidate_kind_matches(checkpoint, kind, match["mime_type"]):
                 _counter(checkpoint, "excludedByKindCount")
                 continue
+            # A candidate without title evidence is kept only as a possible
+            # match (D3): tagged, listed for the owner, never auto-claimed.
+            possible = None
             if not _filename_candidate(checkpoint, match):
-                _counter(checkpoint, "excludedByFilenameCount")
-                continue
-            if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
-                _counter(checkpoint, "excludedByNoteTypeCount")
-                continue
+                possible = _possible_kind(
+                    checkpoint, match, source=found_by, folder_scoped=folder_scoped
+                )
+                if possible is None:
+                    _counter(checkpoint, "excludedByFilenameCount")
+                    continue
+            elif not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
+                possible = _possible_kind(
+                    checkpoint, match, source=found_by, folder_scoped=folder_scoped
+                )
+                if possible is None:
+                    _counter(checkpoint, "excludedByNoteTypeCount")
+                    continue
             if (
                 folder_scoped
                 and not checkpoint.get("request_notes")
@@ -2544,6 +2874,21 @@ class DriveOwnerSearchService:
             if not period_matches(match):
                 _counter(checkpoint, "excludedByDateCount")
                 continue
+            shareability = _shareability(source)
+            if possible is not None:
+                if shareability.get("shareable") is not True:
+                    # The owner could not send it: excluded, as before.
+                    _counter(checkpoint, "excludedByFilenameCount")
+                    continue
+                if (
+                    checkpoint.get("coverage_counts", {}).get("possibleMatchCandidates", 0)
+                    >= MAX_POSSIBLE_MATCHES
+                ):
+                    _counter(checkpoint, "possibleMatchesDropped")
+                    continue
+                # Counted before the store's dedupe (a file both passes find
+                # counts twice), so the cap only ever errs on the safe side.
+                _counter(checkpoint, "possibleMatchCandidates")
             files.append(
                 {
                     "id": match["file_id"],
@@ -2558,8 +2903,9 @@ class DriveOwnerSearchService:
                     ),
                     **({"resourceKey": key} if key else {}),
                     "openUrl": match["open_url"],
-                    **_shareability(source),
+                    **shareability,
                     **evidence,
+                    **(possible_match_fields(possible) if possible is not None else {}),
                 }
             )
         return files, incomplete
@@ -2611,6 +2957,13 @@ class DriveOwnerSearchService:
                 continue
             matched.update(dict.fromkeys(candidate.file["id"] for candidate in found))
         by_id = {row["id"]: row for row in rows if isinstance(row, dict) and "id" in row}
+        # A walked file whose name does not match is outside Google's user
+        # corpus, so Drive's fullText never read it: a content-phase candidate.
+        _remember_content_candidates(
+            checkpoint,
+            [row for identity, row in by_id.items() if identity not in matched],
+            source="walk",
+        )
         picked = [by_id[identity] for identity in matched if identity in by_id]
         shortcuts = [row for row in picked if row.get("mimeType") == SHORTCUT_MIME]
         if len(shortcuts) > MAX_WALK_SHORTCUTS:
@@ -2622,7 +2975,7 @@ class DriveOwnerSearchService:
         if not picked:
             return []
         files, _ = await self._request_candidates(
-            job, checkpoint, picked, folder_scoped=False, drive_id=None
+            job, checkpoint, picked, folder_scoped=False, drive_id=None, found_by="walk"
         )
         _counter(checkpoint, "sharedFolderWalkCandidates", len(files))
         return files
@@ -2644,16 +2997,16 @@ class DriveOwnerSearchService:
             or not isinstance(walk.get("queue"), list)
             or not isinstance(walk.get("visited"), list)
         ):
-            return checkpoint, [], False, _end_walk(checkpoint, "invalid")
+            return checkpoint, [], False, _finish_walk(checkpoint, "invalid")
         if not shared_walk_enabled():
             # The operator's switch (or a process that is not the worker)
             # stops the walk where it stands; nothing else changes.
-            return checkpoint, [], False, _end_walk(checkpoint, "stopped")
+            return checkpoint, [], False, _finish_walk(checkpoint, "stopped")
         stage = walk["stage"]
         if stage == "folders" and not walk["queue"]:
-            return checkpoint, [], False, _end_walk(checkpoint, "complete")
+            return checkpoint, [], False, _finish_walk(checkpoint, "complete")
         if counts.get("sharedFolderWalkCalls", 0) >= MAX_WALK_CALLS:
-            return checkpoint, [], False, _end_walk(checkpoint, "partial")
+            return checkpoint, [], False, _finish_walk(checkpoint, "partial")
         listing_read = getattr(self.transport, "read_owner_search_page", None)
         page_size = walk.get("page_size")
         if page_size not in WALK_PAGE_SIZES:
@@ -2696,11 +3049,12 @@ class DriveOwnerSearchService:
             _counter(checkpoint, "sharedFolderWalkUnavailable")
             walk["queue"].pop(0)
             walk.update(token=None, tokens=[])
-            done = (not walk["queue"] and _end_walk(checkpoint, "complete")) or (
-                counts["sharedFolderWalkCalls"] >= MAX_WALK_CALLS
-                and _end_walk(checkpoint, "partial")
-            )
-            return checkpoint, [], False, bool(done)
+            done = False
+            if not walk["queue"]:
+                done = _finish_walk(checkpoint, "complete")
+            elif counts["sharedFolderWalkCalls"] >= MAX_WALK_CALLS:
+                done = _finish_walk(checkpoint, "partial")
+            return checkpoint, [], False, done
         payload = result.payload
         rows = payload.get("files") if isinstance(payload, dict) else None
         incomplete = payload.get("incompleteSearch", False) if isinstance(payload, dict) else None
@@ -2753,13 +3107,13 @@ class DriveOwnerSearchService:
             else:
                 walk["queue"].pop(0)
                 _counter(checkpoint, "sharedFoldersWalked")
-        done = False
+        ended = None
         if walk["stage"] == "folders" and not walk["queue"]:
-            done = _end_walk(checkpoint, "complete")
+            ended = "complete"
         elif counts["sharedFolderWalkCalls"] >= MAX_WALK_CALLS:
-            done = _end_walk(checkpoint, "partial")
+            ended = "partial"
         while (
-            not done
+            ended is None
             and walk["queue"]
             and len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))
             > MAX_CHECKPOINT_BYTES
@@ -2770,11 +3124,13 @@ class DriveOwnerSearchService:
             _counter(checkpoint, "sharedFolderWalkSkipped")
             _walk_partial(checkpoint, "limit")
         if (
-            not done
+            ended is None
             and len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))
             > MAX_CHECKPOINT_BYTES
         ):
-            done = _end_walk(checkpoint, "partial")
+            ended = "partial"
+        # A walk that ends hands over to the content phase when one is planned.
+        done = _finish_walk(checkpoint, ended) if ended is not None else False
         return checkpoint, files, False, done
 
     async def _local_index_rows(self, job, checkpoint, *, allow_listing=False) -> list[dict]:
@@ -2842,7 +3198,7 @@ class DriveOwnerSearchService:
             logger.info("drive_search.local_index status=invalid_rows")
             candidates, rows = [], []
         files, _ = await self._request_candidates(
-            job, checkpoint, candidates, folder_scoped=False, drive_id=None
+            job, checkpoint, candidates, folder_scoped=False, drive_id=None, found_by="index"
         )
         _counter(checkpoint, "localIndexCandidates", len(files))
         next_offset = (offset if type(offset) is int else 0) + len(chunk)
@@ -2855,6 +3211,150 @@ class DriveOwnerSearchService:
             if checkpoint.get("phase") == "local_index":
                 _phase(checkpoint, "user")
         return checkpoint, files, False, False
+
+    async def _index_content_rows(self, job, checkpoint) -> list[dict]:
+        """Gear 1's recent rows (no listing call), projected like a Drive page.
+
+        Only rows already held in this worker's memory; a cold or disabled
+        index adds nothing. A "shared with me" search skips Gear 1, whose rows
+        do not record the owner.
+        """
+        from hushh_mcp.services.external_mcp_client import ExternalMcpError
+        from hushh_mcp.services.google_drive_rest_transport import _project_page
+
+        recent = getattr(self.owner_index, "recent_files", None)
+        if (
+            recent is None
+            or getattr(self.owner_index, "enabled", False) is not True
+            or checkpoint.get("request_shared_with_me") is True
+        ):
+            return []
+        try:
+            rows = await recent(
+                owner_id=job["user_id"],
+                since=_content_window_start(checkpoint),
+                file_kind=checkpoint.get("request_file_kind", "any"),
+                limit=CONTENT_INDEX_ROWS,
+                connection_generation=job.get("generation"),
+            )
+        except Exception:  # noqa: BLE001 - an accelerator never fails the search
+            logger.info("drive_search.content_candidates status=index_unavailable")
+            return []
+        if not isinstance(rows, list) or not rows:
+            return []
+        try:
+            return _project_page({"files": rows}, rows)["files"]
+        except (DriveReadError, ExternalMcpError, KeyError, TypeError, ValueError):
+            logger.info("drive_search.content_candidates status=invalid_rows")
+            return []
+
+    @staticmethod
+    def _content_result(item: dict) -> dict | None:
+        """A content-only hit as a frozen result: a possible match, never title evidence."""
+        match = DriveLiveReader._match(item)
+        if match is None:
+            return None
+        key = item.get("resourceKey")
+        return {
+            "id": match["file_id"],
+            "name": match["name"],
+            "mimeType": match["mime_type"],
+            "modifiedTime": match["modified_time"],
+            "createdTime": match["created_time"],
+            **({"resourceKey": key} if isinstance(key, str) and key else {}),
+            "openUrl": match["open_url"],
+            **_shareability(item),
+            **possible_match_fields(CONTENT),
+        }
+
+    async def _content_check_page(self, job, checkpoint):
+        """One bounded call of the request-time content check (CONTENT_CHECK_PHASE).
+
+        Reads Drive-blind candidates in the parser child (drive_content_check
+        port): only matched concept indices, header dates and counts come
+        back, never text. Content hits are committed as possible matches; the
+        autoshare title rule is untouched. The check's own resume state rides
+        in the encrypted checkpoint and is dropped when the phase ends.
+        """
+        state = checkpoint.get("content_phase")
+        if not _content_planned(checkpoint) or not isinstance(state.get("candidates", []), list):
+            return checkpoint, [], False, _end_content(checkpoint, "invalid")
+        brain = _request_brain(checkpoint)
+        groups, requirements = brain_concept_groups(brain) if brain is not None else ([], [])
+        if not groups:
+            return checkpoint, [], False, _end_content(checkpoint, "not_needed")
+        check = self.content_check or default_content_check()
+        if getattr(check, "enabled", False) is not True:
+            # The operator's flag, a process that is not the worker, or a
+            # disabled drain: nothing is read and coverage is unchanged.
+            return checkpoint, [], False, _end_content(checkpoint, "disabled")
+        if not state.get("seeded"):
+            state["seeded"] = True
+            _remember_content_candidates(
+                checkpoint, await self._index_content_rows(job, checkpoint), source="index"
+            )
+        candidates = [item for item in state.get("candidates") or [] if isinstance(item, dict)]
+        if not candidates:
+            return checkpoint, [], False, _end_content(checkpoint, "not_needed")
+        deadline = _SLICE_DEADLINE.get()
+        seconds = CONTENT_CHECK_PAGE_SECONDS
+        if deadline is not None:
+            seconds = min(seconds, int(deadline - _clock()) - 5)
+        if seconds < 5:
+            # Too little of this slice is left: the next slice continues here.
+            return checkpoint, [], False, False
+        from dataclasses import replace
+
+        state["pages"] = state.get("pages", 0) + 1
+        _counter(checkpoint, "contentCheckPages")
+        outcome = await check.check_files(
+            owner_id=job["user_id"],
+            candidates=[_content_rest_row(item) for item in candidates],
+            concepts=groups,
+            requirements=requirements,
+            period=checkpoint.get("requested_period"),
+            connection_generation=job["generation"],
+            require_current=lambda: self.store.require_current(job),
+            checkpoint=state.get("check"),
+            precedence=True,
+            budget=replace(CONTENT_CHECK_BUDGET, slice_seconds=seconds),
+        )
+        state["check"] = outcome.checkpoint
+        by_id = {item["id"]: item for item in candidates}
+        committed = set(state.get("committed") or [])
+        files = []
+        for result in outcome.possible_matches:
+            item = by_id.get(result.file_id)
+            if item is None or result.file_id in committed:
+                continue
+            frozen = self._content_result(item)
+            if frozen is None or frozen.get("shareable") is not True:
+                continue
+            committed.add(result.file_id)
+            if (
+                checkpoint.get("coverage_counts", {}).get("possibleMatchCandidates", 0)
+                >= MAX_POSSIBLE_MATCHES
+            ):
+                _counter(checkpoint, "possibleMatchesDropped")
+                continue
+            _counter(checkpoint, "possibleMatchCandidates")
+            files.append(frozen)
+        state["committed"] = sorted(committed)
+        counts = checkpoint.setdefault("coverage_counts", {})
+        counts["contentFilesSelected"] = int(outcome.counts.get("selected", 0) or 0)
+        counts["contentFilesRead"] = sum(
+            1 for result in outcome.results if result.status == "checked"
+        )
+        counts["contentPossibleMatches"] = counts.get("contentPossibleMatches", 0) + len(files)
+        if outcome.status == "partial" and state["pages"] < MAX_CONTENT_CHECK_PAGES:
+            return checkpoint, files, False, False
+        ending = {
+            "complete": "complete",
+            "budget_exhausted": "budget_exhausted",
+            "not_needed": "not_needed",
+            "disabled": "disabled",
+        }.get(outcome.status, "partial")
+        return checkpoint, files, False, _end_content(checkpoint, ending)
 
     async def _indexed_page(self, job):
         checkpoint = copy.deepcopy(job["checkpoint"])
@@ -2993,6 +3493,8 @@ class DriveOwnerSearchService:
             return await self._local_index_page(job, checkpoint)
         if checkpoint.get("phase") == "shared_walk":
             return await self._shared_walk_page(job, checkpoint)
+        if checkpoint.get("phase") == CONTENT_CHECK_PHASE:
+            return await self._content_check_page(job, checkpoint)
         listing_read = getattr(self.transport, "read_owner_search_page", None)
         if listing_read is None:
             # Older injected transports implement the same listing call shape
@@ -3250,6 +3752,7 @@ class DriveOwnerSearchService:
         found = 0
         outcome = "failed"
         handing_off = False
+        deadline_token = None
 
         def finish(status):
             nonlocal outcome
@@ -3304,11 +3807,21 @@ class DriveOwnerSearchService:
             session = getattr(self.transport, "owner_search_session", nullcontext)
             reserve = min(PAGE_RESERVE_SECONDS, deadline_seconds / 3)
             slice_started = _clock()
+            deadline_token = _SLICE_DEADLINE.set(slice_started + deadline_seconds)
             async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):
                     if pages and _clock() - slice_started > deadline_seconds - reserve:
                         # Hand off with the checkpoint committed; the worker
                         # chains the next slice without a retry backoff.
+                        break
+                    if (
+                        pages
+                        and job["checkpoint"].get("phase") == CONTENT_CHECK_PHASE
+                        and deadline_seconds - (_clock() - slice_started)
+                        < CONTENT_CHECK_PAGE_SECONDS + reserve
+                    ):
+                        # A content page needs its own budget: start it in
+                        # the next slice rather than cut it short here.
                         break
                     with drive_stage(logger, "search_authority"):
                         if require_current:
@@ -3330,6 +3843,7 @@ class DriveOwnerSearchService:
                             "files",
                             "folder_files",
                             "shared_walk",
+                            CONTENT_CHECK_PHASE,
                             "index",
                             "packet",
                         }
@@ -3449,6 +3963,8 @@ class DriveOwnerSearchService:
             await self.store.release(job, error="provider_unavailable", retryable=True)
             raise
         finally:
+            if deadline_token is not None:
+                _SLICE_DEADLINE.reset(deadline_token)
             logger.info(
                 "drive_search.slice status=%s pages=%d matched=%d elapsed_ms=%.2f",
                 outcome,

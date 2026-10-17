@@ -1282,7 +1282,10 @@ function UnlockedDocumentReview({
     : requesterPaymentState === "request_expired"
       ? REQUESTER_PAYMENT_TITLES.requestExpired
     : outgoingStatus.status === "completed" && sentCount > 0
-      ? `All files sent · ${sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
+      // The owner's search could not reach every file (a shared folder only
+      // partly searched, or files left unread): never claim "All".
+      ? `${snapshot?.delivery?.coveragePartial ? "Files sent" : "All files sent"} · ${
+        sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
     : outgoingStatus.status === "no_files_shared" && sentCount === 0
       ? "No matching files"
     // Stalled or still queued work says so; it never reads as running.

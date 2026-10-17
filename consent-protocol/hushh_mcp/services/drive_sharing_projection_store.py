@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary
 from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
+from hushh_mcp.services.drive_owner_allowed import autoshare_request
 from hushh_mcp.services.drive_request_recovery_view import (
     RECOVERY_REQUEST_STATUSES,
     owner_review_request_view,
@@ -21,6 +22,42 @@ from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
 class DriveSharingProjectionStore(DriveRevocationStore):
+    def _coverage_partial(self, connection, request, private) -> bool:
+        """An autoshare request's search could not reach every file (D12).
+
+        True when the owner's search recorded partial coverage: a shared-folder
+        walk cut short, or Drive-blind files the content check left unread.
+        The requester then reads "Files sent" rather than "All files sent".
+        Only this one bit leaves the owner's encrypted checkpoint; any doubt
+        reads as full coverage, so the flag never blocks the delivery view.
+        """
+        if not isinstance(private, dict) or not autoshare_request(private):
+            return False
+        search = self._row(
+            connection,
+            """SELECT job_id,checkpoint_envelope FROM drive_owner_search_jobs
+               WHERE user_id=:owner AND client_request_id=:request
+               ORDER BY updated_at DESC LIMIT 1""",
+            {"owner": request["user_id"], "request": str(request["request_id"])},
+        )
+        if not search:
+            return False
+        try:
+            checkpoint = self.sharing_cipher.open(
+                search["checkpoint_envelope"],
+                user_id=request["user_id"],
+                resource_id=str(search["job_id"]),
+                purpose="owner-search-checkpoint",
+            )
+        except Exception:  # noqa: BLE001 - a status hint never fails the delivery view
+            return False
+        counts = checkpoint.get("coverage_counts") if isinstance(checkpoint, dict) else None
+        return bool(
+            checkpoint.get("request_origin_id") == str(request["request_id"])
+            and isinstance(counts, dict)
+            and counts.get("coveragePartial") is True
+        )
+
     @staticmethod
     def _access_stop_status(connection, request_id):
         """One request-wide verdict; only verified owned removals count as done."""
@@ -420,6 +457,12 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     recovery, review_request_count=int(request.get("review_request_count") or 0)
                 )
             )
+            coverage_partial = bool(
+                views
+                and recipient
+                and request["status"] in {"completed", "partial"}
+                and self._coverage_partial(connection, request, private)
+            )
             return {
                 "recipient": private["recipient"] if recipient and private else None,
                 "result": {
@@ -427,6 +470,8 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     **payment,
                     **({"recovery": recovery} if recipient and recovery else {}),
                     **({"reviewRequest": notice} if notice else {}),
+                    # Requester only, autoshare only: some files may be unsearched.
+                    **({"coveragePartial": True} if coverage_partial else {}),
                     "accessStopStatus": access_stop_status,
                     "canStopAccess": can_stop_access,
                     "files": [] if bulks else files,

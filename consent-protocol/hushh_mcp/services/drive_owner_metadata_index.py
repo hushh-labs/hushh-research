@@ -252,6 +252,8 @@ class _Entry:
     title_dates: RawTitleDates
     created_ts: float | None
     modified_ts: float | None
+    # Bytes Drive reports (blobs and editor files); None when not listed.
+    size: int | None = None
 
     def provider_row(self) -> dict:
         """The exact owner-search projection this entry was built from."""
@@ -261,6 +263,7 @@ class _Entry:
             "mimeType": self.mime,
             "modifiedTime": self.modified,
             "createdTime": self.created,
+            **({"size": self.size} if self.size is not None else {}),
             **({"driveId": self.drive_id} if self.drive_id is not None else {}),
             **({"resourceKey": self.resource_key} if self.resource_key is not None else {}),
             "viewUrl": self.view_url,
@@ -326,6 +329,9 @@ def _entry(ordinal: int, row: object) -> _Entry | None:
         title_dates=parse_title_dates(name),
         created_ts=timestamp_seconds(created),
         modified_ts=timestamp_seconds(modified),
+        # The transport projects Drive's int64 string as an int; anything
+        # else is no size (routing then treats the size as unknown).
+        size=row["size"] if type(row.get("size")) is int and 0 <= row["size"] < 10**20 else None,
     )
 
 
@@ -456,6 +462,40 @@ class OwnerMetadataIndex:
 
     def vocabulary(self) -> set[str]:
         return set(self._postings)
+
+    def recent(
+        self,
+        *,
+        since_ts: float | None,
+        mime_filter: Callable[[str], bool] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[dict]:
+        """Files created or changed at or after ``since_ts``, newest change first.
+
+        Folders and shortcuts are left out. The request-time content check
+        picks its Drive-blind candidates (big, scanned, fresh, non-Latin)
+        from these rows; nothing here reads content or calls Drive.
+        """
+        if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
+            raise DriveReadError("invalid_argument")
+        picked: list[tuple[float, str, _Entry]] = []
+        for entry in self._entries:
+            if entry is None or entry.mime in (FOLDER_MIME, SHORTCUT_MIME):
+                continue
+            if mime_filter is not None and not mime_filter(entry.mime or ""):
+                continue
+            moments = [
+                value for value in (entry.modified_ts, entry.created_ts) if value is not None
+            ]
+            if not moments:
+                continue
+            changed = max(moments)
+            if since_ts is not None and changed < since_ts:
+                continue
+            picked.append((changed, entry.file_id, entry))
+        # Newest change first, file ID breaking ties: equal inputs, equal order.
+        newest = heapq.nlargest(limit, picked, key=lambda item: (item[0], item[1]))
+        return [entry.provider_row() for _, _, entry in newest]
 
     def _expand(self, token: str) -> dict[str, tuple[float, str]]:
         """Vocabulary words this concept word should match, with a score each."""
@@ -1129,6 +1169,32 @@ class OwnerMetadataIndexer:
             elapsed_ms=elapsed,
             error=status.error,
         )
+
+    async def recent(
+        self,
+        owner_id: str,
+        *,
+        connection_generation: int,
+        since_ts: float | None,
+        mime_filter: Callable[[str], bool] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[dict]:
+        """Recent rows this process already holds; never lists Drive (a peek)."""
+        state, status = await self._refresh(
+            owner_id,
+            connection_generation=connection_generation,
+            max_pages=0,
+            deadline_seconds=0.0,
+            require_current=None,
+        )
+        rows = state.index.recent(since_ts=since_ts, mime_filter=mime_filter, limit=limit)
+        logger.info(
+            "drive_metadata_index.recent returned=%d indexed=%d ready=%d",
+            len(rows),
+            status.indexed,
+            int(status.ready),
+        )
+        return rows
 
     async def vocabulary(
         self,

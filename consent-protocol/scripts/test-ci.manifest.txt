@@ -99,6 +99,11 @@ tests/services/test_drive_corpus_coverage.py
 tests/services/test_drive_match_evidence.py
 tests/services/test_drive_possible_matches_postgres.py
 tests/test_drive_possible_matches_routes.py
+# Search v3 release wiring: every gear's discovery is a tagged possible match,
+# the content phase reads only Drive-blind files, production keeps the old
+# flow, and only partial coverage tells the requester "Files sent".
+tests/services/test_drive_v3_release_integration.py
+tests/services/test_drive_v3_release_postgres.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
