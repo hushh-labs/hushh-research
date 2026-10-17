@@ -175,6 +175,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "formatScope",
                         "fallbackReason",
                         "lastIndexedAt",
+                        "periodConflict",
                     )
                     if key in manifest
                 },

@@ -126,6 +126,32 @@ def _title_search(pattern: re.Pattern[str], title: str) -> bool:
     return bool(pattern.search(title) or pattern.search(_title_words(title)))
 
 
+_SPAN_PHRASE = re.compile(
+    r"\b(?P<count>\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+    r"[\s-]+(?P<unit>days?|weeks?|months?|years?)\b",
+    re.I,
+)
+# Shortest calendar length per unit: "1 month" never conflicts with 30 days.
+_SPAN_DAYS = {"day": 1, "week": 7, "month": 28, "year": 365}
+
+
+def _period_conflict(text: str, period: dict | None) -> str | None:
+    """Name a phrase span wider than the consented dates; never widen them.
+
+    "3 months meeting notes" with a one-month picker still searches and
+    shares only the picked dates. The owner and requester can see why.
+    """
+    if not period or not period.get("start") or not period.get("end"):
+        return None
+    picked = (date.fromisoformat(period["end"]) - date.fromisoformat(period["start"])).days + 1
+    for match in _SPAN_PHRASE.finditer(text):
+        count = _MONTH_WORDS.get(match["count"].lower()) or int(match["count"])
+        unit = match["unit"].lower().rstrip("s")
+        if count * _SPAN_DAYS[unit] > picked:
+            return "request_mentions_longer_span"
+    return None
+
+
 def _is_meeting_note_request(text: str) -> bool:
     return bool(_NOTE_TITLE.search(text) and _MEETING_SUBJECT.search(text))
 
@@ -1331,6 +1357,8 @@ class DriveOwnerSearchService:
                     "lastIndexedAt": route.get("index_snapshot", {}).get("last_synced_at"),
                     "fileKind": plan.get("file_kind", "any"),
                     "requestedPeriod": period,
+                    # The selected dates stay the sharing boundary either way.
+                    "periodConflict": _period_conflict(query, period),
                     "timeIntent": time_intent,
                     "ownerReviewRequired": owner_review_required,
                     "dateBasis": "content_period_unverified"

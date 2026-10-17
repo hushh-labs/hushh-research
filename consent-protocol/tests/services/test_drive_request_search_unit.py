@@ -1705,6 +1705,51 @@ async def test_trusted_title_evidence_sees_words_inside_compound_filenames():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,conflict",
+    [
+        ("3 months meeting notes", "request_mentions_longer_span"),
+        ("meeting notes for the last two weeks", None),
+        ("1 month of meeting notes", None),
+        ("meeting notes", None),
+    ],
+)
+async def test_phrase_span_never_widens_the_consented_period(monkeypatch, text, conflict):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        # The UAT failure: the phrase says 3 months, the Allow sheet one month.
+        purpose={"purpose": text, "periodStart": "2026-09-02", "periodEnd": "2026-10-02"},
+        plan={
+            "mode": "find",
+            "terms": ["meeting", "notes"],
+            "file_kind": "document",
+            "time_intent": "file_activity",
+        },
+        require_current=AsyncMock(),
+        authority_mode="trusted_auto",
+        requested_at=datetime(2026, 10, 3, tzinfo=UTC),
+    )
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    picked = {"start": "2026-09-02", "end": "2026-10-02", "timezone": "UTC"}
+    assert checkpoint["requested_period"] == picked
+    assert checkpoint["coverage_manifest"]["requestedPeriod"] == picked
+    assert checkpoint["coverage_manifest"]["periodConflict"] == conflict
+    # Discovery is not date-cut either way; membership uses the picked dates.
+    assert all(
+        "modifiedTime >=" not in query["arguments"]["query"] for query in checkpoint["queries"]
+    )
+    match = {"name": "Meeting notes", "created_time": "2026-07-15T10:00:00Z"}
+    assert not search_module._in_requested_period(match, checkpoint["requested_period"])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("time_intent", ["document_coverage", "file_activity"])
 async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(
     monkeypatch, time_intent
