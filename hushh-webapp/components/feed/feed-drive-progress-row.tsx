@@ -19,16 +19,21 @@ export function FeedDriveProgressRow({ item }: { item: FeedDriveProgress }) {
         <FeedRowMetadata
           description={
             <span className="inline-flex min-w-0 items-start gap-1.5">
+              {/* A queued request is waiting, not working: a still dot, no pulse. */}
               <span
                 aria-hidden="true"
-                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none"
+                className={
+                  item.waiting
+                    ? "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/60"
+                    : "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none"
+                }
               />
               <span className="whitespace-normal [overflow-wrap:anywhere]">
                 {item.description}
               </span>
             </span>
           }
-          timestamp={item.requestedAt}
+          timestamp={item.queuedAt ?? item.requestedAt}
         />
       }
       chevron

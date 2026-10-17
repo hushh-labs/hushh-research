@@ -321,12 +321,37 @@ function isOwnerDecision(snapshot: Snapshot | null): boolean {
     (setup === null || setup === "price");
 }
 
+/**
+ * A failed, limited, stopped or incomplete search never shares more by itself:
+ * the server resumes automatic batches only for a complete search. The owner
+ * reviews it like a manual request, where Search again is the next step.
+ */
+function automaticSearchEnded(review: SharingReview | undefined): boolean {
+  const search = review?.search;
+  return !!search && (["failed", "limited", "stopped"].includes(search.status) || search.incompleteSearch);
+}
+
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
   return !review?.agentPackage && review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
     review.search?.coverage?.ownerReviewRequired !== true &&
+    !automaticSearchEnded(review) &&
     documentRequestSetupState(review) === null &&
     review.preparationError !== "trusted_relationship_changed" &&
     review.preparationError !== "preparation_unavailable";
+}
+
+/** Waiting in the durable queue; past the server's threshold it says so plainly. */
+function queueLabel(queue: { queuedAt?: string; queueDelayed?: boolean } | undefined, now: number): string {
+  if (queue?.queueDelayed !== true) return "Waiting to start";
+  const waited = queue.queuedAt ? Math.floor((now - Date.parse(queue.queuedAt)) / 60_000) : NaN;
+  return Number.isFinite(waited) && waited >= 1
+    ? `Taking longer than usual · ${waited < 60 ? `${waited} min` : `${Math.floor(waited / 60)} hr`}`
+    : "Taking longer than usual";
+}
+
+/** Confirmed access so far across this request's batches. */
+function sharingProgressLabel(counts: DriveBulkShareCounts): string {
+  return `Sharing files · ${(counts.shared + counts.alreadyShared).toLocaleString()} shared so far`;
 }
 
 function needsSearchRefresh(review: SharingReview | undefined): boolean {
@@ -834,10 +859,13 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
-  const allowCents = agentPackagesEnabled || review?.agentPackage !== undefined ||
+  // A whole-dollar request refuses cents (the 2026-10-17 first-Allow 422),
+  // so its own sealed rule wins over the feature heuristic.
+  const allowCents = review?.wholeDollarPrice !== true && (
+    agentPackagesEnabled || review?.agentPackage !== undefined ||
     review?.v1ManualReview === true ||
     (review?.estimateCents != null && review.estimateCents % 100 !== 0) ||
-    (review?.priceCents != null && review.priceCents % 100 !== 0);
+    (review?.priceCents != null && review.priceCents % 100 !== 0));
   const v1ManualReview = review?.v1ManualReview === true;
   const requestedAccessDays = review?.requestedAccessDays ?? 30;
   const accessDayChoices = [7, 30, 90].filter(days => days <= requestedAccessDays);
@@ -1177,6 +1205,17 @@ function UnlockedDocumentReview({
     );
   };
 
+  // Allowed (or Trusted) and waiting in the durable queue: nothing has
+  // started, so the sheet says so and never spins. Never "paused".
+  const automaticQueued = automaticSharing && !search && !bulkShare &&
+    review?.preparationError !== "date_range_required" &&
+    review?.preparationError !== "background_preparation_required" &&
+    !["completed", "partial", "no_match"].includes(snapshot?.status.status ?? "");
+  // Started work that no worker has moved past the server's threshold (for
+  // example while the drains are paused): stop claiming work, never spin.
+  const automaticDelayed = automaticSharing && typeof review?.workDelayedSince === "string" &&
+    review?.preparationError !== "date_range_required" &&
+    review?.preparationError !== "background_preparation_required";
   const durableStatus = snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "no_match"
     ? "No file candidates in this search"
@@ -1185,13 +1224,16 @@ function UnlockedDocumentReview({
       ? "Exact dates needed"
       : review?.preparationError === "background_preparation_required"
       ? "Background Drive access needed"
+      : automaticDelayed
+        ? queueLabel({ queuedAt: review?.workDelayedSince, queueDelayed: true }, now)
       : bulkShare && ["queued", "running"].includes(bulkShare.status)
-        ? "Sharing selected files"
+        ? sharingProgressLabel(review?.aggregateCounts ?? bulkShare.counts)
         : search && ["queued", "running"].includes(search.status)
           ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
           : bulkShare ? BULK_STATUS_LABELS[bulkShare.status]
             : ["completed", "partial"].includes(snapshot?.status.status ?? "") ? "Sharing finished"
-              : "Preparing automatic sharing"
+              : search ? "Waiting to share"
+                : queueLabel(review, now)
     : progressive && search && ["queued", "running"].includes(search.status)
     ? `Searching Drive · ${search.matched.toLocaleString()} file candidates${batchCount ? ` · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started` : ""}`
     : bulkShare
@@ -1213,6 +1255,11 @@ function UnlockedDocumentReview({
           : search
             ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
             : null;
+  // The requester's sheet reads the same durable queue from the status.
+  const requesterQueued = snapshot?.status.direction === "outgoing" &&
+    snapshot.status.status === "pending" && typeof snapshot.status.queuedAt === "string";
+  const requesterDelayed = snapshot?.status.direction === "outgoing" &&
+    snapshot.status.status === "pending" && typeof snapshot.status.workDelayedSince === "string";
   const statusLine =
     activity === "loading"
       ? ACTIVITY_LABELS.loading
@@ -1247,8 +1294,12 @@ function UnlockedDocumentReview({
                 (UNDECIDED.has(snapshot.status.status) || snapshot.status.status === "approved" ||
                   ["queued", "running"].includes(snapshot.delivery?.bulkStatus ?? ""))
                 ? `${snapshot.delivery!.sharedCount!.toLocaleString()} files available; more may arrive`
+              : requesterDelayed
+                ? queueLabel({ queuedAt: snapshot.status.workDelayedSince, queueDelayed: true }, now)
               : snapshot.delivery?.bulkStatus
                 ? BULK_STATUS_LABELS[snapshot.delivery.bulkStatus]
+              : requesterQueued
+                ? queueLabel(snapshot.status, now)
               : stillWorking
               ? "Still finding files"
               : finding
@@ -1258,8 +1309,23 @@ function UnlockedDocumentReview({
                   : (STATUS_LABELS[snapshot.status.status] ??
                     "Check request status");
   const spinning =
-    activity !== "idle" || (finding && !stillWorking) || (!snapshot && !error);
-  const statusHint = stillWorking
+    activity !== "idle" || (finding && !stillWorking && !automaticQueued && !automaticDelayed) ||
+    (!snapshot && !error);
+  const statusHint = activity === "idle" && automaticQueued
+    ? review?.queueDelayed === true
+      ? "This request is saved and continues automatically."
+      : review?.ownerAllowed === true
+        ? "Request allowed. The Drive search starts soon."
+        : "The Drive search starts soon."
+    : activity === "idle" && requesterQueued
+      ? snapshot.status.queueDelayed === true
+        ? "Your request is saved and continues automatically."
+        : "The Drive search starts soon."
+    : activity === "idle" && automaticDelayed
+      ? "This request is saved and continues automatically."
+    : activity === "idle" && requesterDelayed
+      ? "Your request is saved and continues automatically."
+    : stillWorking
     ? "You can come back later."
     : finding &&
         (activity === "idle" || activity === "finding_files") &&
@@ -1619,6 +1685,8 @@ function UnlockedDocumentReview({
               : "Trusted Circle changed. Review this request manually before sharing."}</BodyText> : null}
           {review.trustedAuto && review.preparationError === "preparation_unavailable" ?
             <BodyText>Automatic sharing could not finish. Review and share the files yourself.</BodyText> : null}
+          {review.trustedAuto && !review.preparationError && automaticSearchEnded(review) ?
+            <BodyText>Automatic sharing stopped because the Drive search didn&apos;t finish. Review and share the files yourself.</BodyText> : null}
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”
           </BodyText>
