@@ -41,6 +41,17 @@ one redundant CSS assertion. Negative controls reproduce both stale-result
 defects. Native build and physical evidence for this increment are recorded only
 after the final combined candidate is prepared; source checks are not acceptance.
 
+Combined source `8104fb3fe7` is now built and installed on iPhone, Agent One
+1.4.0 (69), UAT-backed Debug qualification. Static export/CSS, sync, native
+build-for-testing, signature, seven backend targets, installation, launch and
+target-process readback pass. Executable SHA-256:
+`4360ee719eea82366adaa98383b48a519e820befa1a6f43877a1bfd0d59fb7fe`;
+public-assets digest:
+`3aa3f42cfe9ca1b506023753cef3e7f7004db30a884f1f9789f5a49df08c8709`.
+The credential-free attach attempt on the preceding candidate still timed out
+before test entry after alignment with Xcode's generated runner environment.
+No new warm assertions or private-input retry are claimed for this candidate.
+
 ### Native Voice preferences — 2026-10-17
 
 The qualified iPhone stack now owns the complete Voice page: Live readiness,
