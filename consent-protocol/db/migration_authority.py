@@ -584,7 +584,65 @@ END $$;"""
     return entry.sql[:start] + repair + entry.sql[end:]
 
 
+def _replay_system_push_outbox_sql(entry: MigrationManifestEntryV2) -> str:
+    """Replay published 361 without replacing delivery history or live triggers."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("System push replay source checksum changed")
+    # Preserve the immutable file and ledger/baseline hashes. Only replay mode
+    # adapts its original bare DDL; pending leases and accepted-device rows stay.
+    replay = entry.sql.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+    replay = replay.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+    replay = replay.replace(
+        "CREATE FUNCTION queue_system_push()", "CREATE OR REPLACE FUNCTION queue_system_push()"
+    )
+    start = replay.index("CREATE TRIGGER system_push_share ")
+    end = replay.index("\n\nALTER TABLE system_push_outbox", start)
+    # Match migration 313's hot-table policy: retain installed trigger objects,
+    # reject drift, and create only missing ones. The source checksum bounds
+    # these fixed identifiers/event clauses; no historical source rows are read.
+    triggers = """DO $$
+DECLARE spec RECORD; installed RECORD; relation REGCLASS; expected_attribute TEXT;
+BEGIN
+ FOR spec IN SELECT * FROM (VALUES
+  ('system_push_share','one_location_share_grants','INSERT OR UPDATE OF latest_envelope_id',21,'latest_envelope_id'),
+  ('system_push_location_request','one_location_access_requests','INSERT OR UPDATE',21,NULL),
+  ('system_push_connection_request','connection_requests','INSERT',5,NULL),
+  ('system_push_circle_member','one_location_circle_memberships','INSERT OR UPDATE OF status',21,'status')
+ ) AS definitions(name,table_name,events,trigger_type,column_name) LOOP
+  relation := format('public.%I',spec.table_name)::REGCLASS;
+  expected_attribute := '';
+  IF spec.column_name IS NOT NULL THEN
+   SELECT attnum::TEXT INTO expected_attribute FROM pg_attribute
+    WHERE attrelid=relation AND attname=spec.column_name AND NOT attisdropped;
+   IF expected_attribute IS NULL THEN
+    RAISE EXCEPTION 'System push trigger column is missing: %',spec.name;
+   END IF;
+  END IF;
+  SELECT * INTO installed FROM pg_trigger
+   WHERE tgrelid=relation AND tgname=spec.name AND NOT tgisinternal;
+  IF NOT FOUND THEN
+   EXECUTE format('CREATE TRIGGER %I AFTER %s ON public.%I '
+    'FOR EACH ROW EXECUTE FUNCTION public.queue_system_push()',
+    spec.name,spec.events,spec.table_name);
+  ELSIF installed.tgfoid <> 'public.queue_system_push()'::REGPROCEDURE::OID
+   OR installed.tgtype <> spec.trigger_type OR installed.tgenabled <> 'O'
+   OR installed.tgqual IS NOT NULL OR installed.tgnargs <> 0
+   OR installed.tgattr::TEXT <> expected_attribute OR installed.tgconstraint <> 0
+   OR installed.tgoldtable IS NOT NULL OR installed.tgnewtable IS NOT NULL THEN
+   RAISE EXCEPTION 'System push trigger has unexpected definition: %',spec.name;
+  END IF;
+ END LOOP;
+END $$;"""
+    return replay[:start] + triggers + replay[end:]
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "361" and entry.filename == "361_system_push_outbox.sql":
+        return _replay_system_push_outbox_sql(entry)
     if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
         return _replay_referral_policy_v2_sql(entry)
     if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
