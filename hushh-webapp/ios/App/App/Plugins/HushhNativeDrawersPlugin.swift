@@ -118,6 +118,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileMenuRows": self?.supported == true,
                 "profileContentHandoff": self?.supported == true,
                 "profileNavigationStack": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileTrustedDevices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSettingsPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileVoiceSettings": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileAccountActions": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -273,7 +274,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         #if DEBUG
         if action == "close" { controller.observeClose(sequence: sequence) }
         #endif
-        if action == "row" || action == "back" || action == "root" { controller.model.pendingSequence = sequence }
+        if action == "row" || action == "back" || action == "root" || action == "ancestor" { controller.model.pendingSequence = sequence }
         var event = receipt(state, phase: "active")
         event.removeValue(forKey: "phase")
         event["sequence"] = sequence; event["action"] = action

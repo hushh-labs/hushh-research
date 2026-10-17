@@ -3210,7 +3210,7 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
@@ -3218,11 +3218,17 @@ describe("native chrome presentation lease", () => {
     drawerBridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const confirmAccount = vi.fn(), cancelAccount = vi.fn();
-    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const confirmAccount = vi.fn(), cancelAccount = vi.fn(), confirmDevice = vi.fn();
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
-      settings={{ active: !!settings, requiresVoice: settings === "voice", pages: settings === "preferences" || settings === "voice" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
+      settings={{ active: !!settings, requiresVoice: settings === "voice", requiresDevices: settings === "devices" || settings === "device-unlink", pages: settings === "devices" || settings === "device-unlink" ? [
+        { id: "security", title: "Security", sections: [] },
+        { id: "devices", title: "Trusted devices", sections: [] },
+        ...(settings === "device-unlink" ? [{ id: "device-unlink" as const, title: "Test computer", sections: [{ id: "device-confirmation", rows: [
+          { id: "device-submit", label: "Unlink device", enabled: true, destructive: true },
+        ] }] }] : []),
+      ] : settings === "preferences" || settings === "voice" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
         { id: "theme-choice", label: "Appearance", enabled: true, options: [
           { id: "pick-light", label: "Light", selected: true }, { id: "pick-dark", label: "Dark", selected: false },
         ] },
@@ -3231,7 +3237,7 @@ describe("native chrome presentation lease", () => {
           { id: "voice-on", label: "On", selected: true }, { id: "voice-off", label: "Off", selected: false },
         ] },
       ] }] }] : [])] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
-        rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()], ["voice-on", vi.fn()], ["voice-off", vi.fn()]]), root: vi.fn() }}
+        rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()], ["voice-on", vi.fn()], ["voice-off", vi.fn()], ["device-submit", confirmDevice]]), root: vi.fn(), ancestor: vi.fn() }}
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
@@ -3311,6 +3317,22 @@ describe("native chrome presentation lease", () => {
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "session"]));
       const nested = drawerBridge.apply.mock.calls.at(-1)![0];
       expect(nativeDrawerChoiceAllowed({ ...selection, ...nested, action: "root", rowId: undefined }, nested)).toBe(true);
+      view.rerender(scene(false, "device-unlink"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "devices", "device-unlink"]));
+      const unlink = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(unlink)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, action: "ancestor", rowId: "security" }, unlink)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, action: "ancestor", rowId: "account" }, unlink)).toBe(false);
+      const directDeviceEntry = structuredClone(unlink);
+      directDeviceEntry.profileStack = directDeviceEntry.profileStack!.slice(1);
+      expect(validNativeDrawerProjection(directDeviceEntry)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...directDeviceEntry, action: "ancestor", rowId: "security" }, directDeviceEntry)).toBe(false);
+      const wrongDeviceParent = structuredClone(unlink);
+      wrongDeviceParent.profileStack![1].id = "session";
+      expect(validNativeDrawerProjection(wrongDeviceParent)).toBe(false);
+      view.rerender(scene(false, "devices"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "devices"]));
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...unlink, rowId: "device-submit" }, drawerBridge.apply.mock.calls.at(-1)![0])).toBe(false);
       view.rerender(scene(false, "security"));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security"]));
       view.rerender(scene(false, "preferences"));
@@ -3363,6 +3385,16 @@ describe("native chrome presentation lease", () => {
         }
       }
       const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileTrustedDevices: false });
+      drawerBridge.apply.mockClear();
+      const legacyDevices = render(scene(false, "devices"));
+      try {
+        await waitFor(() => expect(legacyDevices.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "devices"))).toBe(false);
+      } finally {
+        legacyDevices.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
       drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileAccountActions: false });
       drawerBridge.apply.mockClear();
       const legacyConfirmation = render(scene(true, undefined, false, undefined, "account-delete"));

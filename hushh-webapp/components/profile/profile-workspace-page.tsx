@@ -217,6 +217,8 @@ import {
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import { useTrustedDevicesModel } from "./use-trusted-devices-model";
+import { useNativeTrustedDevices } from "./use-native-trusted-devices";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
@@ -778,6 +780,17 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const devicesActive = activePanel === "security" && activeDetail === "trusted-devices";
+  const devicesParent = devicesActive ? profilePanelParentForPresentation("security") : null;
+  const devicesModel = useTrustedDevicesModel(user?.uid ?? null, !!user && !authLoading && isVaultUnlocked &&
+    devicesActive && (presentation !== "native-page" || nativeMenuOpen));
+  const [nativeDevicesAvailable, setNativeDevicesAvailable] = useState(false);
+  const nativeDevices = useNativeTrustedDevices(devicesModel, JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]),
+    presentation === "native-page" && nativeDevicesAvailable);
+  useBackLayer(pathname, devicesActive && devicesModel.confirmation ? 3 : 0, () => {
+    if (!devicesActive || !devicesModel.confirmation) return false;
+    devicesModel.cancel(); return true;
+  }, isPanePresentation ? { profile_pane: "1" } : undefined);
   const phoneBackStep = useRef<(() => boolean) | null>(null);
   const bindPhoneBackStep = useCallback((handler: (() => boolean) | null) => {
     phoneBackStep.current = handler;
@@ -4500,7 +4513,7 @@ function ProfilePageContent({
         key: "detail:trusted-devices",
         title: "Trusted devices",
         description: "Devices connected to your private agent.",
-        content: <TrustedDevicesPage panePresentation={isPanePresentation} />,
+        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -4957,7 +4970,7 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
@@ -4974,13 +4987,22 @@ function ProfilePageContent({
         },
       }} /> }}
     settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null) ||
-        activePanel === "security" && (!activeDetail || activeDetail === "session")),
+        activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null)),
       requiresVoice: activePanel === "preferences" && activeDetail === "voice",
-      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
-      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows,
+      requiresDevices: devicesActive,
+      ...(devicesActive && devicesModel.confirmation ? { back: devicesModel.cancel } : {}),
+      ancestor: choice => {
+        if (choice.rowId !== "security" || !devicesActive || devicesParent !== true || devicesModel.busy) return;
+        // Consume the local confirmation once, then invoke the existing query
+        // parent directly. Re-entering Back layers would consume that same
+        // not-yet-committed confirmation instead of reaching Security.
+        devicesModel.cancel(); popProfilePaneLocation(pathname, searchParams);
+      },
+      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows,
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
-      ]), root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: nativePreferences.editor }}
+      ]), root: () => { devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); }, editor: nativePreferences.editor }}
     account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException && !showVaultUnlock,
       page: nativeAccountPage, confirmation: accountConfirmation,
       root: () => {
@@ -5005,7 +5027,7 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      enabled: !isDeleting && !isResetting,
+      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy),
       name: user.displayName || "Your account", email: user.email, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

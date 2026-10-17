@@ -4359,7 +4359,13 @@ final class AppUITests: XCTestCase {
             XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
         }
         let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
-        let admittedDestinations = Array(destinations.dropFirst(startIndex))
+        let requestedEnd = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_END"]
+        if let requestedEnd, !destinations.contains(requestedEnd) {
+            XCTFail("PROFILE_BATCH_END_UNADMITTED"); return
+        }
+        let endIndex = requestedEnd.flatMap { destinations.firstIndex(of: $0) } ?? destinations.count - 1
+        guard startIndex <= endIndex else { XCTFail("PROFILE_BATCH_RANGE_UNADMITTED"); return }
+        let admittedDestinations = Array(destinations[startIndex...endIndex])
         let legalReturnOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_LEGAL_RETURN_ONLY"] == "true"
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
         func publicPaneLevel() -> Int? {
@@ -4574,6 +4580,24 @@ final class AppUITests: XCTestCase {
                 }, object: app)
                 guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else { XCTFail("PROFILE_BATCH_NATIVE_SUPPORT_PARENT_NOT_RESTORED"); return }
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
+                continue
+            }
+            if id == "devices", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let refresh = app.buttons["native-profile-row-devices-refresh"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(refresh) else {
+                    XCTFail("PROFILE_NATIVE_DEVICES_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                    "PROFILE_NATIVE_DEVICES_DUPLICATE_WEB_BODY")
+                // Read-only reviewer journey. Real unlink outcomes are covered
+                // only by explicitly disposable UAT fixture qualification.
+                // This roster entry goes directly from Profile to Devices.
+                // Do not insert an unvisited Security page on native Back.
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_DEVICES_ROOT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_DEVICES list=true returned=true mutated=false")
                 continue
             }
             if ["account", "preferences", "security"].contains(id), nativeAccountBack.waitForExistence(timeout: 5) {

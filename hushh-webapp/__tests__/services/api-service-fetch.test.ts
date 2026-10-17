@@ -130,6 +130,40 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 describe("ApiService.apiFetch", () => {
+  it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
+    let active = true;
+    const token = deferred<string | null>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = operation === "list" ? ApiService.listTrustedDevices(() => active) :
+      ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    active = false;
+    token.resolve("synthetic-id-token");
+    expect((await request).status).toBe(409);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+    active = true;
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse(operation === "list" ? { devices: [] } : { success: true }));
+    const accepted = operation === "list" ? await ApiService.listTrustedDevices(() => active) :
+      await ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    expect(accepted.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+  it.each(["list", "unlink"] as const)("keeps the trusted-device %s guard through final transport dispatch", async operation => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    let active = true;
+    const isCurrent = () => {
+      // Identity acquisition admits the operation; retirement happens before
+      // apiFetch's awaited tracker/dispatch phase completes.
+      queueMicrotask(() => { active = false; });
+      return active;
+    };
+    await expect(operation === "list" ? ApiService.listTrustedDevices(isCurrent) :
+      ApiService.revokeTrustedDevice("synthetic-device", isCurrent)).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
   it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue(platform);

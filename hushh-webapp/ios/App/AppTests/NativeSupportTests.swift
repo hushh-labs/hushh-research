@@ -936,6 +936,29 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertFalse(confirmation.valid, "An account confirmation requires its actual Account parent")
         }
         XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
+        var deviceConfirmation = account
+        deviceConfirmation.profileStack = ["security", "devices", "device-unlink"].map {
+            NativeProfilePage(id: $0, title: "Synthetic device navigation", sections: [])
+        }
+        XCTAssertTrue(deviceConfirmation.valid)
+        XCTAssertTrue(deviceConfirmation.allows(action: "ancestor", row: "security"))
+        XCTAssertFalse(deviceConfirmation.allows(action: "ancestor", row: "account"))
+        let deviceNavigation = NativeDrawerModel(deviceConfirmation)
+        deviceNavigation.interactionEnabled = true
+        var ancestorAction: String?
+        deviceNavigation.choose = { action, row, _ in ancestorAction = action; return row == "security" }
+        deviceNavigation.requestPath(["security"], from: deviceConfirmation)
+        XCTAssertEqual(ancestorAction, "ancestor")
+        XCTAssertEqual(deviceNavigation.navigationPath, ["security"])
+        var directDeviceEntry = deviceConfirmation
+        directDeviceEntry.profileStack = Array(deviceConfirmation.profileStack!.dropFirst())
+        XCTAssertTrue(directDeviceEntry.valid, "Direct Devices entry must not invent Security ancestry")
+        deviceConfirmation.profileStack![1] = NativeProfilePage(id: "session", title: "Session", sections: [])
+        XCTAssertFalse(deviceConfirmation.valid, "Unlink confirmation requires its actual Devices parent")
+        var unrelatedThirdPage = account
+        unrelatedThirdPage.profileStack! += [NativeProfilePage(id: "account-reset", title: "Reset", sections: []),
+            NativeProfilePage(id: "account-delete", title: "Delete", sections: [])]
+        XCTAssertFalse(unrelatedThirdPage.valid, "The bounded device depth must not broaden other feature paths")
         XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
         var closedRoot = privateDrawerState(open: false, backEnabled: true)

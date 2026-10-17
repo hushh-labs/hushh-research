@@ -118,14 +118,15 @@ struct NativeDrawerProjection: Codable {
               Self.text(title, 256), sections.count <= 32,
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
         if let stack = profileStack {
-            guard family == "profile", stack.count <= 2, Set(stack.map(\.id)).count == stack.count,
+            guard family == "profile", stack.count <= 3, Set(stack.map(\.id)).count == stack.count,
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["account", "preferences", "voice", "security", "legal", "privacy", "terms"].contains(page.id) :
-                        ["account-reset", "account-delete"].contains(page.id) && stack.first?.id == "account" ||
-                        page.id == "voice" && stack.first?.id == "preferences" ||
-                        page.id == "session" && stack.first?.id == "security" ||
-                        ["privacy", "terms"].contains(page.id) && stack.first?.id == "legal") &&
+                      (index == 0 ? ["account", "preferences", "voice", "security", "devices", "legal", "privacy", "terms"].contains(page.id) :
+                        ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
+                        page.id == "voice" && index == 1 && stack.first?.id == "preferences" ||
+                        ["session", "devices"].contains(page.id) && index == 1 && stack.first?.id == "security" ||
+                        page.id == "device-unlink" && (index == 1 && stack.first?.id == "devices" || index == 2 && stack.first?.id == "security" && stack[1].id == "devices") ||
+                        ["privacy", "terms"].contains(page.id) && index == 1 && stack.first?.id == "legal") &&
                           Self.text(page.title, 256) && page.sections.count <= 32 &&
                           (["privacy", "terms"].contains(page.id) ? page.legalDocument?.valid == true &&
                             page.legalDocument?.type == page.id && page.sections.isEmpty : page.legalDocument == nil)
@@ -185,6 +186,10 @@ struct NativeDrawerProjection: Codable {
         if action == "close" { return row == nil }
         if action == "back" { return backEnabled && row == nil }
         if action == "root" { return family == "profile" && backEnabled && (profileStack?.count ?? 0) > 1 && row == nil }
+        if action == "ancestor" {
+            return family == "profile" && backEnabled && row == "security" &&
+                profileStack?.map(\.id) == ["security", "devices", "device-unlink"]
+        }
         guard action == "row", let row else { return false }
         if text == nil, profileStack?.last?.legalDocument?.actionIds.contains(row) == true { return true }
         return activeSections.contains { $0.rows.contains {
@@ -297,7 +302,7 @@ struct NativeDrawerLease {
               choice.interaction == interaction,
               choice.action == action, choice.row == row, choice.text == text else { return false }
         consumed = sequence
-        if action == "row" || (action == "back" || action == "root") && settlesBack { pendingSettlements.insert(sequence) }
+        if action == "row" || (action == "back" || action == "root" || action == "ancestor") && settlesBack { pendingSettlements.insert(sequence) }
         emitted = emitted.filter { $0.key > sequence }
         return true
     }
@@ -307,7 +312,7 @@ struct NativeDrawerLease {
     mutating func settle(identity: NativeDrawerIdentity, privacy: Int, sequence: Int, success: Bool) -> Bool {
         guard self.identity == identity, privacyGeneration == privacy else { return false }
         let confirmed = pendingSettlements.contains(sequence)
-        let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root"
+        let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root" || emitted[sequence]?.action == "ancestor"
         guard confirmed || !success && unconfirmed else { return false }
         pendingSettlements.remove(sequence)
         emitted.removeValue(forKey: sequence)

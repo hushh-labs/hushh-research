@@ -16,6 +16,33 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Trusted devices and current-main integration — 2026-10-17
+
+Main through `fd3b00b3c1` is integrated by merge `e8aef014c3`; combined
+base-relative contracts are regenerated after that merge. Ordinary builds keep
+their established renderer behind the existing single qualification switch.
+
+Qualified iPhone builds negotiate `profileTrustedDevices` and retain the native
+Profile stack for the device list, status, paging, Unlink confirmation and Back.
+Actual visited ancestry comes from the existing pane-history owner; direct entry
+does not invent Security. Its bounded ancestor choice consumes local confirmation
+before invoking the existing query-parent operation. Other/partial wrappers keep
+the complete React page. Both presentations share one feature model and existing
+authenticated service, cache and sync-status semantics.
+
+Owner/vault/visit and consumed-action fences reject stale callbacks, including
+after Cancel or uncertain delivery. The owner predicate reaches final transport
+dispatch and authenticated retries. Reconciliation requires a successful read
+started after the attempt, not an older in-flight GET. A confirmed unlink stays
+confirmed if refresh fails; no automatic mutation retry is introduced. Native
+receives opaque action handles and friendly details, never credentials or keys.
+The incoming referral Share path now uses the same existing session-fenced Share
+transport and suppresses late delivery/toast callbacks after departure.
+
+Nearest behavior tests and actual-guard negative controls are recorded separately
+from native build, install and physical qualification. The warm Profile harness
+can select a bounded start/end range; a scoped run is not whole-program acceptance.
+
 ### Native Account confirmations and private result fencing — 2026-10-17
 
 Qualified iPhone builds keep Reset/Delete confirmation content and explicit
@@ -260,7 +287,7 @@ The reviewed boundary must also declare an expected editor or rich pane before
 the parent drawer settles; an empty registry or a closed menu cannot prove that
 destination is ready. Safe lock/recovery gates supersede private preparation.
 
-Main is reconciled through `c233a2a448` in merge `3728973164`. Preserve its
+Main is reconciled through `fd3b00b3c1` in merge `e8aef014c3`. Preserve its
 four-tab navigation and native navigation contract v3; this is independent of
 NativeChrome v2, NativeDock v1 and NativeDrawers v1. The developer's root worktree
 and its unrelated edits were not changed.
@@ -270,7 +297,7 @@ and its unrelated edits were not changed.
 | Shared navigation | Retained UIKit Profile stack; `native-profile-menu.tsx` and existing Profile query/Back owners | Current change fences a completed pop across compatible refreshes and separates admission from completed presentation; physical acceptance pending |
 | Account and identity | Native rows/name form and capability-negotiated Reset/Delete confirmation pages; existing account/identity services | Photo/preview and phone/OTP conversion plus combined native qualification are separate; actual destructive fixture outcomes remain unverified |
 | Preferences | Native Appearance/Accent/haptics, Writing style and complete Voice page; existing Settings/theme/Voice feature writers | Finance and provider scenes need conversion; Voice source/build passes are distinct from pending device qualification |
-| Security and devices | Native Security/Session rows; `VaultMethodsPanel`, `TrustedDevicesPage` and vault/session services | Complete protected forms, method details, enrollment/removal, recovery and trusted-device scenes remain to map |
+| Security and devices | Native Security/Session rows and negotiated Trusted devices list/confirmation; shared device model and existing vault/session services | Protected method forms, enrollment/removal and recovery need conversion; combined device interaction/accessibility and disposable-fixture outcomes remain unverified |
 | Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |
 | Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
 | Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |

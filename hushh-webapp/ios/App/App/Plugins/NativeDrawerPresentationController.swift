@@ -60,12 +60,14 @@ final class NativeDrawerModel: ObservableObject {
     func requestPath(_ path: [String], from state: NativeDrawerProjection) {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
+        let deviceAncestor = navigationPath == ["security", "devices", "device-unlink"] && path == ["security"]
         guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,
-              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1,
+              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor,
               Array(navigationPath.prefix(path.count)) == path else { return }
-        guard choice(path.isEmpty && navigationPath.count > 1 ? "root" : "back") else { return }
+        guard choice(deviceAncestor ? "ancestor" : path.isEmpty && navigationPath.count > 1 ? "root" : "back",
+                     row: deviceAncestor ? "security" : nil) else { return }
         backPending = true
         // The native pop has committed. React still owns the route and
         // confirms the existing Back event; never replay UIKit's transition.
