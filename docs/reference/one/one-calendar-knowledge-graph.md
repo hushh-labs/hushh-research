@@ -138,3 +138,22 @@ not a claim about provider latency or live speech interpretation.
 - Confirmed invitation responses dismiss the detail modal; pending invitations move to Responded. Partial or unknown Calendar/Mail outcomes stay visible for recovery. Offering another time opens the existing availability form inside the modal. Schedule labels pending responses and remains the chronological calendar view.
 
 - Schedule compares absolute event instants for Happening now and Ended. Displaying another timezone does not change those states; Ended describes elapsed scheduled time, not verified attendance.
+
+
+## Decline email and exact proposed times
+
+Decline asks for an editable reason; the explicit send button prepares and
+confirms the existing attendance transaction for the displayed organizer.
+Decline and offer another time derives duration from From/Until (including
+midnight as the end of the day), checks included calendars, and pauses on a
+busy proposal for Continue or Change time. The organizer receives the reason
+and exact proposed interval and remains responsible for updating the event.
+This is a proposal, not a booking or a claim that a busy interval is free.
+
+The same signed review and durable confirmation ledger own Calendar and Mail.
+A calendar failure prevents Mail; partial/unknown Mail delivery never retries
+automatically. The private agent's chat displays the actual settlement through
+a memory-only handoff, without a second model decision or another send.
+Expired reviews retain entered terms but require renewed confirmation.
+Recognized Google holiday feeds follow the Free time exclusion consistently;
+other unreadable included calendars block availability instead of appearing free.

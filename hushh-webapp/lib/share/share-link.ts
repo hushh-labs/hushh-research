@@ -60,18 +60,28 @@ export class ShareUnavailableError extends Error {
  * the clipboard, which keeps the link alongside the text so nothing is lost
  * where neither exists.
  */
-export async function shareLink(params: {
-  title: string;
-  text: string;
-  dialogTitle: string;
-  url?: string;
-}): Promise<ShareDelivery> {
+export async function shareLink(
+  params: {
+    title: string;
+    text: string;
+    dialogTitle: string;
+    url?: string;
+  },
+  isCurrentSession: () => boolean = () => true,
+): Promise<ShareDelivery> {
+  const assertCurrentSession = () => {
+    if (!isCurrentSession())
+      throw new DOMException("Share cancelled", "AbortError");
+  };
+  assertCurrentSession();
   const url = params.url?.trim() ? params.url.trim() : undefined;
   const { Capacitor } = await import("@capacitor/core");
+  assertCurrentSession();
   if (Capacitor.isNativePlatform()) {
     const { Share } = (await import(
       "@capacitor/share"
     )) as typeof import("@capacitor/share");
+    assertCurrentSession();
     await Share.share({
       title: params.title,
       text: params.text,
@@ -94,6 +104,7 @@ export async function shareLink(params: {
   }
 
   const clipboardText = url ? `${params.text}\n${url}` : params.text;
-  if (await copyToClipboard(clipboardText)) return "copied";
+  if (await copyToClipboard(clipboardText, isCurrentSession)) return "copied";
+  assertCurrentSession();
   throw new ShareUnavailableError();
 }

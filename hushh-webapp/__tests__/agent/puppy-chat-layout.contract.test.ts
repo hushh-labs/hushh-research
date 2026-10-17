@@ -44,8 +44,8 @@ describe("Puppy One chat layout", () => {
       "focus-within:pb-[var(--agent-chat-composer-focused-bottom,",
     );
     expect(surface).not.toMatch(/"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-3/);
-    // One's 896px measure, and no card frame around the conversation.
-    expect(surface).toContain("max-w-4xl");
+    // One's current reading measure, and no card frame around the conversation.
+    expect(surface).toContain("max-w-3xl");
     expect(surface).not.toContain("rounded-2xl border border-border/60 bg-background");
   });
 

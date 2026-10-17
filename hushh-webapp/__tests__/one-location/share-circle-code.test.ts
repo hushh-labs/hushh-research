@@ -81,7 +81,10 @@ describe("Circle code sharing parity", () => {
     vi.mocked(copyToClipboard).mockResolvedValue(true);
 
     await expect(shareNamedCircleCode(payload)).resolves.toBe("copied");
-    expect(copyToClipboard).toHaveBeenCalledWith(payload.text);
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      payload.text,
+      expect.any(Function),
+    );
     expect(payload.text).not.toContain("http");
   });
 
@@ -124,6 +127,7 @@ describe("Circle code sharing parity", () => {
     await expect(shareNamedCircleCode(payloadWithUrl)).resolves.toBe("copied");
     expect(copyToClipboard).toHaveBeenCalledWith(
       `${payload.text}\n${payloadWithUrl.url}`,
+      expect.any(Function),
     );
   });
 
@@ -138,16 +142,12 @@ describe("Circle code sharing parity", () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await shareNamedCircleCode(payloadWithUrl);
     const native = vi.mocked(Share.share).mock.calls[0]![0]!;
-    expect(
-      occurrences(`${native.text ?? ""}${native.url ?? ""}`),
-    ).toBe(1);
+    expect(occurrences(`${native.text ?? ""}${native.url ?? ""}`)).toBe(1);
 
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     vi.mocked(copyToClipboard).mockResolvedValue(true);
     await shareNamedCircleCode(payloadWithUrl);
-    expect(
-      occurrences(vi.mocked(copyToClipboard).mock.calls[0]![0]!),
-    ).toBe(1);
+    expect(occurrences(vi.mocked(copyToClipboard).mock.calls[0]![0]!)).toBe(1);
   });
 });
 
@@ -159,7 +159,9 @@ describe("buildCircleInviteShareText", () => {
   });
 
   it("sends only whose Circle it is and the code", () => {
-    expect(withLink).toBe("Join my JHUMMA's Circle on One. Code SWDX-ENDP-B954");
+    expect(withLink).toBe(
+      "Join my JHUMMA's Circle on One. Code SWDX-ENDP-B954",
+    );
   });
 
   it("stays short enough to read at a glance in a chat thread", () => {

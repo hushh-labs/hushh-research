@@ -1,26 +1,22 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { UsersThreeIcon as Users } from "@/components/icons";
+import { PlusIcon, ShieldCheck, Trophy, UsersThreeIcon as Users } from "@/components/icons";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { CircleWarsOverview, CircleWarsStandings } from "./circle-wars-view";
+import styles from "./circle-wars.module.css";
 import { CreateCircleFlow } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { unwindBackLayer, useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
+import { circleWarsClock, circleWarsRemainingMs, type CircleWarsClock } from "@/lib/referral/circle-wars-clock";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleKind, OneLocationCircleSummary } from "@/lib/one-location/types";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { CircleWarsService, type CircleWarsLeaderboard, type CircleWarsState } from "@/lib/services/circle-wars-service";
 import { VaultContext } from "@/lib/vault/vault-context";
-
-function timeRemaining(seconds: number) {
-  if (seconds <= 0) return "Starting a new week…";
-  const hours = Math.floor(seconds / 3600);
-  return hours >= 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours}h ${Math.floor(seconds / 60) % 60}m`;
-}
 
 type Props = {
   userId: string;
@@ -34,7 +30,9 @@ export function CircleWarsPanel(props: Props) {
   const token = useContext(VaultContext)?.vaultOwnerToken ?? null;
   // Remount every account/lock boundary. No previous owner's private names or
   // in-flight requests survive sign-out, lock, or the next account's render.
-  return token ? <CircleWarsContent key={`${props.userId}:unlocked`} {...props} token={token} /> : (
+  return token ? <CircleWarsContent key={`${props.userId}:unlocked`} {...props} token={token} /> : props.view === "leaderboard" ? (
+    <p role="status" className="text-sm text-muted-foreground">Open your vault to see Circle rankings.</p>
+  ) : (
     <SettingsGroup title="Your circle">
       <SettingsRow icon={Users} iconTone="capability" title="Win with your circle" description="Open your vault to choose a Circle and join Circle Wars." />
       <a className="inline-flex min-h-11 items-center px-4 text-sm text-primary underline" href={ROUTES.CONNECT}>Open Circles</a>
@@ -62,13 +60,16 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
   const previousPeriod = useRef<string | null>(null);
   const previousRank = useRef<{ week: string; rank: number } | null>(null);
   const [movement, setMovement] = useState("");
-  const [elapsed, setElapsed] = useState(0);
+  const [clock, setClock] = useState<CircleWarsClock | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const rolloverRequested = useRef<string | null>(null);
   useEffect(() => {
-    const started = performance.now();
-    setElapsed(0);
-    const timer = window.setInterval(() => setElapsed(Math.floor((performance.now()-started)/1000)), 1000);
+    if (!clock || view !== "card") return;
+    const tick = () => setSecondsRemaining(Math.ceil(circleWarsRemainingMs(clock) / 1000));
+    tick();
+    const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [data]);
+  }, [clock, view]);
 
   useEffect(() => {
     alive.current = true;
@@ -80,10 +81,12 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     setRefreshing(true);
     try {
       let next = await CircleWarsService.getState(token);
+      let nextClock = circleWarsClock(next);
       const requestedOffset = previousPeriod.current && previousPeriod.current !== next.period.round_id ? 0 : offset;
       let standings = view === "leaderboard" ? await CircleWarsService.getLeaderboard(token, requestedOffset) : null;
       if (standings && standings.period.round_id !== next.period.round_id) {
         next = await CircleWarsService.getState(token);
+        nextClock = circleWarsClock(next);
         standings = await CircleWarsService.getLeaderboard(token, 0);
       }
       if (standings && standings.offset > 0 && standings.teams.length === 0) {
@@ -100,6 +103,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
       }
       previousRank.current = team ? { week: next.period.round_id, rank: team.rank } : null;
       setData(next);
+      setClock(nextClock);
       previousPeriod.current = next.period.round_id;
       setBoard(standings);
       if (standings) {
@@ -113,6 +117,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
         setOffset(committedOffset.current);
         if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
           setData(null);
+          setClock(null);
           setBoard(null);
           setCircles(null);
           setSelected("");
@@ -140,6 +145,17 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
       sequence.current += 1;
     };
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (!clock || rolloverRequested.current === clock.roundId) return;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      // A stale/error response cannot start a tight loop at the deadline.
+      rolloverRequested.current = clock.roundId;
+      void load();
+    }, circleWarsRemainingMs(clock));
+    return () => window.clearTimeout(timer);
+  }, [clock, load]);
 
   const loadCircles = useCallback(async () => {
     const request = ++pickerSequence.current;
@@ -205,6 +221,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
       if (!alive.current) return;
       sequence.current += 1;
       setData(next);
+      setClock(circleWarsClock(next));
       setOpen(false);
       morphyToast.success("You joined Circle Wars");
       await load();
@@ -227,62 +244,20 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     }
   };
 
-  const team = data?.participation?.team;
-  const joinButton = <Button onClick={chooseCircle}>Join Circle Wars</Button>;
   const errorState = error ? <div role="status" className="space-y-2 text-sm">
     <p>Circle Wars could not refresh. {data ? "Showing the last update." : "Please try again."}</p>
     <Button variant="muted" onClick={() => void load()}>Try again</Button>
   </div> : null;
 
-  return <section aria-label="Circle Wars" className="space-y-4">
+  return <section aria-label="Circle Wars" className={styles.panel}>
     {errorState}
     {!data && !error ? <p role="status" aria-busy="true">Loading Circle Wars…</p> : null}
     {data ? <>
-      {view === "card" ? <SettingsGroup title="Your circle">
-        {team ? <div className="space-y-3 p-4">
-          <p className="text-sm font-semibold text-primary">Rank #{team.rank}</p>
-          <h3 className="text-lg font-semibold">{team.name}</h3>
-          <p className="text-sm text-muted-foreground">{team.participating_members} participating members</p>
-          <p><strong>{team.qualified_referrals}</strong> qualified referrals this week</p>
-          <p aria-live="polite" className="text-sm">{movement || (team.next_rank !== null
-            ? `You're ${team.referrals_to_next_rank} referrals away from Rank #${team.next_rank}!`
-            : "Your Circle leads this week. Keep growing together.")}</p>
-          <p className="text-sm text-muted-foreground">Ends in {timeRemaining(Math.max(0, data.period.seconds_remaining - elapsed))} · {data.period.timezone}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={onInvite}>Invite Friends</Button>
-            <Button variant="muted" onClick={onViewRankings}>View Rankings</Button>
-          </div>
-        </div> : <div className="space-y-3 p-4">
-          <h3 className="font-semibold">{data.participation ? "Your Circle is unavailable" : "Win with your circle"}</h3>
-          <p className="text-sm text-muted-foreground">{data.participation
-            ? "Your weekly selection is saved. Check your Circle membership to see its details."
-            : "Team up with friends, earn referrals, and climb the weekly leaderboard."}</p>
-          {!data.participation ? joinButton : null}
-        </div>}
-      </SettingsGroup> : <div className="space-y-4">
-        <header className="space-y-1">
-          <h2 className="text-lg font-semibold">Circle Wars</h2>
-          <p className="text-sm text-muted-foreground">Compete together. Grow together.</p>
-          <p className="text-sm">This week ends in: {timeRemaining(Math.max(0, data.period.seconds_remaining - elapsed))}</p>
-          <p className="text-xs text-muted-foreground">Week of {data.period.week_start} · {data.period.timezone}</p>
-        </header>
-        {!data.participation ? joinButton : null}
-        {board?.total_teams === 0 ? <p>No participating Circles yet. Choose your Circle to start this week.</p> : null}
-        <ol aria-label="Weekly Circle standings" className="space-y-2">
-          {board?.teams.map((entry) => <li key={entry.team_key} className={`rounded-2xl border p-4 ${entry.is_your_circle ? "border-primary bg-primary/5" : "border-border"}`}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0"><p className="break-words font-semibold">#{entry.rank} {entry.name}{entry.is_your_circle ? " (Your Circle)" : ""}</p>
-                <p className="text-sm text-muted-foreground">{entry.participating_members} participating members</p></div>
-              <p className="shrink-0 text-right"><strong>{entry.qualified_referrals}</strong><span className="block text-xs text-muted-foreground">referrals</span></p>
-            </div>
-            <Progress className="mt-3" value={entry.relative_progress * 100} aria-label={`${entry.name} relative score`} />
-          </li>)}
-        </ol>
-        <div className="flex gap-2">
-          {(board?.offset ?? 0) > 0 ? <Button variant="muted" disabled={refreshing} onClick={() => setOffset(Math.max(0, committedOffset.current - 25))}>Previous</Button> : null}
-          {board?.has_more ? <Button variant="muted" disabled={refreshing} onClick={() => setOffset(committedOffset.current + 25)}>Next</Button> : null}
-        </div>
-      </div>}
+      {view === "card" ? <CircleWarsOverview data={data} view={view} secondsRemaining={secondsRemaining}
+        movement={movement} onJoin={chooseCircle} onInvite={onInvite} onViewRankings={onViewRankings} />
+        : <CircleWarsStandings board={board} data={data} refreshing={refreshing}
+        onPrevious={() => setOffset(Math.max(0, committedOffset.current - 10))}
+        onNext={() => setOffset(committedOffset.current + 10)} />}
     </> : null}
     <Dialog modal open={open} onOpenChange={(next) => { if (!busy) setOpen(next); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto" onEscapeKeyDown={(event) => {
@@ -291,8 +266,11 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
           if (!unwindBackLayer(ROUTES.ONE_REFERRALS)) closePicker();
         }
       }}>
-        <DialogHeader><DialogTitle>{creating ? "Create a Circle" : "Choose your Circle"}</DialogTitle>
-          <DialogDescription>Select a Circle to compete with, or create a new one.</DialogDescription></DialogHeader>
+        <DialogHeader className={styles.pickerIntro}>
+          <span className={styles.pickerIcon}><Trophy weight="duotone" aria-hidden="true" /></span>
+          <div><DialogTitle>{creating ? "Create a Circle" : "Choose your Circle"}</DialogTitle>
+          <DialogDescription>A good team starts with your people.</DialogDescription></div>
+        </DialogHeader>
         {creating ? <><CreateCircleFlow key={`${userId}:${token}`} busy={busy} onSubmit={create}
           pathname={ROUTES.ONE_REFERRALS} backLayerQuery={{}}
           onLoadPeople={(circleId, options) => OneLocationService.listNamedCircleEligibleConnectionsPage({ vaultOwnerToken: token, circleId, ...options })}
@@ -313,15 +291,16 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
         /><Button variant="muted" disabled={busy} onClick={backToCircles}>Back to Circles</Button></> : <div className="space-y-4">
           {circlesError ? <div role="status"><p>Could not load your Circles.</p><Button variant="muted" onClick={() => void loadCircles()}>Try loading Circles again</Button></div>
             : circles === null ? <p role="status">Loading your Circles…</p>
-              : circles.length === 0 ? <p>You have no Circles yet. Create a Circle to compete with friends.</p> : <fieldset className="space-y-2"><legend className="sr-only">Select an existing Circle</legend>
-                {circles.map((circle) => <label key={circle.id} className="flex min-h-14 cursor-pointer items-center gap-3 rounded-2xl border p-3">
+              : circles.length === 0 ? <p className={styles.pickerEmpty}>You have no Circles yet. Create a Circle to compete with friends.</p> : <fieldset className={styles.choices}><legend className="sr-only">Select an existing Circle</legend>
+                {circles.map((circle) => <label key={circle.id} className={styles.choice}>
+                  <span className={styles.pickerIcon}><Users weight="duotone" aria-hidden="true" /></span>
+                  <span className={styles.choiceCopy}><span className="ui-text-row-label-emphasized">{circle.name}</span><span>{circle.memberCount} members</span></span>
                   <input type="radio" name="circle-wars-circle" value={circle.id} checked={selected === circle.id} onChange={() => setSelected(circle.id)} disabled={busy} />
-                  <Users aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 break-words"><span className="block font-medium">{circle.name}</span><span className="text-sm text-muted-foreground">{circle.memberCount} members</span></span>
                 </label>)}
               </fieldset>}
-          <Button variant="muted" onClick={() => setCreating(true)} disabled={busy}>Create New Circle</Button>
-          <p className="text-sm text-muted-foreground">By joining, you choose one Circle for this week. Only your new qualified referrals after joining count. Your friends join separately.</p>
-          <Button disabled={!selected || busy} onClick={() => void join()}>{busy ? "Joining…" : "Join with this Circle"}</Button>
+          <Button variant="muted" className="w-full" onClick={() => setCreating(true)} disabled={busy}><PlusIcon className="mr-2 size-4" aria-hidden="true" />Create New Circle</Button>
+          <div className={styles.joinNote}><ShieldCheck aria-hidden="true" /><p>By joining, you choose one Circle for this week. Only your new qualified referrals after joining count. Your friends join separately.</p></div>
+          <Button className="w-full" disabled={!selected || busy} onClick={() => void join()}>{busy ? "Joining…" : "Join with this Circle"}</Button>
         </div>}
       </DialogContent>
     </Dialog>

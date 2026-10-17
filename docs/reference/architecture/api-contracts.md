@@ -1,101 +1,5 @@
 # API Contracts
 
-## Circle Wars weekly participation
-
-Migration 358 extends `one_referral_circle_selections` and
-`one_referral_circle_contributions`; it does not introduce another referral or
-coin ledger. `one_referral_circle_teams` holds random public aliases per existing
-reward-round ID. The active program schedule owns the deadline and timezone;
-physical prize activation remains independent of team participation.
-
-All `/api/one/referrals/circle-wars` routes require a `VAULT_OWNER` bearer token
-and return `Cache-Control: private, no-store` through the existing web/native
-`apiJson` transport:
-
-| Method and suffix | Contract |
-| --- | --- |
-| GET (base) | Current persisted round and caller's optional selection. Optional `week` is a historical reward-round UUID. |
-| POST `/participation` | `{circle_id: UUID, consent: true}`; strict consent, no extra fields, active existing Circle membership. Same-team retry is idempotent; switching that week returns 409. |
-| GET `/leaderboard` | `limit` 1–100, nonnegative `offset`, optional historical `week`; global ranks, total and pagination. |
-| GET `/circles/{circle_id}` | Caller-authorized Circle statistics; unauthorized names and IDs remain private. |
-
-Qualification snapshots eligible weekly selection into the existing durable
-scoring job. The existing worker settles one raw team contribution per
-relationship alongside individual awards. Referrals opened before opt-in,
-nonmembers and inherited genealogy never imply consent. Late jobs retain their
-round; revoked relationships stop counting. Existing deletion cascades apply.
-Legacy Firebase-only Circle previews remain closed for older clients; the active
-dashboard uses these owner-authorized endpoints.
-
-The You card and Ranking/Circles pane reuse existing Circle creation and invite
-links. Other teams expose random aliases; authorized members see Circle names.
-Rewards and individual rankings retain their existing behavior. SSE and visible
-polling refresh team standings and rollover. Rollback disables new snapshot and
-notification triggers while preserving bounded history, awards and claims.
-
-The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
-concurrent selection, no retroactive credit, delayed settlement, privacy,
-revocation, history, owner API authority and migration replay. Run with
-`ONE_COMMAND_TEST_DATABASE_URL` pointing to disposable PostgreSQL; CI includes
-this suite. Circle interaction tests and `verify:referral-dashboard` cover the
-frontend. Live browser qualification also needs matching nonproduction Firebase
-and backend configuration, a migrated database and a fresh invitee account.
-
-> Complete endpoint reference, authentication model, and developer integration guide.
-
----
-
-## Token Hierarchy
-
-### Independent web email login
-
-`/api/auth/email/*` uses browser-bound public authentication challenges, separately
-from vault/consent access. Thin Next proxies preserve the same paths and no-store
-responses. See [Independent Email Authentication](../iam/independent-email-auth.md).
-
-| Endpoint | Request and result |
-| --- | --- |
-| `GET /api/auth/email/capabilities` | Runtime availability; no credentials or private policy evidence. |
-| `POST /api/auth/email/request` | `email`, memory-held `browser_binding`, idempotent `request_key`; current domain approval creates an opaque challenge and encrypted outbox. |
-| `POST /api/auth/email/resend` | Same bounded request shape with a new request key after cooldown; aggregate budgets remain. |
-| `POST /api/auth/email/verify` | `challenge_id`, six-digit `code`, `browser_binding`; atomic proof returns a Firebase custom token for the same verified primary-email UID; no second provider login. |
-
-Pending domain review returns `202` with no sendable challenge, a denied domain `403`,
-rate limits `429` and unavailable dependencies `503`. No response before mailbox proof
-reveals account existence. Validation errors never echo input secrets. Successful
-login grants identity only; the vault and scoped consent retain their own gates.
-
-All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
-
-Founder-language note:
-
-- `Capability Tokens` are the architecture headline
-- this file keeps the runtime labels `VAULT_OWNER`, `consent-token`, and `developer token` because readers need the exact wire contract
-- `PCHP` maps here to the `/api/v1/request-consent`, `/api/v1/consent-status`, and `/api/v1/scoped-export` flow
-
-```
-Firebase Sign-In
-      │
-      ▼
-POST /api/consent/vault-owner-token  (Firebase Bearer)
-      │
-      ▼
-  VAULT_OWNER Token (24h)
-      │
-      ├── All vault/data operations
-      ├── Agent operations
-      └── Can delegate scoped tokens to MCP agents (7d)
-```
-
-| Token Type         | Purpose                            | Duration | Auth Format                                    |
-| ------------------ | ---------------------------------- | -------- | ---------------------------------------------- |
-| Firebase ID Token  | Identity verification only         | 1 hour   | `Bearer <firebase-id-token>`                   |
-| VAULT_OWNER Token  | Consent + identity for all data    | 24 hours | `Bearer <vault-owner-token>`                   |
-| Agent Scoped Token | Delegated MCP agent access         | 7 days   | `Bearer <consent-token>`                       |
-| Developer Token    | External API and remote MCP access | N/A      | `Authorization: Bearer <developer-token>` only |
-
----
-
 ## Visual Map
 
 Which credential plane authorizes which FastAPI route family, and how first-party
@@ -147,6 +51,125 @@ flowchart TB
   hct --> dev
   maint --> one
 ```
+
+---
+
+## Circle Wars weekly participation
+
+Migration 358 extends `one_referral_circle_selections` and
+`one_referral_circle_contributions`; it does not introduce another referral or
+coin ledger. `one_referral_circle_teams` holds random public aliases per existing
+reward-round ID. The active program schedule owns the deadline and timezone;
+physical prize activation remains independent of team participation.
+
+All `/api/one/referrals/circle-wars` routes require a `VAULT_OWNER` bearer token
+and return `Cache-Control: private, no-store` through the existing web/native
+`apiJson` transport:
+
+| Method and suffix | Contract |
+| --- | --- |
+| GET (base) | Current persisted round and caller's optional selection. Optional `week` is a historical reward-round UUID. |
+| POST `/participation` | `{circle_id: UUID, consent: true}`; strict consent, no extra fields, active existing Circle membership. Same-team retry is idempotent; switching that week returns 409. |
+| GET `/leaderboard` | `limit` 1–100, nonnegative `offset`, optional historical `week`; global ranks, total and pagination. |
+| GET `/circles/{circle_id}` | Caller-authorized Circle statistics; unauthorized names and IDs remain private. |
+
+Qualification snapshots eligible weekly selection into the existing durable
+scoring job. The existing worker settles one raw team contribution per
+relationship alongside individual awards. Referrals opened before opt-in,
+nonmembers and inherited genealogy never imply consent. Late jobs retain their
+round; revoked relationships stop counting. Existing deletion cascades apply.
+Legacy Firebase-only Circle previews remain closed for older clients; the active
+dashboard uses these owner-authorized endpoints.
+
+The You card and Ranking/Circles pane reuse existing Circle creation and invite
+links. Invite opens the shared native/Web Share flow directly, falling back to
+copying the link on devices without a share sheet. Other teams expose random
+aliases; authorized members see Circle names.
+Rewards and individual rankings retain their existing behavior. SSE and visible
+polling refresh team standings and rollover. Rollback disables new snapshot and
+notification triggers while preserving bounded history, awards and claims.
+
+Both ranking views request ten entries per page. Individuals retain the
+published `snapshot_id` across cursor reads; a pruned snapshot restarts the
+latest list. An off-page owner has a shortcut to their ranked page rather than
+an eleventh list entry. Circles use the existing offset and `has_more` contract.
+Circle deadlines use the persisted round and database clock independently of
+prize activation. Current-round reads retry once if the DB read crosses cutoff,
+then return retryable 503 `COMPETITION_WEEK_CHANGED`; historical reads stay fixed.
+Clients anchor the deadline at response receipt using a monotonic clock and
+refresh at cutoff, with normal polling as recovery.
+
+The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
+concurrent selection, no retroactive credit, delayed settlement, privacy,
+revocation, history, owner API authority and migration replay. Run with
+`ONE_COMMAND_TEST_DATABASE_URL` pointing to disposable PostgreSQL; CI includes
+this suite. Circle interaction tests and `verify:referral-dashboard` cover the
+frontend. Live browser qualification also needs matching nonproduction Firebase
+and backend configuration, a migrated database and a fresh invitee account.
+
+> Complete endpoint reference, authentication model, and developer integration guide.
+
+## Individual referral profile portraits
+
+`GET /api/one/referrals/leaderboard` adds optional nullable `photo_url` to both
+`entries` and the off-page `viewer` row. It follows the same viewer-permitted
+directory projection as `display_name`; chosen public aliases remain unlinked
+to account portraits. Unavailable identities have no portrait. The owner row
+uses its existing provider-profile projection. Existing custom raster image
+URLs are preserved. Clients show a fallback avatar when the field is absent or
+the image cannot load. Snapshot scores, ranks, authentication and pagination
+are unchanged; the web/native proxy passes this additive field through.
+
+---
+
+## Token Hierarchy
+
+### Independent web email login
+
+`/api/auth/email/*` uses browser-bound public authentication challenges, separately
+from vault/consent access. Thin Next proxies preserve the same paths and no-store
+responses. See [Independent Email Authentication](../iam/independent-email-auth.md).
+
+| Endpoint | Request and result |
+| --- | --- |
+| `GET /api/auth/email/capabilities` | Runtime availability; no credentials or private policy evidence. |
+| `POST /api/auth/email/request` | `email`, memory-held `browser_binding`, idempotent `request_key`; current domain approval creates an opaque challenge and encrypted outbox. |
+| `POST /api/auth/email/resend` | Same bounded request shape with a new request key after cooldown; aggregate budgets remain. |
+| `POST /api/auth/email/verify` | `challenge_id`, six-digit `code`, `browser_binding`; atomic proof returns a Firebase custom token for the same verified primary-email UID; no second provider login. |
+
+Pending domain review returns `202` with no sendable challenge, a denied domain `403`,
+rate limits `429` and unavailable dependencies `503`. No response before mailbox proof
+reveals account existence. Validation errors never echo input secrets. Successful
+login grants identity only; the vault and scoped consent retain their own gates.
+
+All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
+
+Founder-language note:
+
+- `Capability Tokens` are the architecture headline
+- this file keeps the runtime labels `VAULT_OWNER`, `consent-token`, and `developer token` because readers need the exact wire contract
+- `PCHP` maps here to the `/api/v1/request-consent`, `/api/v1/consent-status`, and `/api/v1/scoped-export` flow
+
+```
+Firebase Sign-In
+      │
+      ▼
+POST /api/consent/vault-owner-token  (Firebase Bearer)
+      │
+      ▼
+  VAULT_OWNER Token (24h)
+      │
+      ├── All vault/data operations
+      ├── Agent operations
+      └── Can delegate scoped tokens to MCP agents (7d)
+```
+
+| Token Type         | Purpose                            | Duration | Auth Format                                    |
+| ------------------ | ---------------------------------- | -------- | ---------------------------------------------- |
+| Firebase ID Token  | Identity verification only         | 1 hour   | `Bearer <firebase-id-token>`                   |
+| VAULT_OWNER Token  | Consent + identity for all data    | 24 hours | `Bearer <vault-owner-token>`                   |
+| Agent Scoped Token | Delegated MCP agent access         | 7 days   | `Bearer <consent-token>`                       |
+| Developer Token    | External API and remote MCP access | N/A      | `Authorization: Bearer <developer-token>` only |
 
 ---
 
@@ -1676,6 +1699,24 @@ The five connected workspace endpoints belong to
 existing Calendar router. Calendar lifecycle, setup, and chat proposal APIs
 remain owned by `calendar.py`; their onboarding workflow inventory and paused
 cursors retain their existing contract.
+
+Attendance review accepts additive `send_message` and `exact_time` booleans.
+`send_message` requires a nonempty reason and a decline response; it prepares
+organizer Mail independently of `offer_times`. With `offer_times` and
+`exact_time`, From/Until describe one proposed interval. The service derives
+its elapsed duration in the supplied IANA zone, reports busy intervals as
+conflicts, and emails the proposed time rather than a free-slot link. The
+confirm call rechecks included calendars and conflicts before RSVP or Mail.
+Legacy window-search callers retain their existing duration and link contract.
+All availability paths use the same recognized-holiday exclusion; unreadable
+included calendars still fail closed.
+
+The reason/alternative form's send CTA authorizes preparation and confirmation
+only for the displayed organizer. Changed recipients or conflicts require a
+fresh visible review. One chat receives only the memory-held settlement promise,
+owner and vault epoch, never the review token or a model send instruction.
+Expired reviews are discarded while edited terms remain; renewing one requires
+fresh confirmation. Partial or unknown delivery is reported without auto-retry.
 
 Attendance review stores only an opaque idempotency ledger in
 `calendar_attendance_reviews` (migration 337); encrypted review contents remain
@@ -3656,6 +3697,17 @@ a nonexistent anchor; the parity document is now the canonical definition.
 ## See Also
 
 - [Personal contact invitations](../../guides/contact-invitations.md) — client-only recipient callback and native composer contract; contact-sync HTTP payloads remain unchanged.
+
+The invitation bridge preserves `composeSms({ recipient, body })` and adds
+`composeSmsBatch({ recipients, body })` for one user-confirmed native draft with
+1–15 unique E.164 numbers and a common body (maximum 2,000 UTF-16 units).
+`getCapabilities()` adds optional `maxSmsRecipients`; only affirmative SMS support
+and an integer maximum of at least 15 enable the batch path. Legacy binaries
+remain unsupported for batch, with copy/update recovery. Web uses one in-memory
+BCC email draft for 1–15 validated email destinations. Composer launch/Send
+results never establish delivery. No new HTTP endpoint or backend SMS provider
+is involved; see the guide for privacy, cancellation and compatibility contracts.
+
 
 - [Architecture](./architecture.md) -- System overview and tri-flow
 - [Personal Knowledge Model](../../../consent-protocol/docs/reference/personal-knowledge-model.md) -- Data storage endpoints

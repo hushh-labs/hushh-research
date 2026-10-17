@@ -15,6 +15,7 @@ import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { CHAT_WELCOME_COPY_CLASSNAME, OneChatBubble } from "@/components/agent/chat-message-styles";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import {
   PuppyModelPicker,
@@ -380,7 +381,7 @@ export function HermesChatPanel({
       : { ...describeLinkPill(link), pending: false };
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+    <div data-one-chat-surface className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div className="flex items-center gap-2 border-b border-border/60 px-1 py-2.5 text-xs">
         <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span
@@ -438,10 +439,10 @@ export function HermesChatPanel({
       </div>
 
       {/* No inner gutter of its own: the column around the panel already
-          carries One's gutters and 896px measure, so a second px-4 here left
+          carries One's gutters and reading measure, so a second px-4 here left
           every Puppy turn 32px narrower than the same turn in One. px-1 only
           keeps focus rings and bubble shadows off the clipping edge. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-5">
         {/* Always mounted, so the region is in the accessibility tree before
             the run begins rather than being inserted with its own content.
             One's "Thinking" is deliberately suppressed in Puppy mode, which
@@ -450,7 +451,7 @@ export function HermesChatPanel({
           {sending ? "Puppy One is thinking" : ""}
         </p>
         {checking ? (
-          <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          <p className={cn("flex items-center justify-center gap-2 rounded-xl border border-dashed p-6 text-center", CHAT_WELCOME_COPY_CLASSNAME)}>
             <Loader2 className="size-3.5 animate-spin" aria-hidden />
             Checking Puppy One…
           </p>
@@ -463,7 +464,7 @@ export function HermesChatPanel({
           />
         ) : null}
         {connected && turns.length === 0 ? (
-          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          <p className={cn("rounded-xl border border-dashed p-6 text-center", CHAT_WELCOME_COPY_CLASSNAME)}>
             {/* The pin is what makes the promise, so the promise follows the
                 pin. With "any model" chosen the gateway is free to resolve a
                 model that runs off this machine, and this is the largest piece
@@ -473,7 +474,7 @@ export function HermesChatPanel({
               : "Ask Puppy One. This turn is not pinned to this machine, so a model that runs off it may answer. This conversation still stays separate from One."}
           </p>
         ) : null}
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-5">
           {turns.map((turn) => (
             <PuppyTurnView
               key={turn.id}
@@ -496,7 +497,7 @@ export function HermesChatPanel({
       {/* The composer is One's compact pill (surface, height, radius, type
           size), not a bordered box on a divider: the small 40px field under a
           rule was the clearest sign this surface was a different, lesser app.
-          15px on phones, as One's, so the field reads at One's size. */}
+          The shared field keeps One’s 16px text and 24px line box. */}
       <AgentDockPortal enabled={sharedDock && active} visible>
       <AgentBarSurface embedded={sharedDock} inert={composerDisabled} className={cn("agent-chat-composer-surface agent-chat-composer-compact min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
         <textarea
@@ -521,7 +522,7 @@ export function HermesChatPanel({
                 : composerPlaceholder(link)
           }
           aria-label="Message Puppy One"
-          className="agent-chat-composer-field min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
+          className="agent-chat-composer-field h-auto min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
         />
         <div className="agent-chat-composer-actions flex shrink-0 items-center">
         <ShellActionSurface
@@ -544,8 +545,8 @@ export function HermesChatPanel({
 /**
  * One turn, in the same grammar One's transcript uses.
  *
- * The assistant half goes through the SHARED markdown renderer and is
- * unbubbled, exactly as One's is, because a Puppy answer arriving as literal
+ * Both roles use One's shared bubble and the assistant uses its shared
+ * markdown renderer, because a Puppy answer arriving as literal
  * `**bold**` and unrendered fences made the on-device tier read as the
  * half-finished half of the app. The user half keeps `whitespace-pre-wrap`:
  * parsing what the owner typed as markdown would eat their asterisks. A
@@ -574,19 +575,20 @@ function PuppyTurnView({
   if (turn.role === "user") {
     return (
       <div className="motion-step-enter flex w-full justify-end">
-        <span className="max-w-[90%] whitespace-pre-wrap break-words rounded-[22px] sm:max-w-[min(76%,42rem)] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-sm leading-6 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]">
+        <OneChatBubble tone="user" className="max-w-[90%] whitespace-pre-wrap break-words sm:max-w-[min(76%,42rem)]">
           {turn.text}
-        </span>
+        </OneChatBubble>
       </div>
     );
   }
 
   return (
     <div className="motion-step-enter flex w-full flex-col items-start">
-      <div
+      <OneChatBubble
+        tone="assistant"
         // Only the turn actually streaming is a live region.
         aria-live={streaming ? "polite" : undefined}
-        className="min-w-0 max-w-[90%] px-1 py-2 text-sm leading-6 text-foreground sm:max-w-[min(82%,48rem)]"
+        className="min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]"
       >
         {turn.activity && turn.activity.length > 0 ? (
           <p className="mb-1.5 text-[11px] text-muted-foreground">
@@ -597,7 +599,7 @@ function PuppyTurnView({
         {sending && !turn.text ? (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         ) : null}
-      </div>
+      </OneChatBubble>
       {turn.text && !streaming ? (
         <button
           type="button"
@@ -701,7 +703,7 @@ function PuppyLinkEmptyState({
 }) {
   const developerHint = isLocalHost() ? status?.message?.trim() || null : null;
   return (
-    <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+    <div className={cn("space-y-3 rounded-xl border border-dashed p-6 text-center", CHAT_WELCOME_COPY_CLASSNAME)}>
       <PuppyLinkCopy
         link={link}
         trustedDevicesHref={trustedDevicesHref}
@@ -747,7 +749,7 @@ function PuppyLinkCopy({
           {model ? ` · ${model}` : ""}
           {seen ? ` · seen ${seen}` : ""}. Chat here works from that machine.
         </p>
-        <p className="mt-2">{trustedDevices}</p>
+        <p>{trustedDevices}</p>
       </>
     );
   }
@@ -780,7 +782,7 @@ function PuppyLinkCopy({
             <code className="font-mono text-[0.85em]">/hussh-one status</code>.
           </p>
         )}
-        <p className="mt-2">{trustedDevices}</p>
+        <p>{trustedDevices}</p>
       </>
     );
   }
@@ -793,7 +795,7 @@ function PuppyLinkCopy({
           your Mac, then run{" "}
           <code className="font-mono text-[0.85em]">/hussh-one connect</code>.
         </p>
-        <p className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
+        <p className="flex flex-wrap justify-center gap-x-3 gap-y-1">
           <a
             href={PUPPY_ONE_INSTALL_URL}
             target="_blank"
@@ -823,7 +825,7 @@ function PuppyLinkCopy({
             the account, so this is news to the reader, and the Profile detail
             is the only surface that says which device and when. No install
             anchor: that machine already has Puppy One on it. */}
-        <p className="mt-2">{trustedDevices}</p>
+        <p>{trustedDevices}</p>
       </>
     );
   }

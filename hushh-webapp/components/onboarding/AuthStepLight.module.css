@@ -105,7 +105,6 @@
   color: #fff;
 }
 
-.existingProviderIcon { display: none; }
 .providerButton {
   position: relative;
   width: 100%;
@@ -135,39 +134,11 @@
   }
 }
 .providerButton:hover { background: #f8f8fa !important; }
-.providerButton > span:first-child {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-.providerButton > span:first-child > span:last-child {
+.providerButton [data-auth-provider-content] > span:last-child {
   font-family: var(--font-app-body) !important;
   font-size: 16px !important;
   font-weight: 600 !important;
   line-height: 22px !important;
-}
-.providerIcon {
-  position: absolute;
-  left: 2px;
-  top: 50%;
-  display: block;
-  object-fit: contain;
-  transform: translateY(-50%);
-}
-.appleIcon { width: 41px; height: 23px; }
-.googleIcon { width: 46px; height: 23px; }
-/* Measured from the images: the Apple glyph is centred 20.4px and the Google glyph 22.7px from the
-   left of their boxes, both about 20-21px tall. A 43px box puts the shield's centre between them
-   (21.5px), and the 25px glyph stands about as tall (about 20px with its stroke). */
-.ssoIcon {
-  display: grid;
-  place-items: center;
-  width: 43px;
-  height: 28px;
-  color: #1d1d1f;
 }
 .actions :global(#enterprise-sso-email) {
   height: 53px;
@@ -234,11 +205,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .frame *, .frame *::before, .frame *::after { animation: none !important; transition: none !important; }
-}
-
-.microsoftIcon, .emailIcon {
-  position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
-  display: grid; place-items: center; width: 43px; height: 23px;
 }
 
 /* The welcome surface stays light in both themes. Its form primitives need

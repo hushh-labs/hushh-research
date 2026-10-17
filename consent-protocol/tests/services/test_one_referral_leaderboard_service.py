@@ -27,9 +27,7 @@ def snapshot_publication(monkeypatch):
     from hushh_mcp.services import one_referral_scoring_service
 
     monkeypatch.setattr(one_referral_scoring_service, "publish_leaderboard_snapshot", lambda: None)
-    monkeypatch.setattr(
-        leaderboard_service, "get_leaderboard_display_names", lambda *args, **kwargs: {}
-    )
+    monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", lambda *args, **kwargs: {})
 
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"
@@ -90,6 +88,8 @@ def test_a_referrer_with_no_handle_renders_as_the_anonymous_placeholder(monkeypa
 
 
 def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(monkeypatch):
+    identity_read = MagicMock(return_value={})
+    monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", identity_read)
     page_rows = [SimpleNamespace(user_id="user_with_handle", cumulative_points=500, rank=1)]
     conn = MagicMock()
 
@@ -112,9 +112,25 @@ def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(
         result = leaderboard_service.get_individual_leaderboard(viewer_user_id="someone_else")
 
     assert result["entries"][0]["handle"] == "top-dog"
+    assert result["entries"][0]["photo_url"] is None
+    identity_read.assert_called_once_with([], viewer_user_id="someone_else")
 
 
 def test_viewer_row_included_when_outside_the_page(monkeypatch):
+    monkeypatch.setattr(
+        leaderboard_service,
+        "get_leaderboard_profiles",
+        lambda *args, **kwargs: {
+            "user_viewer": {
+                "display_name": "My profile",
+                "photo_url": "https://example.test/me.png",
+            },
+            "user_rank_1": {
+                "display_name": "Visible peer",
+                "photo_url": "https://example.test/peer.png",
+            },
+        },
+    )
     page_rows = [SimpleNamespace(user_id="user_rank_1", cumulative_points=1000, rank=1)]
     viewer_row = SimpleNamespace(user_id="user_viewer", cumulative_points=20, rank=47)
     conn = MagicMock()
@@ -137,6 +153,8 @@ def test_viewer_row_included_when_outside_the_page(monkeypatch):
 
     assert result["viewer"]["rank"] == 47
     assert result["viewer"]["is_viewer"] is True
+    assert result["viewer"]["photo_url"] == "https://example.test/me.png"
+    assert result["entries"][0]["photo_url"] == "https://example.test/peer.png"
     assert len(result["entries"]) == 1  # the page itself is untouched
 
 

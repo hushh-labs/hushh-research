@@ -376,6 +376,92 @@
             }
           ]
         }
+      },
+      {
+        "title": "Cloud SQL CPU (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_MEAN"
+                  }
+                },
+                "unitOverride": "10^2.%"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Chat First Visible P95 (ms)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_visible_ms\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                  }
+                },
+                "unitOverride": "ms"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Stream Failure Rate (turns/s)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_stream_failure_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
+      },
+      {
+        "title": "Agent Chat First Visible Sample Rate (samples/s)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND metric.type=\"logging.googleapis.com/user/obs_agent_chat_first_visible_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "300s",
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1/s"
+              },
+              "targetAxis": "Y1"
+            }
+          ]
+        }
       }
     ]
   }

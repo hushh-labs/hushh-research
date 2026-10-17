@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 EmailJobKind = Literal["support_message", "invite_email"]
 
 
+class EmailDeliveryQueueUnavailable(RuntimeError):
+    """The in-process delivery worker cannot accept another job."""
+
+
 @dataclass(slots=True)
 class EmailDeliveryJob:
     job_id: str
@@ -28,21 +32,30 @@ class EmailDeliveryJob:
 class EmailDeliveryQueueService:
     """Serialize outbound email sends onto a lazy background worker."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_pending: int = 1024, shutdown_timeout_seconds: float = 5.0) -> None:
+        if max_pending < 1 or shutdown_timeout_seconds < 0:
+            raise ValueError("Invalid email delivery queue capacity or shutdown timeout")
+        self._max_pending = max_pending
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
+        self._closing = False
+        self._active_job: EmailDeliveryJob | None = None
         self._queue: asyncio.Queue[EmailDeliveryJob] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._bound_loop: asyncio.AbstractEventLoop | None = None
 
     def _ensure_queue(self) -> asyncio.Queue[EmailDeliveryJob]:
+        if self._closing:
+            raise EmailDeliveryQueueUnavailable("Email delivery is shutting down")
         loop = asyncio.get_running_loop()
-        if (
-            self._queue is None
-            or self._bound_loop is not loop
-            or self._worker_task is None
-            or self._worker_task.done()
-        ):
+        if self._queue is None or self._bound_loop is not loop:
+            if self._queue is not None and (
+                not self._queue.empty()
+                or (self._worker_task is not None and not self._worker_task.done())
+            ):
+                raise EmailDeliveryQueueUnavailable("Email delivery belongs to another event loop")
             self._bound_loop = loop
-            self._queue = asyncio.Queue()
+            self._queue = asyncio.Queue(maxsize=self._max_pending)
+        if self._worker_task is None or self._worker_task.done():
             self._worker_task = loop.create_task(self._worker(), name="email-delivery-worker")
         return self._queue
 
@@ -57,13 +70,14 @@ class EmailDeliveryQueueService:
                 break
 
             try:
+                self._active_job = job
                 result = await asyncio.to_thread(job.send_callable)
             except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "email_delivery.job_failed job_id=%s kind=%s context=%s",
+                logger.error(
+                    "email_delivery.job_failed job_id=%s kind=%s error_class=%s",
                     job.job_id,
                     job.kind,
-                    job.context,
+                    type(exc).__name__,
                 )
                 if job.on_failure is not None:
                     try:
@@ -85,6 +99,7 @@ class EmailDeliveryQueueService:
                             job.kind,
                         )
             finally:
+                self._active_job = None
                 queue.task_done()
 
     async def enqueue(
@@ -106,7 +121,10 @@ class EmailDeliveryQueueService:
             on_failure=on_failure,
             context=dict(context or {}),
         )
-        await self._ensure_queue().put(job)
+        try:
+            self._ensure_queue().put_nowait(job)
+        except asyncio.QueueFull:
+            raise EmailDeliveryQueueUnavailable("Email delivery backlog is full") from None
         return {
             "accepted": True,
             "delivery_status": "queued",
@@ -121,17 +139,70 @@ class EmailDeliveryQueueService:
             await self._queue.join()
 
     async def shutdown(self) -> None:
+        self._closing = True
         worker = self._worker_task
-        self._worker_task = None
-        self._queue = None
-        self._bound_loop = None
         if worker is None or worker.done():
+            await self._fail_pending_on_shutdown()
+            self._worker_task = None
+            self._queue = None
+            self._bound_loop = None
             return
+        try:
+            await asyncio.wait_for(self.wait_for_idle(), timeout=self._shutdown_timeout_seconds)
+        except asyncio.TimeoutError:
+            # A thread-offloaded send may still complete after cancellation.
+            # Do not retry it: durable delivery requires the effect owner's
+            # explicit idempotency and uncertain-outcome contract.
+            logger.warning(
+                "email_delivery.shutdown_drain_timeout pending=%s",
+                self._queue.qsize() if self._queue else 0,
+            )
+            if self._active_job is not None:
+                logger.warning(
+                    "email_delivery.send_outcome_uncertain job_id=%s kind=%s",
+                    self._active_job.job_id,
+                    self._active_job.kind,
+                )
+            await self._fail_pending_on_shutdown()
         worker.cancel()
         try:
             await worker
         except asyncio.CancelledError:
             pass
+        finally:
+            self._worker_task = None
+            self._queue = None
+            self._bound_loop = None
+
+    async def _fail_pending_on_shutdown(self) -> None:
+        """Settle unsent jobs through their owner, without retrying active sends."""
+        queue = self._queue
+        if queue is None:
+            return
+        jobs = []
+        while not queue.empty():
+            jobs.append(queue.get_nowait())
+            queue.task_done()
+        slots = asyncio.Semaphore(4)
+
+        async def fail(job: EmailDeliveryJob) -> None:
+            if job.on_failure is None:
+                logger.warning(
+                    "email_delivery.unsent_on_shutdown job_id=%s kind=%s", job.job_id, job.kind
+                )
+                return
+            async with slots:
+                await job.on_failure(EmailDeliveryQueueUnavailable("Email stopped before sending"))
+
+        tasks = [asyncio.create_task(fail(job)) for job in jobs]
+        if tasks:
+            _done, pending = await asyncio.wait(tasks, timeout=1.0)
+            for task in pending:
+                task.cancel()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            unsettled = sum(isinstance(value, BaseException) for value in results)
+            if unsettled:
+                logger.warning("email_delivery.shutdown_unsettled pending=%s", unsettled)
 
 
 _email_delivery_queue_service: EmailDeliveryQueueService | None = None
@@ -149,5 +220,8 @@ async def shutdown_email_delivery_queue_service() -> None:
     if _email_delivery_queue_service is None:
         return
     service = _email_delivery_queue_service
-    _email_delivery_queue_service = None
-    await service.shutdown()
+    try:
+        await service.shutdown()
+    finally:
+        if _email_delivery_queue_service is service:
+            _email_delivery_queue_service = None

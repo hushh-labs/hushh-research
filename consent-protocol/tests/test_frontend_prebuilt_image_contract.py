@@ -674,6 +674,8 @@ def test_deploy_submits_the_pinned_digest_without_source(lane: str, tmp_path: Pa
     substitutions = next(arg for arg in args if arg.startswith("--substitutions="))
     assert f",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE={reference}" in substitutions
     assert f",{BUILD_SUBS}," in substitutions
+    if lane == "production":
+        assert ",_CLOUD_RUN_TIMEOUT_SECONDS=300," in substitutions
 
 
 @pytest.mark.parametrize("lane", sorted(LANES))

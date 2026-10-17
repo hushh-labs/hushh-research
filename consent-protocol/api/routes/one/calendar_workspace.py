@@ -52,6 +52,8 @@ class CalendarAttendanceReview(CalendarDay):
     response_status: Literal["accepted", "declined", "tentative"] = "declined"
     expected_account_email: str | None = Field(default=None, max_length=512)
     offer_times: bool = False
+    send_message: StrictBool = False
+    exact_time: StrictBool = False
     message: str = Field(default="", max_length=8000)
 
 
