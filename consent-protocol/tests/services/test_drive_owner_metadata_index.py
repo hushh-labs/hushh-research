@@ -64,6 +64,7 @@ class FakeDriveAdapter:
         }
         self.too_large_at = too_large_at
         self.calls = []
+        self.changes = []
 
     async def list_files(
         self,
@@ -82,18 +83,34 @@ class FakeDriveAdapter:
         assert query == "(trashed = false) and trashed = false"
         assert order_by == "createdTime desc"
         corpus = self.drives[drive_id] if drive_id else self.user
-        visible = [row for row in corpus if not row.get("trashed")]
-        start = int(page_token or 0)
-        if self.too_large_at == (drive_id, start) and page_size == 1000:
+        if self.too_large_at == (drive_id, page_token) and page_size == 1000:
             raise DriveReadError("file_too_large")
-        end = start + page_size
+        # Keyset cursor: resume after the last row returned, wherever it is now.
+        start = 0 if page_token is None else [row["id"] for row in corpus].index(page_token) + 1
+        visible = [row for row in corpus[start:] if not row.get("trashed")]
+        page = visible[:page_size]
         return {
             "files": [
-                {key: value for key, value in row.items() if key != "trashed"}
-                for row in visible[start:end]
+                {key: value for key, value in row.items() if key != "trashed"} for row in page
             ],
-            "nextPageToken": str(end) if end < len(visible) else None,
+            "nextPageToken": page[-1]["id"] if len(visible) > page_size else None,
             "incompleteSearch": False,
+        }
+
+    async def collection_start_token(self, *, access_token):
+        self.calls.append(("start", None, None, None, None, False))
+        return f"cursor-{len(self.changes)}"
+
+    async def index_changes(self, *, access_token, page_token, page_size=200):
+        self.calls.append(("changes", None, page_size, page_token, None, False))
+        start = int(page_token.removeprefix("cursor-"))
+        batch = self.changes[start : start + page_size]
+        end = start + len(batch)
+        cursor = f"cursor-{end}"
+        more = end < len(self.changes)
+        return {
+            "changes": batch,
+            **({"nextPageToken": cursor} if more else {"newStartPageToken": cursor}),
         }
 
     async def list_drives(self, *, access_token, page_size=25, page_token=None):
@@ -226,7 +243,7 @@ async def test_candidates_are_the_exact_owner_search_rows(monkeypatch):
 
 async def test_an_oversized_page_retries_the_same_cursor_smaller(monkeypatch):
     rows = [rest_row(file_id("u", index), f"Receipt {index}") for index in range(2_500)]
-    adapter = FakeDriveAdapter(rows, too_large_at=(None, 0))
+    adapter = FakeDriveAdapter(rows, too_large_at=(None, None))
     indexer = gear1.OwnerMetadataIndexer(transport_for(adapter, monkeypatch))
     status = await indexer.refresh(OWNER, connection_generation=7, max_pages=100)
     assert status.ready and status.indexed == 2_500
@@ -264,16 +281,67 @@ async def test_a_failed_fence_check_keeps_the_last_good_page(monkeypatch):
 
     async def require_current():
         checks.append(len(checks))
-        if len(checks) == 4:
+        if len(checks) == 6:
             raise DriveReadError("connection_changed")
 
     indexer = gear1.OwnerMetadataIndexer(transport_for(FakeDriveAdapter(rows), monkeypatch))
     with pytest.raises(DriveReadError, match="connection_changed"):
         await indexer.refresh(OWNER, connection_generation=7, require_current=require_current)
-    # Before and after the first page, then before and after the second: the
-    # second page is refused after the provider answered and is not applied.
+    # Around the change cursor, around the first page, then around the second:
+    # the second page is refused after the provider answered and is not applied.
     status = await indexer.refresh(OWNER, connection_generation=7, max_pages=0)
     assert (status.indexed, status.pages, status.ready) == (1000, 1, False)
+
+
+def file_change(row=None, *, file_id_=None, removed=False):
+    change = {"changeType": "file", "fileId": row["id"] if row else file_id_, "removed": removed}
+    return {**change, "file": row} if row is not None else change
+
+
+async def test_edits_during_and_after_listing_replay_from_the_cursor(monkeypatch):
+    rows = [rest_row(file_id("u", index), f"Contract {index}") for index in range(1_500)]
+    adapter = FakeDriveAdapter(rows)
+    now = [0.0]
+    indexer = gear1.OwnerMetadataIndexer(transport_for(adapter, monkeypatch), clock=lambda: now[0])
+    assert not (await indexer.refresh(OWNER, connection_generation=7, max_pages=1)).ready
+    # The cursor is captured before the first listing page.
+    assert [call[0] for call in adapter.calls] == ["start", "files"]
+
+    # While the listing is half done: one listed file is renamed, one trashed.
+    renamed, trashed = adapter.user[0], adapter.user[1]
+    adapter.user[0] = {**renamed, "name": "Lease renewal"}
+    adapter.user[1] = {**trashed, "trashed": True}
+    adapter.changes += [file_change(adapter.user[0]), file_change(adapter.user[1])]
+    status = await indexer.refresh(OWNER, connection_generation=7)
+    assert status.ready and status.indexed == 1_499
+
+    async def titles(concept):
+        result = await indexer.match(OWNER, [concept], None, connection_generation=7, max_pages=0)
+        return {candidate.file["title"] for candidate in result.candidates}
+
+    async def count(concept):
+        result = await indexer.match(OWNER, [concept], None, connection_generation=7, max_pages=0)
+        return result.total_matches
+
+    assert await titles("lease") == {"Lease renewal"}
+    assert await count("contract") == 1_498
+
+    # Later: a new file, a removed file and a new shared drive membership.
+    now[0] += gear1.DELTA_INTERVAL_SECONDS + 1
+    adapter.drives[file_id("D", 9)] = [rest_row(file_id("s", 9), "Lease schedule")]
+    adapter.changes += [
+        file_change(rest_row(file_id("u", 5_000), "Lease addendum")),
+        file_change(file_id_=adapter.user[2]["id"], removed=True),
+        {"changeType": "drive", "removed": False},
+    ]
+    status = await indexer.refresh(OWNER, connection_generation=7)
+    assert status.ready and status.complete
+    assert await titles("lease") == {"Lease renewal", "Lease addendum", "Lease schedule"}
+    assert await count("contract") == 1_497
+    # A fresh delta is not requested again within the interval.
+    calls = len(adapter.calls)
+    await indexer.refresh(OWNER, connection_generation=7)
+    assert len(adapter.calls) == calls
 
 
 NAMES = [

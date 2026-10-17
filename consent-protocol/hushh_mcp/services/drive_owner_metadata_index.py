@@ -37,9 +37,14 @@ never proof that the file may be shared; sharing re-verifies every file.
 Listing reuses the fenced owner-search page operation (pageSize up to 1000,
 the LIST_FIELDS mask, ``corpora=user`` then each shared drive with
 ``corpora=drive``), so the owner, grant, rollout and generation checks wrap
-every call. Results stay in this process only, keyed by owner and connection
-generation, bounded in owners, files and age, and are never written to disk,
-the database or logs. Logs carry counts and timings only.
+every call. A Drive change cursor is captured before the first page; once the
+listing is ready, ``changes.list`` pages (same row shape, plus removals and
+trash) replay every edit made during and after it, and a shared-drive
+membership change walks the shared drives again. Results stay in this process
+only, keyed by owner and connection generation, bounded in owners, files and
+age, and are never written to disk, the database or logs. Logs carry counts
+and timings only. A cold process lists again; a durable index would need a
+new encrypted table (a schema change, deliberately not made here).
 """
 
 from __future__ import annotations
@@ -80,7 +85,10 @@ MAX_LIMIT = 10000
 MAX_CACHED_OWNERS = 3
 MAX_INDEX_FILES = 200_000
 MAX_TOKENS_SEEN = 1000
-INDEX_TTL_SECONDS = 1800
+# Deltas keep a ready index current; a periodic full listing bounds any drift.
+INDEX_TTL_SECONDS = 2 * 3600
+DELTA_INTERVAL_SECONDS = 15
+DELTA_PAGE_SIZES = (200, 25)
 FOLDER_MIME = "application/vnd.google-apps.folder"
 SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 _SAFE_ERRORS = frozenset(
@@ -562,7 +570,10 @@ class OwnerMetadataIndex:
 class _OwnerState:
     generation: int
     index: OwnerMetadataIndex = field(default_factory=OwnerMetadataIndex)
-    phase: str = "user"
+    phase: str = "start"
+    changes_token: str | None = None
+    last_delta_at: float | None = None
+    delta_page_size: int = DELTA_PAGE_SIZES[0]
     page_token: str | None = None
     drives_token: str | None = None
     drive_queue: list[str] = field(default_factory=list)
@@ -666,6 +677,27 @@ class OwnerMetadataIndexer:
 
     async def _page(self, owner_id: str, state: _OwnerState, require_current) -> None:
         listing = self._listing()
+        if state.phase == "start":
+            # Capture the change cursor BEFORE listing: anything edited while
+            # the listing walks Drive replays afterwards from this point.
+            if require_current is not None:
+                await require_current()
+            result = await listing(user_id=owner_id, tool_name="changes_start_token", arguments={})
+            if require_current is not None:
+                await require_current()
+            token = (
+                result.payload.get("startPageToken") if isinstance(result.payload, dict) else None
+            )
+            if (
+                result.is_error
+                or result.truncated
+                or not isinstance(token, str)
+                or not 1 <= len(token) <= 2048
+            ):
+                raise DriveReadError("provider_response_invalid")
+            state.changes_token = token
+            state.phase = "user"
+            return
         if state.phase == "drives":
             arguments: dict[str, Any] = {"pageSize": DRIVES_PAGE_SIZE}
             if state.drives_token:
@@ -761,9 +793,73 @@ class OwnerMetadataIndexer:
                 state.drives_done.add(state.drive_queue.pop(0))
             self._advance(state)
 
+    async def _delta_page(self, owner_id: str, state: _OwnerState, require_current) -> bool:
+        """Apply one changes page to a ready index; True once caught up."""
+        listing = self._listing()
+        arguments = {"pageToken": state.changes_token, "pageSize": state.delta_page_size}
+        while True:
+            if require_current is not None:
+                await require_current()
+            try:
+                result = await listing(
+                    user_id=owner_id, tool_name="list_changes", arguments=arguments
+                )
+                break
+            except DriveReadError as error:
+                if str(error) != "file_too_large" or state.delta_page_size == DELTA_PAGE_SIZES[-1]:
+                    raise
+                state.delta_page_size = DELTA_PAGE_SIZES[-1]
+                arguments["pageSize"] = state.delta_page_size
+        if require_current is not None:
+            await require_current()
+        payload = result.payload
+        changes = payload.get("changes") if isinstance(payload, dict) else None
+        if (
+            result.is_error
+            or result.truncated
+            or not isinstance(changes, list)
+            or len(changes) > state.delta_page_size
+            or any(not isinstance(change, dict) for change in changes)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        next_token, start_token = payload.get("nextPageToken"), payload.get("newStartPageToken")
+        if (
+            next_token is not None
+            and (not isinstance(next_token, str) or next_token == state.changes_token)
+            or next_token is None
+            and not isinstance(start_token, str)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        scope_changed = False
+        for change in changes:
+            if change.get("changeType") == "drive":
+                scope_changed = True
+                continue
+            identity = change.get("fileId")
+            if not isinstance(identity, str):
+                raise DriveReadError("provider_response_invalid")
+            # Every change carries the file as it is now, so replaying a
+            # change already seen by the listing is harmless.
+            if change.get("removed") is True or change.get("trashed") is True:
+                state.index.remove(identity)
+            elif change.get("file") is not None and not state.index.upsert(change["file"]):
+                state.incomplete = True
+        state.changes_token = next_token or start_token
+        state.pages += 1
+        if scope_changed:
+            # Shared-drive membership moved: walk every shared drive again
+            # while deltas keep their cursor. Until then the index is partial.
+            state.phase = "drives"
+            state.page_token = state.drives_token = None
+            state.drives_listed = False
+            state.drive_queue.clear()
+            state.drives_done.clear()
+            state.seen_tokens.clear()
+        return next_token is None
+
     @staticmethod
     def _advance(state: _OwnerState) -> None:
-        """user -> drives (pages of drive IDs) -> drive (each drive) -> ready."""
+        """start -> user -> drives (pages of drive IDs) -> drive (each drive) -> ready."""
         if state.phase == "user":
             state.phase = "drives"
         elif state.phase in {"drives", "drive"}:
@@ -784,11 +880,12 @@ class OwnerMetadataIndexer:
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         require_current: Callable[[], Awaitable[object]] | None = None,
     ) -> IndexStatus:
-        """List at most ``max_pages`` pages toward a complete index, then stop.
+        """Spend at most ``max_pages`` provider pages listing, then catching up.
 
         Progress is kept between calls in this process, so a large Drive
         builds over several request slices and early pages are usable at once.
-        Provider errors propagate after the listing keeps its last good page.
+        A ready index replays Drive changes at most every few seconds.
+        Provider errors propagate after the index keeps its last good page.
         """
         if type(max_pages) is not int or not 0 <= max_pages <= 200:
             raise DriveReadError("invalid_argument")
@@ -798,12 +895,21 @@ class OwnerMetadataIndexer:
         async with state.lock:
             try:
                 deadline = self._clock() + deadline_seconds
-                while (
-                    not state.ready
-                    and state.pages - pages_before < max_pages
-                    and self._clock() < deadline
-                ):
-                    await self._page(owner_id, state, require_current)
+                delta_due = (
+                    state.last_delta_at is None
+                    or self._clock() - state.last_delta_at >= DELTA_INTERVAL_SECONDS
+                )
+                while state.pages - pages_before < max_pages and self._clock() < deadline:
+                    if not state.ready:
+                        await self._page(owner_id, state, require_current)
+                        continue
+                    if state.built_at is None:
+                        state.built_at = self._clock()
+                    if not delta_due or state.changes_token is None:
+                        break
+                    if await self._delta_page(owner_id, state, require_current):
+                        state.last_delta_at = self._clock()
+                        delta_due = False
                 if state.ready and state.built_at is None:
                     state.built_at = self._clock()
             except asyncio.CancelledError:

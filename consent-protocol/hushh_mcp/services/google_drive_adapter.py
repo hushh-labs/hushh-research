@@ -117,6 +117,16 @@ COLLECTION_FILE_FIELDS = (
 )
 COLLECTION_LIST_FIELDS = f"nextPageToken,incompleteSearch,files({COLLECTION_FILE_FIELDS})"
 CHANGES_FIELDS = f"nextPageToken,newStartPageToken,changes(fileId,removed,changeType,driveId,file({COLLECTION_FILE_FIELDS}))"
+# Owner name-index deltas: the live-search file mask plus trashed, so a delta
+# row has exactly the shape a search page has. Names and types only, no bytes.
+INDEX_CHANGES_FIELDS = (
+    "nextPageToken,newStartPageToken,changes(fileId,removed,changeType,file(id,name,mimeType,"
+    "modifiedTime,createdTime,driveId,resourceKey,webViewLink,trashed,capabilities(canShare),"
+    "clientEncryptionDetails(encryptionState),shortcutDetails(targetId,targetMimeType,"
+    "targetResourceKey)))"
+)
+# Within the 256 KiB metadata budget; an oversized page retries the same cursor at 25.
+INDEX_CHANGES_PAGE_SIZES = frozenset({"200", "25"})
 COLLECTION_QUERY = "trashed = false and mimeType != 'application/vnd.google-apps.folder'"
 
 
@@ -430,6 +440,27 @@ class GoogleDriveAdapter:
             allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
         elif path == "/changes/startPageToken":
             allowed = params == {"fields": "startPageToken", "supportsAllDrives": "true"}
+        elif path == "/changes" and params.get("fields") == INDEX_CHANGES_FIELDS:
+            allowed = (
+                params.get("pageSize") in INDEX_CHANGES_PAGE_SIZES
+                and all(
+                    params.get(key) == "true"
+                    for key in ("supportsAllDrives", "includeItemsFromAllDrives", "includeRemoved")
+                )
+                and params.get("spaces") == "drive"
+                and set(params)
+                == {
+                    "fields",
+                    "pageSize",
+                    "pageToken",
+                    "supportsAllDrives",
+                    "includeItemsFromAllDrives",
+                    "includeRemoved",
+                    "spaces",
+                }
+                and 1 <= len(params.get("pageToken", "")) <= 2048
+                and limit == METADATA_LIMIT
+            )
         elif path == "/changes":
             allowed = (
                 params.get("fields") == CHANGES_FIELDS
@@ -954,6 +985,29 @@ class GoogleDriveAdapter:
                 params={
                     "fields": CHANGES_FIELDS,
                     "pageSize": "100",
+                    "pageToken": _page_token(page_token),
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                    "includeRemoved": "true",
+                    "spaces": "drive",
+                },
+                limit=METADATA_LIMIT,
+            )
+        )
+
+    async def index_changes(
+        self, *, access_token: str, page_token: str, page_size: int = 200
+    ) -> dict[str, Any]:
+        """One bounded changes page in the live-search row shape, for owner name deltas."""
+        if type(page_size) is not int or str(page_size) not in INDEX_CHANGES_PAGE_SIZES:
+            raise DriveReadError("invalid_argument")
+        return _decode_json(
+            await self._get(
+                "/changes",
+                access_token=access_token,
+                params={
+                    "fields": INDEX_CHANGES_FIELDS,
+                    "pageSize": str(page_size),
                     "pageToken": _page_token(page_token),
                     "supportsAllDrives": "true",
                     "includeItemsFromAllDrives": "true",
