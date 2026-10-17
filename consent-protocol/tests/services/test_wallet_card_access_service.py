@@ -295,3 +295,23 @@ def test_invalid_or_foreign_history_cursor_fails_without_loading_rows(
         service.card_access("owner", "card", cursor)
     assert error.value.status_code == 422
     rows.assert_not_called()
+
+
+def test_readiness_distinguishes_disabled_schema_and_database_failure(monkeypatch):
+    service = WalletCardAccessService(db=SimpleNamespace(), cipher=MagicMock())
+    connection = MagicMock()
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "false")
+    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_DISABLED"):
+        service.require_available(connection)
+    connection.execute.assert_not_called()
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "true")
+    monkeypatch.setattr(service, "available", lambda conn: False)
+    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_NOT_READY"):
+        service.require_available(connection)
+
+    def failed(conn):
+        raise RuntimeError("storage failure")
+
+    monkeypatch.setattr(service, "available", failed)
+    with pytest.raises(RuntimeError, match="storage failure"):
+        service.require_available(connection)

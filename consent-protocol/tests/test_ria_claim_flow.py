@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
 import time
-import types
 from typing import Any
 
 import httpx
@@ -13,22 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# Stub the rate-limit middleware *before* importing the route module so the
-# decorator is a no-op during tests (same pattern as test_ria_onboarding_v2).
-rate_limit_module = types.ModuleType("api.middlewares.rate_limit")
-
-
-class _NoopLimiter:
-    def limit(self, *_args, **_kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-
-rate_limit_module.limiter = _NoopLimiter()
-sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
-
+# Use the real rate-limit contract; disable enforcement only inside each test.
 import hushh_mcp.services.ria_claim_service as claim_module  # noqa: E402
 from api.middleware import require_firebase_auth  # noqa: E402
 from api.routes import ria as ria_module  # noqa: E402
@@ -56,6 +39,14 @@ from hushh_mcp.services.ria_identity_client import (  # noqa: E402
 from hushh_mcp.services.ria_verification import (  # noqa: E402
     validate_regulated_runtime_configuration,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit(monkeypatch):
+    # Some route suites intentionally bind a no-op limiter at import time.
+    if hasattr(ria_module.limiter, "enabled"):
+        monkeypatch.setattr(ria_module.limiter, "enabled", False)
+
 
 _TEST_UID = "user_claim_123"
 
@@ -862,3 +853,21 @@ async def test_firm_claim_does_not_fetch_an_advisor_record(monkeypatch):
     )
 
     assert fake.advisor_calls == []
+
+
+@pytest.mark.parametrize(
+    "upstream,code",
+    [
+        (RIAIdentityNotConfiguredError, "RIA_CLAIM_NOT_CONFIGURED"),
+        (RIAIdentityUnavailableError, "RIA_REGISTRY_UNAVAILABLE"),
+    ],
+)
+def test_lookup_keeps_readiness_distinct_from_upstream_failure(monkeypatch, upstream, code):
+    async def lookup(self, phone):
+        raise RIAClaimService._map_upstream_error(upstream("private diagnostic"))
+
+    monkeypatch.setattr(RIAClaimService, "lookup", lookup)
+    response = TestClient(_build_app()).post("/api/ria/claim/lookup", json={"phone": "8015663510"})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == code
+    assert "private diagnostic" not in response.text

@@ -235,3 +235,61 @@ def test_semantic_public_link_read_never_returns_tokens_or_another_owners_link(d
     assert db.execute_raw(
         "SELECT status FROM one_location_public_invites WHERE owner_user_id='owner'"
     ).data == [{"status": "active"}]
+
+
+def test_state_read_batch_preserves_owner_caps_and_payload_types(db, monkeypatch):
+    """The optimized read must match real driver rows, not only a mocked DTO."""
+    from db.db_client import DatabaseClient
+    from db.query_telemetry import (
+        begin_query_telemetry,
+        query_telemetry_snapshot,
+        reset_query_telemetry,
+    )
+
+    monkeypatch.setattr(location, "get_db", lambda: DatabaseClient(engine=db.engine))
+    service = location.OneLocationAgentService()
+    tasks = [
+        (
+            "grants",
+            """SELECT md5(n::text)::uuid AS id, owner AS owner_user_id,
+                     'recipient' AS recipient_user_id, 'active' AS status,
+                     0.5::numeric AS duration_hours,
+                     '2026-10-16T08:00:00+08:00'::timestamptz AS created_at,
+                     NULL::timestamptz AS expires_at,
+                     '{"shareKind":"share"}'::jsonb AS metadata
+               FROM generate_series(1,60) AS n
+               CROSS JOIN (VALUES ('owner'),('other')) AS owners(owner)
+               WHERE owner=:owner ORDER BY n DESC LIMIT :limit""",
+            {"owner": "owner", "limit": 50},
+        ),
+        (
+            "links",
+            """SELECT '11111111-1111-4111-8111-111111111111'::uuid AS id,
+                     :owner AS owner_user_id, 'active' AS status,
+                     '2020-01-01T08:00:00+08:00'::timestamptz AS expires_at,
+                     true AS expired_by_db_clock, 0.5::numeric AS duration_hours""",
+            {"owner": "other"},
+        ),
+        ("empty", "SELECT 1 AS id WHERE false", {}),
+    ]
+    baseline = {name: service._execute_many(sql, params) for name, sql, params in tasks}
+    token = begin_query_telemetry()
+    try:
+        batched = service._run_batched_read_queries(tasks)
+        assert query_telemetry_snapshot()["sql_count"] == 1
+    finally:
+        reset_query_telemetry(token)
+    assert len(batched["grants"]) == 50
+    assert all(row["owner_user_id"] == "owner" for row in batched["grants"])
+    assert [service._grant_payload(row) for row in batched["grants"]] == [
+        service._grant_payload(row) for row in baseline["grants"]
+    ]
+    assert [
+        service._public_invite_payload(service._project_public_invite_expired(row))
+        for row in batched["links"]
+    ] == [
+        service._public_invite_payload(service._project_public_invite_expired(row))
+        for row in baseline["links"]
+    ]
+    assert service._project_public_invite_expired(batched["links"][0])["status"] == "expired"
+    assert batched["empty"] == baseline["empty"] == []

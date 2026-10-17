@@ -646,11 +646,13 @@ class RIAClaimService:
             return RIAIAMPolicyError(
                 "Profile claiming is not available in this environment yet.",
                 status_code=503,
+                code="RIA_CLAIM_NOT_CONFIGURED",
             )
         if isinstance(exc, RIAIdentityUnavailableError):
             return RIAIAMPolicyError(
                 "The adviser registry is temporarily unavailable. Try again shortly.",
                 status_code=503,
+                code="RIA_REGISTRY_UNAVAILABLE",
             )
         if isinstance(exc, RIAIdentityRequestError):
             return RIAIAMPolicyError(str(exc), status_code=400)
