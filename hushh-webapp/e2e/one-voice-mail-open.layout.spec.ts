@@ -384,3 +384,19 @@ test("a spoken open for a replaced list is refused before any request", async ({
   await expect(page.getByTestId("one-voice-mail-original")).toHaveCount(0);
   expect(runtimeErrors).toEqual([]);
 });
+
+test("a spoken open for an unoffered position is refused before any request", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 430, height: 900 });
+  const { requests, runtimeErrors } = await mount(page, false);
+
+  const missing = await speakOpen(page, { ordinal: 9 });
+
+  expect(missing).toEqual(["failed", "not_offered"]);
+  // A position not in the list is refused immediately, with zero network calls.
+  expect(requests).toEqual([]);
+  await expect(page.getByTestId("one-voice-mail-original")).toHaveCount(0);
+  expect(runtimeErrors).toEqual([]);
+});
+
