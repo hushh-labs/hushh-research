@@ -8,7 +8,6 @@ import {
 } from "@testing-library/react";
 import { useContext, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
@@ -170,6 +169,15 @@ describe("Google results to personal web invitations", () => {
       classification: "no_match",
       destinations: [{ kind: "phone", value: "+14155550101" }],
     },
+    {
+      id: "both",
+      displayName: "Both Friend",
+      classification: "no_match",
+      destinations: [
+        { kind: "phone", value: "+14155550102" },
+        { kind: "email", value: "both@example.com" },
+      ],
+    },
   ];
   beforeEach(() => {
     vi.spyOn(ReferralService, "getSummary").mockResolvedValue({
@@ -196,21 +204,12 @@ describe("Google results to personal web invitations", () => {
     });
   });
 
-  it("retains Google recipients, selection, review and web handoffs through session checks", async () => {
+  it("retains Google email selection and one common batch draft across session checks without leaking recipients", async () => {
     const token = deferred<string>();
     mocks.token.mockReturnValueOnce(token.promise);
     const compose = vi
-      .spyOn(ContactInvitationsService, "compose")
+      .spyOn(ContactInvitationsService, "composeBatch")
       .mockResolvedValue("launch_requested");
-    const copy = vi
-      .spyOn(ContactInvitationsService, "copy")
-      .mockResolvedValue("copied");
-    const shared = deferred<"web-share">();
-    const share = vi
-      .spyOn(ContactInvitationsService, "share")
-      .mockRejectedValueOnce(new DOMException("Closed", "AbortError"))
-      .mockReturnValueOnce(shared.promise);
-    const copiedToast = vi.spyOn(toast, "success");
     const storage = vi.spyOn(Storage.prototype, "setItem");
     const app = render(<App />);
     await start();
@@ -222,99 +221,49 @@ describe("Google results to personal web invitations", () => {
       await screen.findByRole("button", { name: "Invite contacts" }),
     );
     expect(await screen.findByText("Invite your contacts")).toBeVisible();
-    expect(screen.getByText("No match found")).toBeVisible();
     expect(screen.getByText(/Not checked.*mail only/)).toBeVisible();
-    for (const checkbox of screen.getAllByRole("checkbox")) {
-      expect(checkbox).not.toBeChecked();
-    }
-    // Full rows select both recipients, even though the unmatched counter is one.
+    expect(screen.queryByText("Phone Friend")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Email Friend"));
-    fireEvent.click(screen.getByText("Phone Friend"));
+    fireEvent.click(screen.getByText("Both Friend"));
     fireEvent.click(
       screen.getByRole("button", { name: "Review 2 invitations" }),
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", {
-          name: "Continue with 2 invitations",
-        }),
-      ).toBeEnabled(),
     );
     app.rerender(<App blocked />);
     app.rerender(<App />);
     expect(
-      screen.getByRole("textbox", {
-        name: "Invitation message for Email Friend",
-      }),
+      screen.getByRole("textbox", { name: "Invitation message" }),
     ).toHaveValue(
-      "Hi Email Friend,\n\nJoin me on One so we can connect.\nhttps://one.example/r/inviter",
+      "Join me on One so we can connect.\nhttps://one.example/r/inviter",
     );
     fireEvent.click(screen.getByRole("button", { name: "Back to selection" }));
     expect(
       screen.getByRole("checkbox", { name: "Select Email Friend" }),
     ).toBeChecked();
     expect(
-      screen.getByRole("checkbox", { name: "Select Phone Friend" }),
+      screen.getByRole("checkbox", { name: "Select Both Friend" }),
     ).toBeChecked();
     fireEvent.click(
       screen.getByRole("button", { name: "Review 2 invitations" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue with 2 invitations" }),
+      screen.getByRole("button", { name: "Open email · 2 contacts" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open mail" }));
-    await screen.findByRole("button", { name: "Done with this contact" });
-    expect(compose).toHaveBeenCalledWith(
-      candidates[0].destinations[0],
+    await screen.findByRole("button", { name: "Done" });
+    expect(compose).toHaveBeenCalledExactlyOnceWith(
+      [
+        { kind: "email", value: "both@example.com" },
+        { kind: "email", value: "friend@example.com" },
+      ],
       expect.objectContaining({
-        text: expect.stringContaining("Hi Email Friend,"),
+        text: "Join me on One so we can connect.",
         url: "https://one.example/r/inviter",
       }),
+      expect.any(Function),
     );
     app.rerender(<App blocked />);
     app.rerender(<App />);
-    // A mailto launch cannot confirm Send or Cancel; retain until explicitly done.
-    expect(
-      screen.getByText(/0 processed.*0 skipped.*2 remaining/),
-    ).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Done with this contact" }),
-    );
-    expect(
-      screen.getByRole("textbox", {
-        name: "Invitation message for Phone Friend",
-      }),
-    ).toBeVisible();
-    expect(screen.getByText(/Copy the invitation first/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
-    await waitFor(() =>
-      expect(copiedToast).toHaveBeenCalledWith("Invitation copied"),
-    );
-    expect(copy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("Hi Phone Friend,"),
-        url: "https://one.example/r/inviter",
-      }),
-    );
-    expect(
-      screen.getByText(/1 processed.*0 skipped.*1 remaining/),
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Share invitation" }));
-    expect(await screen.findByText(/Cancelled. You can retry/)).toBeVisible();
-    expect(
-      screen.getByText(/1 processed.*0 skipped.*1 remaining/),
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Share invitation" }));
-    app.rerender(<App blocked />);
-    await act(async () => shared.resolve("web-share"));
-    app.rerender(<App />);
-    expect(
-      screen.getByText("Your invitation queue is complete."),
-    ).toBeVisible();
-    expect(share).toHaveBeenCalledTimes(2);
-    expect(
-      screen.getByText(/2 processed.*0 skipped.*0 remaining/),
-    ).toBeVisible();
+    expect(screen.getByText(/Email draft requested/)).toBeVisible();
+    expect(compose).toHaveBeenCalledTimes(1);
     const retainedOutputs = JSON.stringify([
       controller.result,
       mocks.track.mock.calls,
@@ -323,7 +272,8 @@ describe("Google results to personal web invitations", () => {
     ]);
     for (const candidate of candidates) {
       expect(retainedOutputs).not.toContain(candidate.displayName);
-      expect(retainedOutputs).not.toContain(candidate.destinations[0].value);
+      for (const destination of candidate.destinations)
+        expect(retainedOutputs).not.toContain(destination.value);
     }
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     app.rerender(<App blocked />);
@@ -561,10 +511,7 @@ describe("Google account chooser", () => {
         accountPhoneNumber: "+14155550199",
       });
     });
-    expect(mocks.token).toHaveBeenLastCalledWith(
-      expect.anything(),
-      undefined,
-    );
+    expect(mocks.token).toHaveBeenLastCalledWith(expect.anything(), undefined);
 
     mocks.token.mockClear();
     await act(async () => {

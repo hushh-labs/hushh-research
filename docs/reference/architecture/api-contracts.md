@@ -3690,6 +3690,17 @@ a nonexistent anchor; the parity document is now the canonical definition.
 
 - [Personal contact invitations](../../guides/contact-invitations.md) — client-only recipient callback and native composer contract; contact-sync HTTP payloads remain unchanged.
 
+The invitation bridge preserves `composeSms({ recipient, body })` and adds
+`composeSmsBatch({ recipients, body })` for one user-confirmed native draft with
+1–15 unique E.164 numbers and a common body (maximum 2,000 UTF-16 units).
+`getCapabilities()` adds optional `maxSmsRecipients`; only affirmative SMS support
+and an integer maximum of at least 15 enable the batch path. Legacy binaries
+remain unsupported for batch, with copy/update recovery. Web uses one in-memory
+BCC email draft for 1–15 validated email destinations. Composer launch/Send
+results never establish delivery. No new HTTP endpoint or backend SMS provider
+is involved; see the guide for privacy, cancellation and compatibility contracts.
+
+
 - [Architecture](./architecture.md) -- System overview and tri-flow
 - [Personal Knowledge Model](../../../consent-protocol/docs/reference/personal-knowledge-model.md) -- Data storage endpoints
 - [Consent Protocol](../../../consent-protocol/docs/reference/consent-protocol.md) -- Token lifecycle

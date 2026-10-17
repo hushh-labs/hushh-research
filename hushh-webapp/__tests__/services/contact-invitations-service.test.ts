@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ContactInvitationsService,
   invitationComposeUrl,
+  invitationBatchEmailUrl,
 } from "@/lib/services/contact-invitations-service";
 import { personalizeInvitation } from "@/lib/contacts/personalize-invitation";
 const mocks = vi.hoisted(() => ({
   native: true,
   platform: "ios",
   composeSms: vi.fn(),
+  composeSmsBatch: vi.fn(),
   getCapabilities: vi.fn(),
   share: vi.fn(),
   copy: vi.fn(),
@@ -35,6 +37,40 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("invitation handoffs", () => {
+  it("passes the same session guard through native sharing and clipboard recovery", async () => {
+    let current = true;
+    const isCurrent = () => current;
+    mocks.share.mockResolvedValue("native-share");
+    mocks.copy.mockResolvedValue(true);
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).resolves.toBe("native-share");
+    expect(mocks.share).toHaveBeenCalledExactlyOnceWith(share, isCurrent);
+    await expect(
+      ContactInvitationsService.copy(share, isCurrent),
+    ).resolves.toBe("copied");
+    expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(
+      "Join me.\nhttps://one.example/r/person",
+      isCurrent,
+    );
+    current = false;
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    await expect(
+      ContactInvitationsService.copy(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.share).toHaveBeenCalledTimes(1);
+    expect(mocks.copy).toHaveBeenCalledTimes(1);
+    mocks.native = false;
+    const webShare = vi.fn();
+    vi.stubGlobal("navigator", { share: webShare });
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(webShare).not.toHaveBeenCalled();
+  });
+
   it("only advances on supported completed handoffs; Android chooser/compose return is ambiguous", () => {
     expect(ContactInvitationsService.completesRecipient("queued_or_sent")).toBe(
       true,
@@ -143,6 +179,7 @@ describe("invitation handoffs", () => {
     expect(await ContactInvitationsService.copy(share)).toBe("copied");
     expect(mocks.copy).toHaveBeenCalledWith(
       "Join me.\nhttps://one.example/r/person",
+      expect.any(Function),
     );
   });
   it("builds one encoded email destination and refuses header/recipient injection", () => {
@@ -169,5 +206,130 @@ describe("invitation handoffs", () => {
         share,
       ),
     ).toThrow();
+  });
+});
+
+describe("batch invitation boundary", () => {
+  const phones = Array.from({ length: 15 }, (_, index) => ({
+    kind: "phone" as const,
+    value: `+1415555${String(index).padStart(4, "0")}`,
+  }));
+  beforeEach(() => {
+    mocks.getCapabilities.mockResolvedValue({
+      sms: true,
+      maxSmsRecipients: 15,
+    });
+    mocks.composeSmsBatch.mockResolvedValue({ outcome: "opened" });
+  });
+  it("opens one 15-recipient native draft with the common body and no legacy calls", async () => {
+    expect(await ContactInvitationsService.composeBatch(phones, share)).toBe(
+      "opened",
+    );
+    expect(mocks.composeSmsBatch).toHaveBeenCalledExactlyOnceWith({
+      recipients: phones.map((phone) => phone.value),
+      body: "Join me.\nhttps://one.example/r/person",
+    });
+    expect(mocks.composeSms).not.toHaveBeenCalled();
+  });
+  it("rejects invalid, duplicate, empty, oversized and mixed-channel batches before native handoff", async () => {
+    for (const recipients of [
+      [],
+      [...phones, { kind: "phone" as const, value: "+14155559999" }],
+      [phones[0]!, phones[0]!],
+      [{ kind: "phone" as const, value: "+14155550101\n" }],
+      [{ kind: "phone" as const, value: "+14155550101,+14155550102" }],
+      [phones[0]!, { kind: "email" as const, value: "a@example.com" }],
+    ]) {
+      await expect(
+        ContactInvitationsService.composeBatch(recipients, share),
+      ).rejects.toThrow();
+    }
+    expect(mocks.composeSmsBatch).not.toHaveBeenCalled();
+  });
+  it("never interprets legacy SMS support as batch support or silently drops recipients", async () => {
+    for (const capabilities of [
+      { sms: true },
+      { sms: false, maxSmsRecipients: 15 },
+      { sms: true, maxSmsRecipients: 1 },
+    ]) {
+      mocks.getCapabilities.mockResolvedValue(capabilities);
+      expect(await ContactInvitationsService.canComposeBatchSms()).toBe(false);
+      expect(await ContactInvitationsService.composeBatch(phones, share)).toBe(
+        "unavailable",
+      );
+    }
+    expect(mocks.composeSmsBatch).not.toHaveBeenCalled();
+    expect(mocks.composeSms).not.toHaveBeenCalled();
+  });
+  it("does not disclose recipients after the invitation session ends during the capability probe", async () => {
+    let finish!: (value: { sms: boolean; maxSmsRecipients: number }) => void;
+    mocks.getCapabilities.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    let current = true;
+    const result = ContactInvitationsService.composeBatch(
+      phones,
+      share,
+      () => current,
+    );
+    current = false;
+    finish({ sms: true, maxSmsRecipients: 15 });
+    expect(await result).toBe("cancelled");
+    expect(mocks.composeSmsBatch).not.toHaveBeenCalled();
+  });
+  it("requests one web BCC draft on the tap with every email and the unchanged invitation link", async () => {
+    mocks.native = false;
+    const recipients = Array.from({ length: 15 }, (_, index) => ({
+      kind: "email" as const,
+      value: `friend+${index}@example.com`,
+    }));
+    const url = invitationBatchEmailUrl(recipients, share);
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe("");
+    expect(parsed.searchParams.get("bcc")).toBe(
+      recipients.map((email) => email.value).join(","),
+    );
+    expect(parsed.searchParams.has("to")).toBe(false);
+    expect(parsed.searchParams.has("cc")).toBe(false);
+    expect(parsed.searchParams.get("body")).toBe(
+      "Join me.\r\nhttps://one.example/r/person",
+    );
+    expect(url).toContain("friend%2B0%40example.com");
+    const location = { href: "" };
+    vi.stubGlobal("window", { location });
+    const promise = ContactInvitationsService.composeBatch(recipients, share);
+    expect(location.href).toBe(url);
+    expect(await promise).toBe("launch_requested");
+    expect(mocks.composeSmsBatch).not.toHaveBeenCalled();
+    for (const value of [
+      "a@example.com?to=b@example.com",
+      "a@example.com,b@example.com",
+      "a@example.com\r\nCc:b@example.com",
+      "a@example.com%0abcc=x",
+    ]) {
+      expect(() =>
+        invitationBatchEmailUrl([{ kind: "email", value }], share),
+      ).toThrow();
+    }
+    expect(() =>
+      invitationBatchEmailUrl(
+        [
+          { kind: "email", value: "A@example.com" },
+          { kind: "email", value: "a@EXAMPLE.com" },
+        ],
+        share,
+      ),
+    ).toThrow();
+    expect(() =>
+      invitationBatchEmailUrl(recipients, {
+        ...share,
+        title: "Invite\r\nBcc:other@example.com",
+      }),
+    ).toThrow();
+    expect(() =>
+      invitationBatchEmailUrl(recipients, { ...share, text: "😀".repeat(900) }),
+    ).toThrow(/too long/);
   });
 });
