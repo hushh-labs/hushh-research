@@ -25,6 +25,8 @@ class UatPasskeyConfigurationTests(unittest.TestCase):
             ({"aps-environment": "development"}, production),
             (production, {}),
             (production, {"aps-environment": "development"}),
+            ({**production, "get-task-allow": True}, production),
+            (production, {**production, "get-task-allow": True}),
         ]:
             with self.assertRaises(ValueError):
                 guard.verify(signed, {"Entitlements": profile})

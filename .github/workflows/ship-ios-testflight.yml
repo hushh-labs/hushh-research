@@ -377,6 +377,7 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             HUSSH_APP_ENTITLEMENTS="App/AppRelease.entitlements" \
             archive
 

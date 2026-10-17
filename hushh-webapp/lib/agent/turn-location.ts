@@ -14,7 +14,7 @@ export type TurnLocation =
   | { status: "available"; latitude: number; longitude: number }
   | { status: "denied" | "not_granted" | "unavailable" };
 
-/** A fresh fix is awaited at most this long; the turn never waits on GPS beyond it. */
+/** One shared budget for permission discovery and a fresh position. */
 const FRESH_FIX_WAIT_MS = 1_500;
 
 function coarse(value: number): number {
@@ -38,16 +38,18 @@ function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
 }
 
 export async function resolveTurnLocation(): Promise<TurnLocation> {
+  const startedAt = Date.now();
   try {
-    const permission = await LocationBus.syncPermission();
+    const permission = await withinDeadline(LocationBus.syncPermission(), FRESH_FIX_WAIT_MS);
     if (permission === "denied" || permission === "restricted") return { status: "denied" };
     if (permission === "prompt") return { status: "not_granted" };
     if (permission !== "granted") return { status: "unavailable" };
     const held = LocationBus.getState().snapshot;
+    const remainingMs = Math.max(0, FRESH_FIX_WAIT_MS - (Date.now() - startedAt));
     const fix =
       held && isUsableFixAge(held.capturedAt)
         ? held
-        : await withinDeadline(LocationBus.ensure(), FRESH_FIX_WAIT_MS);
+        : remainingMs > 0 ? await withinDeadline(LocationBus.ensure(), remainingMs) : null;
     if (!fix || !Number.isFinite(fix.latitude) || !Number.isFinite(fix.longitude)) {
       return { status: "unavailable" };
     }

@@ -16,7 +16,7 @@
 
 import { Capacitor } from "@capacitor/core";
 
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import {
   HUSHH_STREAM_EVENT,
   HushhStream,
@@ -220,7 +220,7 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
  * or absolute; `init` is what a caller would hand to `fetch`, including the
  * `signal` that cancels the native request.
  */
-export async function nativeStreamFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function nativeStreamFetch(path: string, init: ApiFetchOptions = {}): Promise<Response> {
   if (!Capacitor.isNativePlatform()) {
     return ApiService.apiFetchStream(path, init);
   }
@@ -302,10 +302,16 @@ export async function nativeStreamFetch(path: string, init: RequestInit = {}): P
 
   let opened: { status: number; headers: Record<string, string> };
   try {
+    if (init.beforeDispatch) await init.beforeDispatch();
+    if (init.isEffectCurrent && init.isEffectCurrent() !== true) {
+      throw new DOMException("The effect session changed.", "AbortError");
+    }
+    signal?.throwIfAborted();
     opened = await HushhStream.open({ streamId, path, method, headers, body });
   } catch (error) {
-    finish(error instanceof Error ? error : new Error(String(error)));
-    throw error instanceof Error ? error : new Error(String(error));
+    const failure = error instanceof Error || error instanceof DOMException ? error : new Error(String(error));
+    finish(failure);
+    throw failure;
   }
 
   const responseHeaders = new Headers();

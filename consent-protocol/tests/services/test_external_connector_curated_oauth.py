@@ -691,6 +691,24 @@ async def test_complete_reports_verifying_when_verify_fails(service, connector):
 
 
 @pytest.mark.asyncio
+async def test_catalog_snapshot_of_expired_token_neither_decrypts_nor_refreshes(service, connector):
+    row = _row(
+        verified_policy_hash=oauth.curated_policy_hash(connector),
+        credential_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+    )
+    service.lifecycle.read = AsyncMock(return_value=row)
+    service._configuration = AsyncMock(return_value=(connector, "client-1", "secret-1"))
+    service.credentials.open_credential = Mock(side_effect=AssertionError("credential opened"))
+    assert await service.connection_snapshot(connector_id="hubspot", user_id="u1") is row
+    service.credentials.open_credential.assert_not_called()
+    service.lifecycle.claim_refresh.assert_not_awaited()
+
+    # The metadata-only path must not suppress the next execution's checks.
+    with pytest.raises(AssertionError, match="credential opened"):
+        await service.current_credential(connector_id="hubspot", user_id="u1")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "row",
     [None, _row(status="revoked"), _row(status="needs_reauth"), _row(envelope_version=1)],

@@ -12,7 +12,9 @@ def verify(signed: dict, profile: dict) -> None:
         raise ValueError("Signed distribution app must use production APNs")
     if profile.get("Entitlements", {}).get("aps-environment") != "production":
         raise ValueError("Distribution profile must authorize production APNs")
-    if signed.get("get-task-allow", False):
+    if signed.get("get-task-allow", False) or profile.get("Entitlements", {}).get(
+        "get-task-allow", False
+    ):
         raise ValueError("Distribution app must not allow debugging")
 
 
