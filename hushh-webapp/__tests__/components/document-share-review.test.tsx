@@ -1292,7 +1292,8 @@ describe("exact-file document review", () => {
       const allow = await screen.findByRole("button", { name: "Allow" });
       // Allow is never held behind a search, and the owner never picks files.
       expect(allow).toBeEnabled();
-      expect(screen.getByText("Allow and Agent One sends every matching file after they pay.")).toBeVisible();
+      // Only files the owner's account can share are ever sent.
+      expect(screen.getByText("Allow and Agent One sends every matching file you can share once they pay.")).toBeVisible();
       expect(screen.getByText("The note says 3 months. We used the picked dates: 2 Sep – 2 Oct.")).toBeVisible();
       expect(screen.getByRole("button", { name: "Edit price" })).toBeEnabled();
       expect(screen.queryByRole("checkbox")).toBeNull();
@@ -1750,6 +1751,100 @@ describe("exact-file document review", () => {
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       expect(await screen.findByText(/35 file candidates so far/)).toBeVisible();
       expect(screen.queryByText(/can only be shared by/)).toBeNull();
+    });
+
+    // 2026-10-18: after Allow the order (and the owner's earning row) exists
+    // before the requester pays, yet A read "Payout pending · Waiting for
+    // delivery" and "candidates so far" after the search ended, and lost
+    // Decline as soon as a batch was frozen, with no way to end the request.
+    describe("an allowed autoshare request", () => {
+      const heldBatch = durableBulk({ status: "review_ready", fileCount: 3, canApprove: false,
+        counts: { ...durableBulk().counts, total: 3, pending: 3 } });
+      const earning = { requestId, currency: "usd", grossAmountCents: 500, retainedAmountCents: null,
+        platformFeeCents: null, processingFeeCents: null, ownerEarningCents: null, status: "awaiting_delivery" };
+      // The server sends the owner payment setup fields only until the order is paid.
+      const unpaid = { paymentsReady: true, ownerPayoutAccountReady: true, ownerPriceRequired: false };
+      const allowed = (overrides: Record<string, unknown> = {}) => partial({ durableAvailable: true,
+        trustedAuto: true, ownerAllowed: true, autoshare: true, paymentRequired: true, priceCents: 500,
+        search: durableSearch({ status: "completed", matched: 35 }), bulkShare: heldBatch,
+        batches: [heldBatch], batchCount: 1, claimedPositions: [1, 2, 3], ownerPayout: earning,
+        ...overrides });
+
+      it("says what waits on payment, and keeps Decline until the requester pays", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(allowed(unpaid));
+        // An unpaid, unapproved batch has no delivery to stop yet.
+        state.delivery.mockResolvedValue({ status: "pending", files: [] });
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText("35 file candidates")).toBeVisible();
+        expect(screen.queryByText(/file candidates so far/)).toBeNull();
+        // The held batch waits on the requester; the owner has nothing to review.
+        expect(screen.getByRole("status")).toHaveTextContent("Waiting for payment");
+        expect(screen.getByText(
+          "After payment, Agent One sends every matching file you can share, in batches. You can close this.",
+        )).toBeVisible();
+        const earnings = screen.getByLabelText("Document earnings");
+        expect(earnings).toHaveTextContent("Waiting for payment");
+        expect(earnings).not.toHaveTextContent(/Payout pending|delivery/);
+        fireEvent.click(screen.getByRole("button", { name: "Decline (tap again to confirm)" }));
+        fireEvent.click(screen.getByRole("button", { name: "Confirm Decline" }));
+        await waitFor(() => expect(state.decide)
+          .toHaveBeenCalledExactlyOnceWith("owner-a", requestId, "decline", 0, expect.any(Function)));
+      });
+
+      it("offers Stop instead of Decline once the requester paid", async () => {
+        const sharing = durableBulk({ status: "running", fileCount: 3, canApprove: false,
+          counts: { ...durableBulk().counts, total: 3, processed: 1, shared: 1, pending: 2 } });
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(allowed({ search: durableSearch({ status: "running", matched: 35 }),
+          bulkShare: sharing, batches: [sharing] }));
+        state.delivery.mockResolvedValue({ status: "pending", files: [], bulkShareId, fileCount: 3, sharedCount: 1 });
+        state.bulkShareFiles.mockResolvedValue({ shareId: bulkShareId, files: [], nextCursor: null });
+        state.prepareRevocation.mockResolvedValue({ requestId, revision: 1, generation: 1,
+          directiveId: "directive", expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          reviewDigest: "c".repeat(64), disclosure: "remove-current-recorded-direct-viewer-v1",
+          otherAccessMayRemain: true, affectedCount: 1, pendingCount: 2, files: [] });
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText(/35 file candidates so far/)).toBeVisible();
+        expect(screen.getByLabelText("Document earnings")).toHaveTextContent("Payout pending · Waiting for delivery");
+        expect(screen.queryByRole("button", { name: /Decline/ })).toBeNull();
+        fireEvent.click(await screen.findByText("Review removal"));
+        await waitFor(() => expect(state.prepareRevocation).toHaveBeenCalledOnce());
+        expect(await screen.findByRole("button", { name: "Stop access" })).toBeEnabled();
+      });
+
+      it("leaves an older automatic request's copy and Decline rule alone (negative control)", async () => {
+        state.status.mockResolvedValue(pending());
+        state.review.mockResolvedValue(allowed({ ...unpaid, autoshare: undefined }));
+        state.delivery.mockResolvedValue({ status: "pending", files: [] });
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        expect(await screen.findByText(/35 file candidates so far/)).toBeVisible();
+        expect(screen.getByRole("status")).toHaveTextContent("Ready for review");
+        expect(screen.getByLabelText("Document earnings")).toHaveTextContent("Payout pending · Waiting for delivery");
+        expect(screen.getByText(/Agent One searches Drive and shares selected files/)).toBeVisible();
+        expect(screen.queryByRole("button", { name: /Decline/ })).toBeNull();
+      });
+    });
+
+    it("tells an autoshare requester how many files arrived when some could not be sent", async () => {
+      const refunded = { state: "partially_refunded", amountCents: 500, currency: "usd", checkoutExpiresAt: null,
+        requestExpiresAt: null, refund: { status: "succeeded", amountCents: 200 }, nextAction: "none" };
+      const partialDelivery = { status: "partial", files: [], bulkShareId, fileCount: 5, sharedCount: 3,
+        bulkStatus: "partial" };
+      state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "partial",
+        paymentRequired: true, payment: { ...refunded, autoshare: true } });
+      state.delivery.mockResolvedValue(partialDelivery);
+      const view = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Files sent · 3"));
+      expect(screen.getByText("$2 refunded for files not sent.")).toBeVisible();
+      view.unmount();
+
+      // Negative control: an older request keeps its words.
+      state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "partial",
+        paymentRequired: true, payment: refunded });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Sharing incomplete"));
+      expect(screen.getByText("$2 refunded")).toBeVisible();
     });
 
     // The server resumes automatic batches only for a complete search.
