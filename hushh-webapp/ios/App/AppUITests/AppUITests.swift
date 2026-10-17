@@ -3189,17 +3189,19 @@ final class AppUITests: XCTestCase {
             // selector. No camera, library, remove or save action is invoked.
             let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
             let account = app.buttons["native-profile-row-account"].firstMatch
+            let rootPhoto = app.buttons["native-profile-row-identity"].firstMatch
             for _ in 0..<3 {
-                if menu.exists && menu.isHittable { break }
+                // Every nested native page has a scroll view. Its presence
+                // cannot prove root admission after a warm close/reopen.
                 let parent = app.navigationBars.buttons["Profile"].firstMatch
+                if !parent.waitForExistence(timeout: 1) { break }
                 guard waitForAdmittedControl(parent) else { XCTFail("PROFILE_PHOTO_PARENT_UNAVAILABLE"); return }
                 parent.tap()
             }
             for _ in 0..<4 {
-                if account.exists && account.isHittable { break }
+                if rootPhoto.exists && rootPhoto.isHittable && account.exists && account.isHittable { break }
                 menu.swipeDown()
             }
-            let rootPhoto = app.buttons["native-profile-row-identity"].firstMatch
             let rootName = app.staticTexts["native-profile-identity-name"].firstMatch
             let rootEmail = app.staticTexts["native-profile-identity-email"].firstMatch
             guard waitForAdmittedControl(rootPhoto) else { XCTFail("PROFILE_PHOTO_TOP_PORTRAIT_UNAVAILABLE"); return }
