@@ -28,13 +28,14 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, portrait, groups, actions, onClose, onPresented, stack }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, portrait, groups, actions, onClose, onPresented, onHidden, stack }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   enabled?: boolean;
   portrait?: string;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
+  onHidden?: (privacyGeneration: number) => void;
   stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; supportDestinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void; root?: () => void; ancestor?: NativeDrawerActions["ancestor"] };
 }) {
   const [portraitSupported, setPortraitSupported] = useState<boolean | null>(null);
@@ -46,7 +47,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
     return () => { current = false; };
   }, []);
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready: ready && portraitSupported !== null, open,
-    title: "Profile", profileMenuRows: true, surfaceOpen, enabled, onPresented: state => {
+    title: "Profile", profileMenuRows: true, surfaceOpen, enabled, onHidden: state => onHidden?.(state.privacyGeneration), onPresented: state => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
       onPresented?.(state.profileDestinationId ?? state.profileSupportDestinationId, state.privacyGeneration);
     },
@@ -78,12 +79,16 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal, phone, onVoiceCapability, onDevicesCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, onVoiceCapability, onDevicesCapability }: {
   lifetime: string;
   detail: boolean;
-  menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
+  menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden">;
   page: Omit<ComponentProps<typeof NativeFeaturePage>, "open" | "onReady" | "children">;
   children: ReactNode;
+  /** A rich detail's modal starts only after its parent plane is ready and
+   * the native menu actually finishes leaving. Its overlay cannot block the
+   * Back/Close controls required to prepare that same plane. */
+  detailOverlay?: ReactNode;
   account?: { active: boolean; page: NativeProfilePage; confirmation?: NativeProfilePage; back?: () => void; root?: () => void;
     rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
   settings?: { active: boolean; requiresVoice?: boolean; requiresDevices?: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; back?: () => void; ancestor?: NativeDrawerActions["ancestor"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
@@ -164,6 +169,17 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   }, [menu.surfaceOpen, menu.ready, webDetail, lifetime]);
   const holdingDetail = !webDetail && prepared === lifetime && restored !== lifetime;
   const active = menu.surfaceOpen === true && menu.ready;
+  const webVisit = useMemo(() => active && webDetail ? { id: crypto.randomUUID(), lifetime, context: page.context } : null,
+    [active, webDetail, lifetime, page.context]);
+  const [readyWebVisit, setReadyWebVisit] = useState<string | null>(null);
+  const [hiddenMenu, setHiddenMenu] = useState<{ lifetime: string; privacy: number } | null>(null);
+  const menuPainted = active && (!webDetail || prepared !== lifetime);
+  useLayoutEffect(() => {
+    if (menuPainted || !active || privacy?.shielded || !privacy?.appIsActive) setHiddenMenu(null);
+  }, [menuPainted, active, privacy?.shielded, privacy?.appIsActive, privacy?.generation]);
+  const overlayAdmitted = active && webDetail && webVisit !== null && readyWebVisit === webVisit.id && !menuPainted &&
+    hiddenMenu?.lifetime === lifetime && hiddenMenu.privacy === privacy?.generation &&
+    privacy.shielded === false && privacy.appIsActive;
   const retained = active && holdingDetail && displayedDetail?.lifetime === lifetime
     ? displayedDetail : null;
   useLayoutEffect(() => {
@@ -179,23 +195,26 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   // display a legacy menu and replace it with a stack after capability discovery.
   if (account && stackSupported === null) return null;
   return <>
-    <NativeProfileMenu {...menu} open={active && (!webDetail || prepared !== lifetime)}
+    <NativeProfileMenu {...menu} open={menuPainted}
       stack={stackSupported && account ? { pages: nativePath, destinationId: nativeSupport ? undefined : destinationId,
         supportDestinationId: nativeSupport ? destinationId : undefined,
         rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : page.onBack,
         ...(nativeSettings && settings?.ancestor ? { ancestor: settings.ancestor } : {}),
         ...(nativeAccount && account.confirmation ? { root: account.root ?? account.back ?? page.onBack } : nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : {}) } : undefined}
-      onPresented={(appliedDestination, privacyGeneration) => {
+      onHidden={privacyGeneration => {
+        if (active && webDetail && !menuPainted) setHiddenMenu({ lifetime, privacy: privacyGeneration });
+      }} onPresented={(appliedDestination, privacyGeneration) => {
       setPresentedDestination({ id: appliedDestination, privacy: privacyGeneration });
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
     <NativeFeaturePage {...page} {...(retained ? {
       title: retained.title, context: retained.context, backLabel: retained.backLabel,
     } : {})} backEnabled={!holdingDetail} open={active && (webDetail || !!retained)} onReady={() => {
-      if (active && webDetail) setPrepared(lifetime);
+      if (active && webDetail) { setPrepared(lifetime); setReadyWebVisit(webVisit?.id ?? null); }
     }}>
       <div inert={holdingDetail || undefined}>
         {retained ? retained.children : children}
+        {overlayAdmitted ? detailOverlay : null}
       </div>
     </NativeFeaturePage>
     {(!nativeAccount || parentAdmitted) && account?.editor(destinationId)}

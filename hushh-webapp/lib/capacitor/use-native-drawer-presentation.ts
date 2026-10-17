@@ -15,6 +15,7 @@ export type NativeDrawerPort = {
   enabled?: boolean;
   surfaceOpen?: boolean;
   onPresented?: (state: NativeDrawerProjection) => void;
+  onHidden?: (state: NativeDrawerProjection) => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
 };
 
@@ -103,7 +104,11 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers, isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
-    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(state); },
+    }, state => {
+      if (!isCurrent() || state.open !== current.current.port.open) return;
+      if (state.open) current.current.port.onPresented?.(state);
+      else current.current.port.onHidden?.(state);
+    },
     () => isCurrent() && publish(true));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");

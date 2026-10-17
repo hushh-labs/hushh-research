@@ -3349,8 +3349,7 @@ function ProfilePageContent({
         isPanePresentation && accountStyles.paneAccountContent,
       )}
     >
-      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"} optionsOnMount
-        onPresentationClose={() => setNativeAccountException(null)} /> : null}
+      {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={AccountProfileIcon}
@@ -4725,6 +4724,8 @@ function ProfilePageContent({
     ] }],
   } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable}
+    detailOverlay={nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+      onPresentationClose={() => setNativeAccountException(null)} /> : null}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen,
       editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
         webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}

@@ -3539,6 +3539,71 @@ describe("native chrome presentation lease", () => {
     }
   });
 
+  it("admits a Profile detail modal only after its parent and current native menu exit complete", async () => {
+    measureSlot();
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, presentationCompletion: true, generation: 0, isolated: false });
+    let closed: NativeDrawerProjection | undefined;
+    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.getPresentationState.mockImplementation(async () => {
+      const state = drawerBridge.apply.mock.calls.at(-1)![0];
+      if (!state.open) closed = state;
+      return { ...state, phase: "active", valid: true, settled: state.open };
+    });
+    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
+      updateSequence: drawerBridge.apply.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 }));
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const activation = deferred<ChromeAcknowledgement>();
+    let back: ChromeProjection | undefined;
+    bridge.activate.mockImplementation(async state => {
+      if (state.controlId === "profile-back" && !back) { back = state; return activation.promise; }
+      return { ...state, phase: "active" };
+    });
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    function PhotoModal() {
+      // The real photo sheet blocks native headers. Mounting it before parent
+      // admission reproduced the device deadlock; do not bypass this isolation.
+      useNativeNavigationBlocked(true);
+      return <button>Public photo preview</button>;
+    }
+    const scene = (detail: boolean, lifetime = "owner-a:vault-a") => <NativeProfilePresentation lifetime={lifetime} detail={detail}
+      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
+      page={{ pane: true, title: "Your account", owner: "owner-a", context: detail ? "account-photo" : "root", onBack: vi.fn(), onClose: vi.fn() }}
+      detailOverlay={<PhotoModal />}><p>Public Account content</p></NativeProfilePresentation>;
+    const view = render(scene(true));
+    await waitFor(() => expect(back).toBeDefined());
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    await act(async () => activation.resolve({ ...back!, phase: "active" }));
+    await waitFor(() => expect(closed).toBeDefined());
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    const firstClosed = closed!;
+    const complete = (state: NativeDrawerProjection) => act(() => {
+      drawerBridge.listeners.get("presentationSettled")?.forEach(listener => listener({ ...state, phase: "active", valid: true, settled: true }));
+    });
+    complete(firstClosed);
+    await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+    view.rerender(scene(false));
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)![0].open).toBe(true));
+    view.rerender(scene(true));
+    await waitFor(() => expect(closed?.updateSequence).toBeGreaterThan(firstClosed.updateSequence));
+    complete(firstClosed);
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    complete(closed!);
+    await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+    view.rerender(scene(true, "owner-a:vault-b"));
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+  });
+
   it.each(["return", "new-detail", "close", "owner"] as const)("retains the outgoing Profile display without stale Back authority during %s handoff", async outcome => {
     measureSlot();
     vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });

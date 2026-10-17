@@ -47,8 +47,27 @@ the SDK-preserved WebKit fetch rather than CapacitorHttp's buffering proxy, and
 aborts on timeout, owner/privacy change or retirement. The nearest transport
 regression fails against patched fetch and passes with that boundary restored.
 Photo preview/actions still use the existing React exception and are **not**
-counted as complete native photo-operation conversion. This source is not yet
-installed/physically qualified. Unsupported wrappers retain their ordinary row.
+counted as complete native photo-operation conversion. Unsupported wrappers
+retain their ordinary row.
+
+The combined header/height source is installed at `c6c317b4f2`. Credential-free
+automation admission and the normal configured passphrase unlock pass. A bounded
+four-destination Payouts/Pricing/Memory/World Model traversal passes entry, full
+height, Back, Chat/draft return and one-WebView checks; these rich bodies remain
+React. The actual photo check caught a text-sized native button hit target;
+installed `ea6d11dee6` fixes its label frame and passes that geometry assertion.
+The next photo action exposed a separate admission deadlock: the React sheet
+mounted before its parent pane's Back/Close admission, blocking those controls
+and leaving its own existing actions covered and untappable. Sanitized device
+diagnostics distinguish this from a missing image or an accessibility role.
+
+The correction gates that existing modal on the current detail visit's parent
+readiness and the native menu's actual exit completion, using the existing
+presentation owner, privacy generation and ordered receipt. It does not bypass
+modal isolation, add a timeout, or retry an action. Its nearest regression fails
+when early modal mounting is restored; installation/physical proof is recorded
+separately after the combined candidate is prepared. No full visual,
+accessibility, staged-resume or Release-performance acceptance is inferred.
 
 Vault methods now have one extracted React feature model for reads, enrollment,
 default/removal and password changes. Existing services and owner authorization

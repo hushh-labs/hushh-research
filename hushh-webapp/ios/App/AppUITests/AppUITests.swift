@@ -136,6 +136,12 @@ final class AppUITests: XCTestCase {
     private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
         // Fixed authored identifiers/labels only. Never serialize a hierarchy,
         // profile identity, row label, draft or private presentation payload.
+        for (kind, label) in [("view", "View photo"), ("options", "Photo options"),
+            ("picker", "Take photo or choose from library"), ("heading", "Profile photo")] {
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            let first = matches.firstMatch
+            print("PROFILE_PHOTO_ENTRY kind=\(kind) count=\(matches.count) role=\(first.exists ? first.elementType.rawValue : 0) hittable=\(first.exists && first.isHittable)")
+        }
         for (name, label) in [("profile_close", "Close Profile"), ("agent_profile_close", "Close One profile"), ("profile_back", "Back in Profile"),
             ("history_close", "Close chat history"), ("profile_open", "Open Profile")] {
             let control = app.buttons[label].firstMatch
@@ -3205,7 +3211,11 @@ final class AppUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(options.frame.height, 44)
             options.tap()
             let preview = app.buttons["View photo"].firstMatch
-            guard waitForAdmittedControl(preview) else { XCTFail("PROFILE_PHOTO_OPTIONS_UNAVAILABLE"); return }
+            guard waitForAdmittedControl(preview) else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(webView)
+                XCTFail("PROFILE_PHOTO_OPTIONS_UNAVAILABLE"); return
+            }
             preview.tap()
             let previewOptions = app.buttons["Photo options"].firstMatch
             guard waitForAdmittedControl(previewOptions), waitForAdmittedControl(app.buttons["Close"].firstMatch) else {
