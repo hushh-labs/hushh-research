@@ -3,6 +3,7 @@ import type { NativeControlAppearance } from "./native-control-appearance";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
 import type { NativeSupportScenePort } from "./native-profile-support-scene";
+import type { NativePhoneScenePort } from "./native-profile-phone-scene";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -78,8 +79,12 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean }>;
   getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
+  applyProfilePhoneScene?(options: Parameters<NativePhoneScenePort["applyProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["applyProfilePhoneScene"]>;
+  confirmProfilePhoneAction?(options: Parameters<NativePhoneScenePort["confirmProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["confirmProfilePhoneAction"]>;
+  settleProfilePhoneAction?(options: Parameters<NativePhoneScenePort["settleProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["settleProfilePhoneAction"]>;
+  retireProfilePhoneScene?(options: Parameters<NativePhoneScenePort["retireProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["retireProfilePhoneScene"]>;
   applyProfileSupportScene?(options: Parameters<NativeSupportScenePort["applyProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["applyProfileSupportScene"]>;
   confirmProfileSupportAction?(options: Parameters<NativeSupportScenePort["confirmProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["confirmProfileSupportAction"]>;
   settleProfileSupportAction?(options: Parameters<NativeSupportScenePort["settleProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["settleProfileSupportAction"]>;
@@ -92,7 +97,7 @@ export interface HushhNativeDrawersPlugin {
   confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
   settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & {
+  addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
@@ -108,12 +113,13 @@ export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNati
 /** Admission needs the whole scene handshake, including confirmed withdrawal.
  * A flag alone cannot safely transfer an editor to a partially capable wrapper.
  * Keep this mapping shared by the destination and its editor adapters. */
-export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support"): boolean {
+export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone"): boolean {
   const methods = scene === "account-name"
     ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
     : scene === "writing-style"
       ? [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction, plugin.retireProfileStyleScene]
-      : [plugin.applyProfileSupportScene, plugin.confirmProfileSupportAction, plugin.settleProfileSupportAction, plugin.retireProfileSupportScene];
+      : scene === "support" ? [plugin.applyProfileSupportScene, plugin.confirmProfileSupportAction, plugin.settleProfileSupportAction, plugin.retireProfileSupportScene]
+      : [plugin.applyProfilePhoneScene, plugin.confirmProfilePhoneAction, plugin.settleProfilePhoneAction, plugin.retireProfilePhoneScene];
   return methods.every(method => typeof method === "function");
 }
 

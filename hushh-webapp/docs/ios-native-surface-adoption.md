@@ -16,6 +16,38 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Native Phone/OTP and current-visit admission — 2026-10-17
+
+The qualified iPhone wrapper negotiates `profilePhoneScene`: a complete owned
+form for country selection, number/code entry, resend, OTP Back, cancellation
+and recovery. It shares the existing Phone model and authentication operations
+with web/Android. Provider challenges, identity objects and vault credentials
+never enter its private field projection. Ordinary builds remain unchanged.
+
+Account stays in the retained Profile stack beneath the form. The parent must
+acknowledge the current destination **and privacy generation** before any editor
+is installed. Same-owner phone publication does not retire an active attempt or
+its native host. Departure and owner replacement reject late results. Successful
+verification remains successful if Account refresh fails; Continue retries only
+that completion, not an OTP operation. An international paste retains its own
+dialing prefix rather than being reinterpreted using the picker country.
+
+One volatile feature model survives confirmed renderer fallback. Unfinished
+native composition is preserved in a private presentation replica; old committed
+digits cannot be submitted until a normal edit commits through the shared
+normalizer. Owner/stage/privacy invalidation clears that replica. Native menu,
+keyboard, sheet retirement and final-edit acknowledgments retain their existing
+owners; no provider transport or persistent native draft store is added.
+
+Nearest behavior tests include real negative controls for stale completions,
+changed recipients and stale parent admission. Native compilation and the
+simulator's Phone host contract pass. These are not installed-product visual,
+live-phone mutation or Release performance acceptance. The global staged-resume
+composition gate remains a separate shared-lifecycle requirement.
+
+Rollback: revert this family increment, or disable the existing qualification
+switch; unsupported/partial wrappers keep the complete shared React form.
+
 ### Trusted devices and current-main integration — 2026-10-17
 
 Main through `fd3b00b3c1` is integrated by merge `e8aef014c3`; combined
@@ -42,6 +74,13 @@ transport and suppresses late delivery/toast callbacks after departure.
 Nearest behavior tests and actual-guard negative controls are recorded separately
 from native build, install and physical qualification. The warm Profile harness
 can select a bounded start/end range; a scoped run is not whole-program acceptance.
+
+Source `b1609c005d` was exported, built and installed on iPhone, UAT-backed
+1.4.0 (69), with three native host tests passing and zero skipped. Its combined
+core run passed web-core and 13,599 protocol tests, but failed two editor-lane
+path-filter checks for newly imported Legal inputs. The filter now covers those
+two exact inputs; all 14 focused path-filter checks pass. No complete core/CI
+pass or new physical visual qualification is inferred from that repair.
 
 ### Native Account confirmations and private result fencing — 2026-10-17
 
@@ -295,7 +334,7 @@ and its unrelated edits were not changed.
 | Family | Current presentation / operation owner | Implementation gap |
 | --- | --- | --- |
 | Shared navigation | Retained UIKit Profile stack; `native-profile-menu.tsx` and existing Profile query/Back owners | Current change fences a completed pop across compatible refreshes and separates admission from completed presentation; physical acceptance pending |
-| Account and identity | Native rows/name form and capability-negotiated Reset/Delete confirmation pages; existing account/identity services | Photo/preview and phone/OTP conversion plus combined native qualification are separate; actual destructive fixture outcomes remain unverified |
+| Account and identity | Native rows/name form, negotiated Phone/OTP form and Reset/Delete confirmation pages; shared phone model and existing account/identity services | Photo/preview conversion and combined native qualification are separate; disposable-fixture mutation outcomes remain unverified |
 | Preferences | Native Appearance/Accent/haptics, Writing style and complete Voice page; existing Settings/theme/Voice feature writers | Finance and provider scenes need conversion; Voice source/build passes are distinct from pending device qualification |
 | Security and devices | Native Security/Session rows and negotiated Trusted devices list/confirmation; shared device model and existing vault/session services | Protected method forms, enrollment/removal and recovery need conversion; combined device interaction/accessibility and disposable-fixture outcomes remain unverified |
 | Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |

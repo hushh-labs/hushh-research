@@ -6,8 +6,9 @@ import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presenta
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model";
-import { useEffect, useLayoutEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 
 export function projectNativeProfileMenu(name: string, email: string | null, ready: boolean,
   groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: () => void) {
@@ -32,13 +33,13 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
   surfaceOpen?: boolean;
   enabled?: boolean;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
-  onPresented?: (destinationId?: string) => void;
+  onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
   stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; supportDestinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void; root?: () => void; ancestor?: NativeDrawerActions["ancestor"] };
 }) {
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
     title: "Profile", profileMenuRows: true, surfaceOpen, enabled, onPresented: state => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
-      onPresented?.(state.profileDestinationId ?? state.profileSupportDestinationId);
+      onPresented?.(state.profileDestinationId ?? state.profileSupportDestinationId, state.privacyGeneration);
     },
     project: () => {
       const projected = projectNativeProfileMenu(name, email, ready, groups, actions, onClose);
@@ -59,7 +60,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal, onVoiceCapability, onDevicesCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal, phone, onVoiceCapability, onDevicesCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
@@ -71,6 +72,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onVoiceCapability?: (supported: boolean) => void;
   onDevicesCapability?: (supported: boolean) => void;
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
+  phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
   legal?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void };
 }) {
   const [stackSupported, setStackSupported] = useState<boolean | null>(null);
@@ -80,8 +82,11 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [accountActionsSupported, setAccountActionsSupported] = useState(false);
   const [devicesSupported, setDevicesSupported] = useState(false);
+  const [phoneSupported, setPhoneSupported] = useState(false);
+  const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
-  const [presentedDestination, setPresentedDestination] = useState<string | undefined>();
+  const [presentedDestination, setPresentedDestination] = useState<{ id: string | undefined; privacy: number }>();
+  const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const hasAccount = account !== undefined;
   useEffect(() => {
     if (!hasAccount) return;
@@ -98,6 +103,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setSettingsSupported(stack && capability.profileSettingsPages === true && capability.profileStyleScene === true &&
           hasNativeProfileScene(nativeDrawers, "writing-style"));
         setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
+        setPhoneSupported(stack && capability.profilePhoneScene === true && hasNativeProfileScene(nativeDrawers, "phone"));
         setLegalSupported(stack && capability.profileLegalReader === true);
         const voice = stack && capability.profileSettingsPages === true && capability.profileVoiceSettings === true;
         setVoiceSupported(voice); onVoiceCapability?.(voice);
@@ -107,16 +113,20 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); } });
     return () => { current = false; };
   }, [hasAccount, onVoiceCapability, onDevicesCapability]);
-  const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported);
+  useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
+  const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
+  const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);
   const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported) && (!settings.requiresDevices || devicesSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
-    nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id)]) : "";
+    nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null]) : "";
   // A new destination visit gets a new token, including A → B → A. Compatible
   // theme/content updates preserve it; an old form cannot act in a later visit.
   const destinationId = useMemo(() => destinationKey && lifetime ? crypto.randomUUID() : undefined, [lifetime, destinationKey]);
+  const parentAdmitted = presentedDestination?.id === destinationId && presentedDestination?.privacy === privacy?.generation &&
+    privacy?.shielded === false && privacy.appIsActive;
   const webDetail = detail && !nativeAccount && !nativeSettings && !nativeSupport && !nativeLegal;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
@@ -157,8 +167,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : page.onBack,
         ...(nativeSettings && settings?.ancestor ? { ancestor: settings.ancestor } : {}),
         ...(nativeAccount && account.confirmation ? { root: account.root ?? account.back ?? page.onBack } : nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : {}) } : undefined}
-      onPresented={appliedDestination => {
-      setPresentedDestination(appliedDestination);
+      onPresented={(appliedDestination, privacyGeneration) => {
+      setPresentedDestination({ id: appliedDestination, privacy: privacyGeneration });
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
     <NativeFeaturePage {...page} {...(retained ? {
@@ -170,8 +180,10 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         {retained ? retained.children : children}
       </div>
     </NativeFeaturePage>
-    {(!nativeAccount || presentedDestination === destinationId) && account?.editor(destinationId)}
-    {nativeSettings && presentedDestination === destinationId && settings?.editor?.(destinationId)}
-    {nativeSupport && destinationId && presentedDestination === destinationId && support?.editor(destinationId, () => setSupportFailedOwner(lifetime))}
+    {(!nativeAccount || parentAdmitted) && account?.editor(destinationId)}
+    {nativeSettings && parentAdmitted && settings?.editor?.(destinationId)}
+    {nativeSupport && destinationId && parentAdmitted && support?.editor(destinationId, () => setSupportFailedOwner(lifetime))}
+    {phone?.active && phone.editor({ native: nativePhone, destinationId: nativePhone && parentAdmitted ? destinationId : undefined,
+      onFallback: () => setPhoneFailedVisit(lifetime) })}
   </>;
 }

@@ -4654,6 +4654,35 @@ final class AppUITests: XCTestCase {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
                     guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     child.tap()
+                    if childID == "account-phone", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                        let number = app.textFields["native-phone-number"].firstMatch
+                        let country = app.buttons["native-phone-country"].firstMatch
+                        let cancel = app.buttons["native-phone-back"].firstMatch
+                        guard waitForAdmittedControl(number), waitForAdmittedControl(country), waitForAdmittedControl(cancel) else {
+                            XCTFail("PROFILE_NATIVE_PHONE_NOT_ADMITTED"); return
+                        }
+                        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                            "PROFILE_NATIVE_PHONE_DUPLICATE_WEB_BODY")
+                        country.tap()
+                        let countryBack = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["Change phone number", "Add phone number"]))
+                        guard countryBack.count == 1, waitForAdmittedControl(countryBack.firstMatch) else {
+                            XCTFail("PROFILE_NATIVE_PHONE_COUNTRY_RETURN_UNAVAILABLE"); return
+                        }
+                        countryBack.firstMatch.tap()
+                        guard waitForAdmittedControl(number) else { XCTFail("PROFILE_NATIVE_PHONE_ENTRY_NOT_RESTORED"); return }
+                        number.tap()
+                        guard waitForSoftwareKeyboard(app), waitForAdmittedControl(cancel) else {
+                            XCTFail("PROFILE_NATIVE_PHONE_KEYBOARD_UNAVAILABLE"); return
+                        }
+                        // Shared reviewer: exercise presentation and cancellation
+                        // only. Never send SMS or change its verified number.
+                        cancel.tap()
+                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else {
+                            XCTFail("PROFILE_NATIVE_PHONE_PARENT_NOT_RESTORED"); return
+                        }
+                        print("PROFILE_NATIVE_PHONE_CONTINUITY keyboard=true returned=true sent=false")
+                        continue
+                    }
                     let nativeMicrophone = app.buttons["native-profile-row-voice-microphone-test"].firstMatch
                     if childID == "preferences-voice", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let voiceBack = app.navigationBars.buttons["Preferences"].firstMatch

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NativeChromeLease, chromeOwnerEpoch, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
@@ -35,6 +35,8 @@ import { NativeProfileNameFence, validNativeProfileNameProjection, type NativePr
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
 import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
+import { NativePhoneFence, validNativePhoneProjection, type NativePhoneProjection } from "@/lib/capacitor/native-profile-phone-scene";
+import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
 
 function publicNameScene(): NativeProfileNameProjection {
   return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
@@ -44,6 +46,75 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("preserves unfinished Phone text through confirmed fallback without sending older digits", async () => {
+    bridge.platform = "ios"; publishValidatedAuthSessionOwner("phone-fallback-owner");
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ generation: 0, isolated: false });
+    drawerBridge.applyProfilePhoneScene.mockImplementation(async state => {
+      if (state.acknowledgedEditRevision === 1) throw new Error("synthetic-native-failure");
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retireProfilePhoneScene.mockImplementation(async identity => ({ ...identity, phase: "retired",
+      updateSequence: drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 }));
+    const start = vi.fn().mockResolvedValue({ autoVerified: false }), confirm = vi.fn();
+    function Phone() {
+      const [host, setHost] = useState<HTMLDivElement | null>(null), [native, setNative] = useState(true);
+      return <><div ref={setHost} /><NativePhoneVerificationFlow native={native} destinationId="phone-fallback-first" webHost={host}
+        ownerKey="phone-fallback-visit" isCurrent={() => true} mode="replace" currentPhoneNumber="+16505550101"
+        startVerification={start} confirmVerification={confirm} onCompleted={vi.fn()} onFallback={() => setNative(false)} /></>;
+    }
+    const view = render(<Phone />);
+    await waitFor(() => expect(drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)?.[0].draft.number).toBe("6505550101"));
+    const state = drawerBridge.applyProfilePhoneScene.mock.calls.at(-1)![0];
+    const edit = { ...fenceIdentity(state), scene: "phone", destinationId: state.destinationId, updateSequence: state.updateSequence,
+      privacyGeneration: 0, editRevision: 1, composing: true, step: "phone", draft: { ...state.draft, number: "6505550101あ" } };
+    act(() => drawerBridge.listeners.get("profilePhoneEdit")?.forEach(listener => listener(edit)));
+    const input = await screen.findByRole("textbox", { name: "Phone number" });
+    expect(input).toHaveValue("6505550101あ");
+    expect(drawerBridge.retireProfilePhoneScene).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Send verification code" })).toBeDisabled();
+    fireEvent.submit(input.closest("form")!);
+    expect(start).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "650555010199" } });
+    expect(input).toHaveValue("650555010199");
+    expect(screen.getByRole("button", { name: "Send verification code" })).toBeDisabled();
+    fireEvent.submit(input.closest("form")!);
+    expect(start).not.toHaveBeenCalled();
+    (input as HTMLInputElement).setSelectionRange(0, 12);
+    fireEvent.paste(input, { clipboardData: { getData: () => "+916505550102" } });
+    expect(input).toHaveValue("6505550102");
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(start).toHaveBeenCalledWith("+916505550102", { resendCode: false }));
+    view.unmount();
+  });
+  it("keeps Phone edits on their current stage and acknowledges a one-shot verification before dispatch", async () => {
+    const state: NativePhoneProjection = { ...publicNameScene(), destinationId: "phone-first", scene: "phone", mode: "replace", step: "phone",
+      draft: { country: "US", number: "6505550101", code: "" }, countries: [{ value: "US", label: "United States", dialCode: "+1" }], maskedDestination: "••••••0101" };
+    expect(validNativePhoneProjection(state)).toBe(true);
+    expect(validNativePhoneProjection({ ...state, draft: { ...state.draft, verificationId: "not-a-challenge" } } as never)).toBe(false);
+    expect(validNativePhoneProjection({ ...state, ownerToken: "not-a-token" } as never)).toBe(false);
+    const fence = new NativePhoneFence(state);
+    expect(fence.update(state)).toBe(true);
+    const identity = { ...fenceIdentity(state), scene: "phone" as const, destinationId: state.destinationId };
+    const edit = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, step: "phone" as const, composing: false, draft: state.draft };
+    expect(fence.consumeEdit({ ...edit, step: "code" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const send = { ...identity, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "change" as const, intent: "send" as const };
+    expect(fence.allows(send)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(fence.allows({ ...send, destinationId: "phone-reopened" })).toBe(false);
+    const confirm = vi.fn(async () => ({ valid: true }));
+    expect(await fence.consumeAction(send, confirm, () => true)).toBe(true);
+    expect(await fence.consumeAction(send, confirm, () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(fence.update({ ...state, updateSequence: 3, acknowledgedEditRevision: 1, step: "code" })).toBe(true);
+    expect(fence.consumeEdit({ ...edit, updateSequence: 2, editRevision: 2 })).toBe(false);
+    expect(fence.allows({ ...send, updateSequence: 3, sequence: 2 })).toBe(false);
+    expect(fence.allows({ ...send, intent: "resend", updateSequence: 3, sequence: 2 })).toBe(true);
+    fence.retire();
+    expect(fence.allows({ ...send, intent: "verify", updateSequence: 3, sequence: 3 })).toBe(false);
+  });
 
   it("admits only closed Writing Style values and consumes a current acknowledged Save once", async () => {
     const state: NativeProfileStyleProjection = { ...publicNameScene(), destinationId: "preferences-first", scene: "writing-style", draft: { tone: "warm" },
@@ -265,7 +336,8 @@ const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: 
   getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
   applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
   applyProfileStyleScene: vi.fn(), confirmProfileStyleAction: vi.fn(), settleProfileStyleAction: vi.fn(), retireProfileStyleScene: vi.fn(),
-  applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn() }));
+  applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn(),
+  applyProfilePhoneScene: vi.fn(), confirmProfilePhoneAction: vi.fn(), settleProfilePhoneAction: vi.fn(), retireProfilePhoneScene: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: (plugin: string) => plugin === "HushhNativeDrawers" ? { ...drawerBridge,
@@ -303,7 +375,8 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
-vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current,
+  getVoiceSurfaceMetadata: () => voiceSurface.current, usePublishVoiceSurfaceMetadata: () => undefined }));
 describe("native drawer resume admission", () => {
   it("readmits after an accepted privacy release without a native event and rejects old choices", async () => {
     const original = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
@@ -3210,7 +3283,7 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
@@ -3219,7 +3292,7 @@ describe("native chrome presentation lease", () => {
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
     const confirmAccount = vi.fn(), cancelAccount = vi.fn(), confirmDevice = vi.fn();
-    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, requiresVoice: settings === "voice", requiresDevices: settings === "devices" || settings === "device-unlink", pages: settings === "devices" || settings === "device-unlink" ? [
@@ -3239,6 +3312,7 @@ describe("native chrome presentation lease", () => {
       ] }] }] : [])] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
         rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()], ["voice-on", vi.fn()], ["voice-off", vi.fn()], ["device-submit", confirmDevice]]), root: vi.fn(), ancestor: vi.fn() }}
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
+      phone={{ active: phone, editor: options => options.native && options.destinationId ? <p data-testid="public-phone-sheet">{options.destinationId}</p> : null }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
@@ -3363,7 +3437,22 @@ describe("native chrome presentation lease", () => {
       expect(view.queryByText("React account exception")).toBeNull();
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
       expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(true, undefined, false, undefined, undefined, true));
+      await waitFor(() => expect(view.getByTestId("public-phone-sheet")).toBeInTheDocument());
+      let finishParent!: (state: unknown) => void;
+      const parentReadmission = new Promise(resolve => { finishParent = resolve; });
+      drawerBridge.getPresentationState.mockImplementation(async () => parentReadmission);
+      act(() => {
+        privacy.state = { ...privacy.state, generation: 1 };
+        privacy.observations.forEach(listener => listener());
+      });
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].privacyGeneration).toBe(1));
+      expect(view.queryByTestId("public-phone-sheet")).toBeNull();
+      await act(async () => { finishParent({ ...drawerBridge.apply.mock.calls.at(-1)![0], valid: true, settled: true, phase: "active" }); });
+      await waitFor(() => expect(view.getByTestId("public-phone-sheet")).toBeInTheDocument());
+      drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0], valid: true, settled: true, phase: "active" }));
       view.unmount();
+      privacy.state = { ...privacy.state, generation: 0 };
       await act(async () => { await Promise.resolve(); });
       for (const target of ["account", "preferences", "support"] as const) {
         const method = target === "account" ? "settleProfileNameAction" :

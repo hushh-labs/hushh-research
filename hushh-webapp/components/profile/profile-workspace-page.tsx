@@ -186,6 +186,7 @@ import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
 import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
+import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -616,6 +617,7 @@ function ProfilePageContent({
   }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
+  const [nativePhoneHost, setNativePhoneHost] = useState<HTMLDivElement | null>(null);
   const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
@@ -780,6 +782,15 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const phoneVaultEpoch = snapshotVaultSessionEpoch();
+  const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: user?.uid, owner: snapshotValidatedAuthSessionOwner(),
+    vaultEpoch: phoneVaultEpoch, enabled: activePanel === "account" && activeDetail === "phone" &&
+      (presentation !== "native-page" || nativeMenuOpen) }),
+  [user?.uid, phoneVaultEpoch, activePanel, activeDetail, presentation, nativeMenuOpen]);
+  useLayoutEffect(() => { phoneVisit.active = true; return () => { phoneVisit.active = false; }; }, [phoneVisit]);
+  const phoneVisitIsCurrent = () => phoneVisit.active && phoneVisit.enabled && !!phoneVisit.owner &&
+    phoneVisit.owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(phoneVisit.owner) &&
+    phoneVisit.vaultEpoch === snapshotVaultSessionEpoch();
   const devicesActive = activePanel === "security" && activeDetail === "trusted-devices";
   const devicesParent = devicesActive ? profilePanelParentForPresentation("security") : null;
   const devicesModel = useTrustedDevicesModel(user?.uid ?? null, !!user && !authLoading && isVaultUnlocked &&
@@ -3589,7 +3600,9 @@ function ProfilePageContent({
     verifiedUser?: typeof user | null,
   ) => {
     const activeUser = verifiedUser ?? user;
+    if (!phoneVisitIsCurrent() || activeUser?.uid !== phoneVisit.owner?.userId) return;
     await AccountIdentityService.syncCurrentUser(activeUser);
+    if (!phoneVisitIsCurrent()) return;
     updateProfileView({ panel: "account", detail: null }, "replace");
   };
 
@@ -4175,7 +4188,9 @@ function ProfilePageContent({
           : "Add a verified number.",
         content: (
           <>
-            <PhoneVerificationFlow
+            {presentation === "native-page" ? <div ref={setNativePhoneHost} /> : <PhoneVerificationFlow
+              ownerKey={phoneVisit.id}
+              isCurrent={phoneVisitIsCurrent}
               mode={phoneNumber ? "replace" : "link"}
               currentPhoneNumber={phoneNumber}
               startVerification={
@@ -4197,7 +4212,7 @@ function ProfilePageContent({
                   ? "Enter the new phone number."
                   : "Enter your phone number."
               }
-            />
+            />}
             <div id="recaptcha-container" className="min-h-0" />
           </>
         ),
@@ -4971,6 +4986,14 @@ function ProfilePageContent({
     ] }],
   } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable}
+    phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen,
+      editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
+        webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
+        startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
+        confirmVerification={phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification}
+        onCompleted={handleAccountPhoneCompleted} onBackStepChange={bindPhoneBackStep} onCancel={popProfileStack}
+        confirmLabel="Save phone number" helperText={phoneNumber ? "Enter the new phone number." : "Enter your phone number."}
+        className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)} /> }}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
@@ -5003,7 +5026,7 @@ function ProfilePageContent({
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
       ]), root: () => { devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); }, editor: nativePreferences.editor }}
-    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException && !showVaultUnlock,
+    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone") && !nativeAccountException && !showVaultUnlock,
       page: nativeAccountPage, confirmation: accountConfirmation,
       root: () => {
         if (isDeleting || isResetting) return;

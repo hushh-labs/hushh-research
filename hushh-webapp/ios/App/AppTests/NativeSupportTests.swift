@@ -2810,6 +2810,46 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(state.generation, recovering + 1, "The next real inactive cycle must have its own authority")
     }
 
+    @MainActor func testNativePhoneSceneRequiresAcknowledgedStageEditsAndScrubsBeforeRetirement() {
+        func state(_ sequence: Int, _ acknowledged: Int, _ step: String = "phone", _ code: String = "") -> NativePhoneProjection {
+            NativePhoneProjection(documentId: "public-phone-document", ownerEpoch: "public-phone-owner", family: "profile", scene: "phone",
+                destinationId: "public-phone-first", ownerGeneration: 1, revision: 1, updateSequence: sequence, privacyGeneration: 0,
+                draftRevision: sequence, acknowledgedEditRevision: acknowledged,
+                draft: NativePhoneDraft(country: "US", number: "6505550101", code: code), step: step, mode: "replace",
+                countries: [NativePhoneCountry(value: "US", label: "United States", dialCode: "+1")], maskedDestination: "••••••0101",
+                error: nil, canSave: true, busy: false, appearance: "light", accentHex: "#007aff", foregroundHex: "#808080")
+        }
+        let model = NativePhoneModel(state(1, 0))
+        var actions = [NativePhoneAction]()
+        model.edit = { _, _, _, _ in true }
+        model.choose = { actions.append($0); return true }
+        model.change(field: "number", value: "6505550102")
+        model.action("send")
+        XCTAssertTrue(actions.isEmpty, "A final edit must be acknowledged before sending")
+        XCTAssertTrue(model.update(state(2, 1)))
+        model.action("send")
+        XCTAssertEqual(actions.count, 1)
+        let send = actions[0]
+        XCTAssertTrue(model.confirm(send))
+        XCTAssertFalse(model.confirm(send), "An uncertain confirmation cannot replay an operation")
+        XCTAssertTrue(model.settle(send))
+        XCTAssertTrue(model.update(state(3, 1, "code")))
+        model.action("send")
+        XCTAssertEqual(actions.count, 1, "Phone entry actions cannot act on the replacement OTP stage")
+        model.change(field: "code", value: "123456")
+        XCTAssertTrue(model.update(state(4, 2, "code", "123456")))
+        model.action("verify")
+        XCTAssertEqual(actions.count, 2)
+        XCTAssertTrue(model.confirm(actions[1]))
+        let editor = UITextField(); editor.text = "123456"; model.register(editor)
+        model.clear()
+        XCTAssertEqual(editor.text, "")
+        XCTAssertEqual(model.draft.code, "")
+        XCTAssertEqual(model.projection.draft.number, "")
+        XCTAssertNil(model.choose)
+        XCTAssertFalse(model.confirm(actions[1]))
+    }
+
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
         var state = HushhSessionPrivacyState()
         let normal = state.beginPresentationRetirement()

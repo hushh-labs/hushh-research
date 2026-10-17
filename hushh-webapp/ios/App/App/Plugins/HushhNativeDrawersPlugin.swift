@@ -65,6 +65,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmProfileSupportAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfileSupportAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileSupportScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfilePhoneScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfilePhoneAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfilePhoneAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfilePhoneScene", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -76,6 +80,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private var styleScene: NativeProfileStyleScene? { form as? NativeProfileStyleScene }
     private var supportScene: NativeProfileSupportScene? { form as? NativeProfileSupportScene }
+    private var phoneScene: NativeProfilePhoneScene? { form as? NativeProfilePhoneScene }
     private var retiringForms = [ObjectIdentifier: NativeProfileOwnedForm]()
     private var formOwner: String?
     private var formRevision = 0
@@ -126,6 +131,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileSupportScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePhoneScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "terminalReadmission": self?.supported == true,
@@ -420,7 +426,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         guard supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
               sessionFence.contains(identity), state.appIsActive, !state.shielded, state.generation == privacy,
               shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
-        let nativeAccount = scene == "account-name" && profile.open && profile.profileStack?.last?.id == "account" &&
+        let nativeAccount = ["account-name", "phone"].contains(scene) && profile.open && profile.profileStack?.last?.id == "account" &&
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativePreferences = scene == "writing-style" && profile.open && profile.profileStack?.last?.id == "preferences" &&
             destinationId != nil && destinationId == profile.profileDestinationId
@@ -432,6 +438,102 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func profileFormOwnerKey(_ identity: NativeDrawerIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
+    }
+    @objc func applyProfilePhoneScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], NativePhoneProjection.hasClosedShape(options),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 131_072, let next = try? JSONDecoder().decode(NativePhoneProjection.self, from: bytes), next.valid,
+                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_PHONE_UNAVAILABLE"); return }
+            if let scene = self.phoneScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_PHONE_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else {
+                call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return
+            }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_PHONE_RETIRED"); return }
+            let scene = NativeProfilePhoneScene(next)
+            self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.edit = { [weak self, weak scene] draft, step, composing, revision in
+                guard let self, let scene, self.form === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "phone", destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = ["country": draft.country, "number": draft.number, "code": draft.code]
+                event["step"] = step; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profilePhoneEdit", data: event, retainUntilConsumed: false)
+                return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.form === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "phone", destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["action"] = action.action; event["intent"] = action.intent
+                event["sequence"] = action.sequence; event["editRevision"] = action.editRevision
+                self.notifyListeners("profilePhoneAction", data: event, retainUntilConsumed: false)
+                return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_PHONE_RETIRED"); return }
+                guard presented, self.form === scene,
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "phone", destinationId: next.destinationId) else {
+                    if self.form === scene { self.retireProfileForm() }
+                    call.reject("NATIVE_PROFILE_PHONE_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_PHONE_PRESENTATION_REFUSED"); return }
+        }
+    }
+    private func phoneAction(_ call: CAPPluginCall) -> NativePhoneAction? {
+        let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId",
+            "updateSequence", "privacyGeneration", "editRevision", "sequence", "action", "intent"]
+        guard Set(call.options.keys).isSubset(of: keys), call.getString("scene") == "phone",
+              let update = call.getInt("updateSequence"), update > 0, let edit = call.getInt("editRevision"), edit >= 0,
+              let sequence = call.getInt("sequence"), sequence > 0,
+              [update, edit, sequence].allSatisfy({ $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration }),
+              let action = call.getString("action"), action == "cancel" ? call.getString("intent") == nil :
+                action == "change" && ["send", "verify", "resend", "back", "continue"].contains(call.getString("intent") ?? "") else { return nil }
+        return NativePhoneAction(updateSequence: update, editRevision: edit, sequence: sequence, action: action, intent: call.getString("intent"))
+    }
+    @objc func confirmProfilePhoneAction(_ call: CAPPluginCall) { settleOrConfirmPhone(call, settlement: false) }
+    @objc func settleProfilePhoneAction(_ call: CAPPluginCall) { settleOrConfirmPhone(call, settlement: true) }
+    private func settleOrConfirmPhone(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "phone", destinationId: call.getString("destinationId")),
+                  let scene = self.phoneScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.phoneAction(call) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfilePhoneScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), identity.family == "profile", call.getString("scene") == "phone",
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else {
+                call.reject("NATIVE_PROFILE_PHONE_STALE_RETIREMENT"); return
+            }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == "phone" && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.phoneScene {
+                guard scene.identity == identity, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_PHONE_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_PHONE_STALE_RETIREMENT"); return }
+            let owner = self.profileFormOwnerKey(identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            self.formRevision = max(self.formRevision, identity.revision)
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease())
+            receipt["scene"] = "phone"; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
     }
     @objc func applyProfileNameScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in

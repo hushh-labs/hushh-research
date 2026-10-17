@@ -2,6 +2,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -10,7 +11,7 @@ import { Capacitor } from "@capacitor/core";
 
 beforeEach(() => { vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(false); });
 
-import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { PhoneVerificationFlow, usePhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
@@ -28,6 +29,7 @@ function renderPhoneVerificationFlow(options?: {
   startVerification?: ReturnType<typeof vi.fn>;
   onContinueExisting?: ReturnType<typeof vi.fn>;
   onBackStepChange?: (handler: (() => boolean) | null) => void;
+  isCurrent?: () => boolean;
 }) {
   const startVerification = options?.startVerification ?? (options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
@@ -48,6 +50,7 @@ function renderPhoneVerificationFlow(options?: {
       onCompleted={onCompleted}
       onContinueExisting={options?.onContinueExisting}
       onBackStepChange={options?.onBackStepChange}
+      isCurrent={options?.isCurrent}
     />
   );
 
@@ -57,6 +60,7 @@ function renderPhoneVerificationFlow(options?: {
     startVerification,
     confirmVerification,
     onCompleted,
+    unmount: view.unmount,
     // Republishes the flow with a new auth-context phone value, the way
     // register-phone/page.tsx does when useAuth().phoneNumber settles.
     rerenderWithPhone: (next?: string | null) => view.rerender(flow(next)),
@@ -97,6 +101,125 @@ async function selectIndiaOnce() {
 }
 
 describe("PhoneVerificationFlow country selector", () => {
+  it.each(["send", "confirm"])("does not navigate from a %s completion after its phone destination retires", async path => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const start = vi.fn().mockReturnValue(path === "send" ? pending : Promise.resolve({ autoVerified: false }));
+    const confirm = vi.fn().mockReturnValue(pending);
+    const flow = renderPhoneVerificationFlow({ startVerification: start, confirmVerification: confirm });
+    const input = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    fireEvent.submit(input.closest("form")!);
+    if (path === "confirm") {
+      const code = await screen.findByRole("textbox", { name: "One-time code" });
+      fireEvent.change(code, { target: { value: "123456" } });
+      fireEvent.submit(code.closest("form")!);
+      expect(confirm).toHaveBeenCalledOnce();
+    }
+    flow.unmount();
+    await act(async () => { finish(path === "send" ? { autoVerified: true, user: { uid: "user_1" } } : { uid: "user_1" }); });
+    expect(flow.onCompleted).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a retained verification callback after OTP Back and a retired owner before provider dispatch", async () => {
+    let ownerCurrent = true;
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const confirm = vi.fn();
+    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
+      startVerification: start, confirmVerification: confirm, onCompleted: vi.fn(), isCurrent: () => ownerCurrent }));
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    const retainedConfirm = result.current.submitVerificationCode;
+    act(() => { result.current.returnToPhoneNumber(); });
+    await act(async () => { await retainedConfirm("123456", { notify: false }); });
+    expect(confirm).not.toHaveBeenCalled();
+    ownerCurrent = false;
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("does not repeat committed verification when Account refresh fails", async () => {
+    const confirm = vi.fn().mockResolvedValue({ uid: "user_1" });
+    let failCompletion!: (error: Error) => void;
+    const pendingCompletion = new Promise<void>((_resolve, reject) => { failCompletion = reject; });
+    const completed = vi.fn().mockReturnValueOnce(pendingCompletion).mockResolvedValue(undefined);
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result, rerender } = renderHook(({ phone }) => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: phone,
+      startVerification: start, confirmVerification: confirm, onCompleted: completed }), { initialProps: { phone: "+16505550101" } });
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    let verification!: Promise<unknown>;
+    act(() => { verification = result.current.submitVerificationCode("123456", { notify: false }); });
+    await waitFor(() => expect(completed).toHaveBeenCalledOnce());
+    rerender({ phone: "+16505550102" });
+    await act(async () => { failCompletion(new Error("private provider response must not appear")); expect(await verification).toBe("verified"); });
+    expect(result.current.step).toBe("linked");
+    expect(result.current.verificationCode).toBe("");
+    expect(result.current.operationError).toContain("Phone verified. Couldn’t refresh Account.");
+    expect(result.current.operationError).not.toContain("provider response");
+    await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
+    expect(confirm).toHaveBeenCalledOnce();
+    await act(async () => { await result.current.handleContinueExisting(); });
+    expect(completed).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("lets an international native paste outrank the picker without changing its recipient", async () => {
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
+      startVerification: start, confirmVerification: vi.fn(), onCompleted: vi.fn() }));
+    act(() => { result.current.handlePhoneNumberChange("+916505550101", "US"); });
+    expect(result.current.selectedCountry).toBe("IN");
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenCalledWith("+916505550101", { resendCode: false });
+    act(() => { result.current.returnToPhoneNumber(); });
+    const staleSend = result.current.handleStartVerification;
+    act(() => { expect(result.current.handlePhoneNumberChange("650555010199", "US")).toBe(false); });
+    await act(async () => { await staleSend(); });
+    expect(start).toHaveBeenCalledOnce();
+    act(() => { result.current.handlePhoneNumberChange("6505550102", "US"); });
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenLastCalledWith("+16505550102", { resendCode: false });
+  });
+
+  it("keeps the pending attempt when its same owner publishes the newly verified phone", async () => {
+    let finish!: (value: { uid: string }) => void;
+    const pending = new Promise<{ uid: string }>(resolve => { finish = resolve; });
+    const completed = vi.fn(), confirm = vi.fn().mockReturnValue(pending), start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result, rerender } = renderHook(({ phone }: { phone: string | null }) => usePhoneVerificationFlow({ ownerKey: "same-visit",
+      mode: phone ? "replace" : "link", currentPhoneNumber: phone, startVerification: start, confirmVerification: confirm, onCompleted: completed }),
+    { initialProps: { phone: null } });
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    let verification!: Promise<unknown>;
+    act(() => { verification = result.current.submitVerificationCode("123456", { notify: false }); });
+    rerender({ phone: "+16505550102" });
+    await act(async () => { finish({ uid: "user_1" }); await verification; });
+    expect(completed).toHaveBeenCalledOnce();
+    expect(result.current.busy).toBe(false);
+    expect(result.current.step).toBe("linked");
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a retired request unlock a new owner's pending phone operation", async () => {
+    let resolveOld!: (value: { autoVerified: boolean }) => void;
+    const old = new Promise<{ autoVerified: boolean }>(resolve => { resolveOld = resolve; });
+    const start = vi.fn().mockReturnValueOnce(old).mockReturnValue(new Promise(() => undefined));
+    const completed = vi.fn();
+    const { result, rerender } = renderHook(({ owner }) => usePhoneVerificationFlow({ ownerKey: owner, mode: "replace",
+      currentPhoneNumber: "+16505550101", startVerification: start, confirmVerification: vi.fn(), onCompleted: completed }),
+    { initialProps: { owner: "first-visit" } });
+    let first!: Promise<unknown>;
+    act(() => { first = result.current.handleStartVerification(false, "+16505550102"); });
+    rerender({ owner: "second-visit" });
+    act(() => { void result.current.handleStartVerification(false, "+16505550103"); });
+    expect(start).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveOld({ autoVerified: true }); await first; });
+    expect(result.current.busy).toBe(true);
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550104"); });
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(completed).not.toHaveBeenCalled();
+  });
+
   it.each(["linked", "same-number"])("requires retryable native synchronization before %s completion", async (path) => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     let reject!: (error: Error) => void;
@@ -150,7 +273,7 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(startVerification).toHaveBeenCalledWith("+16505550101", { resendCode: false });
   });
 
-  it("does not send the previous valid recipient after rejecting an oversized compact paste", () => {
+  it("does not send the previous valid recipient after rejecting an oversized compact paste", async () => {
     const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const input = screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "6505550101" } });
@@ -160,6 +283,10 @@ describe("PhoneVerificationFlow country selector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid phone number.");
     expect(startVerification).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "+16505550101" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await waitFor(() => expect(startVerification).toHaveBeenCalledWith("+16505550101", { resendCode: false }));
+    expect(startVerification).toHaveBeenCalledOnce();
   });
 
   it("can resend after a valid voice replacement of rejected compact input", async () => {
