@@ -274,10 +274,12 @@ describe("FeedActionableRow", () => {
     expect(
       deny.compareDocumentPosition(allow) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    // Green fill with the role's dark label, not the accent primary.
+    // Pale green wash with theme-aware legible text, not a solid fill.
     expect(allow).toHaveClass(
-      "bg-[color:var(--app-success)]",
-      "text-[color:var(--app-success-fg)]",
+      "bg-[color:var(--app-success-tint)]",
+      "text-[color:var(--app-success-deep)]",
+      "dark:text-[color:var(--app-success-bright)]",
+      "hover:bg-[color:var(--app-success-surface)]",
     );
     expect(allow).not.toHaveClass("bg-[color:var(--app-accent)]");
     // Red before anyone taps it: legible red on its own light wash.
