@@ -293,7 +293,10 @@ describe("contact invitation batches", () => {
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith("Invitation copied"),
     );
-    expect(mocks.copy).toHaveBeenCalledWith(controller([]).share);
+    expect(mocks.copy).toHaveBeenCalledWith(
+      controller([]).share,
+      expect.any(Function),
+    );
   });
 
   it("keeps copy feedback and selection when clipboard fallback moves focus outside", async () => {

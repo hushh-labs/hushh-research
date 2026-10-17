@@ -153,6 +153,11 @@ launch with recipients from a closed session. External focus changes do not
 dismiss the sheet. Receiving an invitation grants no connection or location
 capability.
 
+The same session guard covers lazy native Share loading and clipboard recovery:
+closing the draft suppresses a later share launch or textarea-copy fallback.
+An operation already handed to the operating system or clipboard cannot be
+recalled; its late completion cannot update a cleared invitation session.
+
 ## Verification and release checklist
 
 Run `npm run verify:contact-invitations`, the Google contact-session regression,

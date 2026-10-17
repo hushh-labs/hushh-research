@@ -37,6 +37,40 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("invitation handoffs", () => {
+  it("passes the same session guard through native sharing and clipboard recovery", async () => {
+    let current = true;
+    const isCurrent = () => current;
+    mocks.share.mockResolvedValue("native-share");
+    mocks.copy.mockResolvedValue(true);
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).resolves.toBe("native-share");
+    expect(mocks.share).toHaveBeenCalledExactlyOnceWith(share, isCurrent);
+    await expect(
+      ContactInvitationsService.copy(share, isCurrent),
+    ).resolves.toBe("copied");
+    expect(mocks.copy).toHaveBeenCalledExactlyOnceWith(
+      "Join me.\nhttps://one.example/r/person",
+      isCurrent,
+    );
+    current = false;
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    await expect(
+      ContactInvitationsService.copy(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.share).toHaveBeenCalledTimes(1);
+    expect(mocks.copy).toHaveBeenCalledTimes(1);
+    mocks.native = false;
+    const webShare = vi.fn();
+    vi.stubGlobal("navigator", { share: webShare });
+    await expect(
+      ContactInvitationsService.share(share, isCurrent),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(webShare).not.toHaveBeenCalled();
+  });
+
   it("only advances on supported completed handoffs; Android chooser/compose return is ambiguous", () => {
     expect(ContactInvitationsService.completesRecipient("queued_or_sent")).toBe(
       true,
@@ -145,6 +179,7 @@ describe("invitation handoffs", () => {
     expect(await ContactInvitationsService.copy(share)).toBe("copied");
     expect(mocks.copy).toHaveBeenCalledWith(
       "Join me.\nhttps://one.example/r/person",
+      expect.any(Function),
     );
   });
   it("builds one encoded email destination and refuses header/recipient injection", () => {

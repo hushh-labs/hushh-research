@@ -144,8 +144,8 @@ export function useInvitationQueue(
               isCurrentSession,
             )
           : kind === "share"
-            ? await ContactInvitationsService.share(message)
-            : await ContactInvitationsService.copy(message);
+            ? await ContactInvitationsService.share(message, isCurrentSession)
+            : await ContactInvitationsService.copy(message, isCurrentSession);
       if (!isCurrentSession()) return;
       trackOneLocationJourneyAction({
         action: "contact_invitation_handoff",

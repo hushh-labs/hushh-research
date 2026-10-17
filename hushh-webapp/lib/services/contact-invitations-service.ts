@@ -180,7 +180,12 @@ export const ContactInvitationsService = {
     window.location.href = url;
     return "launch_requested";
   },
-  share(share: InvitationShare): Promise<ShareDelivery> {
+  share(
+    share: InvitationShare,
+    isCurrentSession: () => boolean = () => true,
+  ): Promise<ShareDelivery> {
+    if (!isCurrentSession())
+      return Promise.reject(new DOMException("Share cancelled", "AbortError"));
     assertInvitationShare(share);
     if (!Capacitor.isNativePlatform()) {
       // Keep Web Share on the original tap, without a lazy native import first.
@@ -192,13 +197,18 @@ export const ContactInvitationsService = {
           .share({ title: share.title, text: share.text, url: share.url })
           .then(() => "web-share" as const);
       }
-      return ContactInvitationsService.copy(share);
+      return ContactInvitationsService.copy(share, isCurrentSession);
     }
-    return shareLink(share);
+    return shareLink(share, isCurrentSession);
   },
-  async copy(share: InvitationShare): Promise<"copied"> {
+  async copy(
+    share: InvitationShare,
+    isCurrentSession: () => boolean = () => true,
+  ): Promise<"copied"> {
+    if (!isCurrentSession())
+      throw new DOMException("Share cancelled", "AbortError");
     assertInvitationShare(share);
-    if (!(await copyToClipboard(invitationBody(share))))
+    if (!(await copyToClipboard(invitationBody(share), isCurrentSession)))
       throw new Error("Could not copy the invitation.");
     return "copied";
   },

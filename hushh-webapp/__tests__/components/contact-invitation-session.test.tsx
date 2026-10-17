@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   pathname: "/connect",
   compose: vi.fn(),
   share: vi.fn(),
+  copy: vi.fn(),
   toast: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -43,7 +44,7 @@ vi.mock(
           ["queued_or_sent", "native-share"].includes(result),
         composeBatch: mocks.compose,
         share: mocks.share,
-        copy: async () => "copied",
+        copy: mocks.copy,
       },
     };
   },
@@ -123,9 +124,39 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_CONTACT_INVITATIONS_ENABLED", "true");
   mocks.owner = "owner-a";
   mocks.pathname = "/connect";
+  mocks.copy.mockResolvedValue("copied");
 });
 
 describe("invitation session across native and browser return", () => {
+  it.each(["share", "copy"] as const)(
+    "invalidates the guard supplied to a pending %s fallback on Close",
+    async (kind) => {
+      let resolve!: (value: string) => void;
+      mocks[kind].mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
+      render(<App />);
+      await start();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: kind === "share" ? "Share link instead" : "Copy invitation",
+        }),
+      );
+      const isCurrent = mocks[kind].mock.calls[0]?.[1] as () => boolean;
+      expect(isCurrent()).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(isCurrent()).toBe(false);
+      await act(async () => {
+        resolve(kind === "copy" ? "copied" : "native-share");
+      });
+      expect(session.draft.outcome).toBeNull();
+      expect(session.active).toBe(false);
+      expect(mocks.toast).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ["compose", "queued_or_sent"],
     ["compose", "cancelled"],
