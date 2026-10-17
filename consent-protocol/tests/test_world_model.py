@@ -299,8 +299,24 @@ async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
     assert result["research_exhausted"] is True
 
 
+@pytest.fixture
+def shared_pwm_owner(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+
+
 @pytest.mark.asyncio
-async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monkeypatch):
+async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(
+    monkeypatch, shared_pwm_owner
+):
     from hushh_mcp.one_adk import azure_workload_identity, world_model_azure
     from hushh_mcp.services import world_model_service as service
 
@@ -363,7 +379,7 @@ async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monke
 
 
 @pytest.mark.asyncio
-async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
+async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch, shared_pwm_owner):
     from hushh_mcp.services import world_model_service as service
 
     owner_identity = AsyncMock()
@@ -380,7 +396,7 @@ async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch):
+async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch, shared_pwm_owner):
     from hushh_mcp.services import world_model_service as service
 
     monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})

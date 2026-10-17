@@ -702,7 +702,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
-    backend_build = managed_vertex_probe_surface()
+    backend_build = managed_vertex_probe_script()
     deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
@@ -714,7 +714,7 @@ def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
 
 
 def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
-    backend_build = managed_vertex_probe_surface()
+    backend_build = managed_vertex_probe_script()
     deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
