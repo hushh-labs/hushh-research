@@ -17,9 +17,17 @@ env:
 jobs:
   backup-posture:
     name: Daily Cloud SQL Backup Posture Check
-    if: github.repository == 'hushh-labs/hushh-research'
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The production WIF provider only accepts OIDC subjects from the
+    # production environment on main. deployment: false keeps this daily
+    # read-only check out of the production deployment history. The
+    # environment admits every protected branch (integration/pr-train too),
+    # so the ref check above keeps a dispatch from any other branch out of it.
+    environment:
+      name: production
+      deployment: false
 
     steps:
       - name: Checkout code
@@ -29,17 +37,21 @@ jobs:
         shell: bash
         env:
           WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          test -n "$WIF_PROVIDER" || { echo "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
-          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing repository variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
+          test -n "$WIF_PROVIDER" || { echo "Missing production environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing production environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -63,3 +75,49 @@ jobs:
           name: prod-backup-posture-${{ github.run_id }}
           if-no-files-found: ignore
           path: /tmp/prod-backup-posture-report.json
+
+  # GitHub emails a failed scheduled run only to whoever last edited its cron
+  # line, so this also files each failed run on one open issue.
+  report-failure:
+    name: "File the failure"
+    needs: [backup-posture]
+    # A failed or timed-out (cancelled) run, but not one cancelled by hand.
+    if: >-
+      !cancelled() &&
+      (needs['backup-posture'].result == 'failure' ||
+      needs['backup-posture'].result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The only job that writes, and it writes issues only. It has no
+    # environment and no id-token, so it cannot reach Google Cloud.
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: "Prod Cloud SQL backup posture failed on main"
+          RESULT: ${{ needs['backup-posture'].result }}
+          TESTED_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="${RUNNER_TEMP}/prod-backup-posture.md"
+          {
+            printf 'The daily backup posture check of Cloud SQL instance `%s` in `%s` ended `%s` on main at %s.\n\n' "$PROD_CLOUDSQL_INSTANCE_NAME" "$GCP_PROJECT_ID" "$RESULT" "$TESTED_SHA"
+            printf 'Run: %s\n\n' "$RUN_URL"
+            printf 'If the posture check step failed, the `prod-backup-posture-%s` artifact of this run names the reason: automated backups or point-in-time recovery off, no successful backup, a newest successful backup older than %s hours, or a `gcloud` error. A stale posture also fails the pre-deploy backup gate of the next backend production deploy.\n\n' "$GITHUB_RUN_ID" "$BACKUP_MAX_AGE_HOURS"
+            printf '%s\n' 'If an earlier step failed, the check did not run and the posture is unknown: look at the `production` environment variables, the production Workload Identity provider and the deploy service account binding, and run the read-only command in `docs/reference/operations/production-db-backup-and-recovery.md` by hand.'
+            printf '\n%s\n' 'Every failed run adds a comment here. Close this issue once a run passes.'
+          } > "$body"
+          # Deduplicated by exact title among open issues.
+          existing="$(gh issue list --state open --search "\"${TITLE}\" in:title" --limit 50 \
+            --json number,title --jq '[.[] | select(.title == $ENV.TITLE)][0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+            echo "Commented on #${existing}."
+          else
+            gh issue create --title "$TITLE" --body-file "$body"
+          fi
