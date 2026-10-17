@@ -42,6 +42,8 @@ export interface DocumentRequestPriceSheetProps {
   recipientEmail?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
+  /** One short line under Period: the note names a longer span than the picked dates. */
+  periodNote?: string | null;
   /**
    * The request's terms have not loaded. Allow stays off until the owner can
    * read what they are allowing.
@@ -157,6 +159,7 @@ function PriceSheet({
   recipientEmail,
   periodStart,
   periodEnd,
+  periodNote = null,
   detailsPending = false,
   paymentRequired,
   estimateCents = null,
@@ -276,6 +279,9 @@ function PriceSheet({
               ) : null}
               <RequestTerm label="Access" value="Viewer, until removed" />
             </dl>
+            {periodText && periodNote ? (
+              <HelperText data-slot="price-sheet-period-note">{periodNote}</HelperText>
+            ) : null}
           </>
         )}
         {paymentRequired ? (

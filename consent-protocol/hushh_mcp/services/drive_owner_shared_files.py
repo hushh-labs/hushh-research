@@ -224,7 +224,9 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
                       f.source_position,e.state AS grant_state,
                       e.receipt_envelope IS NOT NULL AS has_receipt,
                       removal.state AS removal_state,removal.attempts AS removal_attempts,
-                      removal.lease_id AS removal_lease
+                      removal.lease_id AS removal_lease,removal.removal_id AS removal_id,
+                      removal.user_id AS removal_user_id,
+                      removal.plan_envelope AS removal_plan_envelope
                     FROM drive_bulk_share_files f
                     JOIN drive_bulk_shares b ON b.share_id=f.share_id
                     JOIN drive_bulk_share_effects e
@@ -266,9 +268,16 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
                         "removable": status == "shared"
                         and row["grant_state"] == "succeeded"
                         and bool(row["has_receipt"]),
-                        "undoable": row["removal_state"] == "queued"
-                        and row["removal_attempts"] == 0
-                        and row["removal_lease"] is None,
+                        "undoable": self._undoable(
+                            {
+                                "state": row["removal_state"],
+                                "attempts": row["removal_attempts"],
+                                "lease_id": row["removal_lease"],
+                                "removal_id": row["removal_id"],
+                                "user_id": row["removal_user_id"],
+                                "plan_envelope": row["removal_plan_envelope"],
+                            }
+                        ),
                     }
                 )
             return {
@@ -318,7 +327,8 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
     def _removal(connection, *, share, position, recipient):
         row = (
             connection.execute(
-                text("""SELECT state,attempts,lease_id FROM drive_request_bulk_removals
+                text("""SELECT removal_id,user_id,plan_envelope,state,attempts,lease_id
+                FROM drive_request_bulk_removals
                 WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
                 {"share": share, "position": position, "recipient": recipient},
             )
@@ -327,15 +337,26 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
         )
         return dict(row) if row is not None else None
 
-    @staticmethod
-    def _removal_result(file_ref, removal):
+    def _undoable(self, removal) -> bool:
+        """Only the owner's own unclaimed one-file removal; never a Stop or expiry."""
+        if not (
+            removal["state"] == "queued"
+            and removal["attempts"] == 0
+            and removal["lease_id"] is None
+            and removal["plan_envelope"] is not None
+        ):
+            return False
+        try:
+            return self._plan(removal).get("scope") == OWNER_FILE_REMOVAL_SCOPE
+        except (DriveSharingError, TypeError, ValueError):
+            return False
+
+    def _removal_result(self, file_ref, removal):
         status = _file_status({"removal_state": removal["state"], "grant_state": "succeeded"})
         return {
             "fileRef": file_ref,
             "status": status,
-            "undoable": removal["state"] == "queued"
-            and removal["attempts"] == 0
-            and removal["lease_id"] is None,
+            "undoable": self._undoable(removal),
             "undoSeconds": UNDO_SECONDS,
         }
 
@@ -442,6 +463,10 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
             )
             if existing is None:
                 return {"fileRef": file_ref, "status": "shared", "undoable": False}
+            if not self._undoable(existing):
+                # A claimed removal, or one a Stop or access expiry queued,
+                # is not this owner's one-file Undo.
+                raise DriveSharingError("revocation_pending")
             deleted = connection.execute(
                 text("""DELETE FROM drive_request_bulk_removals
                 WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient

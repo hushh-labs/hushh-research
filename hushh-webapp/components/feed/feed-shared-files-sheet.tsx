@@ -21,7 +21,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { DOCUMENT_FLOW_SURFACE_TYPE } from "@/lib/consent/document-request-flow";
+import {
+  DOCUMENT_FLOW_DIALOG_TYPE,
+  DOCUMENT_FLOW_SURFACE_TYPE,
+} from "@/lib/consent/document-request-flow";
 import {
   DriveSharedFilesService,
   type SharedFile,
@@ -108,14 +111,20 @@ export function SharedFileRow({
   kept,
   onRemove,
   onKeep,
+  onUndo,
 }: {
   file: SharedFile;
   kept: boolean;
   onRemove: (file: SharedFile) => void;
   onKeep: (file: SharedFile) => void;
+  /** Shown on the row for as long as the server can still cancel the removal. */
+  onUndo?: (file: SharedFile) => void;
 }) {
   const actionable = file.removable && file.status === "shared";
+  const undoable = Boolean(onUndo) && file.status === "removing" && file.undoable;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // A committed swipe, scroll or hold is not also a tap.
+  const suppressClickRef = useRef(false);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const keepRef = useRef<HTMLDivElement | null>(null);
   const removeRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +158,7 @@ export function SharedFileRow({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    suppressClickRef.current = false;
     if (!actionable || event.isPrimary === false) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     // The native iOS edge gesture owns the first 28px of the viewport.
@@ -197,6 +207,13 @@ export function SharedFileRow({
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const { axis, dx, held } = gesture;
     reset();
+    suppressClickRef.current = held || axis !== "pending";
+    if (suppressClickRef.current) {
+      // Clear after this pointer's own click, if the browser sends one.
+      setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+    }
     if (held || axis !== "horizontal") return;
     if (dx <= -SWIPE_COMMIT_PX) onRemove(file);
     else if (dx >= SWIPE_COMMIT_PX) onKeep(file);
@@ -242,6 +259,15 @@ export function SharedFileRow({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={reset}
+        onClick={() => {
+          // A click, or a screen reader's activation, opens the same choice.
+          if (!actionable) return;
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+          }
+          setConfirmOpen(true);
+        }}
         onKeyDown={(event) => {
           if (!actionable) return;
           if (event.key === "Delete" || event.key === "Backspace" || event.key === "Enter" || event.key === " ") {
@@ -255,23 +281,36 @@ export function SharedFileRow({
           setConfirmOpen(true);
         }}
         style={{ transform: "translate3d(0px,0,0)" }}
-        className={`relative z-[1] min-h-[52px] w-full bg-[color:var(--app-card-surface-default-solid)] px-3 py-2 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] motion-reduce:transition-none max-[360px]:px-[9px] ${actionable ? "touch-pan-y cursor-grab" : ""}`}
+        className={`relative z-[1] flex min-h-[52px] w-full items-center gap-2 bg-[color:var(--app-card-surface-default-solid)] px-3 py-2 text-left text-[color:var(--app-label)] outline-none transition-transform duration-300 ease-[cubic-bezier(.2,.9,.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)] motion-reduce:transition-none max-[360px]:px-[9px] ${actionable ? "touch-pan-y cursor-grab" : ""}`}
       >
-        <span data-slot="shared-file-name" className={ROW_TITLE_CLASS}>
-          {file.name}
+        <span className="min-w-0 flex-1">
+          <span data-slot="shared-file-name" className={ROW_TITLE_CLASS}>
+            {file.name}
+          </span>
+          <span data-slot="shared-file-status" className={ROW_META_CLASS}>
+            {statusLine(file.status, kept)}
+          </span>
         </span>
-        <span data-slot="shared-file-status" className={ROW_META_CLASS}>
-          {statusLine(file.status, kept)}
-        </span>
+        {undoable ? (
+          <button
+            type="button"
+            data-slot="shared-file-undo"
+            aria-label={`Undo removing access to ${file.name}`}
+            className={`shrink-0 ${ACTION_CLASS}`}
+            onClick={() => onUndo?.(file)}
+          >
+            Undo
+          </button>
+        ) : null}
       </div>
       {actionable ? (
         <span id={hintId} className="sr-only">
-          Swipe left to remove access, swipe right to keep, or press and hold for options.
+          Tap for options. Swipe left to remove access, swipe right to keep.
         </span>
       ) : null}
       {actionable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <AlertDialogContent size="sm">
+          <AlertDialogContent size="sm" className={DOCUMENT_FLOW_DIALOG_TYPE}>
             <AlertDialogHeader>
               <AlertDialogTitle className="text-[15px] leading-[1.2]">Remove access?</AlertDialogTitle>
               <AlertDialogDescription className="text-[11px] leading-[1.35]">{file.name}</AlertDialogDescription>
@@ -402,6 +441,7 @@ export function FeedSharedFilesSheet({
       const change = await DriveSharedFilesService.restore(token, requestId, file.fileRef);
       patchFile(file.fileRef, { status: change.status, removable: true, undoable: false });
     } catch {
+      patchFile(file.fileRef, { undoable: false });
       toast.error("Couldn't undo. Access is being removed.");
     }
   };
@@ -416,7 +456,8 @@ export function FeedSharedFilesSheet({
     try {
       const change = await DriveSharedFilesService.remove(token, requestId, file.fileRef);
       patchFile(file.fileRef, { status: change.status, undoable: change.undoable });
-      toast.success("Access removed", {
+      // Queued only: the requester keeps access until the drain runs.
+      toast.success("Removing access", {
         duration: FEED_SHARED_FILES_UNDO_MS,
         ...(change.undoable
           ? { action: { label: "Undo", onClick: () => void undo(file) } }
@@ -471,6 +512,7 @@ export function FeedSharedFilesSheet({
                   kept={kept.has(file.fileRef)}
                   onRemove={(item) => void remove(item)}
                   onKeep={keep}
+                  onUndo={(item) => void undo(item)}
                 />
               ))}
             </ul>

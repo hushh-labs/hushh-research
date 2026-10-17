@@ -1250,6 +1250,7 @@ function FeedPageSession({
         recipientEmail={documentPricePrompt.recipientEmail}
         periodStart={documentPricePrompt.periodStart}
         periodEnd={documentPricePrompt.periodEnd}
+        periodNote={documentPricePrompt.periodNote}
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
         lockedAmountCents={documentPricePrompt.lockedAmountCents}

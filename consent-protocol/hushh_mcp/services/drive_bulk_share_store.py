@@ -18,8 +18,13 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
-from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current, package_allow_marker
+from hushh_mcp.services.drive_owner_allowed import (
+    automatic_recipient_current,
+    autoshare_request,
+    package_allow_marker,
+)
 from hushh_mcp.services.drive_request_review_policy import (
+    autoshare_selection,
     checkpoint_requires_owner_review,
     request_requires_owner_review,
 )
@@ -32,6 +37,14 @@ from hushh_mcp.services.drive_v1_manual_review import (
     require_manual_share_files,
 )
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
+
+# A file whose access the owner removed, or a Stop queued for removal, leaves
+# every requester list at once: names, links and counts. Append to a WHERE
+# clause over drive_bulk_share_effects aliased "e".
+_NOT_REMOVED = """
+  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+    WHERE removal.share_id=e.share_id AND removal.position=e.position
+      AND removal.recipient_user_id=e.recipient_user_id)"""
 
 _TERMINAL = frozenset(
     {"succeeded", "preexisting", "skipped", "failed", "present_unattributed", "absent"}
@@ -2078,6 +2091,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if _request_missing_dates(private):
                     raise DriveSharingError("date_range_required")
+                statement_request = False
                 if (
                     approval_source == "trusted_auto"
                     and private.get("agent_package_required") is not True
@@ -2086,7 +2100,10 @@ class DriveBulkShareStore(DriveLivePreferences):
                         _deterministic_statement_plan,
                     )
 
-                    if _deterministic_statement_plan(private.get("purpose", {})) is not None:
+                    statement_request = (
+                        _deterministic_statement_plan(private.get("purpose", {})) is not None
+                    )
+                    if statement_request and not autoshare_request(private):
                         raise DriveSharingError("trusted_request_unavailable")
                 search = self._row(
                     connection,
@@ -2127,6 +2144,10 @@ class DriveBulkShareStore(DriveLivePreferences):
                     or checkpoint.get("request_shareability_version") != 1
                 ):
                     raise DriveSharingError("search_incomplete")
+                if statement_request and not autoshare_selection(checkpoint):
+                    # Only the autoshare date selection, never an older
+                    # one-query statement job, grants statements on its own.
+                    raise DriveSharingError("trusted_request_unavailable")
                 package = self._package_allow(
                     connection,
                     origin,
@@ -3406,7 +3427,7 @@ class DriveBulkShareStore(DriveLivePreferences):
         def operation(connection):
             rows = list(
                 connection.execute(
-                    text("""
+                    text(f"""
                     SELECT DISTINCT b.* FROM drive_bulk_shares b
                     JOIN drive_bulk_share_recipients r ON r.share_id=b.share_id
                     WHERE r.recipient_user_id=:recipient
@@ -3414,7 +3435,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND EXISTS(SELECT 1 FROM drive_bulk_share_effects e
                         WHERE e.share_id=b.share_id
                           AND e.recipient_user_id=:recipient
-                          AND e.state IN ('succeeded','preexisting'))
+                          AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED})
                     ORDER BY b.created_at DESC,b.share_id DESC LIMIT 20
                     """),
                     {"recipient": recipient_user_id},
@@ -3443,9 +3464,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                         raise
                     continue
                 count = connection.execute(
-                    text("""SELECT count(*) FROM drive_bulk_share_effects
-                    WHERE share_id=:share AND recipient_user_id=:recipient
-                      AND state IN ('succeeded','preexisting')"""),
+                    text(f"""SELECT count(*) FROM drive_bulk_share_effects e
+                    WHERE e.share_id=:share AND e.recipient_user_id=:recipient
+                      AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED}"""),
                     {"share": row["share_id"], "recipient": recipient_user_id},
                 ).scalar_one()
                 shares.append(
@@ -3493,9 +3514,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                 connection, origin["origin_request_id"] if origin else None
             )
             count = connection.execute(
-                text("""SELECT count(*) FROM drive_bulk_share_effects
-                WHERE share_id=:share AND recipient_user_id=:recipient
-                  AND state IN ('succeeded','preexisting')"""),
+                text(f"""SELECT count(*) FROM drive_bulk_share_effects e
+                WHERE e.share_id=:share AND e.recipient_user_id=:recipient
+                  AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED}"""),
                 {"share": share, "recipient": recipient_user_id},
             ).scalar_one()
             if count == 0:
@@ -3513,12 +3534,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                 raise DriveSharingError("bulk_not_found")
             rows = list(
                 connection.execute(
-                    text("""
+                    text(f"""
                     SELECT f.*,e.state AS grant_state FROM drive_bulk_share_files f
                     JOIN drive_bulk_share_effects e
                       ON e.share_id=f.share_id AND e.position=f.position
                     WHERE f.share_id=:share AND e.recipient_user_id=:recipient
-                      AND e.state IN ('succeeded','preexisting') AND f.position>:after
+                      AND e.state IN ('succeeded','preexisting') AND f.position>:after{_NOT_REMOVED}
                     ORDER BY f.position LIMIT :limit
                     """),
                     {
