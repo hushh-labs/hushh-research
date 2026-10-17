@@ -4097,6 +4097,7 @@ export function ConsentCenterPage() {
                 requestId={selectedDocumentRequestId}
                 onChanged={reconcileDocumentRequest}
                 surface="sheet"
+                counterpartLabel={selectedEntry?.counterpart_label ?? null}
               />
             ) : (
               <SettingsRow

@@ -1,7 +1,8 @@
 """Request-bound search evidence for automatic sharing and unpaid checkout.
 
 Discovery may use content matches without proving that a file covers a requested
-period. Only the current, explicit file-activity selection can skip file review.
+period. Only the current, explicit file-activity selection, or the autoshare
+date selection frozen for a new automatic request, can skip file review.
 Legacy or incomplete checkpoints keep the owner's exact-file approval path.
 """
 
@@ -16,6 +17,23 @@ from hushh_mcp.services.drive_owner_allowed import (
 )
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 
+# Every file matching the request whose date is inside the picked period: the
+# date in its title when present, else its created time, else its modified
+# time. A title date outside the period always excludes the file.
+AUTOSHARE_SELECTION_POLICY = "title_then_created_then_modified_v1"
+
+
+def autoshare_selection(checkpoint) -> bool:
+    """A search frozen for automatic sharing of an autoshare request."""
+    return bool(
+        isinstance(checkpoint, Mapping)
+        and checkpoint.get("request_selection_policy") == AUTOSHARE_SELECTION_POLICY
+        and checkpoint.get("authority_mode") == "trusted_auto"
+        and checkpoint.get("agent_package_required") is not True
+        and checkpoint.get("request_owner_review_required") is False
+        and isinstance(checkpoint.get("requested_period"), Mapping)
+    )
+
 
 def checkpoint_requires_owner_review(checkpoint, *, request_id, revision) -> bool:
     """Missing semantics never establish automatic selection authority."""
@@ -26,8 +44,11 @@ def checkpoint_requires_owner_review(checkpoint, *, request_id, revision) -> boo
         and checkpoint.get("request_origin_id") == str(request_id)
         and checkpoint.get("request_revision") == revision
         and checkpoint.get("request_selection_version") == 2
-        and checkpoint.get("request_time_intent") == "file_activity"
         and checkpoint.get("request_owner_review_required") is False
+        and (
+            checkpoint.get("request_time_intent") == "file_activity"
+            or autoshare_selection(checkpoint)
+        )
     )
 
 

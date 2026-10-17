@@ -26,6 +26,7 @@ import {
 } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
+import { DOCUMENT_FLOW_TEXT_SCALE } from "@/lib/consent/document-request-flow";
 
 export interface DocumentRequestPriceSheetProps {
   open: boolean;
@@ -248,7 +249,7 @@ function PriceSheet({
         />
       }
     >
-      <div className="space-y-3 pb-1 pt-2">
+      <div className={cn("space-y-3 pb-1 pt-2", DOCUMENT_FLOW_TEXT_SCALE)}>
         {detailsPending ? (
           error ? null : (
             <HelperText role="status">Loading request…</HelperText>

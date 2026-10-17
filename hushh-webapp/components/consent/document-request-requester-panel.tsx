@@ -7,6 +7,7 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { RequesterPaymentSection } from "@/components/consent/requester-payment-section";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { periodConflictNote } from "@/lib/consent/document-request-flow";
 import type { RequesterPriceView } from "@/lib/consent/document-request-payment-view";
 import { presentRequesterRecovery } from "@/lib/consent/document-request-requester-view";
 import { Button } from "@/lib/morphy-ux/button";
@@ -341,6 +342,11 @@ export function DocumentRequestRequesterPanel({
     context?.purpose.periodStart && context.purpose.periodEnd
       ? `${context.purpose.periodStart} – ${context.purpose.periodEnd}`
       : null;
+  // The picked dates always win over a longer span in the note.
+  const periodNote = context && status.periodConflict === "request_mentions_longer_span"
+    ? periodConflictNote(context.purpose.purpose, context.purpose.periodStart,
+      context.purpose.periodEnd, "requester")
+    : null;
   const requestedOn = formatRequestedOn(context?.requestedAt);
   const access = accessTerm(status);
   const prices = priceFacts(price).filter(Boolean);
@@ -367,6 +373,7 @@ export function DocumentRequestRequesterPanel({
             {googleEmail ? <Fact label="Files shared with" value={googleEmail} /> : null}
             {prices}
           </dl>
+          {periodNote ? <HelperText>{periodNote}</HelperText> : null}
         </div>
       ) : null}
 
