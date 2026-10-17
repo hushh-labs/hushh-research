@@ -349,14 +349,21 @@ the owner completes US Connect onboarding before search/payment admission, and
 Checkout verifies that account before charging. Plaid is not involved.
 
 The private worker transfers the owner's share to their connected Stripe balance
-only after the request reaches a terminal delivery outcome and Google confirms
-access to the delivered files. A Stripe transfer is **not** proof that money has
+only after delivery has ended and Google confirms access to the delivered files.
+Delivery ends with a terminal outcome, the owner's Stop, the request's deadline,
+or a search that stopped before completing (it can freeze no further batch, so
+its request closes). Settlement then runs once on the files approved by that
+time. A Stripe transfer is **not** proof that money has
 arrived in the owner's bank; Stripe's connected-account payout schedule controls
 that later step. No files delivered means a full requester refund and no owner
 transfer. When only part of the approved set is delivered, the requester receives
 a proportional refund before any owner transfer. Uncertain grant, refund or
 transfer outcomes remain held for reconciliation; the worker never guesses that
-delivery or a refund succeeded.
+delivery or a refund succeeded. An approved batch that is not yet paid is not
+grant work: the sharing worker never offers it until payment confirms. If its
+request ends unpaid, or its Checkout window closes, its queued grants are
+released once with the public reason `stopped`, and the unpaid earning is void
+when the request ends.
 
 Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
 payment processing fee** on that charge, with the deduction capped at the

@@ -209,8 +209,12 @@ async def test_v1_access_period_is_owner_bounded_paid_frozen_and_automatically_r
         recipient_user_id="recipient",
         v1_only=True,
     )
-    with pytest.raises(DriveReadError, match="payment_required"):
-        await request_bulk.claim(**claim)
+    # Unpaid, the V1 queue leaves the approved grant out and a direct claim
+    # defers it without changing anything, so payment can still unlock it.
+    assert frozen["shareId"] not in {
+        str(row["share_id"]) for row in await request_bulk.due(v1_only=True)
+    }
+    assert await request_bulk.claim(**claim) is None
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_request_payment_orders SET status='paid',

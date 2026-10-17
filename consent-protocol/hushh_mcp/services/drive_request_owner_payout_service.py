@@ -27,9 +27,9 @@ from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_enviro
 logger = logging.getLogger(__name__)
 _SAFE_RETRY_WINDOW = timedelta(hours=20)
 _TERMINAL_REQUESTS = {"completed", "partial", "no_match"}
-# Closed before any delivery: withdrawn, declined, or past its deadline while
-# still open. Such a request can never earn, so an unpaid or fully refunded
-# earning is void. Never used for transfer authority (_TERMINAL_REQUESTS is).
+# Closed: withdrawn, declined, or past its deadline while still open. Nothing
+# more can be delivered, so an unpaid or fully refunded earning is void, while
+# a paid one settles on the files already delivered (see _delivery_ended).
 _CLOSED_REQUESTS = frozenset({"cancelled", "declined", "expired"})
 _CLOSED_WHEN_EXPIRED = frozenset({"pending", "preparing", "review_ready", "approved"})
 _UNPAID_ORDER_STATUSES = frozenset({"awaiting_payment", "checkout_open", "expired"})
@@ -51,6 +51,21 @@ def _request_closed(request: dict) -> bool:
         request["status"] in _CLOSED_WHEN_EXPIRED
         and isinstance(expires_at, datetime)
         and expires_at <= datetime.now(UTC)
+    )
+
+
+def _delivery_ended(request: dict) -> bool:
+    """No further file can be granted for this request: settlement may finalize.
+
+    A terminal outcome, a closed request (withdrawn, declined or past its
+    deadline) and an owner's Stop all end delivery for good. Every grant
+    rechecks the same request states, and approve refuses them, so the
+    approved and delivered file counts can no longer change.
+    """
+    return (
+        request["status"] in _TERMINAL_REQUESTS
+        or _request_closed(request)
+        or request.get("access_stop_requested_at") is not None
     )
 
 
@@ -502,6 +517,46 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             result["expected"] = package_count
         return result
 
+    @staticmethod
+    def _search_ended(connection, request: dict) -> bool:
+        """The request's search job stopped for good without completing.
+
+        Limited, failed and stopped searches cannot freeze or approve another
+        batch, and a completed search marked incomplete is equally final.
+        """
+        if not request.get("user_id") or request["status"] != "pending":
+            return False
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS(SELECT 1 FROM drive_owner_search_jobs
+                  WHERE user_id=:owner AND client_request_id=:request
+                    AND (status IN ('limited','failed','stopped')
+                      OR (status='completed' AND incomplete_search)))"""),
+                {"owner": request["user_id"], "request": request["request_id"]},
+            ).scalar_one()
+        )
+
+    async def _close_ended_search(self, request_id: str) -> None:
+        """Close a request whose search ended, through the batch store's own fence."""
+        from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+        from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+        owner = await self._transaction(
+            lambda c: c.execute(
+                text("SELECT user_id FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one_or_none()
+        )
+        if owner is None:
+            return
+        try:
+            await DriveBulkShareStore(db=self.db).refresh_request(
+                user_id=owner, request_id=request_id
+            )
+        except DriveSharingError:
+            # The request changed meanwhile; the next pass reads it again.
+            logger.info("owner_payout.search_close_deferred")
+
     def _advance_delivery(self, connection, request_id: str, *, v1_only: bool = False) -> str:
         # The same order as share/erasure/refund writers: shares, request,
         # order, obligation, refund, then payout.
@@ -591,36 +646,41 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             and order["amount_cents"] == obligation["amount_cents"] == payout["gross_amount_cents"]
         )
         if payout["status"] == "awaiting_delivery":
-            if _request_closed(request):
-                # Nothing can be delivered for a closed request. Void only an
-                # earning whose charge never happened or came back in full; a
-                # paid, unrefunded one waits for the refund (or review).
+            if _request_closed(request) or request.get("access_stop_requested_at") is not None:
+                # Nothing more can be delivered. Void an earning whose charge
+                # never happened or came back in full; a paid, unrefunded one
+                # settles below on the files already delivered.
                 unpaid = all(
                     row["status"] in _UNPAID_ORDER_STATUSES and row.get("paid_at") is None
                     for row in (order, obligation)
                 )
-                if not (unpaid or full_refund_confirmed):
-                    return "held"
-                connection.execute(
-                    text("""UPDATE drive_request_owner_payouts SET status='void',
-                      next_check_at=clock_timestamp(),updated_at=clock_timestamp()
-                      WHERE request_id=:request AND status='awaiting_delivery'"""),
-                    {"request": request_id},
-                )
-                return "void"
-            if request["status"] not in _TERMINAL_REQUESTS or order["status"] not in {
-                "paid",
-                "refunded",
-            }:
+                if unpaid or full_refund_confirmed:
+                    connection.execute(
+                        text("""UPDATE drive_request_owner_payouts SET status='void',
+                          next_check_at=clock_timestamp(),updated_at=clock_timestamp()
+                          WHERE request_id=:request AND status='awaiting_delivery'"""),
+                        {"request": request_id},
+                    )
+                    return "void"
+            if not _delivery_ended(request):
+                if order["status"] == "paid" and self._search_ended(connection, request):
+                    # The search stopped before completing, so no further batch
+                    # can be frozen or approved. The caller closes the request
+                    # in its own transaction (graph gates before the request
+                    # lock, as for every Feed outcome) and then settles it.
+                    return "search_ended"
+                return "held"
+            if order["status"] not in {"paid", "refunded"}:
                 return "held"
             if (
                 order["reconciliation_required"] or obligation["reconciliation_required"]
             ) and not full_refund_confirmed:
                 return "held"
+            # Once delivery has ended a frozen batch can never be approved, so
+            # only an approved batch that is still sharing holds settlement.
             unresolved_batch = connection.execute(
                 text("""SELECT EXISTS(SELECT 1 FROM drive_bulk_shares b
-                  WHERE b.origin_request_id=:request AND b.status IN
-                    ('review_ready','queued','running'))"""),
+                  WHERE b.origin_request_id=:request AND b.status IN ('queued','running'))"""),
                 {"request": request_id},
             ).scalar_one()
             if unresolved_batch:
@@ -684,7 +744,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 },
             )
             return "awaiting_refund" if amounts["refund_amount_cents"] else "awaiting_fee"
-        if request["status"] not in _TERMINAL_REQUESTS or (
+        if not _delivery_ended(request) or (
             (order["reconciliation_required"] or obligation["reconciliation_required"])
             and not (
                 full_refund_confirmed
@@ -741,6 +801,18 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                     c, request_id, v1_only=v1_only
                 )
             )
+            if result == "search_ended":
+                # Close the request first; its terminal outcome then settles
+                # here. Still unresolved (an approved batch is still sharing)
+                # reads as held and rotates like any other held earning.
+                await self._close_ended_search(request_id)
+                result = await self._transaction(
+                    lambda c, request_id=request_id: self._advance_delivery(
+                        c, request_id, v1_only=v1_only
+                    )
+                )
+                if result == "search_ended":
+                    result = "held"
             outcomes["checked"] += 1
             if result in outcomes:
                 outcomes[result] += 1
@@ -1249,7 +1321,8 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     ) -> dict[str, Any] | None:
         request = self._row(
             connection,
-            "SELECT request_id,user_id,status FROM drive_share_requests WHERE request_id=:request FOR UPDATE",
+            """SELECT request_id,user_id,status,expires_at,access_stop_requested_at
+            FROM drive_share_requests WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
         order = self._row(
@@ -1285,7 +1358,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             and payout["erased_at"] is None
             and request is not None
             and order is not None
-            and request["status"] in _TERMINAL_REQUESTS
+            and _delivery_ended(request)
             and order["status"] == "paid"
             and not order["reconciliation_required"]
             and obligation is not None
@@ -1530,7 +1603,8 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
     ) -> str:
         request = self._row(
             connection,
-            "SELECT status FROM drive_share_requests WHERE request_id=:request FOR UPDATE",
+            """SELECT status,expires_at,access_stop_requested_at
+            FROM drive_share_requests WHERE request_id=:request FOR UPDATE""",
             {"request": claim["request_id"]},
         )
         order = self._row(
@@ -1567,7 +1641,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         live_valid = bool(
             payout["erased_at"] is None
             and request is not None
-            and request["status"] in _TERMINAL_REQUESTS
+            and _delivery_ended(request)
             and order is not None
             and order["status"] == "paid"
             and not order["reconciliation_required"]
