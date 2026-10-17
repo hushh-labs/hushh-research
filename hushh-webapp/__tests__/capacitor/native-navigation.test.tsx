@@ -34,7 +34,7 @@ describe("native navigation presentation boundary", () => {
   beforeEach(() => {
     bridge.platform = "ios";
     bridge.callbacks.clear();
-    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 3, supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
@@ -59,8 +59,8 @@ describe("native navigation presentation boundary", () => {
     expect(bridge.setState).not.toHaveBeenCalled();
     view.unmount();
   });
-  it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, contentHeight: 49, bottomInset: 34 });
+  it.each([1, 2])("retains the four-tab web bar for older native contract %s", async (contractVersion) => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion, supported: true, contentHeight: 49, bottomInset: 34 });
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
     await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
     expect(view.result.current.ready).toBe(false);
@@ -83,6 +83,8 @@ describe("native navigation presentation boundary", () => {
     select(original, "feed"); // A badge/theme revision must not drop the final native tap.
     await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith("feed"));
     onSelect.mockClear();
+    select(original, "search");
+    expect(onSelect).not.toHaveBeenCalled();
     select(original, "arbitrary-url");
     expect(onSelect).not.toHaveBeenCalled();
 

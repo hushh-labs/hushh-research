@@ -90,7 +90,8 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   expect(navLabels).toContain("One");
   expect(navLabels).toContain("Connect");
   expect(navLabels).toContain("Feed");
-  expect(navLabels).toContain("Search");
+  expect(navLabels).not.toContain("Search");
+  await expect(navigation.getByRole("radio")).toHaveCount(4);
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");

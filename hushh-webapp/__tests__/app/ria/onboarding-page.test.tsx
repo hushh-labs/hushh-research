@@ -37,7 +37,6 @@ const mocks = vi.hoisted(() => ({
     setRiaMarketplaceDiscoverability: vi.fn(),
     getCrdScrapeJobStatus: vi.fn(),
   },
-  openKaiCommandBar: vi.fn(),
   draftService: {
     load: vi.fn(),
     save: vi.fn(),
@@ -241,12 +240,10 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
   OnboardingStepReview: ({
     advisorName,
     onEditSection,
-    onAskKaiUpdateAnything,
     advisoryAccessReady,
   }: {
     advisorName: string;
     onEditSection: (section: string) => void;
-    onAskKaiUpdateAnything: () => void;
     advisoryAccessReady: boolean;
   }) => (
     <div data-testid="step-review">
@@ -263,9 +260,6 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         onClick={() => onEditSection("services")}
       >
         Edit Services
-      </button>
-      <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask One to update anything
       </button>
     </div>
   ),
@@ -301,9 +295,6 @@ vi.mock("@/lib/navigation/profile-routes", () => ({
     panel === "regulatory" ? "/one/profile/regulatory" : "/one/profile",
 }));
 
-vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
-  openKaiCommandBar: mocks.openKaiCommandBar,
-}));
 
 vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
   RiaOnboardingDraftLocalService: mocks.draftService,
@@ -938,7 +929,7 @@ describe("RiaOnboardingPage", () => {
     );
   });
 
-  it("opens Kai command from the review update action", async () => {
+  it("keeps archived Search off the review step", async () => {
     mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
@@ -962,12 +953,7 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-review")).toBeTruthy();
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ask-kai-update"));
-    });
-
-    expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
-    expect(mocks.toast.info).toHaveBeenCalledWith("Command bar opened");
+    expect(screen.queryByTestId("ask-kai-update")).toBeNull();
   });
 
   it("does not force a second live verification after license verification", async () => {

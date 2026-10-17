@@ -63,13 +63,10 @@ are prompt posture only; generated actions and their guards remain execution aut
 
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
-Search is the shared command palette on the current signed-in route, including
-Chat at `/`. Its `?search=1` marker controls visibility and the selected Search
-segment; typed queries and finance request payloads remain in memory. Opening
-uses contextual client navigation and dismissal removes the marker in place.
-Browser history and refresh restore visibility subject to existing auth/vault
-gates. Pending navigation selects the destination immediately; cancellation
-restores the committed selection.
+App-wide Search is disabled and archived under `archive/app-wide-search/`.
+The shell no longer mounts the palette or handles its keyboard/events. Legacy
+`?search=1` links neither open Search nor change the selected navigation tab.
+Shared voice/action contracts and page-local filters remain active.
 
 - `/`
 - `/welcome?tab=<research|blog|developers>`
@@ -141,7 +138,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/kyc`
 - `/one/career`
 - `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
-  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the five-item bottom navigation on web and Capacitor. The Share button expands into Copy link, WhatsApp, SMS, and more sharing options; Back or Escape closes it. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
+  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the four-item bottom navigation on web and Capacitor. The Share button expands into Copy link, WhatsApp, SMS, and more sharing options; Back or Escape closes it. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`
@@ -355,13 +352,13 @@ private vault and saves the encrypted key through the existing settings route.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.
 
 
-### Search contract gate
+### Shared action/control contract gate (Search tooling)
 
-Search consumes the authored voice action gateway and generated route index. Do not maintain a separate Search action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
+App-wide Search is archived. Its existing contract tooling remains active for the shared voice action gateway, control coverage, and generated route index. Do not maintain a separate action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
 
 Every PR runs **UI Contracts**, independently of changed-path filtering. Both **Preflight Gate** and **CI Status Gate** require combined Back/Search success and reject skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest. Follow the [contributor scaffold](./ui-contract-contributor-guide.md) before editing.
 
-After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, and the shared tooling derives route/action metadata automatically. New route coverage and generated reachability validation remain mandatory.
 
 The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
 
