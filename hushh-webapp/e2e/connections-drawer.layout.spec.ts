@@ -311,8 +311,8 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false, profileSidePane = false) {
-  return page.evaluate(({ safeSidePane, profileSidePane }) => {
+async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
+  return page.evaluate(({ safeSidePane }) => {
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
@@ -348,7 +348,7 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
       } };
     reference.remove();
     return result;
-  }, { safeSidePane, profileSidePane });
+  }, { safeSidePane });
 }
 
 for (const width of [320, 1440]) for (const dark of [false, true])
@@ -570,7 +570,7 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     // fallback. Floating Profile and portaled menus retain their glass policy.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
-      const reference = await profileFrame(page, false, true);
+      const reference = await profileFrame(page);
       const material = await chats.evaluate(element => {
         const style = getComputedStyle(element);
         return {
