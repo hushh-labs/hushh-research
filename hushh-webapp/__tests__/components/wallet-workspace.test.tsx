@@ -29,7 +29,7 @@ const authMock = vi.hoisted(() => ({
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
 const nativeBeaconMock = vi.hoisted(() => vi.fn());
-const vaultMock = vi.hoisted(() => ({ locked: false, tokenReady: true }));
+const vaultMock = vi.hoisted(() => ({ locked: false, tokenReady: true, token: "owner_token" }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -51,7 +51,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
       ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.tokenReady ? "owner_token" : null, getVaultOwnerToken: () => vaultMock.tokenReady ? "owner_token" : null },
+      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.tokenReady ? vaultMock.token : null, getVaultOwnerToken: () => vaultMock.tokenReady ? vaultMock.token : null },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -356,6 +356,39 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     expect(await screen.findByRole("tab", { name: "Cards", exact: true })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Continue", exact: true })).toBeNull();
+  });
+  it("preserves the Cards scroll position during owner-token renewal and resets on tab entry", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    const root = document.createElement("div");
+    root.dataset.appScrollRoot = "true";
+    const scroll = vi.fn();
+    root.scrollTo = scroll;
+    document.body.append(root);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => frames.push(callback));
+    const flush = async () => {
+      await act(async () => {
+        while (frames.length) frames.splice(0).forEach(callback => callback(0));
+      });
+    };
+    const workspace = render(<WalletWorkspace />);
+    try {
+      await screen.findByRole("tab", { name: "Cards", exact: true });
+      await flush();
+      expect(scroll).toHaveBeenCalledTimes(1);
+      vaultMock.token = "renewed_owner_token";
+      workspace.rerender(<WalletWorkspace />);
+      await flush();
+      expect(scroll).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("tab", { name: "Sharing", exact: true }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
+      await flush();
+      expect(scroll).toHaveBeenCalledTimes(2);
+    } finally {
+      vaultMock.token = "owner_token";
+      root.remove();
+    }
   });
   it("checks a different owner's introduction preference separately", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);

@@ -1,23 +1,21 @@
 {
-  "version": "2026.10-dev.21",
+  "version": "2026.10-dev.22",
   "channel": "dev",
-  "summary": "Cloud-aware AI setup and encrypted Files.",
+  "summary": "Clearer setup, resilient conversations and Files navigation.",
   "notes": {
     "improvements": [
-      "AI setup matches the selected cloud, with a private Azure key connection on supported agents.",
-      "Shared Files encrypts contents and names in the browser; selected analysis requires consent."
+      "The private agent includes the current conversation, connector and hosting improvements.",
+      "Files keeps its dedicated workspace with clearer folders and reversible actions."
     ],
     "fixes": [
-      "Private memory and parallel Drive work recheck current owner authority.",
-      "Hosting choices and native controls remain consistent when returning to the app.",
-      "Verified recovery for updates from the previously released private agent."
+      "Moving a file keeps the folder picker open on touch and desktop screens.",
+      "Conversation recovery avoids repeating a command whose outcome is uncertain.",
+      "Wallet preserves your reading position when your session renews."
     ],
     "security": [
-      "Existing private agents require qualified compatibility and exact owner approval before installing.",
+      "Existing agents require recovery-qualified compatibility and exact owner approval before installation.",
       "Computer Use and unqualified hosting moves remain unavailable."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:fa018342ab722b0247199b320f3522b0229d97e325c8a2e150aad3d662a374d2"
-  ]
+  "supportedUpgradeDigests": []
 }

@@ -585,6 +585,10 @@ def test_negative_control_the_editor_check_names_a_dropped_input() -> None:
     # One input reached through a read and a directory reached through imports.
     for dropped, reported in (
         ("hushh-webapp/app/globals.css", "hushh-webapp/app/globals.css"),
+        (
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+        ),
         ("hushh-webapp/lib/morphy-ux/**", "hushh-webapp/lib/morphy-ux/"),
     ):
         assert dropped in patterns, f"pick another negative control; {dropped} left the filter"

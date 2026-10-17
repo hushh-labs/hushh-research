@@ -1,5 +1,5 @@
 import { verifyHistoryMovement } from "./helpers/history-motion";
-import { expectPaneRestingAtFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
+import { expectPaneRestingAtFrame, mountAppChrome, hitAt, awaitClosedHistoryGeometry } from "./helpers/drawer-geometry";
 import { expect, test, type ElementHandle, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -316,7 +316,8 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
-    if (safeSidePane || profileSidePane) reference.dataset.appSidePane = "";
+    // The real Profile frame uses this shared material/geometry marker too.
+    reference.dataset.appSidePane = "";
     if (safeSidePane) reference.dataset.chatDetailPane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     // Measure the authored leading inset independently: landscape safe-area
@@ -479,7 +480,8 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     await chats.getByRole("button", { name: /^Draft email/ }).click();
     await expect(chats).not.toBeVisible();
     expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
-      getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
+      element.getAnimations().filter(animation =>
+        animation.playState === "running" && animation.effect?.getComputedTiming().iterations === Infinity).length)).toBe(0);
     await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
     expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
   });
@@ -588,7 +590,6 @@ test("History tap and interrupted pulls settle the entire panel without shifting
   await verifyHistoryMovement(page, false);
 });
 
-
 for (const { width, safeLeft } of [
   { width: 390, safeLeft: 0 },
   { width: 1440, safeLeft: 0 },
@@ -599,7 +600,7 @@ for (const { width, safeLeft } of [
     if (safeLeft) await page.addStyleTag({ content: `[data-agent-history-drawer] { --app-side-pane-left-inset: ${safeLeft}px; }` });
     await mountAppChrome(page, 64);
     await expect(page.locator("[data-agent-history-drawer]")).toBeAttached();
-    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await awaitClosedHistoryGeometry(page);
     const result = await page.evaluate(async () => {
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
@@ -952,11 +953,16 @@ for (const width of [320, 390, 768, 1440])
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
     }
-    expect(
-      await drawer.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth + 1,
-      ),
-    ).toBe(true);
+    const overflow = await drawer.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return { scroll: element.scrollWidth, client: element.clientWidth,
+        children: [...element.querySelectorAll<HTMLElement>("*")].filter(child => {
+          const box = child.getBoundingClientRect();
+          return box.width > 0 && box.right > bounds.right + 1;
+        }).slice(0, 8).map(child => ({ tag: child.tagName, role: child.getAttribute("role"),
+          className: child.className, right: child.getBoundingClientRect().right - bounds.right })) };
+    });
+    expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.client + 1);
     await testInfo.attach("mounted connections", {
       body: await page.screenshot({
         path: testInfo.outputPath("connections.png"),
@@ -1667,16 +1673,24 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
       scope.__presencePixelProbe = probe.getContext("2d", { willReadFrequently: true })!;
     }
     const context = scope.__presencePixelProbe;
-    if (context.canvas.width !== edge) context.canvas.width = context.canvas.height = edge;
-    context.clearRect(0, 0, edge, edge);
+    // Batch the four exact source corners beside the coverage sample. One GPU
+    // readback preserves all five probes without five compositor flushes.
+    if (context.canvas.width !== edge + 4) {
+      context.canvas.width = edge + 4;
+      context.canvas.height = edge;
+    }
+    context.clearRect(0, 0, edge + 4, edge);
     context.drawImage(canvas, 0, 0, edge, edge);
-    const pixels = context.getImageData(0, 0, edge, edge).data;
     const { width, height } = canvas;
+    const corners = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
+    corners.forEach(([x, y], index) => context.drawImage(canvas, x!, y!, 1, 1, edge + index, 0, 1, 1));
+    const pixels = context.getImageData(0, 0, edge + 4, edge).data;
     let hash = 0, opaque = 0, bottom = -1;
-    for (let i = 0; i < pixels.length; i += 1) {
-      hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
-      if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
-      if (i % 4 === 3 && pixels[i]! > 20) bottom = Math.floor(i / 4 / edge);
+    for (let row = 0; row < edge; row += 1) for (let col = 0; col < edge; col += 1) {
+      const offset = (row * (edge + 4) + col) * 4;
+      for (let channel = 0; channel < 4; channel += 1) hash = (Math.imul(hash, 31) + pixels[offset + channel]!) | 0;
+      if (pixels[offset + 3]! > 0) opaque += 1;
+      if (pixels[offset + 3]! > 20) bottom = row;
     }
     const surface = canvas.closest<HTMLElement>("[data-one-presence-state]")!;
     const style = original ? getComputedStyle(surface) : null;
@@ -1693,15 +1707,7 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
         feetPainted: bottom > 0, nameGap: gap,
         nameClearOfFeet: gap >= -0.5, nameCloseToFeet: gap <= 6,
       } : undefined,
-      cornerAlpha: [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
-      .map(([x, y]) => {
-        // Copy each exact source pixel to the CPU probe. Reading the Rive
-        // drawing context directly changes its readback policy and emits a
-        // browser warning; a 1:1 copy preserves the transparency assertion.
-        context.clearRect(0, 0, 1, 1);
-        context.drawImage(canvas, x!, y!, 1, 1, 0, 0, 1, 1);
-        return context.getImageData(0, 0, 1, 1).data[3];
-      }) };
+      cornerAlpha: corners.map((_, index) => pixels[(edge + index) * 4 + 3]) };
   }, original);
 }
 
@@ -2104,6 +2110,7 @@ test.describe("One profile artwork and animated presence", () => {
       release();
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.interrupted)).toBe(true);
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking");
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expectPresencePlayback(profile);

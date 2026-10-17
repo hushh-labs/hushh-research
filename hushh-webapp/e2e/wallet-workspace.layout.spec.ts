@@ -963,11 +963,13 @@ for (const width of [320, 390, 1440]) {
     expect(await revocations()).toEqual([]);
     await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
     await expect(confirmation).toBeHidden();
+    await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
     await revoke.click();
     await expect(confirmation).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(confirmation).toBeHidden();
+    await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
     await revoke.click();
     await expect(confirmation).toBeVisible();
@@ -977,8 +979,12 @@ for (const width of [320, 390, 1440]) {
     await expect(detail.getByText("Revoked", { exact: true }).first()).toBeVisible();
     await expect(detail.getByText("Connection", { exact: true }).first()).toBeVisible();
     await expect(revoke).toHaveCount(0);
-    await detail.getByRole("button", { name: "Back to sharing history" }).click();
+    const back = detail.getByRole("button", { name: "Back to sharing history" });
+    await expect(back).toBeFocused();
+    await back.click();
     await expect(detail).toBeHidden();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true })).toBeFocused();
+    await expect(page.getByRole("tab", { name: "Sharing", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
     // pane remains fully inside the viewport; live drag keeps its own transform.

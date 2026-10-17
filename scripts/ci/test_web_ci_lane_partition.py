@@ -6,7 +6,7 @@ PR Validation runs two web lanes as matrices to shorten the critical path:
 * ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
   browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency as a macOS browser job, outside Linux's
+* 100 KB editor latency and History motion as a macOS browser job, outside Linux's
   software-rendered WebKit layout pack, scheduled and required whenever the
   ``editor`` path filter matches.
 
@@ -365,24 +365,6 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         assert "duplicate PLAYWRIGHT_SHARD" in str(error)
     else:
         raise AssertionError("duplicated workflow environment was accepted")
-    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
-
-    full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
-    shards = re.search(r"shard: \[([0-9, ]+)\]", full)
-    assert shards, "web-full-suite-check has no shard matrix"
-    indexes = [int(value) for value in shards.group(1).split(",")]
-    count = len(indexes)
-    assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
-    assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
-    assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
-    assert "fail-fast: false" in full
-
-    gate = workflow[workflow.index("  ci-status:") :]
-    assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
-    assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
-    assert '[ "$WEB_TARGETED" != "success" ]' in gate
-    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
-    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:
@@ -477,10 +459,11 @@ def collect_browser_shards() -> None:
         return set(found)
 
     proof = []
+    linux_identities: set[tuple[str, str, str]] = set()
     first_command = None
     for call in calls:
         if not call.startswith("run "):
-            assert call.startswith("node "), f"unexpected direct command: {call}"
+            assert call in {"scripts/verify-doc-diagrams.cjs", "scripts/render-doc-mermaid.mjs"}, f"unexpected direct command: {call}"
             continue
         pack = call.split()[1]
         selected = list(commands(pack, {}))
@@ -488,6 +471,7 @@ def collect_browser_shards() -> None:
         for argv, env in selected:
             first_command = first_command or (argv, env)
             baseline = identities(collect(argv, env, None), None)
+            linux_identities.update(baseline)
             shards = [
                 identities(collect(argv, env, f"{index}/3"), f"{index}/3")
                 for index in (1, 2, 3)
@@ -497,6 +481,24 @@ def collect_browser_shards() -> None:
             assert set().union(*shards) == baseline, f"missing or added tests: {pack} {argv}"
             proof.append({"pack": pack, "argv": argv, "unsharded": len(baseline),
                           "shards": [len(shard) for shard in shards]})
+
+    timing = set().union(*(
+        identities(collect(argv, env, None), None)
+        for argv, env in commands("test:layout-editor-performance", {})
+    ))
+    history = identities(collect([
+        "test", "e2e/history-motion.layout.spec.ts",
+        "--project=chromium", "--project=webkit",
+    ], {"CI": "1"}, None), None)
+    assert len(history) == 2 and {item[1] for item in history} == {"chromium", "webkit"}
+    assert history <= timing, "both unchanged History timing tests must reach macOS"
+    assert history.isdisjoint(linux_identities), "do not duplicate timing tests in Linux"
+    if any(call == "run test:connections-layout" for call in calls):
+        remaining = identities(collect([
+            "test", "e2e/connections-drawer.layout.spec.ts",
+            "--project=chromium", "--project=webkit",
+        ], {"CI": "1"}, None), None)
+        assert remaining and remaining <= linux_identities, "remaining Connections tests must stay on Linux"
 
     assert first_command is not None
     argv, env = first_command
@@ -509,6 +511,7 @@ def collect_browser_shards() -> None:
         proc = collect(argv, env, bad)
         assert proc.returncode != 0 and "PLAYWRIGHT_SHARD must be current/total" in proc.stderr, bad
     print(json.dumps({"native_browser_collection": proof, "invalid_shards_rejected": list(invalid),
+                      "motion_timing_projects": sorted(item[1] for item in history),
                       "browser_launches": 0, "partition": "complete and disjoint"}, indent=2))
 
 

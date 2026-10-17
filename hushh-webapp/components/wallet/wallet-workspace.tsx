@@ -72,6 +72,7 @@ import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import { isAgentWalletCard, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -244,10 +245,15 @@ export function WalletWorkspace() {
     };
   }, [renderedOwnerId]);
   const { vaultKey, vaultOwnerToken, getVaultOwnerToken } = useVault();
+  const vaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const warmSnapshot = useMemo(() => {
+    const snapshot = !authBlocked && vaultKey && renderedOwnerId ? WalletPresentationResource.peek(renderedOwnerId) : null;
+    return snapshot?.epoch === vaultEpoch ? snapshot : null;
+  }, [authBlocked, vaultKey, renderedOwnerId, vaultEpoch]);
   const profileToken = vaultKey ? getVaultOwnerToken() : null;
   const profileVisit = useMemo(
-    () => ({ ownerId: renderedOwnerId, authorized: Boolean(vaultKey && profileToken) }),
-    [renderedOwnerId, vaultKey, profileToken],
+    () => ({ ownerId: renderedOwnerId, epoch: vaultEpoch, authorized: Boolean(!authBlocked && vaultKey && profileToken) }),
+    [renderedOwnerId, vaultKey, profileToken, authBlocked, vaultEpoch],
   );
   const profileVisitRef = useRef(profileVisit);
   profileVisitRef.current = profileVisit;
@@ -260,11 +266,7 @@ export function WalletWorkspace() {
   const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
     ? loadedProfile.profile
     : { ownerId: renderedOwnerId ?? undefined, displayName: fallbackName, shareUrl: null, cardPayload: null };
-  const vaultEpoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
-  const warmSnapshot = useMemo(() => {
-    const snapshot = !authBlocked && vaultKey && renderedOwnerId ? WalletPresentationResource.peek(renderedOwnerId) : null;
-    return snapshot?.epoch === vaultEpoch ? snapshot : null;
-  }, [authBlocked, vaultKey, renderedOwnerId, vaultEpoch]);
+
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -366,6 +368,22 @@ export function WalletWorkspace() {
     }
   }, [ready, view.kind]);
 
+  useEffect(() => {
+    if (!ready || activeTab !== "cards") return;
+    const visit = profileVisitRef.current;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => {
+        if (profileVisitRef.current !== visit) return;
+        document.querySelector<HTMLElement>("[data-app-scroll-root='true']")?.scrollTo({ top: 0, behavior: "instant" });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second) window.cancelAnimationFrame(second);
+    };
+  }, [activeTab, ready]);
+
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
     if (value === "cards") tabHistory.current = [];
@@ -448,6 +466,7 @@ export function WalletWorkspace() {
       const isCurrent = () =>
         !cancelled && sequence === requestSequence &&
         profileVisitRef.current === profileVisit &&
+        isVaultSessionEpochCurrent(profileVisit.epoch) &&
         activeOwnerIdRef.current === ownerId &&
         getVaultOwnerTokenRef.current() === token;
       loading = true;

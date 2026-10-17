@@ -160,10 +160,11 @@ export function NativeChatChrome(props: Props) {
     setRehearsalStatus(previous => previous ? JSON.stringify({ ...JSON.parse(previous), choice }) : previous);
   }, []);
 
-  const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
+  const canReachPresentation = useCallback(() => !nativeShellOverlayBlocked(current.current.owningLayer) &&
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
+  const canAct = useCallback(() => current.current.allowed && canReachPresentation(), [canReachPresentation]);
   // Preparing presentation grants no operation authority. A detail destination
   // is laid out while its native menu is still closing; rejecting preparation
   // solely for that coverage would expose a web Back or leave an empty slot.
@@ -250,7 +251,16 @@ export function NativeChatChrome(props: Props) {
       current.current.epoch === request.epoch && current.current.context === request.context;
     // Focus is not authority to retire a covered or moving presentation.
     // The owning admission effect reconciles it after the overlay releases.
-    if (!canAct()) return false;
+    if (!canAct()) {
+      // A usable authored web opener does not require native/vault admission.
+      // Never transfer focus while an uncertain native instance can still own it.
+      const target = request.props.focusRef.current;
+      if (hidden || hasOutstandingNativeChrome(controlId) || !canReachPresentation() ||
+          !isCurrentAttempt() || !target?.isConnected || target.matches(":disabled") ||
+          target.closest("[inert]")) return false;
+      target.focus({ preventScroll: true });
+      return document.activeElement === target;
+    }
     const active = lease.current;
     const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
     if (preferNative && supported && nativeFocusReturn && canAct() && !heldFocus.current &&

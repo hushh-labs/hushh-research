@@ -59,6 +59,23 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it.each(["prop", "shell"] as const)("does not report a %s-owned tab choice back as another selection", source => {
+    const changed = vi.fn();
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="route-choice" activeValue="first" onSelectionChange={changed}><div>First</div><div>Second</div></SwipeViews>);
+    // Real Embla emits select synchronously from scrollTo. A prop update runs
+    // before the old subscription's effect cleanup, so closures can be stale.
+    embla.scrollTo.mockImplementation(index => {
+      embla.selectedIndex = index;
+      embla.listeners.get("select")?.();
+    });
+    act(() => {
+      if (source === "shell") requestTopShellTabSelection("route-choice", "second");
+      else view.rerender(<SwipeViews options={OPTIONS} tabSetId="route-choice" activeValue="second" onSelectionChange={changed}><div>First</div><div>Second</div></SwipeViews>);
+    });
+    act(() => embla.listeners.get("settle")?.());
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it("retargets a click to a pane already passing the viewport", () => {
     const options = [...OPTIONS, { value: "third", label: "Third" }];
     const target = { get: () => -800, set: vi.fn() };

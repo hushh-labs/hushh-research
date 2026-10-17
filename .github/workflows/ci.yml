@@ -305,6 +305,7 @@ jobs:
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
             editor:
+
               - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
               - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
               - 'hushh-webapp/components/app-ui/app-chat-history-edge-gesture.tsx'

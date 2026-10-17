@@ -21,7 +21,7 @@ Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabl
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Application | `0a2d74788106`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38969702749) and canonical local core pass | This is serving evidence. Fresh local integration and the Files Move repair are not deployed; concurrent edits are preserved |
+| Application | `0a2d74788106`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38969702749) and canonical local core pass | This is serving evidence. Frozen local ADK intake `e5a3950d7e39` and the Files Move repair are not deployed; concurrent edits are preserved |
 | Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38973405242) succeeded. ADC readback at 22:25 UTC: backend `00175-tq8` / digest `52aa3a2130ed`; frontend `00148-t26` / `2991a17d7bb8`; both source `0a2d74788106`, 100% traffic | GitHub governs; Cloud Build builds. Workflow runs from main `24ff3e886025`; application stays unmerged |
 | Schema / rollback | Minimum schema passes; dev 959–963 applied, no blocking journal/checksum findings; history cleanup 249 deferred. Application rollback: backend `00174-f5s`, frontend `00147-h45` | SQL no-op rollback is not information recovery; no destructive cutover performed |
 | Pod release | `2026.10-dev.21+c13b3899ba37.72b049df`, immutable `sha256:72b049dfdbc27801d8f2e8e6bc68808559eae6b65ec3bded65f8057c842b001b`; image source `c13b3899ba37` | Reuses the qualified executable, not a rebuild from the metadata commit. Archive generation `1792188787518981`; only exact `fa018342…374d2` is admitted as predecessor |
@@ -89,6 +89,13 @@ Operational owners: [Files](../operations/private-files-library.md),
 [deployment standard](../architecture/deployment-standard.md).
 
 ## Reviewed integration debt
+
+Frozen ADK intake preserves private-runtime authority and canonical CI/browser
+coverage. Focused UI checks, browser collection, typecheck and design checks pass;
+streamed-command replay and session-renewal scroll regressions retain failing
+old-source controls. The candidate builds a new Dev 22 image; its predecessor list
+stays empty until exact-image recovery qualifies a transition. No install is offered
+by a version label alone.
 
 Historical anchor: the [architecture baseline](./architecture-fitness-baseline.json)
 owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 and

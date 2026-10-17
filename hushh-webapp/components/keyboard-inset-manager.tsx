@@ -242,6 +242,7 @@ export function KeyboardInsetManager() {
       if (vv) {
         const onViewport = () => {
           const overlap = window.innerHeight - vv.height - vv.offsetTop;
+
           const keyboardOpen = overlap > KB_MIN_SHRINK_PX;
           if (!keyboardOpen) cancelScroll();
           setKeyboardHeight(keyboardOpen ? overlap : 0);

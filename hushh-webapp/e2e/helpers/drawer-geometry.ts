@@ -170,3 +170,12 @@ export function hitAt(page: import("@playwright/test").Page, x: number, y: numbe
     return element.tagName.toLowerCase();
   }, [x, y] as const);
 }
+
+/** A viewport resize is not part of the subsequent authored tap/drag. */
+export async function awaitClosedHistoryGeometry(page: Page) {
+  await expect.poll(() => page.locator("[data-agent-history-drawer]").evaluate(panel => {
+    const style = getComputedStyle(panel);
+    return panel.getBoundingClientRect().x +
+      (panel as HTMLElement).offsetWidth + parseFloat(style.getPropertyValue("--agent-history-shadow-clearance"));
+  })).toBeCloseTo(0, 0);
+}

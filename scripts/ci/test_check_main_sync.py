@@ -204,6 +204,44 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
         self.assertNotIn("- other.txt", run.output)
         self.assertIn("- `app.txt`", run.summary)
 
+    def test_push_hook_preserves_requested_freshness_without_weakening_main(self) -> None:
+        _, tested = self.repo.behind_branch(
+            branch_files=("app.txt",), main_after_tested=("app.txt",)
+        )
+        script = self.repo.work / "scripts/git/check-main-sync.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(
+            '#!/bin/sh\nprintf "%s" "$MAIN_SYNC_MODE" > "$FRESHNESS_TEST_MODE_FILE"\n'
+            'exec sh "$FRESHNESS_TEST_REAL_SCRIPT"\n', encoding="utf-8",
+        )
+        hook = ROOT / "consent-protocol/ops/monorepo/pre-push.sh"
+        observed_mode = self.repo.root / "hook-mode"
+
+        for branch, mode, expected, applied in (
+            ("feature", None, 0, "warn"),
+            ("feature", "bounded", 1, "bounded"),
+            # The checker leaves main to its direct-push preflight, but the
+            # hook must still force its existing mode rather than accept warn.
+            ("main", "warn", 0, "block"),
+        ):
+            with self.subTest(branch=branch, mode=mode):
+                if branch == "main":
+                    self.repo.git("update-ref", "refs/heads/main", tested)
+                    self.repo.git("checkout", "-q", "main")
+                env = {
+                    **self.repo.env, "MAIN_SYNC_TESTED_BASE_SHA": tested,
+                    "FRESHNESS_TEST_MODE_FILE": str(observed_mode),
+                    "FRESHNESS_TEST_REAL_SCRIPT": str(SCRIPT),
+                }
+                if mode is not None:
+                    env["MAIN_SYNC_MODE"] = mode
+                result = subprocess.run(
+                    ["sh", str(hook), "origin", "https://github.com/hushh-labs/hushh-research.git"],
+                    cwd=self.repo.work, env=env, input="", capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertEqual(observed_mode.read_text(encoding="utf-8"), applied)
+
     def test_merge_base_older_than_the_limit_blocks(self) -> None:
         self.repo.behind_branch(
             branch_files=("app.txt",), main_after_tested=("other.txt",), merge_base_age=30

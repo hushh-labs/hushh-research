@@ -16,6 +16,70 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Shared-renderer recovery and release gate — 2026-10-16
+
+The current recovery integrates main through `190c77fab6`, including Calendar's
+local-time/invitation corrections and the intentional Mail connection-screen
+rollback, Wallet CVV entry/presentation warming and independent email/Microsoft
+authentication, immediate onboarding-picked names and tighter welcome spacing.
+It also preserves main's UAT Drive request-flow restoration and retirement
+migration: continuous collection processing and packet listings are disabled,
+not deleted. This source integration does not execute that migration or deploy
+the restored workers.
+Authentication still grants identity, not vault or consent
+authority. Receipt request fences
+and Wallet owner/visit/session fences remain intact; warmed Wallet content is
+admitted only for the current owner and vault epoch.
+Custom native
+qualification remains opt-in; ordinary Capacitor/React and the independent
+native tab bar retain their existing admission policy. No additional Profile
+family is qualified by this integration.
+
+At `c18dc294ff`, all product CI lanes except one WebKit Wallet Sharing return
+case passed. Source review and a failing old-code browser control establish a
+missing modal focus owner, not the cause of that CI timeout. Wallet now returns
+confirmation cancellation to Revoke, committed revocation to Back, and detail
+dismissal to the original row without scrolling. Owner/activation fencing and
+the existing single-send and viewport assertions remain. Eighteen focused
+Chromium/WebKit cases pass; combined core and exact-head CI are still required.
+
+Exact-head PR validation at `d44a883d76` failed one Vitest shard and three
+browser lanes despite passing canonical core and the iOS, Android and strict
+macOS timing lanes. Repairs preserve authored web focus return without granting
+native action authority, suppress duplicate programmatic pager choices, and
+apply Profile's WebKit material policy to its portaled row menus. Confirmed
+chat-key recovery is bound to the original authentication generation and
+conversation, cancelled by later edits, and rechecks Calendar sources rather
+than retaining fetched meeting text. The authoritative composer still clears
+on lock. The repaired `67cc084bbc` head passed canonical core and all exact-head
+PR Validation lanes, including the browser packs and native builds. Main then
+advanced into overlapping files, requiring the new integration above. Fresh
+combined-head core and CI remain required; the earlier pass does not qualify a
+different head or establish physical acceptance.
+
+### Earlier main integration and shared-pane repair — 2026-10-16
+
+Main through `745911d536` is merged locally, retaining current Calendar meeting
+recovery, semantic name saving, presence sequencing and Wallet behavior alongside
+ADK draft, Retry and owner/vault fences. Ordinary custom controls remain React;
+the native-shell qualification policy and independent UITabBar are unchanged.
+
+PR CI at `2462c0bc6f` passed iOS, Android, protocol and the full Vitest shards,
+but failed browser layouts. Shared material specificity and oversized animated
+pane decoration were reproduced and corrected; twelve focused Linux WebKit
+cases pass, including repeated Accent selection and provider handoffs. History's
+unchanged timing assertions use the existing required macOS performance lane,
+with a focused real-drawer/sidebar fixture rather than the entire Chat workflow.
+Six focused runs across both engines pass locally; disabled transitions and
+delayed-opening negative controls fail. The combined editor/motion command
+failed latency assertions during concurrent game load and was interrupted; it
+is not acceptance evidence. The path/dependency and native-collection guards
+preserve lane coverage. Hosted macOS confirmation and Linux/WPE frame pacing remain unverified;
+moving this test is not a claim that WPE timing is fixed. The combined merge passes 150 focused
+tests, typecheck, design-system and UI-contract checks; its native source builds.
+These are bounded source checks, not an installed current web bundle, physical
+transition/performance acceptance, complete Profile adoption or release approval.
+
 ### Profile return, scroll ownership and privacy recovery — 2026-10-15
 
 Release admission: ordinary Release, TestFlight and App Store builds do not set

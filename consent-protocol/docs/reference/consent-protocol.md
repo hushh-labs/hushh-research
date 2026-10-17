@@ -305,7 +305,7 @@ def validate_token(token_str, expected_scope=None):
 const unlockVault = useCallback(
   (key: string, token: string, expiresAt: number) => {
     // SECURITY: Both key and token stored in React state (memory only)
-    // XSS attacks cannot access React component state
+    // This avoids storage persistence; it does not make runtime state XSS-safe.
     setVaultKey(key);
     setVaultOwnerToken(token);
     setTokenExpiresAt(expiresAt);
@@ -573,11 +573,11 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 ### 5. XSS Protection (Memory-Only Storage)
 
-**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This prevents XSS attacks from stealing credentials.
+**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This limits persistence and exposure through browser storage; it does not prevent malicious same-origin JavaScript from accessing the running application.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MEMORY ONLY (XSS Protected)              │
+│                    MEMORY ONLY (not persisted)              │
 ├─────────────────────────────────────────────────────────────┤
 │  Vault Key        → React State (VaultContext / Zustand)    │
 │  VAULT_OWNER Token → React State (VaultContext / Zustand)   │
@@ -589,8 +589,9 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 **Why this matters**:
 - XSS attacks can read `sessionStorage` and `localStorage`
-- XSS attacks CANNOT read React component state
-- Sensitive credential theft via storage APIs is prevented by memory-only key/token handling
+- React component state is not an isolation boundary against XSS
+- Storage reads cannot retrieve keys or tokens that the application never persisted; memory-only handling does not protect against malicious same-origin JavaScript.
+- Script admission, output sanitization and other XSS defenses remain necessary
 
 **Service layer pattern**:
 - Services MUST receive token as explicit parameter

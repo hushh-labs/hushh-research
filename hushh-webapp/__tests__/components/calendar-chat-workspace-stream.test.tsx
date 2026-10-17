@@ -720,7 +720,8 @@ it("retries the meeting after initial permission denial, never the preceding ord
   expect(JSON.parse(String(stream.mock.calls[1][1]?.body)).messages.at(-1).content).toContainEqual({ type: "text", text: "Summarize this meeting." });
 });
 
-it("does not replay a refused meeting stream after unlock; an explicit request rechecks sources", async () => {
+it.each(["untouched", "edited-and-cleared", "edited-inflight", "owner-replaced", "permission-revoked"] as const)(
+  "keeps meeting sources private during chat-key recovery: %s", async scenario => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
   const { noteChatKeyAccepted } = await import("@/lib/vault/one-chat-key");
   noteChatKeyAccepted();
@@ -730,29 +731,67 @@ it("does not replay a refused meeting stream after unlock; an explicit request r
   vi.mocked(ApiService.listAgentChatConversations).mockImplementation(async () => Response.json({ conversations: [{ id: "same-conversation", title: "Existing chat", status: "active", message_count: 1 }] }));
   vi.mocked(ApiService.getAgentChatHistory).mockImplementation(async () => Response.json({ messages: [{ id: "history-user", conversation_id: "same-conversation", role: "user", status: "complete", content: "Earlier conversation" }] }));
   const read = vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Private recovery source" }] });
-  const stream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValueOnce(new Response(`data: ${JSON.stringify({ type: "RUN_ERROR", code: "CHAT_KEY_REQUIRED", message: "Unlock" })}\n\n`, { headers: { "Content-Type": "text/event-stream" } })).mockImplementation(async () => sse("tool"));
+  const refusal = new Response(`data: ${JSON.stringify({ type: "RUN_ERROR", code: "CHAT_KEY_REQUIRED", message: "Unlock" })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+  let releaseRefusal!: (response: Response) => void;
+  const firstResponse = scenario === "edited-inflight" ? new Promise<Response>(resolve => { releaseRefusal = resolve; }) : Promise.resolve(refusal);
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementationOnce(() => firstResponse).mockImplementation(async () => sse("tool"));
   const view = workspace();
   await screen.findByRole("textbox", { name: "Message One" });
   await screen.findByText("Earlier conversation");
   act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" } } }); });
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
-  await waitFor(() => expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("Summarize this meeting."));
+  if (scenario === "edited-inflight") {
+    const composer = screen.getByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "A newer intention" } });
+    fireEvent.change(composer, { target: { value: "" } });
+    await act(async () => releaseRefusal(refusal));
+    await screen.findByText(/Check the previous result before sending another request\./);
+    expect(composer).toHaveValue("");
+  } else {
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("Summarize this meeting."));
+  }
   expect(screen.queryByTestId("agent-chat-text-attachment-size")).toBeNull();
   fixture.vault.isVaultUnlocked = false;
   view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+  expect(useOneConversationSession.getState().composerDraft).toBeNull();
+  expect(screen.queryByText("Earlier conversation")).toBeNull();
+  if (scenario === "edited-and-cleared") {
+    const lockedComposer = screen.getByRole("textbox", { name: "Message One" });
+    fireEvent.change(lockedComposer, { target: { value: "A newer intention" } });
+    fireEvent.change(lockedComposer, { target: { value: "" } });
+  } else if (scenario === "owner-replaced") {
+    // ABA must not inherit an earlier authentication generation's operation.
+    publishValidatedAuthSessionOwner("another-owner");
+    publishValidatedAuthSessionOwner("owner");
+  }
+  if (scenario === "permission-revoked") read.mockRejectedValueOnce(new Error("Permission revoked"));
+  else read.mockResolvedValueOnce({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Fresh recovery source" }] });
   fixture.vault.isVaultUnlocked = true;
   view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
   await screen.findByText("Earlier conversation");
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue(""));
   expect(read).toHaveBeenCalledTimes(1);
   expect(stream).toHaveBeenCalledTimes(1);
+  if (scenario === "edited-and-cleared" || scenario === "edited-inflight" || scenario === "owner-replaced") {
+    return;
+  }
   // A streaming refusal cannot prove the first turn did not execute. Only a
   // fresh user request may read the current authorized meeting sources again.
   act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" } } }); });
   await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  if (scenario === "permission-revoked") {
+    await screen.findByText("Meeting access changed or could not be verified. Open Calendar and check the meeting again.");
+    expect(stream).toHaveBeenCalledTimes(1);
+    return;
+  }
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
   expect(screen.queryByTestId("agent-chat-text-attachment-size")).toBeNull();
-  expect(JSON.parse(String(stream.mock.calls[1][1]?.body)).threadId).toBe("same-conversation");
+  const retried = JSON.parse(String(stream.mock.calls[1][1]?.body));
+  expect(retried.threadId).toBe("same-conversation");
+  const source = retried.messages.at(-1).content.find((part: { type: string }) => part.type === "document");
+  const sourceText = atob(source.source.value);
+  expect(sourceText).toContain("Fresh recovery source");
+  expect(sourceText).not.toContain("Private recovery source");
 });
 
 it("does not borrow an active Mail reply workflow for a meeting turn", async () => {
