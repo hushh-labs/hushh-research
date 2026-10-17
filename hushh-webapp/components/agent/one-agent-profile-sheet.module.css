@@ -1,68 +1,83 @@
 .sheet {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
+  --settings-group-stack-gap: 8px;
+  --settings-heading-stack-gap: 4px;
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 12px;
+  width: 100%;
+  max-width: 100%;
   gap: 0;
   padding: 0;
+  overflow: hidden;
   font-family: var(--font-app-body);
+  color: var(--foreground);
+}
+@media (min-width: 640px) {
+  .sheet {
+    width: min(92vw, 560px);
+    max-width: 560px;
+  }
 }
 .scroll {
   min-height: 0;
-  min-width: 0;
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding: 12px var(--page-inline-gutter-standard)
-    max(24px, var(--app-safe-area-bottom-effective, 0px));
+  padding: calc(52px + var(--app-safe-area-top-effective, 0px))
+    max(var(--page-inline-gutter-standard), calc(1rem + env(safe-area-inset-left)))
+    max(1.5rem, env(safe-area-inset-bottom));
 }
 .hero {
   display: flex;
-  flex: none;
   flex-direction: column;
   align-items: center;
-  gap: 0;
-  padding: 20px var(--page-inline-gutter-standard) 16px;
+  gap: 8px;
   text-align: center;
+  margin-bottom: 32px;
 }
 .avatar {
-  --one-profile-artwork-size: clamp(208px, calc(100vw - 112px), 224px);
-  position: relative;
-  width: min(100%, var(--one-presence-size, var(--one-profile-artwork-size)));
-  aspect-ratio: 1;
-  margin-bottom: calc(var(--one-presence-size, var(--one-profile-artwork-size)) * -0.102);
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
   border: 0;
-  border-radius: 0;
+  border-radius: 50%;
   background: transparent;
   box-shadow: none;
 }
+.avatar canvas {
+  transform: scale(3);
+}
 .title {
-  margin: 0;
+  margin: 8px 0 0;
   font-family: var(--font-app-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 27px;
+  letter-spacing: normal;
+}
+.privateBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--app-success-deep);
 }
 .tabs {
-  min-height: 0;
-  min-width: 0;
-  flex: 1;
-  gap: 0;
-  overflow: hidden;
+  gap: 24px;
 }
 .tabList {
-  flex: none;
-  width: auto;
-  margin-inline: var(--page-inline-gutter-standard);
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.tabList button {
-  min-height: 44px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .feed,
+.todo,
 .profile {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 .sectionHeading {
   display: flex;
@@ -71,8 +86,11 @@
   gap: 12px;
 }
 .sectionHeading h3 {
-  font-size: var(--app-side-pane-section-size);
+  font-family: var(--font-app-body);
+  font-size: 13px;
   font-weight: 600;
+  line-height: 18px;
+  color: var(--muted-foreground);
 }
 .sectionHeading button {
   display: inline-flex;
@@ -80,12 +98,12 @@
   justify-content: center;
   gap: 4px;
   min-height: 44px;
-  font-size: var(--app-side-pane-row-description-size);
+  font-size: 12px;
   color: var(--app-accent-deep);
 }
 .notice {
   color: var(--muted-foreground);
-  font-size: var(--app-side-pane-row-title-size);
+  font-size: 14px;
   padding: 16px 0;
 }
 .notice button {
@@ -102,15 +120,98 @@
   text-align: center;
 }
 .empty p {
-  font-weight: 400;
+  font-weight: 500;
   color: var(--foreground);
 }
 .empty span {
   font-size: 13px;
 }
-.scroll { container: one-profile-content / inline-size; }
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.fileCard {
+  min-width: 0;
+  min-height: 206px;
+  padding: 20px;
+  border-radius: 24px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 28px;
+}
+.soul {
+  background: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--app-destructive) 80%, black),
+    color-mix(in oklab, var(--app-destructive) 60%, black)
+  );
+}
+.memory {
+  background: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--app-accent) 70%, black),
+    color-mix(in oklab, var(--app-accent) 50%, black)
+  );
+}
+.fileCard h4 {
+  margin: 12px 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fileCard p {
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+.cardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.memory:hover {
+  filter: brightness(1.05);
+}
+.memory:focus-visible {
+  outline: 2px solid var(--app-accent-deep);
+  outline-offset: 4px;
+}
+@media (max-width: 359px) {
+  .scroll {
+    padding-inline: 16px;
+  }
+  .fileCard {
+    padding: 16px;
+  }
+  .fileCard h4 {
+    font-size: 18px;
+  }
+}
 
-.artwork {
-  width: 100%;
-  height: 100%;
+.close {
+  position: absolute;
+  top: calc(1rem + env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right, 0px));
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: var(--app-neutral-fill);
+  color: var(--muted-foreground);
+}
+.close:hover {
+  background-color: var(--app-neutral-fill-strong);
+  color: var(--foreground);
+}
+.close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
