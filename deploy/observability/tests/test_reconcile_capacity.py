@@ -352,6 +352,88 @@ class CapacityObservabilityTest(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             module.cli(["--project", "hushh-dev-123"])
 
+    def test_provider_mode_is_sql_free_and_plan_only_by_default(self) -> None:
+        args = module.cli(["--project", "hushh-gemini-bridge", "--provider-only"])
+        calls = []
+
+        def fake_run(*command, **kwargs):
+            calls.append(command)
+            if command[:4] == ("gcloud", "monitoring", "dashboards", "describe"):
+                return None
+            return []
+
+        with patch.object(module, "run", side_effect=fake_run), \
+             patch.object(module, "write_config") as writer, \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.reconcile(args)
+        writer.assert_not_called()
+        self.assertFalse(any("sql" in call or "logging" in call for call in calls))
+        provider = module.render(ROOT / "alerts/provider-errors-policy.json.in", args)
+        self.assertIn("model_invocation_count", provider["conditions"][0]["conditionThreshold"]["filter"])
+        self.assertIn('resource.type="aiplatform.googleapis.com/PublisherModel"',
+                      provider["conditions"][0]["conditionThreshold"]["filter"])
+        self.assertNotIn("cloudsql", json.dumps(provider))
+        for flags in ([], ["--provider-only", "--sql-instance", "hushh-vault-db"],
+                      ["--provider-only", "--voice-only"],
+                       ["--provider-only", "--commerce-only"],
+                       ["--provider-only", "--include-commerce"]):
+            with self.subTest(flags=flags), contextlib.redirect_stderr(io.StringIO()), \
+                 self.assertRaises(SystemExit):
+                module.cli(["--project", "hushh-gemini-bridge", *flags])
+
+        args.apply = True
+        channels = [{"name": f"projects/{args.project}/notificationChannels/{i}",
+                     "type": "email", "labels": {"email_address": email}}
+                    for i, email in enumerate(args.email)]
+        policies, writes = [], []
+        dashboard = None
+
+        def readback(*command, **kwargs):
+            calls.append(command)
+            if command[1:4] == ("beta", "monitoring", "channels"):
+                return copy.deepcopy(channels)
+            if command[1:3] == ("monitoring", "policies"):
+                return copy.deepcopy(policies)
+            if command[1:4] == ("monitoring", "dashboards", "describe"):
+                return copy.deepcopy(dashboard)
+            self.fail(f"Provider mode touched unrelated surface: {command[:4]}")
+
+        def writeback(config, action):
+            nonlocal dashboard
+            writes.append(copy.deepcopy(config))
+            if "--policy-from-file=__CONFIG__" in action:
+                policy = copy.deepcopy(config)
+                policy["name"] = f"projects/{args.project}/alertPolicies/provider"
+                policy["conditions"][0]["name"] = policy["name"] + "/conditions/server"
+                policies.append(policy)
+            else:
+                dashboard = copy.deepcopy(config)
+                dashboard["etag"] = "server-etag"
+
+        with patch.object(module, "run", side_effect=readback), \
+             patch.object(module, "write_config", side_effect=writeback), \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.reconcile(args)
+            self.assertEqual(len(writes), 2)
+            module.reconcile(args)
+            self.assertEqual(len(writes), 2)
+
+    def test_first_visible_metric_excludes_missing_marks_and_private_labels(self) -> None:
+        args = module.cli(["--project", "hushh-pda", "--sql-instance", "hushh-vault-db"])
+        metric = module.render(ROOT / "log-metrics/obs_agent_chat_first_visible_ms.json", args)
+        regex = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
+        line = "INFO one_agent_chat_turn_complete head=one run=private first_visible_ms=123 first_activity_ms=42"
+        self.assertIsNotNone(re.search(regex, line))
+        self.assertIsNone(re.search(regex, line.replace("first_visible_ms=123", "first_visible_ms=None")))
+        extractor = metric["valueExtractor"].split('"', 1)[1].rsplit('"', 1)[0]
+        self.assertEqual(re.search(extractor, line).group(1), "123")
+        self.assertNotIn("labelExtractors", metric)
+        policy = module.render(ROOT / "alerts/sql-cpu-policy.json.in", args)
+        threshold = policy["conditions"][0]["conditionThreshold"]
+        self.assertIn('database_id="hushh-pda:hushh-vault-db"', threshold["filter"])
+        self.assertEqual(threshold["thresholdValue"], 0.9)
+        self.assertEqual(threshold["duration"], "600s")
+
 
 if __name__ == "__main__":
     unittest.main()

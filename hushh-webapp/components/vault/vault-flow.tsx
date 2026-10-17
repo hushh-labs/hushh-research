@@ -334,7 +334,7 @@ function VaultFlowHeader({
       <p className="mt-1 type-subhead text-muted-foreground">{description}</p>
       <div
         data-vault-account-identity
-        className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
+        className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-1 type-footnote text-muted-foreground"
       >
         <EmailIdentityMark email={user.email} providerId={providerId} size={setupPresentation ? 20 : 17} />
         <span className="min-w-0 break-all">

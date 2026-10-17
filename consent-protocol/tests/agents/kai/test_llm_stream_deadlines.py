@@ -102,3 +102,53 @@ async def test_stream_never_exposes_internal_thought_parts():
     assert tokens == ["visible answer"]
     assert events[-1]["type"] == "complete"
     assert events[-1]["text"] == "visible answer"
+
+
+@pytest.mark.asyncio
+async def test_stream_deadline_includes_waiting_for_a_slot():
+    provider_stream = _Stream([_chunk("answer")])
+    patches = _patched_client(provider_stream)
+    semaphore = asyncio.Semaphore(0)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patch.object(llm, "_gemini_stream_semaphore", semaphore),
+    ):
+        task = asyncio.create_task(_collect(llm.stream_gemini_response("prompt", timeout=0.01)))
+        try:
+            events = await asyncio.wait_for(task, timeout=0.5)
+            llm._gemini_client.aio.models.generate_content_stream.assert_not_awaited()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert events == [
+        {"type": "error", "message": "Streaming analysis timed out.", "agent": "gemini"}
+    ]
+    assert semaphore.locked()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_early", [False, True])
+async def test_stream_releases_admission_after_success_or_disconnect(close_early):
+    provider_stream = _Stream([_chunk("answer"), StopAsyncIteration])
+    patches = _patched_client(provider_stream)
+    semaphore = asyncio.Semaphore(1)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patch.object(llm, "_gemini_stream_semaphore", semaphore),
+    ):
+        iterator = llm.stream_gemini_response("prompt", timeout=1)
+        if close_early:
+            assert (await anext(iterator))["type"] == "token"
+            await iterator.aclose()
+        else:
+            events = await _collect(iterator)
+            assert events[-1] == {"type": "complete", "text": "answer", "agent": "gemini"}
+    assert not semaphore.locked()
+    assert provider_stream.closed

@@ -828,7 +828,12 @@ async def stream_gemini_response(
             remaining = deadline - loop.time()
             if remaining <= 0:
                 raise asyncio.TimeoutError
-            async with _gemini_stream_semaphore:
+            # Queueing consumes the same operation budget as provider work.
+            await asyncio.wait_for(_gemini_stream_semaphore.acquire(), timeout=remaining)
+            try:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
                 first_event_timeout = min(15.0, remaining)
                 stream = await asyncio.wait_for(
                     _gemini_client.aio.models.generate_content_stream(
@@ -912,6 +917,9 @@ async def stream_gemini_response(
                     except Exception as e:
                         logger.warning("[Gemini Streaming] Skipped chunk for %s: %s", agent_name, e)
                         continue
+
+            finally:
+                _gemini_stream_semaphore.release()
 
             elapsed_ms = round((time.perf_counter() - started_at) * 1000)
             first_response_ms = (
