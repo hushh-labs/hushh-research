@@ -242,9 +242,14 @@ class DriveTrustedAutoService:
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             await self._undated_packet_current(user_id=user_id, context=context)
-        if not context.get("agentPackageRequired") and _deterministic_statement_plan(purpose):
+        if (
+            not context.get("agentPackageRequired")
+            and not context.get("autoshare")
+            and _deterministic_statement_plan(purpose)
+        ):
             # A saved one-query job may still carry the older file-activity
             # marker until its lease is replanned. It cannot auto-select files.
+            # An autoshare request was searched under its own date selection.
             return 0
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its

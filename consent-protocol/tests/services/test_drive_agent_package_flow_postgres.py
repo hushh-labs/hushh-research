@@ -244,24 +244,27 @@ async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_
         assert private.get("agent_package_required") is not True
         assert private.get("v1_live_request") is not True
         assert private["legacy_request_policy"] == "oct13_restored"
+        # New requests share every in-period match, priced in cents from $0.50.
+        assert private["request_flow"] == "oct17_autoshare"
         review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
         assert review["allowAvailable"] is True
         assert review.get("agentPackage") is None
+        assert "wholeDollarPrice" not in review
 
     with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
         await sharing.allow_request(
             user_id="owner",
             request_id=created["requestId"],
             revision=created["revision"],
-            amount_cents=125,
+            amount_cents=49,
         )
     allowed = await sharing.allow_request(
         user_id="owner",
         request_id=created["requestId"],
         revision=created["revision"],
-        amount_cents=1_000,
+        amount_cents=125,
     )
-    assert allowed["ownerAllowed"] is True and allowed["amountCents"] == 1_000
+    assert allowed["ownerAllowed"] is True and allowed["amountCents"] == 125
 
     # A rollout change cannot reinterpret a request already sealed as V1.
     unchanged_row, unchanged_private = private_request(sharing, existing["requestId"])
@@ -269,22 +272,25 @@ async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_
     assert unchanged_private["v1_live_request"] is True
 
 
-async def test_package_flag_off_can_disable_historical_cent_price(agent_flow, sharing, monkeypatch):
+async def test_package_flag_off_keeps_cent_prices_for_new_requests(
+    agent_flow, sharing, monkeypatch
+):
     cents = await sharing.update_owner_pricing(
         user_id="owner", enabled=True, amount_cents=125, expected_version=1
     )
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
     clear_runtime_settings_caches()
+    # New requests seal the autoshare cents rule, so a cents default quotes.
     quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
-    assert quote["amountCents"] is None and quote["priceReady"] is False
+    assert quote["amountCents"] == 125 and quote["priceReady"] is True
     with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
         await sharing.update_owner_pricing(
-            user_id="owner", enabled=True, amount_cents=125, expected_version=cents["version"]
+            user_id="owner", enabled=True, amount_cents=49, expected_version=cents["version"]
         )
-    disabled = await sharing.update_owner_pricing(
-        user_id="owner", enabled=False, amount_cents=125, expected_version=cents["version"]
+    lowest = await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=50, expected_version=cents["version"]
     )
-    assert disabled["enabled"] is False and disabled["amountCents"] == 125
+    assert lowest["enabled"] is True and lowest["amountCents"] == 50
 
 
 async def test_nontrusted_v1_ready_selection_enters_existing_exact_file_review(

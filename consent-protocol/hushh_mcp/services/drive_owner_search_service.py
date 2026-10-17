@@ -24,6 +24,10 @@ from hushh_mcp.services.drive_owner_search_store import (
     _legacy_single_query,
     validate_reusable_packet,
 )
+from hushh_mcp.services.drive_request_review_policy import (
+    AUTOSHARE_SELECTION_POLICY,
+    autoshare_selection,
+)
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_PAGE_SIZE_MAX,
@@ -313,8 +317,19 @@ def _filename_candidate(checkpoint: dict, match: dict) -> bool:
     if checkpoint.get("request_owner_review_required") is True:
         exact = checkpoint.get("request_exact_title")
         return not exact or exact in {match["name"], match.get("shortcut_name")}
-    return checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
+    if checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
         checkpoint, match
+    ):
+        return True
+    # A Gemini meeting note names its event, not the word "meeting". For a
+    # meeting-notes request its own title is the subject evidence.
+    from hushh_mcp.services.drive_content_compilation import _GEMINI_NOTE_TITLE
+
+    return bool(
+        autoshare_selection(checkpoint)
+        and not checkpoint.get("request_exact_title")
+        and _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
+        and _title_search(_GEMINI_NOTE_TITLE, match["name"])
     )
 
 
@@ -700,7 +715,13 @@ def compile_request_queries(
     return queries, period
 
 
-def _in_requested_period(match: dict, period: dict | None) -> bool:
+def _in_requested_period(match: dict, period: dict | None, *, precedence: bool = False) -> bool:
+    """Title dates decide when present; otherwise the file's own timestamps.
+
+    precedence: the autoshare rule. Only the first present date decides: the
+    title date, else created time, else modified time. Without it, either
+    timestamp inside the period matches (file activity).
+    """
     if period is None:
         return True
     start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
@@ -761,6 +782,9 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
                 continue
             if start <= day <= end:
                 return True
+            if precedence:
+                # The created time is present and outside: modified never decides.
+                return False
     return False
 
 
@@ -1256,11 +1280,18 @@ class DriveOwnerSearchService:
         evidence_route=None,
         v1_live_request=False,
         planner_fallback=None,
+        autoshare=False,
     ):
-        """Start or resume the owner-approved request's durable metadata search."""
+        """Start or resume the owner-approved request's durable metadata search.
+
+        autoshare: the request's sealed automatic flow. Its trusted search
+        selects every in-period match by title, created, then modified date,
+        so no owner file review is required.
+        """
         if (
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
+            or type(autoshare) is not bool
             or planner_fallback is not None
             and (
                 not isinstance(planner_fallback, dict)
@@ -1298,7 +1329,11 @@ class DriveOwnerSearchService:
             )
         v1_statement_search = v1_live_request
         time_intent = plan.get("time_intent", "document_coverage")
-        owner_review_required = (
+        # The picked dates bound an autoshare search; no period, no selection.
+        autoshare_dates = bool(
+            autoshare and authority_mode == "trusted_auto" and not indexed and period is not None
+        )
+        owner_review_required = not autoshare_dates and (
             time_intent == "document_coverage" or authority_mode == "agent_package"
         )
         result_limit = None if indexed else plan.get("result_limit")
@@ -1346,6 +1381,11 @@ class DriveOwnerSearchService:
                 **({"planner_fallback": planner_fallback} if planner_fallback else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
+                **(
+                    {"request_selection_policy": AUTOSHARE_SELECTION_POLICY}
+                    if autoshare_dates
+                    else {}
+                ),
                 "request_coverage_query_version": 1
                 if len(queries) >= 2 and time_intent == "document_coverage"
                 else None,
@@ -1386,6 +1426,8 @@ class DriveOwnerSearchService:
                     "ownerReviewRequired": owner_review_required,
                     "dateBasis": "content_period_unverified"
                     if owner_review_required
+                    else "title_date_then_created_then_modified"
+                    if autoshare_dates
                     else "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
@@ -1627,6 +1669,8 @@ class DriveOwnerSearchService:
                 # Creation, modification and title dates do not establish the
                 # period covered by a document's contents.
                 return True
+            if autoshare_selection(checkpoint):
+                return _in_requested_period(match, period, precedence=True)
             if checkpoint.get("authority_mode") == "trusted_auto":
                 return _in_requested_period(match, period)
             return _in_requested_period(match, period) or (

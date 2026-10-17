@@ -1805,6 +1805,118 @@ async def test_phrase_span_never_widens_the_consented_period(monkeypatch, text, 
     assert not search_module._in_requested_period(match, checkpoint["requested_period"])
 
 
+async def _autoshare_checkpoint(*, autoshare=True, authority_mode="trusted_auto"):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        # The UAT request 13ee925d: "3 months" in the text, one month picked.
+        purpose={
+            "purpose": "last 3 months meeting notes",
+            "periodStart": "2026-09-02",
+            "periodEnd": "2026-10-02",
+        },
+        plan={
+            "mode": "find",
+            "terms": ["meeting", "notes"],
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        },
+        require_current=AsyncMock(),
+        authority_mode=authority_mode,
+        requested_at=datetime(2026, 10, 3, tzinfo=UTC),
+        autoshare=autoshare,
+    )
+    return service, store.create.await_args.kwargs["checkpoint"]
+
+
+@pytest.mark.asyncio
+async def test_autoshare_shares_every_in_period_meeting_note_without_owner_review():
+    from hushh_mcp.services.drive_request_review_policy import (
+        AUTOSHARE_SELECTION_POLICY,
+        checkpoint_requires_owner_review,
+    )
+
+    service, checkpoint = await _autoshare_checkpoint()
+    request_id = "12345678-1234-1234-1234-123456789012"
+    assert checkpoint["request_selection_policy"] == AUTOSHARE_SELECTION_POLICY
+    assert checkpoint["request_owner_review_required"] is False
+    assert checkpoint["coverage_manifest"]["ownerReviewRequired"] is False
+    assert checkpoint["coverage_manifest"]["periodConflict"] == "request_mentions_longer_span"
+    assert not checkpoint_requires_owner_review(checkpoint, request_id=request_id, revision=1)
+    # Another revision, or the same plan without autoshare, keeps owner review.
+    assert checkpoint_requires_owner_review(checkpoint, request_id=request_id, revision=2)
+    _, manual = await _autoshare_checkpoint(autoshare=False)
+    assert manual["request_owner_review_required"] is True
+    assert "request_selection_policy" not in manual
+    assert checkpoint_requires_owner_review(manual, request_id=request_id, revision=1)
+    _, owner = await _autoshare_checkpoint(authority_mode="owner")
+    assert checkpoint_requires_owner_review(owner, request_id=request_id, revision=1)
+
+    inside = {"createdTime": "2026-09-20T00:00:00Z", "modifiedTime": "2026-09-20T00:00:00Z"}
+    candidates = [
+        _request_candidate("n1", "Meeting started 2026/09/02 23:42 IST - Notes by Gemini"),
+        # A Gemini note names its event, not "meeting".
+        _request_candidate("n2", "Weekly sync - 2026/09/15 10:00 IST - Notes by Gemini"),
+        # Title dates outside the picked month never share, whatever the activity.
+        _request_candidate(
+            "n3", "Meeting started 2026/06/16 10:00 IST - Notes by Gemini", **inside
+        ),
+        _request_candidate(
+            "n4", "Meeting started 2026/07/28 10:00 IST - Notes by Gemini", **inside
+        ),
+        _request_candidate("n5", "Meeting notes 2025/12/23", **inside),
+        _request_candidate("n6", "Meeting notes 2026/03/10", **inside),
+        # No title date: created decides, then modified only when created is absent.
+        _request_candidate(
+            "n7",
+            "Board meeting notes",
+            createdTime="2026-09-10T00:00:00Z",
+            modifiedTime="2025-01-01T00:00:00Z",
+        ),
+        _request_candidate(
+            "n8",
+            "Ops meeting notes",
+            createdTime="2025-12-23T00:00:00Z",
+            modifiedTime="2026-09-20T00:00:00Z",
+        ),
+        {
+            **_request_candidate("n9", "Team meeting notes"),
+            "createdTime": None,
+            "modifiedTime": "2026-09-21T00:00:00Z",
+        },
+        _request_candidate(
+            "n10",
+            "Meeting notes 2026/09/12",
+            capabilities={"canShare": False},
+        ),
+        _request_candidate("n11", "Meeting notes", "application/vnd.google-apps.folder"),
+    ]
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+    assert {file["id"]: file["shareable"] for file in files} == {
+        "n1": True,
+        "n2": True,
+        "n7": True,
+        "n9": True,
+        # Listed for the record, never claimed: unclaimed_positions needs shareable.
+        "n10": False,
+    }
+    assert checkpoint["coverage_counts"]["excludedByDateCount"] == 5
+    # Without the autoshare precedence, either activity date matched (file activity).
+    period = checkpoint["requested_period"]
+    ops = {"name": "Ops meeting notes", "created_time": "2025-12-23T00:00:00Z"}
+    ops["modified_time"] = "2026-09-20T00:00:00Z"
+    assert search_module._in_requested_period(ops, period)
+    assert not search_module._in_requested_period(ops, period, precedence=True)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("time_intent", ["document_coverage", "file_activity"])
 async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(
