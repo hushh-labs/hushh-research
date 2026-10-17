@@ -41,11 +41,6 @@ from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 # A file whose access the owner removed, or a Stop queued for removal, leaves
 # every requester list at once: names, links and counts. Append to a WHERE
 # clause over drive_bulk_share_effects aliased "e".
-_NOT_REMOVED = """
-  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
-    WHERE removal.share_id=e.share_id AND removal.position=e.position
-      AND removal.recipient_user_id=e.recipient_user_id)"""
-
 _TERMINAL = frozenset(
     {"succeeded", "preexisting", "skipped", "failed", "present_unattributed", "absent"}
 )
@@ -3427,7 +3422,7 @@ class DriveBulkShareStore(DriveLivePreferences):
         def operation(connection):
             rows = list(
                 connection.execute(
-                    text(f"""
+                    text("""
                     SELECT DISTINCT b.* FROM drive_bulk_shares b
                     JOIN drive_bulk_share_recipients r ON r.share_id=b.share_id
                     WHERE r.recipient_user_id=:recipient
@@ -3435,7 +3430,10 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND EXISTS(SELECT 1 FROM drive_bulk_share_effects e
                         WHERE e.share_id=b.share_id
                           AND e.recipient_user_id=:recipient
-                          AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED})
+                          AND e.state IN ('succeeded','preexisting')
+  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+    WHERE removal.share_id=e.share_id AND removal.position=e.position
+      AND removal.recipient_user_id=e.recipient_user_id))
                     ORDER BY b.created_at DESC,b.share_id DESC LIMIT 20
                     """),
                     {"recipient": recipient_user_id},
@@ -3464,9 +3462,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                         raise
                     continue
                 count = connection.execute(
-                    text(f"""SELECT count(*) FROM drive_bulk_share_effects e
+                    text("""SELECT count(*) FROM drive_bulk_share_effects e
                     WHERE e.share_id=:share AND e.recipient_user_id=:recipient
-                      AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED}"""),
+                      AND e.state IN ('succeeded','preexisting')
+  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+    WHERE removal.share_id=e.share_id AND removal.position=e.position
+      AND removal.recipient_user_id=e.recipient_user_id)"""),
                     {"share": row["share_id"], "recipient": recipient_user_id},
                 ).scalar_one()
                 shares.append(
@@ -3514,9 +3515,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                 connection, origin["origin_request_id"] if origin else None
             )
             count = connection.execute(
-                text(f"""SELECT count(*) FROM drive_bulk_share_effects e
+                text("""SELECT count(*) FROM drive_bulk_share_effects e
                 WHERE e.share_id=:share AND e.recipient_user_id=:recipient
-                  AND e.state IN ('succeeded','preexisting'){_NOT_REMOVED}"""),
+                  AND e.state IN ('succeeded','preexisting')
+  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+    WHERE removal.share_id=e.share_id AND removal.position=e.position
+      AND removal.recipient_user_id=e.recipient_user_id)"""),
                 {"share": share, "recipient": recipient_user_id},
             ).scalar_one()
             if count == 0:
@@ -3534,12 +3538,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                 raise DriveSharingError("bulk_not_found")
             rows = list(
                 connection.execute(
-                    text(f"""
+                    text("""
                     SELECT f.*,e.state AS grant_state FROM drive_bulk_share_files f
                     JOIN drive_bulk_share_effects e
                       ON e.share_id=f.share_id AND e.position=f.position
                     WHERE f.share_id=:share AND e.recipient_user_id=:recipient
-                      AND e.state IN ('succeeded','preexisting') AND f.position>:after{_NOT_REMOVED}
+                      AND e.state IN ('succeeded','preexisting') AND f.position>:after
+  AND NOT EXISTS(SELECT 1 FROM drive_request_bulk_removals removal
+    WHERE removal.share_id=e.share_id AND removal.position=e.position
+      AND removal.recipient_user_id=e.recipient_user_id)
                     ORDER BY f.position LIMIT :limit
                     """),
                     {
