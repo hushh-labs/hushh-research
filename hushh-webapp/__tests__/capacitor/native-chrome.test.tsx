@@ -3124,6 +3124,20 @@ describe("native chrome presentation lease", () => {
     expect(document.activeElement?.closest("[data-native-chrome-slot]")).toBeNull();
     expect(bridge.update.mock.calls.at(-1)?.[0].enabled).toBe(false);
   });
+  it("keeps the established pane Back actionable when owned native panes are unsupported", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true });
+    const back = vi.fn();
+    const view = render(<NativeFeaturePage pane open title="Preferences" owner="owner-a" context="legacy-pane" onBack={back}>
+      <p>Established preferences</p>
+    </NativeFeaturePage>);
+    await waitFor(() => expect(view.getByRole("button", { name: "Back in Profile" })).toBeEnabled());
+    fireEvent.click(view.getByRole("button", { name: "Back in Profile" }));
+    expect(back).toHaveBeenCalledOnce();
+    expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.unmount();
+  });
   it("reveals a full-height Profile pane only after its plane and both header controls are acknowledged", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,

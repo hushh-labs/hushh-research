@@ -26,7 +26,27 @@ silently displaying their parent. Nearest navigation/phone/destination checks
 pass. The existing physical Profile batch now also enters Phone, Gemini, Voice
 and Vault methods from native parents; its former early return skipped those
 handoffs. The earlier nine-destination pass is not proof of these nested flows
-or complete native conversion. Candidate installation/acceptance is tracked below.
+or complete native conversion.
+
+**Installed Profile-first candidate:** `ad6c04cdad`, Agent One 1.4.0 (69),
+UAT-backed Debug qualification; executable SHA-256
+`820f0c88d8139d5ddc8866fcdac7a75c15eab68792978989fec7edc5de090ba7`.
+Fresh static export/typecheck, native build, signature and packaged runtime checks
+pass. The authorized install and normal reviewer unlock were separate from warm
+testing. The expanded physical batch reached Phone, Gemini, Voice and Vault
+methods, then failed a lower-menu query return with the privacy cover present.
+That failure is retained, not erased by a retry. After authored recovery without
+restarting One, the targeted Privacy/Terms return batch passed; the exact cause
+of the earlier cover is unconfirmed. The user reports transitions and touch look
+correct. Two background cycles and an observed Control Center cycle also passed
+with the warm session preserved. These are functional results, not Release
+performance, transition-frame or full accessibility qualification.
+
+The shared fallback Back now stays actionable when a wrapper cannot own native
+panes, without attempting native control admission. Its focused negative control
+fails on the broken eligibility condition; all 183 nearest chrome tests and
+focused lint pass with the correction. This fallback correction is not in the
+installed candidate above. Temporary query-return diagnostics were removed.
 
 Scope now includes protected and rich Profile bodies and linked workspaces.
 Older entries calling these deliberate retained bodies describe the installed
@@ -144,9 +164,10 @@ Founder Wiki discovery/search refreshed, but its advertised constitutional/index
 read addresses returned not-found and the scoped native search returned no page.
 No wiki article was rewritten or promoted to current implementation truth.
 
-Rollback: the dedicated foundation increment, with the existing qualification
-flag left off in ordinary builds. No new physical candidate, broad acceptance,
-cloud deployment or distribution is established by this source change. Dedicated
+Rollback: independently reversible increments, with the existing qualification
+flag left off in ordinary builds. Only the exact physical candidate and bounded
+checks identified above are established; no broad acceptance, cloud deployment
+or distribution is established. Dedicated
 disposable UAT fixtures are required for actual saves/destructive outcomes; the
 shared reviewer and real financial fulfillment remain out of scope for mutation.
 
