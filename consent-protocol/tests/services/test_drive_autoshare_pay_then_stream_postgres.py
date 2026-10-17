@@ -764,8 +764,42 @@ async def test_owner_approved_25_of_40_reaches_checkout_and_is_granted(
     assert (await flow.checkout())["checkoutUrl"]
     assert flow.access_reads == [25]
     assert flow.effect_count() == 25
-    with pytest.raises(DriveSharingError, match="payment_required"):
-        await flow.grant_all()
+    # An unpaid grant is not work (lane hygiene): due() leaves all 25 out, so
+    # nothing is granted before payment, and a direct claim defers without any
+    # durable change instead of raising payment_required.
+    assert await flow.grant_all() == 0
+    with flow.db.engine.connect() as connection:
+        effect = (
+            connection.execute(
+                text("""SELECT e.user_id,e.share_id,e.position,e.recipient_user_id
+                  FROM drive_bulk_share_effects e
+                  JOIN drive_bulk_shares b ON b.share_id=e.share_id
+                  WHERE b.origin_request_id=:request
+                  ORDER BY e.position LIMIT 1"""),
+                {"request": flow.request_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert (
+        await flow.bulk.claim(
+            user_id=effect["user_id"],
+            share_id=str(effect["share_id"]),
+            position=effect["position"],
+            recipient_user_id=effect["recipient_user_id"],
+        )
+        is None
+    )
+    with flow.db.engine.connect() as connection:
+        untouched = connection.execute(
+            text("""SELECT count(*) FROM drive_bulk_share_effects e
+              JOIN drive_bulk_shares b ON b.share_id=e.share_id
+              WHERE b.origin_request_id=:request AND e.state='queued'
+                AND e.attempts=0 AND e.lease_id IS NULL"""),
+            {"request": flow.request_id},
+        ).scalar_one()
+    assert untouched == 25
+    assert flow.shared_positions() == {}
     await flow.pay()
     assert await flow.grant_all() == 25
     assert set(flow.shared_positions()) == set(range(1, 26))

@@ -289,7 +289,19 @@ class DriveWorld:
         assert body["type"] == "user" and body["role"] == "reader", body
         assert params.get("sendNotificationEmail") == "false"
         if item["id"] in self.rejected:
-            return self._json(400, {"error": {"code": 400, "message": "Sharing refused"}})
+            # Google's own error shape. Only a readable reason makes a 400
+            # definitive: an unreadable body (or invalidSharingRequest) may
+            # follow a real share, so the adapter reconciles it instead.
+            return self._json(
+                400,
+                {
+                    "error": {
+                        "code": 400,
+                        "message": "Sharing refused",
+                        "errors": [{"reason": "badRequest", "message": "Sharing refused"}],
+                    }
+                },
+            )
         permission = {
             "id": f"p-{item['id']}-{len(self.acl[item['id']])}",
             "type": "user",
