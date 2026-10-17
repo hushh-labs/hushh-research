@@ -111,6 +111,17 @@ in-memory negative control. The source change passes 472 Back cases and
 TypeScript. A normal Refresh attempt on the previous deployed build did not
 recover the control; successful request/readiness HTTP responses alone therefore
 do not establish a usable review. No purchase was confirmed in that diagnostic.
+
+The final-main core attempt at `da6b4cdb8dec60f569c8e242ed7c37155e172622`
+stopped at the architecture-size ratchet before protocol/web stages. Independent
+review bound all 148 size occurrences to exact source, parent revisions and
+occurrence ranks: 129 replacements and 19 additions retain all 2,835 prior
+baseline entries and history. No production measurement exceeds every supplied
+parent. All 26 retained production deltas were inspected; the sole above-parent
+test growth protects initial-session retirement. The accepted debt remains
+visible under unchanged 500/250/80 budgets, scanner and exclusions. Each of the
+148 individual one-line growth controls is still rejected. This is a bounded
+debt qualification, not completed core, release or financial acceptance.
 UI behavior, core, hosted CI and governed Dev deployment remain required before
 resuming the preserved financial checkpoint.
 

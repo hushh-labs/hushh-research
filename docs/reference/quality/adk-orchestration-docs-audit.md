@@ -156,6 +156,16 @@ owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 a
 exclusions remain unchanged; CI rejects new or worsened findings. Git retains
 integration chronology. Source qualification is not deployed acceptance.
 
+The 2026-10-17 scope-commerce integration qualification records exactly 148
+size occurrences at source `da6b4cdb8dec60f569c8e242ed7c37155e172622`:
+80 incoming-main byte matches, 66 retained-parent matches, one migration union
+within its parent size and one bounded test correction. Independent review covers
+all 26 retained production deltas. All 2,835 prior occurrences and history remain;
+129 exact value changes and 19 additions produce 2,854 rows. Every individual
+one-line growth control still fails. Scanner, exclusions and budgets remain
+unchanged. The canonical commerce reference owns remaining release and financial
+acceptance; this qualification does not establish them.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.
