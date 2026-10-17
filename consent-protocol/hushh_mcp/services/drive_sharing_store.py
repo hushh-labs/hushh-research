@@ -3317,12 +3317,13 @@ class DriveSharingStore(DriveDocumentStore):
                         "buyer_disclosure": package["buyer_disclosure"],
                     }
                 )
+            allowed_private = {
+                **private,
+                "trusted_auto": True,
+                OWNER_ALLOWED_KEY: allowed_record,
+            }
             envelope = self.sharing_cipher.seal(
-                {
-                    **private,
-                    "trusted_auto": True,
-                    OWNER_ALLOWED_KEY: allowed_record,
-                },
+                allowed_private,
                 user_id=user_id,
                 resource_id=identity,
                 purpose="request",
@@ -3343,6 +3344,18 @@ class DriveSharingStore(DriveDocumentStore):
                     "amount": quoted_amount,
                 },
             )
+            if setup_code is None:
+                # The requester pays against this decision, not against the
+                # search: the order is final here and the sharing lane binds
+                # its Checkout on the next drain. An incomplete owner setup
+                # keeps the request parked until _resume_owner_setup runs.
+                from hushh_mcp.services.drive_request_payment_store import (
+                    DriveRequestPaymentStore,
+                )
+
+                DriveRequestPaymentStore.ensure_order_for_owner_allow(
+                    connection, updated, allowed_private
+                )
             self._notify_setup_changed(connection, updated)
             return {
                 **self._summary(updated),

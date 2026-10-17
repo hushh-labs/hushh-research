@@ -332,6 +332,86 @@ async def test_non_trusted_allow_fixes_owners_final_quote_before_payment(sharing
 
 
 @pytest.mark.asyncio
+async def test_owner_allow_asks_the_requester_to_pay_before_any_search(sharing, monkeypatch):
+    """Allow is the payment ask: no search job, no frozen batch, no repricing.
+
+    The owner allowed a period at their own price, so the amount is already
+    final. The requester can pay while the background search runs, and
+    delivery still waits for both.
+    """
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    created = await request(sharing)
+    identity = created["requestId"]
+    assert not rows(sharing, "drive_request_payment_orders")
+
+    allowed = await owner_allow(sharing, created, 3000)
+    assert (allowed["ownerAllowed"], allowed["amountCents"]) == (True, 3000)
+
+    row, private = stored_request(sharing, identity)
+    # Queued for the background search, which has not started and is not waited on.
+    assert row["preparation_error_code"] == "trusted_auto_queued"
+    assert row["owner_allowed_at"] is not None
+    assert not rows(sharing, "drive_owner_search_jobs")
+    assert not rows(sharing, "drive_bulk_shares")
+    # The requester's order exists now, at the owner's price.
+    orders = rows(sharing, "drive_request_payment_orders")
+    assert len(orders) == 1
+    assert (orders[0]["status"], orders[0]["amount_cents"]) == ("awaiting_payment", 3000)
+    assert (orders[0]["requester_user_id"], orders[0]["user_id"]) == ("recipient", "owner")
+    # The owner's earning claim is recorded with the order, as on approval.
+    assert len(rows(sharing, "drive_request_owner_payouts")) == 1
+    # Allow itself still emits no event: the bound Checkout tells the requester.
+    assert [event["event_type"] for event in rows(sharing, "drive_share_events")] == [
+        "document_share_request",
+        "document_share_request_sent",
+    ]
+    # A repeated tap neither reprices nor duplicates the order.
+    assert await owner_allow(sharing, created, 3000) == allowed
+    assert len(rows(sharing, "drive_request_payment_orders")) == 1
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await owner_allow(sharing, created, 2500)
+
+
+@pytest.mark.asyncio
+async def test_allow_without_owner_payout_setup_still_creates_no_order(sharing, monkeypatch):
+    """An incomplete owner setup parks the request instead of charging anyone."""
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    created = await request(sharing)
+    allowed = await owner_allow(sharing, created, 3000)
+    assert allowed["ownerPayoutAccountReady"] is False
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "owner_payout_required"
+    )
+    assert not rows(sharing, "drive_request_payment_orders")
+    assert not rows(sharing, "drive_request_owner_payouts")
+
+
+@pytest.mark.asyncio
 async def test_estimate_is_written_once_and_an_owner_price_reads_as_owner_set(sharing, monkeypatch):
     from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 
@@ -786,6 +866,9 @@ def rows(sharing, table):
         "drive_request_payment_orders",
         "drive_request_payment_obligations",
         "drive_request_payment_refunds",
+        "drive_request_owner_payouts",
+        "drive_owner_search_jobs",
+        "drive_bulk_shares",
         "one_action_directive_ledger",
     }
     with sharing.db.engine.connect() as connection:

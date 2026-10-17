@@ -235,9 +235,15 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
             checkout=SimpleNamespace(Session=SimpleNamespace(create=create_session))
         ),
     )
+    # An autoshare request the owner allowed is priced by that sealed Allow, so
+    # its order exists at the owner's price while the search still runs. Nothing
+    # else moves early: Checkout, the automatic approval and delivery all still
+    # wait for the owner's exact approval of these unverified candidates.
+    pay_on_allow = authority == "owner_allowed"
+    orders_before_approval = 1 if pay_on_allow else 0
     assert (await payment.payment_state(requester_user_id="recipient", request_id=request_id))[
         "status"
-    ] == "preparing"
+    ] == ("awaiting_payment" if pay_on_allow else "preparing")
     with pytest.raises(DriveSharingError, match="payment_not_ready"):
         await payment.ensure_payment_for_frozen_batch("owner", request_id, review["shareId"])
     with pytest.raises(DriveSharingError, match="payment_not_ready"):
@@ -257,7 +263,7 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
                 text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
                 {"request": request_id},
             ).scalar_one()
-            == 0
+            == orders_before_approval
         )
         assert (
             connection.execute(

@@ -44,6 +44,22 @@ _START_INTERVAL = 0.18  # <= roughly five effects/second before provider backoff
 _REFRESH_JOIN_DELAYS = (0.2, 0.4, 0.8)
 logger = drive_logger("drive_bulk_share")
 
+# Every other result of one share effect is counted as "unavailable" and, as of
+# the line that logs it, is never silent.
+KNOWN_EFFECT_OUTCOMES = frozenset(
+    {
+        "succeeded",
+        "preexisting",
+        "queued",
+        "unknown",
+        "failed",
+        "skipped",
+        "present_unattributed",
+        "absent",
+        "not_claimed",
+    }
+)
+
 
 def _refresh_pending(error: BaseException) -> bool:
     return (
@@ -506,24 +522,24 @@ class DriveBulkShareWorker:
                     outcome = await self._effect(row, v1_only=v1_only)
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as error:
+                    # Without this line an unavailable job has no record of
+                    # why, and a stuck backlog cannot be read from logs at
+                    # all. The exception type only, like effect_failure above:
+                    # the logger's own drive_op and request_tag correlate it,
+                    # and ids are redacted from these lines by policy.
+                    logger.warning(
+                        "drive_bulk_share.effect_unavailable reason=exception error=%s",
+                        type(error).__name__,
+                    )
                     outcome = "unavailable"
-                counts[
-                    outcome
-                    if outcome
-                    in {
-                        "succeeded",
-                        "preexisting",
-                        "queued",
-                        "unknown",
-                        "failed",
-                        "skipped",
-                        "present_unattributed",
-                        "absent",
-                        "not_claimed",
-                    }
-                    else "unavailable"
-                ] += 1
+                else:
+                    if outcome not in KNOWN_EFFECT_OUTCOMES:
+                        logger.warning(
+                            "drive_bulk_share.effect_unavailable reason=unclassified outcome=%s",
+                            outcome,
+                        )
+                counts[outcome if outcome in KNOWN_EFFECT_OUTCOMES else "unavailable"] += 1
 
         async def run_notice(row):
             try:

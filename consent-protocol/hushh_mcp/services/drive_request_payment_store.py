@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_owner_allowed import (
     DEFAULT_PRICE_CENTS,
+    autoshare_owner_allow_authority,
     owner_allowed_price_cents,
     request_has_document_scope,
     valid_owner_price_cents,
@@ -223,7 +224,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                         AND r.status IN ('pending','approved','partial')
                         AND r.expires_at>clock_timestamp()
                         AND r.access_stop_requested_at IS NULL
-                        AND (r.status IN ('approved','partial') OR EXISTS (
+                        AND (r.status IN ('approved','partial')
+                          OR (r.owner_allowed_at IS NOT NULL
+                            AND r.agent_package_required IS NOT TRUE)
+                          OR EXISTS (
                           SELECT 1 FROM drive_bulk_shares b
                           JOIN drive_bulk_share_recipients recipient
                             ON recipient.share_id=b.share_id
@@ -437,6 +441,61 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             resource_id=str(request["request_id"]),
             purpose="request",
         )
+        amount_cents = _order_amount_cents(request, private)
+        inserted = connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode,settlement_method)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode,:settlement_method)
+              ON CONFLICT (request_id) DO NOTHING"""),
+            {
+                "request": request["request_id"],
+                "owner": request["user_id"],
+                "requester": request["recipient_user_id"],
+                "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
+                "settlement_method": request.get("settlement_method", "stripe_transfer"),
+            },
+        )
+        if inserted.rowcount == 1:
+            _record_new_owner_payout(
+                connection,
+                request_id=str(request["request_id"]),
+                owner_user_id=request["user_id"],
+                amount_cents=amount_cents,
+                quoted_request=request.get("quoted_amount_cents") is not None,
+                settlement_method=request.get("settlement_method", "stripe_transfer"),
+            )
+        order = (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request["request_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        return bool(order and order["status"] in {"awaiting_payment", "checkout_open"})
+
+    @classmethod
+    def ensure_order_for_owner_allow(cls, connection, request, private) -> bool:
+        """Create the requester payment order inside the owner's Allow transaction.
+
+        The owner allowed a period at their own price, so the amount is already
+        final and the requester can pay while the background search still runs.
+        Delivery keeps every gate it had: the permission worker shares nothing
+        until Stripe confirms payment, the period still bounds the search, and
+        a request that finds nothing is refunded in full.
+        """
+        if request["payment_required"] is not True:
+            return False
+        if not autoshare_owner_allow_authority(private):
+            return False
+        if (
+            request["status"] != "pending"
+            or request["expires_at"] <= datetime.now(UTC)
+            or request["access_stop_requested_at"] is not None
+            or not request_has_document_scope(private)
+        ):
+            return False
         amount_cents = _order_amount_cents(request, private)
         inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
@@ -689,6 +748,15 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                         # reclassifying previously settled charges or refunds.
                         order is not None
                         and order["status"] in {"paid", "refunded"}
+                        # An autoshare Allow is payment authority by itself:
+                        # it priced the period, so no frozen batch is required.
+                        # Only the plaintext hint can withdraw it: a disconnect
+                        # clears owner_allowed_at and ends the Allow for good,
+                        # so never read as payable after that.
+                        or (
+                            autoshare_owner_allow_authority(private)
+                            and request.get("owner_allowed_at") is not None
+                        )
                         or not request_requires_owner_review(
                             connection,
                             user_id=request["user_id"],
@@ -716,11 +784,24 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 and private.get("trusted_auto") is True
                 and not package_required
                 and request["status"] == "pending"
-                and not request_requires_owner_review(
-                    connection,
-                    user_id=request["user_id"],
-                    request_id=request["request_id"],
-                    revision=request["revision"],
+                and (
+                    # The same authority as `approved` above: an autoshare Allow
+                    # keeps the automatic lane, whose Checkout reads the frozen
+                    # unapproved batches this flow produces, because the manual
+                    # lane demands owner-approved ones it never writes. An exact
+                    # owner approval of this request reverses that: its batch is
+                    # approved, so the automatic lane can no longer read it and
+                    # the owner's own selection is what Checkout must charge for.
+                    (
+                        autoshare_owner_allow_authority(private)
+                        and not self.owner_approved_progressive_batch(connection, request)
+                    )
+                    or not request_requires_owner_review(
+                        connection,
+                        user_id=request["user_id"],
+                        request_id=request["request_id"],
+                        revision=request["revision"],
+                    )
                 )
             )
             disclosure = (

@@ -2762,6 +2762,39 @@ async def test_checkout_candidates_exclude_pending_without_approved_or_frozen_ba
 
 
 @pytest.mark.asyncio
+async def test_checkout_candidates_include_a_pending_request_the_owner_allowed(sharing):
+    """The owner's Allow is payment authority: the lane claims it before any batch."""
+    waiting = (await request(sharing))["requestId"]
+    allowed = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        for request_id in (waiting, allowed):
+            connection.execute(
+                text("""UPDATE drive_share_requests SET payment_required=TRUE
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders
+                  (stripe_mode,request_id,user_id,requester_user_id)
+                  VALUES ('test',:request,'owner','recipient')"""),
+                {"request": request_id},
+            )
+    _owner_allow(sharing, allowed, amount_cents=3000)
+
+    store = DriveRequestPaymentStore(db=sharing.db)
+    assert [row["request_id"] for row in await store.due_checkout_orders(limit=4)] == [allowed]
+
+    # A package Allow binds an exact digest and keeps its own review lane.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET agent_package_required=TRUE
+              WHERE request_id=:request"""),
+            {"request": allowed},
+        )
+    assert await store.due_checkout_orders(limit=4) == []
+
+
+@pytest.mark.asyncio
 async def test_owner_allowed_request_pays_the_owner_price_without_trusted_membership(
     request_bulk, sharing, monkeypatch
 ):
