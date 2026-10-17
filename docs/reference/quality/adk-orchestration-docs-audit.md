@@ -6,21 +6,22 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Trust and execution boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-16 UTC
+## Decision — 2026-10-17 UTC
 
 **Continue dev qualification; hold the application merge and production rollout.**
 The exact CI-green application is deployed. The personal Azure owner approved and
 installed Dev 21 through Settings. Installed digest, recovery, normal chat,
 retained Files bytes, Puppy streaming/Stop and Feed completion pass. This resolves
-the old-image normal-chat refusal. Cold latency, Shared Files owner acceptance,
-connectors and complete disposable account cleanup remain release gates.
+the old-image normal-chat refusal. Shared Files transfer, consented analysis and
+reversible management now pass; live Move repair, cold latency, connectors and
+complete disposable cleanup remain release gates.
 Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabled.
 
 ## Source and serving evidence
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Application | `0a2d74788106`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38969702749) and canonical local core pass | No new broad main/ADK intake; ADK frozen at `2462c0bc6f`. Concurrent edits preserved |
+| Application | `0a2d74788106`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38969702749) and canonical local core pass | This is serving evidence. Fresh local integration and the Files Move repair are not deployed; concurrent edits are preserved |
 | Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38973405242) succeeded. ADC readback at 22:25 UTC: backend `00175-tq8` / digest `52aa3a2130ed`; frontend `00148-t26` / `2991a17d7bb8`; both source `0a2d74788106`, 100% traffic | GitHub governs; Cloud Build builds. Workflow runs from main `24ff3e886025`; application stays unmerged |
 | Schema / rollback | Minimum schema passes; dev 959–963 applied, no blocking journal/checksum findings; history cleanup 249 deferred. Application rollback: backend `00174-f5s`, frontend `00147-h45` | SQL no-op rollback is not information recovery; no destructive cutover performed |
 | Pod release | `2026.10-dev.21+c13b3899ba37.72b049df`, immutable `sha256:72b049dfdbc27801d8f2e8e6bc68808559eae6b65ec3bded65f8057c842b001b`; image source `c13b3899ba37` | Reuses the qualified executable, not a rebuild from the metadata commit. Archive generation `1792188787518981`; only exact `fa018342…374d2` is admitted as predecessor |
@@ -42,7 +43,7 @@ parity and landed-SHA smoke verified. Neither grants application promotion.
 | Puppy | Existing Hermes identity/grant reconnects after update. Real local Gemma response streams; Stop returns HTTP 200 `stopped`; next response completes in 8.176 s, first text 8.027 s. No cloud fallback | First postrestart response took 67.133 s; local inference first content took 54.916 s. After a verified zero-instance wake, Puppy reconnects and completes another response in 28.923 s from turn start. Fresh owner withdrawal returns pod `revoked: true`; new binding is refused with 403 `PUPPY_OWNER_APPROVAL_REQUIRED`; re-enable preserves the same device and completes another response in 29.813 s. Independent phone/Mac internet remains unverified; reduced-motion emulation let the occluded owner pane mount, so this is functional rather than visual acceptance |
 | Restart continuation | New installed image includes sealed private command/MCP recovery; Files jobs and updates retain their existing durable owners | Source/recovery tests do not prove every live connector/command continuation. Current admission and exact review remain necessary; uncertain effects cannot be blindly replayed |
 | AI / setup | Provider-aware Shared/GCP/Azure defaults, encrypted Azure custom keys, public-destination validation, quota preflight, billing recovery and durable setup retry are implemented and serving | Live custom-key/default responses, missing-billing return and fresh native sign-in on both platforms remain acceptance rows. Cloud readiness cannot imply available model quota |
-| Shared Files | Browser encryption, bounded ciphertext transfers, immutable revisions, independent owner/vault fencing and conditional recovery. Isolated GCS transfer/race/cleanup checks pass; migration 959 is applied | Effective dev activation, native runtime access, bucket incarnation/privacy/retention and custody now pass read-only preflight. An enabled unused provider test-phone channel is verified; normal-owner API/selected-analysis acceptance remains unperformed. No standing Shared decryption grant or unattended private analysis |
+| Shared Files | Same disposable owner selected Shared and managed AI, created its vault normally, then cold-unlocked the same library. Interrupted/resumed 4,195,328-byte upload and byte-exact download pass; first chunk written once. Folder creation, inline rename/undo, trash/restore, warm-route vault continuity and explicit selected-file analysis pass; original bytes remain intact and Shared automatic organization stays unavailable | Move is blocked by a reproduced menu-to-dialog focus race. The modal repair passes focused Chromium/WebKit cases; old-source negative control fails. Live repaired Move and product cleanup pending. Phone setup used a separately declared official Firebase configured-number fixture with signed proof and verified temporary-identity cleanup; ordinary CAPTCHA/SMS/legal UX is **not** passed. Original failed attempts and memory-only recovery are retained |
 | Account/cloud cleanup | Journal-bound owner review, uncertainty fencing, fresh Azure authority and retained retry custody compose. Focused PostgreSQL/UI checks and exact-SHA hosted CI pass | Complete disposable dev erasure, retained-object reconciliation and provider absence still required. Unknown revocation cannot appear successful; personal accounts were not deleted |
 | Existing users | Explicit Shared choice and evidenced legacy cohort; assigned/pending/unresolved pods cannot silently become Shared. Existing-user changelog excludes new users | Environment-specific cohort/schema graduation and reviewed changelog content require UAT/production readback |
 | Computer Use / scheduling | Responsive local preview/takeover/handback, owner fencing and metadata-only recovery tested. Files-only scheduling/outbox preserved | Native GCP identity/bridge and Azure execution/privacy gates remain closed. Azure due-time delivery, general goals and scheduled browser work unavailable |

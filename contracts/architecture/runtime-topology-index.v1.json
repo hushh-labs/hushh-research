@@ -1289,6 +1289,20 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "email_auth_policy_state",
+        "email_auth_domain_decisions",
+        "email_auth_budgets",
+        "email_auth_enrollments",
+        "email_auth_challenges"
+      ],
+      "id": "independent_email_auth",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Public browser-bound OTP request/verify and authenticated hushh-mail-api delivery worker. Firebase remains identity authority."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "marketplace_recipient_keys",
         "marketplace_delivery_envelopes"
       ],
@@ -1592,6 +1606,7 @@
         "one_referral_attributions",
         "one_referral_circle_contributions",
         "one_referral_circle_selections",
+        "one_referral_circle_teams",
         "one_referral_codes",
         "one_referral_display_handles",
         "one_referral_events",
@@ -6911,15 +6926,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
-    "action_gateway": "d58a4d84e11d1d1a42e10e4b2f8aa2f0a5622c5ed16921b82cec1ea9a5ccac78",
-    "agent_registry": "9c4b60735a6af27c783062ba1a2dca46da91d0c70dd3f72a8f2f97e23d58be0b",
+    "action_gateway": "cf162cee8f63451d49abe2c9547f967d876a17e8d8a901bbebf13f377521385c",
+    "agent_registry": "e4d95c09d732c8b299b495de89c1d31ae540466d2c2eba660c31889b35eccd47",
     "cache_manifest": "e0571b6c4ad7d73af8db63d90ae574a65b107f7c62951bbadf43998d3a199617",
-    "data_plane": "6505667c81bbaa08edb09d7fb78975dd8388141f45577280a0777856807a82e5",
+    "data_plane": "70b464a189e54bd783f2746d387f167854a4b67d1c4554e24f6ac013f5d45cf8",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "782c6ca0531a1be424a7ecc2d96a77b7e1e0f2f58aa23afd804272ca77733d79",
-    "route_layout": "aa36c83a28876c28bf0515c2e4e8a898a428b79c0bb7fbb36529c8ac5f146697",
-    "surface_map": "de21e203feac48d85fedf1d1bc7e0b527fb6807c97a58390ab6ac849791ad735",
+    "route_index": "deb76ae05f6f2f20aea52e2233d59d391ed20cd03279b960b3245a39b8eff559",
+    "route_layout": "82d36a5a9a6230e238e73384dee575ca140b6187a36d843022682f1caf2b9a80",
+    "surface_map": "50c51e2dc723a4662397fc459c4705eff33a5d6ba7a9572662d0c4bb36048488",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -6933,6 +6948,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 120
+    "table_families": 121
   }
 }

@@ -1944,7 +1944,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.files",
-        "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+        "purpose": "Manage the owner’s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
         "screen": "one_files",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -1959,7 +1959,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "File changes complete only after the owner-bound pod confirms the matching operation; destructive changes require explicit confirmation.",
+        "completion_boundary": "File changes complete only after the owner-authorized library confirms the matching operation; destructive changes require explicit confirmation.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally without inventing a control."

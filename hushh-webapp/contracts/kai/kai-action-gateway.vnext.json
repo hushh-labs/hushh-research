@@ -254,7 +254,7 @@
           ],
           "hidden_navigable": false,
           "navigation_prerequisites": [
-            "signed-in owner; library access requires an unlocked vault and admitted Files-capable owner pod"
+            "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
           ]
         }
       },
@@ -4064,7 +4064,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "signed-in owner; library access requires an unlocked vault and admitted Files-capable owner pod"
+          "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
         ],
         "active_personas": [],
         "requires_persona_switch_confirmation": false

@@ -134,6 +134,8 @@ export default defineConfig({
         /one-location-duration-dialog\.layout\.spec\.ts/,
         /agent-new-chat\.layout\.spec\.ts/,
         /todo-agent-feed\.spec\.ts/,
+        // Files menus hand focus to the move picker on touch and desktop.
+        /files-explorer\.layout\.spec\.ts/,
         /initial-contacts-welcome\.layout\.spec\.ts/,
         /circle-invite-picker\.layout\.spec\.ts/,
         /one-location-checkin-card\.layout\.spec\.ts/,

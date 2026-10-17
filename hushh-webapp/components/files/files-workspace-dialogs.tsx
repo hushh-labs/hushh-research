@@ -33,6 +33,7 @@ export function FilesMoveDialog({
 }) {
   return (
     <Dialog
+      modal
       open={edit?.operation === "move"}
       onOpenChange={(open) => {
         if (!open && !busy) onCancel();
