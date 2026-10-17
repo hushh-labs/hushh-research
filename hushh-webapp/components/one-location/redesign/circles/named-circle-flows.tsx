@@ -1633,7 +1633,6 @@ export function CircleDetailFlow({
   const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleSubmitting, setPeopleSubmitting] = useState(false);
-  const [quickAddingUserId, setQuickAddingUserId] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
     null,
@@ -1644,6 +1643,7 @@ export function CircleDetailFlow({
   const lastMemberSearchRef = useRef({ circleId, currentUserId, sessionScope, query: memberSearch, loader: onLoadMembersPage });
   const peopleRequestRef = useRef(0);
   const peopleSubmitInFlightRef = useRef(false);
+  const peopleMutationScopeRef = useRef({});
   const cancelInviteInFlightRef = useRef(false);
   const renameDraftRef = useRef({ open: false, dirty: false });
   const renameInFlightRef = useRef(false);
@@ -1738,6 +1738,9 @@ export function CircleDetailFlow({
   };
 
   useEffect(() => {
+    peopleMutationScopeRef.current = {};
+    peopleSubmitInFlightRef.current = false;
+    setPeopleSubmitting(false);
     setCircle(null);
     setMemberRows([]);
     setMembersLoaded(false);
@@ -1760,6 +1763,7 @@ export function CircleDetailFlow({
     // Reset on selection, owner or unlock changes. Unrelated page refreshes
     // must not refetch the focused detail.
     return () => {
+      peopleMutationScopeRef.current = {};
       loadRequestRef.current += 1;
       memberRequestRef.current += 1;
       peopleRequestRef.current += 1;
@@ -2032,6 +2036,13 @@ export function CircleDetailFlow({
       const authoritative = authoritativeResult ?? result;
       setPendingInvites(authoritative.pendingInvites);
       setRemainingCapacity(authoritative.remainingCapacity);
+      // A partial page cannot invalidate an off-page connection, but its
+      // authoritative capacity still bounds the batch the button promises.
+      if (onLoadEligibleConnectionsPage && !authoritativeResult) {
+        setSelectedConnections((current) => new Map(
+          [...current].slice(0, circleInviteSelectionLimit(authoritative.remainingCapacity)),
+        ));
+      }
       const pagedResult = onLoadEligibleConnectionsPage
         ? (result as OneLocationCircleEligibleConnectionsPage)
         : null;
@@ -2109,7 +2120,7 @@ export function CircleDetailFlow({
     void loadEligibleConnections({
       page: 1,
       query: peopleSheetOpen || livingCircleExperience ? peopleSearch : "",
-      reconcileSelections: peopleSheetOpen,
+      reconcileSelections: peopleSheetOpen || livingCircleExperience,
     });
     // This effect is signal-driven. Capturing the current loader is intended;
     // depending on its render-local identity would refetch on every render.
@@ -2145,10 +2156,12 @@ export function CircleDetailFlow({
       selectionLimit,
     );
     if (!inviteeUserIds.length) return;
+    const scope = peopleMutationScopeRef.current;
     peopleSubmitInFlightRef.current = true;
     setPeopleSubmitting(true);
     try {
       await onInviteConnections(circle.id, inviteeUserIds);
+      if (scope !== peopleMutationScopeRef.current) return;
       toast.success(
         inviteeUserIds.length === 1
           ? "Added to the Circle."
@@ -2163,10 +2176,12 @@ export function CircleDetailFlow({
       setPeopleSearch("");
       setPeopleSheetOpen(false);
       await reload();
+      if (scope !== peopleMutationScopeRef.current) return;
       if (livingCircleExperience) {
         await loadEligibleConnections({ page: 1, query: "" });
       }
     } catch (error) {
+      if (scope !== peopleMutationScopeRef.current) return;
       toast.error(circleFlowErrorMessage(error, "Could not add them."));
       // A capacity/eligibility conflict means this selected set is no longer
       // authoritative. Clear it before the bounded page refresh; intersecting
@@ -2176,6 +2191,7 @@ export function CircleDetailFlow({
       // Reconcile against the server before another tap so stale selections
       // are trimmed rather than repeatedly submitting a known conflict.
       const refreshedCircle = await reload();
+      if (scope !== peopleMutationScopeRef.current) return;
       const stillCanInvite =
         refreshedCircle?.viewerCapabilities?.canInviteMembers ??
         refreshedCircle?.role === "owner";
@@ -2185,37 +2201,65 @@ export function CircleDetailFlow({
         setPeopleSheetOpen(false);
       }
     } finally {
-      peopleSubmitInFlightRef.current = false;
-      setPeopleSubmitting(false);
+      if (scope === peopleMutationScopeRef.current) {
+        peopleSubmitInFlightRef.current = false;
+        setPeopleSubmitting(false);
+      }
     }
   };
 
-  const quickAddConnection = async (userId: string) => {
+  const toggleInlineConnection = (userId: string) => {
+    if (!canInviteMembers || peopleSubmitInFlightRef.current) return;
+    const person = eligibleConnections.find((candidate) => candidate.userId === userId);
+    if (!person) return;
+    setSelectedConnections((current) => {
+      const next = new Map(current);
+      if (next.has(userId)) next.delete(userId);
+      else if (next.size < selectionLimit) next.set(userId, person);
+      return next;
+    });
+  };
+
+  const addInlineConnections = async () => {
     if (
       !circle ||
       !canInviteMembers ||
-      remainingCapacity <= 0 ||
       peopleSubmitInFlightRef.current ||
-      !eligibleConnections.some((person) => person.userId === userId)
+      peopleLoadError ||
+      !selectedConnections.size
     ) {
       return;
     }
+    const userIds = [...selectedConnections.keys()];
+    if (!userIds.length || userIds.length > selectionLimit) return;
+    const scope = peopleMutationScopeRef.current;
     peopleSubmitInFlightRef.current = true;
-    setQuickAddingUserId(userId);
+    setPeopleSubmitting(true);
     try {
-      try {
-        await onInviteConnections(circle.id, [userId]);
-      } catch (error) {
-        toast.error(circleFlowErrorMessage(error, "Could not add this person."));
-      }
-      // Both success and a stale-capacity rejection need fresh membership and
-      // eligibility. A refresh error must not claim a successful add failed.
-      await reload();
-      await loadEligibleConnections({ page: 1, query: peopleSearch });
+      // Selection is local and instant, like SMS Circle. Membership continues
+      // to come exclusively from the existing atomic batch mutation and reads.
+      await onInviteConnections(circle.id, userIds);
+      if (scope !== peopleMutationScopeRef.current) return;
+      toast.success("Circle members updated.");
+      peopleRequestRef.current += 1;
+      setSelectedConnections(new Map());
+      setEligibleConnections((current) => current.filter((person) => !userIds.includes(person.userId)));
+    } catch (error) {
+      if (scope !== peopleMutationScopeRef.current) return;
+      toast.error(circleFlowErrorMessage(error, "Could not add them."));
+      // Keep valid choices for retry; the full eligibility read below removes
+      // connections or capacity that changed while this batch was saving.
     } finally {
-      peopleSubmitInFlightRef.current = false;
-      setQuickAddingUserId(null);
+      if (scope === peopleMutationScopeRef.current) {
+        peopleSubmitInFlightRef.current = false;
+        setPeopleSubmitting(false);
+      }
     }
+    if (scope !== peopleMutationScopeRef.current) return;
+    // Roster and eligibility reconcile together, without locking selection or
+    // replacing warm candidates with a loading screen during push refreshes.
+    void reload();
+    void loadEligibleConnections({ page: 1, query: peopleSearch, reconcileSelections: true });
   };
 
   const cancelMemberInvite = async (inviteId: string) => {
@@ -2444,8 +2488,10 @@ export function CircleDetailFlow({
               remainingCapacity={remainingCapacity}
               loading={peopleLoading}
               error={peopleLoadError}
-              addingUserId={quickAddingUserId}
-              onAdd={(userId) => void quickAddConnection(userId)}
+              selectedUserIds={new Set(selectedConnections.keys())}
+              submitting={peopleSubmitting}
+              onAdd={toggleInlineConnection}
+              onSubmit={() => void addInlineConnections()}
               onRemove={isOwner ? (userId) => void removeMember(userId) : undefined}
               searchQuery={peopleSearch}
               onSearchChange={setPeopleSearch}
