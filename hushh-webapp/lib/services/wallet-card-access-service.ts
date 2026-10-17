@@ -35,7 +35,11 @@ export type CardAccessView = {
   };
 };
 export class CardAccessUnavailableError extends Error {
-  constructor() { super("Card sharing is temporarily unavailable."); }
+  readonly readinessUnavailable: boolean;
+  constructor(readonly code = "WALLET_CARD_ACCESS_UNAVAILABLE") {
+    super("Card sharing is temporarily unavailable.");
+    this.readinessUnavailable = ["WALLET_CARD_ACCESS_DISABLED", "WALLET_CARD_ACCESS_NOT_READY"].includes(code);
+  }
 }
 const root = "/api/one/wallet/card-access";
 export const cardAccessReference = (content: string): string | null =>
@@ -47,10 +51,13 @@ async function request<T>(idToken: string, path: string, method = "GET", body?: 
     headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json", ...(vaultOwnerToken ? { "X-Hushh-Consent": vaultOwnerToken } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (response.status === 503) throw new CardAccessUnavailableError();
   if (!response.ok) {
     const error = await response.json().catch(() => null);
     const code = error?.detail?.code;
+    if (response.status === 503) {
+      const reason = ["WALLET_CARD_ACCESS_DISABLED", "WALLET_CARD_ACCESS_NOT_READY"].includes(code) ? code : undefined;
+      throw new CardAccessUnavailableError(reason);
+    }
     if (["WALLET_CARD_REQUEST_PENDING", "WALLET_CARD_REQUEST_CLOSED", "WALLET_CARD_REQUEST_NOT_FOUND"].includes(code)) throw new CardRequestStateError(code);
     throw new Error("Card access is unavailable. Please try again.");
   }

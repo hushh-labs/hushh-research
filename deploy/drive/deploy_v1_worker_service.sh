@@ -19,6 +19,11 @@ CLOUDSQL_INSTANCE="${CLOUDSQL_INSTANCE:?Cloud SQL instance required}"
 RELEASE_RUN_ID="${RELEASE_RUN_ID:?release run id required}"
 SNAPSHOT_PATH="${SNAPSHOT_PATH:?persistent V1 scheduler snapshot path required}"
 PREVIOUS_REVISION_PATH="${PREVIOUS_REVISION_PATH:?persistent V1 revision path required}"
+DRIVE_WORK_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED:-true}"
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" != true && "${DRIVE_WORK_DRAIN_ENABLED}" != false ]]; then
+  echo "V1 background processing must be true or false" >&2
+  exit 1
+fi
 
 if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ \
   || ! "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ \
@@ -82,6 +87,18 @@ trap rollback EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# A paused release requires an existing, reviewed paused lane. Attest it before
+# any deployment and preserve it through promotion; never create or resume work.
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
+  if [[ "${service_exists}" != true ]]; then
+    echo "A paused V1 release requires an existing worker" >&2
+    exit 1
+  fi
+  python3 deploy/drive/v1_scheduler_state.py capture-paused --snapshot "${SNAPSHOT_PATH}"
+  python3 deploy/drive/v1_scheduler_state.py verify-paused --snapshot "${SNAPSHOT_PATH}"
+  snapshot_captured=true
+fi
+
 payment_secret_bindings=""
 stripe_secret_ready=true
 for payment_secret in "${STRIPE_UAT_KEY_SECRET}" "${STRIPE_UAT_WEBHOOK_SECRET}" APP_FRONTEND_ORIGIN; do
@@ -124,7 +141,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|STRIPE_MODE=${STRIPE_UAT_MODE}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORKER_V1_ONLY=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|STRIPE_MODE=${STRIPE_UAT_MODE}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORKER_V1_ONLY=true|DRIVE_WORK_DRAIN_ENABLED=${DRIVE_WORK_DRAIN_ENABLED}|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=BACKEND_RUNTIME_CONFIG_JSON:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
@@ -143,16 +160,27 @@ gcloud run revisions describe "${candidate_revision}" \
   | EXPECTED_SHA="${DEPLOY_SHA}" EXPECTED_APP_IMAGE="${IMAGE_REFERENCE}" \
     EXPECTED_SCANNER_INDEX_DIGEST="${CLAMAV_IMAGE#*@}" \
     EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
+    EXPECTED_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED}" \
     python3 deploy/drive/verify_v1_worker_revision.py
 
-python3 deploy/drive/v1_scheduler_state.py capture --snapshot "${SNAPSHOT_PATH}"
-snapshot_captured=true
-gcloud run services add-iam-policy-binding "${SERVICE}" \
+if [[ "${snapshot_captured}" != true ]]; then
+  python3 deploy/drive/v1_scheduler_state.py capture --snapshot "${SNAPSHOT_PATH}"
+  snapshot_captured=true
+fi
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == true ]]; then
+  gcloud run services add-iam-policy-binding "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --member="serviceAccount:${SCHEDULER_ID}" --role=roles/run.invoker --quiet >/dev/null
+fi
 gcloud run services update-traffic "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --to-revisions="${candidate_revision}=100" --quiet >/dev/null
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
+  python3 deploy/drive/v1_scheduler_state.py verify-paused --snapshot "${SNAPSHOT_PATH}"
+  trap - EXIT INT TERM
+  echo "Verified isolated V1 worker ${candidate_revision}, SHA ${DEPLOY_SHA}; background processing paused"
+  exit 0
+fi
 python3 deploy/drive/v1_scheduler_state.py apply
 
 triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

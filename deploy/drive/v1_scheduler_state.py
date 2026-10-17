@@ -199,11 +199,23 @@ def _quarantine() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "mode", choices=("capture", "apply", "verify", "restore", "quarantine")
+        "mode",
+        choices=(
+            "capture",
+            "capture-paused",
+            "apply",
+            "verify",
+            "verify-paused",
+            "restore",
+            "quarantine",
+        ),
     )
     parser.add_argument("--snapshot", type=Path)
     args = parser.parse_args()
-    if args.mode in {"capture", "restore"} and args.snapshot is None:
+    if (
+        args.mode in {"capture", "capture-paused", "restore", "verify-paused"}
+        and args.snapshot is None
+    ):
         parser.error("--snapshot is required")
     try:
         if args.mode == "quarantine":
@@ -211,13 +223,26 @@ def main() -> int:
             return 0
         origin = _origin()
         current = _state(_describe(), origin)
-        if args.mode == "capture":
+        if args.mode in {"capture", "capture-paused"}:
+            if args.mode == "capture-paused" and current != {
+                "origin": origin,
+                "state": "PAUSED",
+            }:
+                raise V1SchedulerError("V1 paused release requires a paused baseline")
             args.snapshot.write_text(
                 json.dumps(
                     {"schema": "drive.v1.scheduler.v1", "job": current}, sort_keys=True
                 ),
                 encoding="utf-8",
             )
+        elif args.mode == "verify-paused":
+            snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
+            if (
+                snapshot.get("schema") != "drive.v1.scheduler.v1"
+                or snapshot.get("job") != {"origin": origin, "state": "PAUSED"}
+                or current != snapshot["job"]
+            ):
+                raise V1SchedulerError("V1 paused scheduler baseline changed")
         elif args.mode == "apply":
             _set_job(origin)
             applied = _state(_describe(), origin)
@@ -249,6 +274,8 @@ def main() -> int:
                 raise V1SchedulerError(
                     "V1 scheduler snapshot is outside the UAT boundary"
                 )
+            if current == before:
+                return 0
             if before is None:
                 if current is not None:
                     _run(

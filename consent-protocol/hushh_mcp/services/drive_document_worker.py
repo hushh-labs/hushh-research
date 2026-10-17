@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections import Counter
 
 from sqlalchemy import text
@@ -34,15 +35,19 @@ _OUTCOMES = frozenset(
 _PROGRESS = frozenset({"ready", "queued", "unchanged", "unsupported"})
 
 
+def _agent_packages_enabled() -> bool:
+    return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+
+
 class DriveDocumentWorker:
     def __init__(self, service=None, *, collection_sync=None, packet_worker=None):
         self.service = service or DriveIngestionService(processor=LocalDocumentProcessor())
-        if service is None and collection_sync is None:
+        if service is None and collection_sync is None and _agent_packages_enabled():
             from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
 
             collection_sync = DriveCollectionSync()
         self.collection_sync = collection_sync
-        if service is None and packet_worker is None:
+        if service is None and packet_worker is None and _agent_packages_enabled():
             from hushh_mcp.services.drive_packet_worker import DrivePacketWorker
 
             async def defer_wake(_stage):
@@ -57,6 +62,7 @@ class DriveDocumentWorker:
             cohort = connector_feature_owner_cohort("drive_document_indexing")
             if cohort == ():
                 return []
+            packages_enabled = _agent_packages_enabled()
             return list(
                 connection.execute(
                     text("""
@@ -68,6 +74,7 @@ class DriveDocumentWorker:
                       AND c.connection_generation=d.connection_generation
                   WHERE c.status='connected' AND c.validation_state='verified'
                     AND (:all_owners OR d.user_id=ANY(CAST(:owners AS text[])))
+                    AND (:packages_enabled OR d.source_profile='selected')
                     AND d.processing_enabled AND (d.processing_disclosure_version=:disclosure
                       OR (d.source_profile='live' AND d.processing_disclosure_version='live-drive-collection-v1'))
                     AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
@@ -85,6 +92,7 @@ class DriveDocumentWorker:
                       AND c.connection_generation=e.connection_generation
                   WHERE c.status='connected' AND c.validation_state='verified'
                     AND (:all_owners OR e.user_id=ANY(CAST(:owners AS text[])))
+                    AND :packages_enabled
                     AND e.extraction_profile<>:extraction_profile
                     AND d.user_id=e.user_id AND d.connection_generation=e.connection_generation
                     AND d.source_profile='live' AND d.processing_enabled
@@ -112,6 +120,7 @@ class DriveDocumentWorker:
                         "disclosure": PROCESSING_DISCLOSURE_VERSION,
                         "extraction_profile": EXTRACTION_PROFILE,
                         "reserve_profile_upgrade": reserve_profile_upgrade,
+                        "packages_enabled": packages_enabled,
                         "limit": limit,
                         "all_owners": cohort is None,
                         "owners": list(cohort or ()),
@@ -129,13 +138,22 @@ class DriveDocumentWorker:
             or not 1 <= deadline_seconds <= 540
         ):
             raise ValueError("invalid worker bounds")
-        if self.packet_worker is not None:
+        if connector_feature_owner_cohort("drive_document_indexing") == ():
+            return {"schema_version": "drive.worker.v1", "outcomes": {"disabled": 1}}
+        packages_enabled = _agent_packages_enabled()
+        if packages_enabled and self.packet_worker is not None:
             deadline_seconds = min(deadline_seconds, 160)
         counts: Counter = Counter()
         # Extraction and discovery keep the split of max_jobs they always had.
-        reserved = max(2, max_jobs // 3) if self.packet_worker is not None and max_jobs >= 4 else 0
+        reserved = (
+            max(2, max_jobs // 3)
+            if packages_enabled and self.packet_worker is not None and max_jobs >= 4
+            else 0
+        )
         discovery_budget = (
-            min(2, max_jobs - reserved - 1) if self.collection_sync is not None else 0
+            min(2, max_jobs - reserved - 1)
+            if packages_enabled and self.collection_sync is not None
+            else 0
         )
         document_budget = max_jobs - reserved - discovery_budget
         # Facts and packet jobs wait on the model and hold this process's one

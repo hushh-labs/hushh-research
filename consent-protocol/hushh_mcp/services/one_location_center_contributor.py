@@ -7,7 +7,7 @@ History tabs) and the notification bell summary.
 
 Design rules (see docs/future/one-location-consent-center-integration-plan.md):
 
-* Reuse ``list_state`` -- do NOT issue raw SQL against ``one_location_*`` tables.
+* Reuse the Location service projections -- do NOT issue raw SQL here.
   ``list_state`` already assembles every location surface and never returns
   coordinates (those live only inside encrypted envelopes via
   ``view_latest_envelope``).
@@ -96,6 +96,9 @@ class OneLocationCenterContributor:
     # ----- public API ----------------------------------------------------
 
     def collect(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        return self._collect(user_id, counts_only=False)
+
+    def _collect(self, user_id: str, *, counts_only: bool) -> dict[str, list[dict[str, Any]]]:
         """Return location-derived consent entries grouped by surface bucket.
 
         Buckets match ConsentCenterResponse keys so the caller can concatenate
@@ -106,11 +109,12 @@ class OneLocationCenterContributor:
         if not normalized_user:
             return self._empty()
         try:
-            state = (
-                self._location.list_state(user_id=normalized_user, require_complete=True)
-                if self._require_complete
-                else self._location.list_state(user_id=normalized_user)
-            )
+            if self._require_complete:
+                state = self._location.list_state(user_id=normalized_user, require_complete=True)
+            elif counts_only:
+                state = self._location.list_consent_state(user_id=normalized_user)
+            else:
+                state = self._location.list_state(user_id=normalized_user)
         except Exception as exc:  # never let location break the consent surface
             if self._require_complete:
                 raise
@@ -131,7 +135,7 @@ class OneLocationCenterContributor:
 
     def counts(self, user_id: str) -> dict[str, int]:
         """Surface counts for the consent summary endpoint."""
-        buckets = self.collect(user_id)
+        buckets = self._collect(user_id, counts_only=True)
         return {
             "pending": len(buckets["incoming_requests"]),
             "active": len(buckets["active_grants"]),

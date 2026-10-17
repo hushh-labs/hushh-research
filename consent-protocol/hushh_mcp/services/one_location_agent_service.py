@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -1219,6 +1220,61 @@ class OneLocationAgentService:
             maximum=pool_size,
         )
         return min(max_workers, worker_limit)
+
+    def _run_batched_read_queries(
+        self, tasks: list[tuple[str, str, dict[str, Any]]], *, require_complete: bool = False
+    ) -> dict[str, list[dict[str, Any]]]:
+        """One instrumented statement for authored, independent read projections.
+
+        Retain each section's ordering, caps and bound owner predicate. A failed
+        optional section falls back to the existing independently degraded reads;
+        complete inventory keeps its strict repeatable-read path. No cache or
+        additional persistence authority is introduced.
+        """
+        if require_complete or not tasks:
+            return self._run_read_queries_parallel(tasks, require_complete=require_complete)
+        projections = []
+        values: dict[str, Any] = {}
+        for index, (_, query, params) in enumerate(tasks):
+            for key, value in params.items():
+                parameter = f"section_{index}_{key}"
+                query = re.sub(rf"(?<!:):{re.escape(key)}\b", f":{parameter}", query)
+                values[parameter] = value
+            # Only authored SQL fragments and numeric aliases are composed;
+            # every request value remains a bound parameter.
+            projections.append(
+                f"(SELECT COALESCE(jsonb_agg(to_jsonb(section_row)), '[]'::jsonb) "  # nosec B608
+                f"FROM ({query}) AS section_row) AS section_{index}"
+            )
+        try:
+            # _execute_many uses execute_raw, preserving query/pool telemetry.
+            rows = self._execute_many("SELECT " + ", ".join(projections), values)
+            if len(rows) != 1 or any(
+                f"section_{index}" not in rows[0] for index in range(len(tasks))
+            ):
+                raise ValueError("Location read projection is incomplete")
+            result = {}
+            for index, (name, _, _) in enumerate(tasks):
+                section = rows[0][f"section_{index}"]
+                if not isinstance(section, list) or any(
+                    not isinstance(row, dict) for row in section
+                ):
+                    raise ValueError("Location read projection is malformed")
+                # JSONB timestamps need the same UTC serialization as driver
+                # datetime values. Nested authored metadata stays untouched.
+                result[name] = [
+                    {
+                        key: _parse_datetime(value, field_name=key)
+                        if key.endswith("_at") and isinstance(value, str)
+                        else value
+                        for key, value in row.items()
+                    }
+                    for row in section
+                ]
+            return result
+        except Exception as exc:  # additive schema rollout: preserve healthy sections
+            logger.warning("one_location.read_batch_fallback error_type=%s", type(exc).__name__)
+            return self._run_read_queries_parallel(tasks)
 
     def _run_read_queries_parallel(
         self,
@@ -2617,7 +2673,7 @@ class OneLocationAgentService:
         # at came from this one enrichment step alone. Each function below
         # keeps its own unchanged row-processing logic; only WHERE the rows
         # come from changed.
-        _signal_rows = self._run_read_queries_parallel(
+        _signal_rows = self._run_batched_read_queries(
             [
                 (
                     "one_location_grants",
@@ -9047,6 +9103,19 @@ class OneLocationAgentService:
         return invite
 
     def list_state(self, *, user_id: str, require_complete: bool = False) -> dict[str, Any]:
+        return self._list_state(user_id=user_id, require_complete=require_complete)
+
+    def list_consent_state(self, *, user_id: str) -> dict[str, Any]:
+        """Count projection with the full state's caps, owner predicates and expiry.
+
+        Recommendations, recipient keys and standing preferences are not used by
+        consent counts. Complete source inventory still uses list_state.
+        """
+        return self._list_state(user_id=user_id, consent_only=True)
+
+    def _list_state(
+        self, *, user_id: str, require_complete: bool = False, consent_only: bool = False
+    ) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
@@ -9060,9 +9129,12 @@ class OneLocationAgentService:
         # fan-out belong to the bounded retention maintenance path, not an app
         # foreground/resume read. Explicit false remains a temporary rollback
         # valve for environments that have not installed the scheduler yet.
-        read_only_state = require_complete or str(
-            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
-        ).strip().lower() in {"1", "true", "yes", "on"}
+        read_only_state = (
+            consent_only
+            or require_complete
+            or str(os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
         if not read_only_state:
             try:
                 self._expire_stale_requests(user_id)
@@ -9080,35 +9152,41 @@ class OneLocationAgentService:
                     user_id,
                     exc,
                 )
-        try:
-            recipients = self.list_verified_recipients(owner_user_id=user_id)
-        except Exception as exc:  # noqa: BLE001
-            if require_complete:
-                raise
-            logger.warning(
-                "one_location.list_state.recipients_failed user=%s error=%s",
-                user_id,
-                exc,
-            )
-            recipients = []
+        recipients = []
+        named_circles = []
         circle_service = None
-        try:
-            from hushh_mcp.services.one_location_circle_service import (
-                OneLocationCircleService,
-            )
+        if not consent_only:
+            try:
+                recipients = self.list_verified_recipients(owner_user_id=user_id)
+            except Exception as exc:  # noqa: BLE001
+                if require_complete:
+                    raise
+                logger.warning(
+                    "one_location.list_state.recipients_failed user=%s error=%s",
+                    user_id,
+                    exc,
+                )
+                recipients = []
+            circle_service = None
+            try:
+                from hushh_mcp.services.one_location_circle_service import (
+                    OneLocationCircleService,
+                )
 
-            circle_service = OneLocationCircleService()
-            named_circles = circle_service.list_circles(user_id=user_id)
-        except Exception as exc:  # noqa: BLE001 - additive schema rollout
-            if require_complete:
-                raise
-            logger.warning(
-                "one_location.list_state.named_circles_failed user=%s error=%s",
-                redact_log_field("user_id", user_id),
-                exc,
-            )
-            named_circles = []
+                circle_service = OneLocationCircleService()
+                named_circles = circle_service.list_circles(user_id=user_id)
+            except Exception as exc:  # noqa: BLE001 - additive schema rollout
+                if require_complete:
+                    raise
+                logger.warning(
+                    "one_location.list_state.named_circles_failed user=%s error=%s",
+                    redact_log_field("user_id", user_id),
+                    exc,
+                )
+                named_circles = []
         try:
+            from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
             circle_member_invites = (
                 circle_service or OneLocationCircleService()
             ).list_member_invites(
@@ -9136,14 +9214,17 @@ class OneLocationAgentService:
         # enabled on the server. Query it outside the best-effort batch so the
         # state request fails visibly on database or permission errors. A real
         # missing row is still projected as off by this method.
-        auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
-        nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
-        sos_voice_preference = self.get_sos_voice_preference(user_id=user_id)
-        _sections = self._run_read_queries_parallel(
-            [
-                (
-                    "owner_grants",
-                    """
+        auto_approve_preference = None
+        nearby_check_in_preferences = None
+        sos_voice_preference = None
+        if not consent_only:
+            auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
+            nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
+            sos_voice_preference = self.get_sos_voice_preference(user_id=user_id)
+        state_queries: list[tuple[str, str, dict[str, Any]]] = [
+            (
+                "owner_grants",
+                """
                     SELECT
                       g.*,
                       r.display_name AS recipient_display_name,
@@ -9156,11 +9237,11 @@ class OneLocationAgentService:
                     ORDER BY g.created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "received_grants",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "received_grants",
+                """
                     SELECT
                       g.*,
                       o.display_name AS owner_display_name,
@@ -9173,11 +9254,11 @@ class OneLocationAgentService:
                     ORDER BY g.created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "requests",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "requests",
+                """
                     SELECT
                       req.*,
                       requester.display_name AS requester_display_name,
@@ -9212,11 +9293,11 @@ class OneLocationAgentService:
                     ORDER BY req.requested_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "referrals",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "referrals",
+                """
                     SELECT *
                     FROM one_location_referrals
                     WHERE owner_user_id = :user_id
@@ -9225,22 +9306,22 @@ class OneLocationAgentService:
                     ORDER BY created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "public_invites",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "public_invites",
+                """
                     SELECT *, (expires_at <= clock_timestamp()) AS expired_by_db_clock
                     FROM one_location_public_invites
                     WHERE owner_user_id = :user_id
                     ORDER BY created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 20},
-                ),
-                (
-                    "circle_invites",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 20},
+            ),
+            (
+                "circle_invites",
+                """
                     SELECT *
                     FROM one_location_circle_invites
                     WHERE owner_user_id = :user_id
@@ -9248,11 +9329,11 @@ class OneLocationAgentService:
                     ORDER BY created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 20},
-                ),
-                (
-                    "network_connections",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 20},
+            ),
+            (
+                "network_connections",
+                """
                     SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
                     FROM trusted_connections
                     WHERE status = 'active'
@@ -9260,11 +9341,11 @@ class OneLocationAgentService:
                     ORDER BY created_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "sms_contacts",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "sms_contacts",
+                """
                     SELECT sms.contact_user_id AS contact_user_id
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :user_id
@@ -9348,11 +9429,11 @@ class OneLocationAgentService:
                     WHERE membership.status = 'active'
                       AND membership.user_id <> :user_id
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "public_submissions",
-                    """
+                {"user_id": user_id},
+            ),
+            (
+                "public_submissions",
+                """
                     SELECT
                       submission.*,
                       req.status AS request_status
@@ -9363,11 +9444,11 @@ class OneLocationAgentService:
                     ORDER BY submission.submitted_at DESC
                     LIMIT :source_limit
                     """,
-                    {"user_id": user_id, "source_limit": None if require_complete else 50},
-                ),
-                (
-                    "my_recipient_key",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "my_recipient_key",
+                """
                     SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
                            created_at AS key_created_at
                     FROM one_location_recipient_keys
@@ -9376,21 +9457,35 @@ class OneLocationAgentService:
                     ORDER BY created_at DESC
                     LIMIT 1
                     """,
-                    {"user_id": user_id},
-                ),
-            ],
+                {"user_id": user_id},
+            ),
+        ]
+        if consent_only:
+            state_queries = [
+                task
+                for task in state_queries
+                if task[0]
+                in {
+                    "owner_grants",
+                    "received_grants",
+                    "requests",
+                    "public_invites",
+                }
+            ]
+        _sections = self._run_batched_read_queries(
+            state_queries,
             **({"require_complete": True} if require_complete else {}),
         )
-        owner_grants = _sections["owner_grants"]
-        received_grants = _sections["received_grants"]
-        requests = _sections["requests"]
-        referrals = _sections["referrals"]
-        public_invites = _sections["public_invites"]
-        circle_invites = _sections["circle_invites"]
-        network_connections = _sections["network_connections"]
-        sms_contacts = _sections["sms_contacts"]
-        public_submissions = _sections["public_submissions"]
-        my_recipient_key_rows = _sections["my_recipient_key"]
+        owner_grants = _sections.get("owner_grants", [])
+        received_grants = _sections.get("received_grants", [])
+        requests = _sections.get("requests", [])
+        referrals = _sections.get("referrals", [])
+        public_invites = _sections.get("public_invites", [])
+        circle_invites = _sections.get("circle_invites", [])
+        network_connections = _sections.get("network_connections", [])
+        sms_contacts = _sections.get("sms_contacts", [])
+        public_submissions = _sections.get("public_submissions", [])
+        my_recipient_key_rows = _sections.get("my_recipient_key", [])
         my_recipient_key = None
         if my_recipient_key_rows:
             _mrk = my_recipient_key_rows[0]

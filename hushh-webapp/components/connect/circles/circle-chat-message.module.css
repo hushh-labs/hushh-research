@@ -21,10 +21,11 @@
 :global([data-circle-chat-lane]) .sender3 { color: var(--chat-sender-4, var(--app-indigo)); }
 :global([data-circle-chat-lane]) .sender4 { color: var(--chat-sender-5, var(--app-destructive)); }
 :global([data-circle-chat-lane]) .sender5 { color: var(--chat-sender-6, var(--app-indigo)); }
-.text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.caption { margin-top: 8px; }
+.text { display: inline; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.caption::before { display: block; height: 8px; content: ""; }
 .failed { margin: 0; font-size: 13px; }
 .meta { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 3px; font-size: 11px; line-height: 15px; color: var(--chat-muted, var(--muted-foreground)); }
+.bubble:has(> .text) > .meta { display: inline-flex; margin-inline-start: 12px; white-space: nowrap; vertical-align: baseline; }
 .outgoing .meta { color: var(--muted-foreground); }
 :global([data-circle-chat-lane]) .outgoing .meta { color: var(--chat-outgoing-meta, rgba(255,255,255,.75)); }
 .meta span { display: inline-flex; }
