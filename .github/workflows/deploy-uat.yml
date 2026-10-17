@@ -2876,6 +2876,7 @@ jobs:
         if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
         shell: bash
         env:
+          DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
           DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
@@ -2909,7 +2910,13 @@ jobs:
           fi
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
           echo "sha=${revision_sha}" >> "$GITHUB_OUTPUT"
-          echo "scheduler_http_200=true" >> "$GITHUB_OUTPUT"
+          if [ "$DRIVE_WORK_DRAIN_ENABLED" = false ]; then
+            echo "paused_drive_v1_unchanged=true" >> "$GITHUB_OUTPUT"
+            echo "scheduler_http_200=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "paused_drive_v1_unchanged=false" >> "$GITHUB_OUTPUT"
+            echo "scheduler_http_200=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Verify legacy paused Drive state after V1 rollout
         id: verify-paused-drive-after-v1
@@ -3076,7 +3083,11 @@ jobs:
                && [ "${{ steps.verify-paused-drive-after-v1.outcome }}" = "success" ] \
                && [ "${{ steps.verify-paused-drive-after-v1.outputs.paused_drive_unchanged }}" = "true" ] \
                && [ "${{ steps.deploy-drive-v1-worker.outputs.sha }}" = "${{ steps.resolve-sha.outputs.sha }}" ] \
-               && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "true" ]; then
+               && { { [ "${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}" = "true" ] \
+                      && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "true" ]; } \
+                    || { [ "${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}" = "false" ] \
+                         && [ "${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged }}" = "true" ] \
+                         && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "false" ]; }; }; then
               DRIVE_WORKER_GATE_SUCCESS=true
             fi
           elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
@@ -3197,6 +3208,7 @@ jobs:
                   "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
                   "drive_v1_worker_revision": "${{ steps.deploy-drive-v1-worker.outputs.revision }}",
                   "drive_v1_worker_sha": "${{ steps.deploy-drive-v1-worker.outputs.sha }}",
+                  "drive_v1_paused_unchanged": "${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged }}" == "true",
                   "drive_v1_scheduler_http_200": "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" == "true",
                   "drive_v1_worker_rollback": "${{ steps.verify-drive-v1-worker-rollback.outcome }}",
                   "drive_processing_enabled": "${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}",
@@ -3361,6 +3373,7 @@ jobs:
             echo "- Isolated V1 worker: \`${{ steps.deploy-drive-v1-worker.outcome }}\`"
             echo "- V1 serving revision: \`${{ steps.deploy-drive-v1-worker.outputs.revision || 'not_deployed' }}\`"
             echo "- V1 serving SHA: \`${{ steps.deploy-drive-v1-worker.outputs.sha || 'not_deployed' }}\`"
+            echo "- V1 paused scheduler unchanged: \`${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged || 'false' }}\`"
             echo "- V1 Scheduler fresh 200: \`${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 || 'false' }}\`"
             echo ""
             echo "### Deploy Timing"

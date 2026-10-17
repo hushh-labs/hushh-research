@@ -26,7 +26,7 @@ def history(
             conn, "SELECT to_regclass('public.wallet_profile_access_grants') IS NOT NULL AS ok"
         )["ok"]
         if not installed:
-            raise WalletCardAccessError("WALLET_CARD_ACCESS_UNAVAILABLE", 503)
+            raise WalletCardAccessError("WALLET_CARD_ACCESS_NOT_READY", 503)
         queries = []
         for source in (PAYMENT, PROFILE):
             if card_type and card_type != source.kind:

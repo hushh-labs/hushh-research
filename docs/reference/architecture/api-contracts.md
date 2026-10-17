@@ -188,6 +188,9 @@ Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
   never a real bank deposit. `mode:"live"` fails closed in this release.
 - Existing account/onboard/manage/bank-payout endpoints use the explicitly
   configured Connect mode. Existing earnings history retains its payment mode.
+- `GET /account/bank-payouts` reads the authenticated owner's mode-bound local
+  ledger without provider credentials or webhook signing secrets. Provider
+  operations and webhook verification retain their credential requirements.
 - `POST /connect/sandbox-webhook`: public ingress with mandatory raw-body Stripe
   signature and test-mode/account validation. Legacy live webhook is unchanged.
 
@@ -359,7 +362,13 @@ The UAT workflow enables it with the existing UAT encryption-key binding;
 `WALLET_CARD_ACCESS_UAT_ENABLED=false` is the UAT rollback switch. The workflow
 omits the substitution when an older selected build config does not declare it.
 Other deploy lanes retain the default-off setting until their own prerequisites
-are provisioned.
+are provisioned. HTTP 503 distinguishes `WALLET_CARD_ACCESS_DISABLED` (flag off)
+from `WALLET_CARD_ACCESS_NOT_READY` (required sharing schema absent). Unexpected
+storage failures retain the generic `WALLET_CARD_ACCESS_UNAVAILABLE` failure.
+The sharing-history client retains verified history and pauses automatic focus,
+visibility and timer refresh only for the two explicit readiness reasons. Manual
+retry, a confirmed sharing change, or a new owner/vault session can read again;
+no readiness result is stored in browser persistence.
 After these changes land on green `main`, dispatch **Deploy to UAT** with scope
 `auto` and that exact commit SHA; confirm the resolved scope includes both the
 backend flag and the Wallet readiness UI. Verify sharing readiness, creation, recipient access and revocation
@@ -3848,3 +3857,24 @@ or private meetings are part of the synthetic regression fixtures.
 
 Provider contracts: [Meet conferences](https://developers.google.com/workspace/meet/api/reference/rest/v2/conferenceRecords/list)
 and [Meet artifacts](https://developers.google.com/workspace/meet/api/guides/artifacts).
+
+### Optional adviser claim readiness
+
+`POST /api/ria/claim/lookup` retains HTTP 503 with a safe `{detail:{code,message}}`
+when optional profile claiming is unavailable. `RIA_CLAIM_NOT_CONFIGURED` means
+its identity-service configuration is absent; `RIA_REGISTRY_UNAVAILABLE` means
+that configured dependency failed. Neither is a no-match result. Existing
+one-time onboarding probes and explicit claim retries keep their current flow.
+
+### Location and consent summary read projections
+
+The Consent Center summary uses the Location contributor's narrow count
+projection. It retains the full state's owner-bound, capped rowsets and expiry
+mappers, without loading picker recommendations, recipient keys or standing
+preferences. Full lists and strict complete source inventory keep their existing
+contracts. Healthy auxiliary Location and recommendation reads use one bound
+SQL statement per projection group; optional schema failures fall back to
+independent section reads with a sanitized `one_location.read_batch_fallback`
+warning. Standing-preference failures still fail visibly. Query budgets and
+latency targets require request-level runtime verification; batching alone does
+not prove those targets.

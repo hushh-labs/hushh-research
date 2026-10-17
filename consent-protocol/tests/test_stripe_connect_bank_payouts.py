@@ -269,6 +269,25 @@ def world(monkeypatch, request):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+async def test_owner_ledger_read_does_not_require_provider_credentials(world, monkeypatch):
+    service, fake, _ = world
+    for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    summary = await service.owner_summary(user_id="owner")
+    assert summary == {
+        "currency": "USD",
+        "stripeMode": service.mode,
+        "payouts": [],
+        "nextCursor": None,
+    }
+    assert fake.retrieve_calls == fake.list_calls == []
+    # Reading the ledger must not weaken webhook authentication.
+    with pytest.raises(ConnectBankPayoutError):
+        await service.process_webhook(**signed_event())
+
+
+@pytest.mark.asyncio
 async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_binding(
     world, monkeypatch
 ):

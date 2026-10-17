@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "@/components/icons";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsRow, SettingsPresentationProvider, SettingsDetailPanel } from "@/components/profile/settings-ui";
-import { WalletCardAccessService, type CardSharingHistory, type CardSharingHistoryItem } from "@/lib/services/wallet-card-access-service";
+import { CardAccessUnavailableError, WalletCardAccessService, type CardSharingHistory, type CardSharingHistoryItem } from "@/lib/services/wallet-card-access-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
-import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type State = { context: CardShareContext; page: CardSharingHistory; direction: string };
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -26,6 +26,15 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
 }) {
   const [state, setState] = useState<State | null>(null);
   const [failed, setFailed] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  // A readiness result belongs to this owner, direction and in-memory session.
+  const suspended = useRef<{ ownerId: string; direction: string; token: string; epoch: number } | null>(null);
+  const isSuspended = useCallback((context: CardShareContext | null) => {
+    const pause = suspended.current;
+    return Boolean(pause && pause.ownerId === ownerId && pause.direction === direction
+      && pause.epoch === snapshotVaultSessionEpoch() && (!context || pause.token === context.vaultOwnerToken));
+  }, [ownerId, direction]);
+  const retry = useCallback(() => { suspended.current = null; setUnavailable(false); setRevision(value => value + 1); }, []);
   const [loading, setLoading] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,22 +58,28 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   useBackLayer(ROUTES.ONE_WALLET, selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
   useEffect(() => { setSelection(null); setOpened(null); setBusy(null); }, [active, ownerId, direction]);
 
-  useEffect(() => WalletCardAccessService.subscribe(ownerId, () => setRevision(value => value + 1)), [ownerId]);
+  useEffect(() => WalletCardAccessService.subscribe(ownerId, retry), [ownerId, retry]);
   useEffect(() => subscribeVaultSessionEpoch(() => {
+    suspended.current = null; setUnavailable(false);
     pending.current?.abort(); setState(null); setOpened(null); setSelection(null); setRevision(value => value + 1);
   }), []);
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === "visible") setRevision(value => value + 1); };
+    const refresh = () => {
+      if (isSuspended(getContext(""))) return;
+      if (document.visibilityState === "visible") setRevision(value => value + 1);
+    };
     const hide = () => { if (document.visibilityState === "hidden") { pending.current?.abort(); setState(null); setOpened(null); setSelection(null); } else refresh(); };
     window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", hide);
     const timer = window.setInterval(refresh, 30_000);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", hide); window.clearInterval(timer); };
-  }, []);
+  }, [getContext, isSuspended]);
   useEffect(() => {
     pending.current?.abort(); pending.current = null;
     setBusy(null); setLoading(false); setMoreFailed(false);
     const context = getContext("");
     if (!context || context.userId !== ownerId) { setState(null); return; }
+    if (isSuspended(context)) return;
+    suspended.current = null; setUnavailable(false);
     const controller = new AbortController();
     setFailed(false); setLoading(true);
     const refresh = async () => {
@@ -80,14 +95,21 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     };
     void refresh().then(page => {
       if (!controller.signal.aborted && context.isCurrent()) setState({ context, page, direction });
-    }).catch(() => { if (!controller.signal.aborted && context.isCurrent()) setFailed(true); })
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted || !context.isCurrent()) return;
+      if (error instanceof CardAccessUnavailableError && error.readinessUnavailable) {
+        suspended.current = { ownerId, direction, token: context.vaultOwnerToken, epoch: snapshotVaultSessionEpoch() };
+        setUnavailable(true);
+      }
+      setFailed(true);
+    })
       .finally(() => { if (!controller.signal.aborted && context.isCurrent()) setLoading(false); });
     return () => { controller.abort(); pending.current?.abort(); pending.current = null; };
-  }, [ownerId, direction, revision, getContext]);
+  }, [ownerId, direction, revision, getContext, isSuspended]);
 
   const loadMore = useCallback(async () => {
     const cursor = current?.page.nextCursor;
-    if (!current || !cursor || pending.current || loading) return;
+    if (!current || !cursor || pending.current || loading || isSuspended(current.context)) return;
     const controller = new AbortController(); pending.current = controller;
     setLoading(true); setMoreFailed(false);
     try {
@@ -100,7 +122,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       });
     } catch { if (!controller.signal.aborted && current.context.isCurrent()) setMoreFailed(true); }
     finally { if (pending.current === controller) { pending.current = null; setLoading(false); } }
-  }, [current, direction, loading]);
+  }, [current, direction, loading, isSuspended]);
   useEffect(() => {
     if (!current?.page.nextCursor || moreFailed || typeof IntersectionObserver === "undefined" || !end.current) return;
     const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void loadMore(); });
@@ -143,7 +165,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
-    {failed ? <div role="alert"><p className="ui-text-row-description">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
+    {failed ? <div role="alert"><p className="ui-text-row-description">{unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."}</p><Button variant="ghost" size="compact" onClick={retry}>Try again</Button></div> : null}
     {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <SettingsDetailPanel open={Boolean(detail)} onOpenChange={open => { if (!open && !busy) { setSelection(null); setOpened(null); } }}
       onCloseAutoFocus={event => { if (opened || selection) { event.preventDefault(); return; } restoreFocus(event, returnTarget.current?.element ?? null); }}
