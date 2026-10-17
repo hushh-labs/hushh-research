@@ -409,6 +409,100 @@ async def test_kill_switch_and_api_process_never_list_a_folder(monkeypatch, swit
     assert checkpoint["coverage_manifest"]["sharedFolderWalk"] == "stopped"
 
 
+async def test_six_level_tree_with_a_cycle_and_a_forbidden_branch(monkeypatch):
+    children = {
+        f"L{level}": [
+            row(f"f{level}", f"Bank statement level {level}.pdf"),
+            folder(f"L{level + 1}"),
+        ]
+        for level in range(1, 6)
+    }
+    # The deepest folder links back to the root, and a branch at level 2 is forbidden.
+    children["L6"] = [row("f6", "Bank statement level 6.pdf"), folder_shortcut("S", "L1")]
+    children["L2"].append(folder("NOPE"))
+    drive = FakeDrive(shared=[folder("L1")], children=children, unavailable={"NOPE"})
+    checkpoint, files = await walk_all(lambda: service_for(monkeypatch, drive), walk_checkpoint())
+    assert drive.listed() == [
+        "seed:folders",
+        "seed:shortcuts",
+        "L1",
+        "L2",
+        "L3",
+        "NOPE",
+        "L4",
+        "L5",
+        "L6",
+    ]
+    assert {item["id"] for item in files} == {f"f{level}" for level in range(1, 7)}
+    counts = checkpoint["coverage_counts"]
+    assert counts["sharedFoldersWalked"] == 6 and counts["sharedFolderWalkUnavailable"] == 1
+    assert counts["sharedFolderWalkRepeats"] == 1
+    assert checkpoint["coverage_manifest"]["sharedFolderWalk"] == "complete"
+
+
+async def test_walk_page_over_the_response_budget_retries_the_same_cursor_smaller(monkeypatch):
+    class Oversized(FakeDrive):
+        async def _get(self, path, *, params, **kwargs):
+            if "'F1' in parents" in params.get("q", "") and params["pageSize"] == "1000":
+                self.calls.append((path, dict(params), None))
+                raise DriveReadError("file_too_large")
+            return await super()._get(path, params=params, **kwargs)
+
+    drive = Oversized(shared=[folder("F1")], children={"F1": [row("a", "Bank statement A.pdf")]})
+    checkpoint, files = await walk_all(lambda: service_for(monkeypatch, drive), walk_checkpoint())
+    sizes = [params["pageSize"] for path, params, _ in drive.calls if "'F1'" in params.get("q", "")]
+    assert sizes == ["1000", "100"]
+    assert [item["id"] for item in files] == ["a"]
+    assert checkpoint["coverage_manifest"]["sharedFolderWalk"] == "complete"
+
+
+async def test_walk_reads_at_most_its_shortcut_budget_per_page(monkeypatch):
+    monkeypatch.setattr(search_module, "MAX_WALK_SHORTCUTS", 1)
+    alias = {"targetMimeType": "application/pdf"}
+    drive = FakeDrive(
+        shared=[folder("F1")],
+        children={
+            "F1": [
+                row(
+                    "s1",
+                    "Bank statement one",
+                    SHORTCUT,
+                    shortcutDetails={**alias, "targetId": "t1"},
+                ),
+                row(
+                    "s2",
+                    "Bank statement two",
+                    SHORTCUT,
+                    shortcutDetails={**alias, "targetId": "t2"},
+                ),
+            ]
+        },
+        targets={
+            "t1": row("t1", "Bank statement one.pdf", trashed=False),
+            "t2": row("t2", "Bank statement two.pdf", trashed=False),
+        },
+    )
+    checkpoint, files = await walk_all(lambda: service_for(monkeypatch, drive), walk_checkpoint())
+    assert len(files) == 1
+    assert [call[0] for call in drive.calls if call[0].startswith("/files/")] in (
+        ["/files/t1"],
+        ["/files/t2"],
+    )
+    assert checkpoint["coverage_counts"]["sharedFolderWalkShortcutsDeferred"] == 1
+    assert checkpoint["coverage_counts"]["coveragePartial"] is True
+
+
+async def test_malformed_walked_rows_mark_coverage_partial(monkeypatch):
+    drive = FakeDrive(
+        shared=[folder("F1")],
+        children={"F1": [row("a", "Bank statement A.pdf"), {**row("bad", "x"), "name": ""}]},
+    )
+    checkpoint, files = await walk_all(lambda: service_for(monkeypatch, drive), walk_checkpoint())
+    assert [item["id"] for item in files] == ["a"]
+    assert checkpoint["coverage_counts"]["sharedFolderWalkIncomplete"] is True
+    assert checkpoint["coverage_manifest"]["sharedFolderWalk"] == "partial"
+
+
 async def test_walked_files_never_widen_autoshare_authority(monkeypatch):
     drive = FakeDrive(
         shared=[folder("F1")],
