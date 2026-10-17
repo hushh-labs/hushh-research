@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   onReferralChange: () => {},
   claimReward: vi.fn(),
   recordAppOpen: vi.fn(),
+  shareLink: vi.fn(),
   hasSeenReferralIntroduction: vi.fn(),
   markReferralIntroductionSeen: vi.fn(),
 }));
@@ -43,6 +44,11 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
     hasSeenReferralIntroduction: mocks.hasSeenReferralIntroduction,
     markReferralIntroductionSeen: mocks.markReferralIntroductionSeen,
   },
+}));
+
+vi.mock("@/lib/share/share-link", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/share/share-link")>(),
+  shareLink: mocks.shareLink,
 }));
 
 vi.mock("@/lib/services/referral-service", () => ({
@@ -87,12 +93,6 @@ function neverResolves<T = unknown>(): Promise<T> {
   return new Promise<T>(() => {});
 }
 
-function runningChallenge(bounds: { week_started_at: string; cutoff_at: string }) {
-  return { active: true, campaign_active: true, weekly_prizes_enabled: true,
-    timezone: "Asia/Kolkata", server_now: new Date().toISOString(),
-    received_at_monotonic: performance.now(), ...bounds };
-}
-
 describe("formatCountdown", () => {
   it("makes days and remaining hours explicit", () => {
     const ms = (137 * 3600 + 22 * 60 + 10) * 1000;
@@ -112,14 +112,33 @@ describe("ReferralDashboardPage", () => {
       available_milestones: [{ milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch" }],
     });
     render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     for (const image of screen.getAllByRole("img", { name: "Apple Watch" })) {
       expect(image).toHaveAttribute("src", "/referrals/product-apple-watch-premium.svg");
     }
     expect(screen.queryByText("Apple AirPods")).toBeNull();
   });
-  it("renders viewer-permitted profile names in rankings and the rank gap", async () => {
+  it("removes AirPods from the showcase without inventing a replacement or completing the milestones", async () => {
+    mocks.getMilestones.mockResolvedValue({ joined_referral_count: 120, earned: [],
+      next_milestone: { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods", progress: 120 },
+      available_milestones: [
+        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods" },
+        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
+      ],
+    });
+    await act(async () => { render(<ReferralDashboardPage />); });
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+    const rewards = within(screen.getByRole("region", { name: "Rewards" }));
+    expect(rewards.queryByText("Apple AirPods")).toBeNull();
+    expect(rewards.queryByRole("img", { name: "Apple AirPods" })).toBeNull();
+    expect(rewards.queryByText("Apple Watch")).toBeNull();
+    expect(rewards.queryByText("All milestones reached")).toBeNull();
+    expect(rewards.queryByRole("progressbar")).toBeNull();
+    expect(rewards.getByRole("heading", { level: 4, name: "iPhone" })).toBeInTheDocument();
+    expect(mocks.claimReward).not.toHaveBeenCalled();
+  });
+  it("renders viewer-permitted profile names without the rank gap", async () => {
     mocks.getLeaderboard.mockResolvedValue({ entries: [
       { rank: 1, handle: "Anonymous referrer", display_name: "Priya Rao", points: 100, is_viewer: false },
       { rank: 2, handle: "Anonymous referrer", display_name: "Meera Shah", points: 80, is_viewer: true },
@@ -129,23 +148,20 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
     expect(screen.getByText("Priya Rao")).toBeInTheDocument();
     expect(screen.getByText("Meera Shah")).toBeInTheDocument();
-    expect(screen.getByText("You're #2. 20 coins to pass Priya Rao.")).toBeInTheDocument();
+    expect(screen.queryByText(/coins to pass/)).toBeNull();
+    expect(within(screen.getByRole("list", { name: "Individual standings" })).queryByRole("progressbar")).toBeNull();
   });
 
-  it("does not imply prizes are active when the prize flags are missing", async () => {
-    mocks.getChallenge.mockResolvedValue({ active: true, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
+  it("omits Weekly prizes and the entire Recent referrals section", async () => {
+    mocks.getSummary.mockResolvedValue({ ...SUMMARY, referrals: [
+      { id: "recent-example", display_name: "Recent example member", status: "In progress", step: "Joined", started_on: "2026-10-09" },
+    ] });
     render(<ReferralDashboardPage />);
-    await screen.findByText("Timing unavailable");
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-    expect(screen.queryByText("Weekly prizes end in")).toBeNull();
-  });
-
-  it("shows paused prizes without a calendar countdown or track", async () => {
-    mocks.getChallenge.mockResolvedValue({ active: true, weekly_prizes_enabled: false, week_started_at: "2026-10-12T00:00:00+05:30", cutoff_at: "2026-10-19T00:00:00+05:30", timezone: "Asia/Kolkata" });
-    render(<ReferralDashboardPage />);
-    await screen.findByText("Paused");
-    expect(screen.queryByText("Weekly prizes end in")).toBeNull();
-    expect(screen.queryByRole("img", { name: /Weekly calendar progress/ })).toBeNull();
+    expect(await screen.findByText("2,450")).toBeInTheDocument();
+    expect(screen.queryByText(/Weekly prizes/)).toBeNull();
+    expect(screen.queryByText("Recent referrals")).toBeNull();
+    expect(screen.queryByText("Recent example member")).toBeNull();
+    expect(mocks.getChallenge).not.toHaveBeenCalled();
   });
 
   it("revalidates a change received while the first request is still in flight", async () => {
@@ -174,7 +190,7 @@ describe("ReferralDashboardPage", () => {
       available_milestones: [{ milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher" }],
     });
     render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(screen.getByText("0 of 1 unlocked")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Claim reward" })).toBeNull();
@@ -234,69 +250,24 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/one");
   });
 
-  it("closes sharing before route Back and releases the layer when its pane is inactive or unmounted", async () => {
-    let unmount!: () => void;
-    await act(async () => { ({ unmount } = render(<ReferralDashboardPage />)); });
-    const share = await screen.findByRole("button", { name: "Invite", expanded: false });
-    expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
+  it("opens the device share sheet directly without social icons or a disclosure layer", async () => {
+    render(<ReferralDashboardPage />);
+    const invite = await screen.findByRole("button", { name: "Invite" });
+    fireEvent.click(invite);
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledExactlyOnceWith({
+      title: "Join me on Hushh One", text: "Join me on Hushh One", dialogTitle: "Share your invite", url: SUMMARY.link,
+    }));
+    expect(invite).not.toHaveAttribute("aria-expanded");
+    expect(invite.querySelector("svg")).toBeNull();
     expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
-
-    fireEvent.click(share);
-    expect(screen.getByRole("button", { name: "Close share options", expanded: true })).toBeInTheDocument();
-    // The menu must share the trigger's scroll/clipping context. A body portal
-    // used to leave floating actions behind or flip them when the page moved.
-    expect(screen.getByRole("group", { name: "Share your invite link" })).toContainElement(
-      screen.getByRole("link", { name: "Share on WhatsApp" }),
-    );
-    expect(screen.getByRole("link", { name: "Share by SMS" })).toHaveAttribute(
-      "href", `sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${SUMMARY.link}`)}`,
-    );
-    const navigate = ({ href }: { href: string }) => mocks.push(href);
-    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
-    expect(screen.getByRole("button", { name: "Invite", expanded: false })).toHaveFocus();
-    expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
-    expect(mocks.push).not.toHaveBeenCalled();
-    act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
-    expect(mocks.push).toHaveBeenCalledWith("/one");
-
-    fireEvent.click(share);
-    fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
-    expect(unwindBackLayer("/one/referrals")).toBe(false);
-    fireEvent.click(screen.getByRole("tab", { name: "You" }));
-    expect(screen.getByRole("button", { name: "Invite", expanded: false })).toBeInTheDocument();
-    fireEvent.click(share);
-    unmount();
-    expect(unwindBackLayer("/one/referrals")).toBe(false);
-  });
-
-  it("restores focus to Invite when Escape hides a focused sharing action", async () => {
-    await act(async () => { render(<ReferralDashboardPage />); });
-    const share = await screen.findByRole("button", { name: "Invite" });
-    fireEvent.click(share);
-    const sms = screen.getByRole("link", { name: "Share by SMS" });
-    sms.focus();
-    fireEvent.keyDown(sms, { key: "Escape" });
-    expect(share).toHaveFocus();
-    expect(share).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("link", { name: "Share by SMS" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
-
-  it("preserves outside focus when the sharing bubbles are dismissed", async () => {
-    await act(async () => { render(<ReferralDashboardPage />); });
-    const share = await screen.findByRole("button", { name: "Invite" });
-    fireEvent.click(share);
-    const ranking = screen.getByRole("tab", { name: "Ranking" });
-    act(() => { ranking.focus(); });
-    await waitFor(() => expect(share).toHaveAttribute("aria-expanded", "false"));
-    expect(ranking).toHaveFocus();
-    expect(unwindBackLayer("/one/referrals")).toBe(false);
-  });
-
   it("renders Rules amounts from the active backend policy", async () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
@@ -305,7 +276,7 @@ describe("ReferralDashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Flash boost" }).closest("article")).toHaveTextContent("246 coins");
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
-    expect(screen.getByText("Weekly prizes end in")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
@@ -316,14 +287,14 @@ describe("ReferralDashboardPage", () => {
   it.each([
     [0, "₹250 Amazon voucher", 10], [9, "₹250 Amazon voucher", 10],
     [10, "Wireless earbuds", 100], [99, "Wireless earbuds", 100],
-    [100, "Apple AirPods", 500], [499, "Apple AirPods", 500],
+    [100, "Apple Watch", 500], [499, "Apple Watch", 500],
     [500, "iPhone", 10000], [9999, "iPhone", 10000],
     [10000, null, null], [12000, null, null],
   ] as const)("selects the correct reward at %s joined referrals", async (count, title, threshold) => {
     const catalogue = [
       { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
       { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
-      { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
+      { milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch" },
       { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
     ];
     const next = catalogue.find((entry) => entry.threshold === threshold);
@@ -334,7 +305,7 @@ describe("ReferralDashboardPage", () => {
       available_milestones: catalogue,
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
     if (title && threshold) {
@@ -349,7 +320,7 @@ describe("ReferralDashboardPage", () => {
     expect(screen.queryByText("hushh_tee")).toBeNull();
   });
 
-  it("preserves historical rewards after a catalogue revision and waits for recorded awards", async () => {
+  it("omits historical AirPods from the board and keeps other saved rewards and confirmation", async () => {
     mocks.getMilestones.mockResolvedValue({
       joined_referral_count: 10000,
       earned: [
@@ -366,21 +337,24 @@ describe("ReferralDashboardPage", () => {
       ],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     const rewards = within(screen.getByRole("region", { name: "Rewards" }));
-    expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" })).toBeInTheDocument();
+    expect(rewards.queryByRole("heading", { level: 4, name: "Apple AirPods" })).toBeNull();
     expect(rewards.queryByText("Apple Watch")).not.toBeInTheDocument();
-    expect(rewards.getByRole("img", { name: "Apple AirPods" })).toHaveAttribute("src", "/referrals/product-airpods.svg");
-    expect(rewards.getByText("3 of 4 unlocked")).toBeInTheDocument();
+    expect(rewards.queryByRole("img", { name: "Apple AirPods" })).toBeNull();
+    expect(rewards.getByText("2 of 3 unlocked")).toBeInTheDocument();
     expect(rewards.getByRole("heading", { level: 4, name: "iPhone" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "next");
-    expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "earned");
+    expect(rewards.queryByText(/AirPods/i)).toBeNull();
+    expect(rewards.queryByRole("region", { name: "Previously earned rewards" })).toBeNull();
+    expect(rewards.getByRole("heading", { level: 4, name: "₹250 Amazon voucher" })).toBeInTheDocument();
     expect(rewards.getByText("Your reward is being confirmed.")).toBeInTheDocument();
     expect(rewards.queryByText("All milestones reached")).not.toBeInTheDocument();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.shareLink.mockResolvedValue("web-share");
     CacheService.getInstance().clear();
     mocks.recordAppOpen.mockReturnValue(neverResolves());
     mocks.hasSeenReferralIntroduction.mockReset().mockResolvedValue(true);
@@ -406,10 +380,6 @@ describe("ReferralDashboardPage", () => {
       streak: { current_run_days: 6, run_length_days: 9 },
       flash: { active: false, ends_at: null },
     });
-    mocks.getChallenge.mockImplementation(async () => runningChallenge({
-      week_started_at: new Date(Date.now() - 86_400_000).toISOString(),
-      cutoff_at: new Date(Date.now() + 6 * 86_400_000).toISOString(),
-    }));
     mocks.getCircleSelection.mockResolvedValue({ circle_id: null });
   });
 
@@ -427,67 +397,10 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.markReferralIntroductionSeen).not.toHaveBeenCalled();
   });
 
-  it("ticks from server time and reloads at weekly-prize rollover", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-08T23:59:59+05:30"));
-    mocks.getChallenge.mockResolvedValue(runningChallenge({
-      week_started_at: "2026-10-05T00:00:00+05:30",
-      cutoff_at: "2026-10-12T00:00:00+05:30",
-    }));
-    const view = render(<ReferralDashboardPage />);
-    await act(async () => {});
-    expect(screen.getByText("3d 00h 00m 01s")).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(screen.getByText("3d 00h 00m 00s")).toBeInTheDocument();
-    view.unmount();
-    vi.setSystemTime(new Date("2026-10-11T23:59:59+05:30"));
-    mocks.getChallenge.mockResolvedValue(runningChallenge({
-      week_started_at: "2026-10-05T00:00:00+05:30",
-      cutoff_at: "2026-10-12T00:00:00+05:30",
-    }));
-    render(<ReferralDashboardPage />);
-    await act(async () => {});
-    mocks.getChallenge.mockImplementation(async () => runningChallenge({
-      week_started_at: "2026-10-12T00:00:00+05:30",
-      cutoff_at: "2026-10-19T00:00:00+05:30",
-    }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(mocks.getChallenge).toHaveBeenCalledTimes(3);
-    expect(screen.getByText("6d 23h 59m 59s")).toBeInTheDocument();
-    expect(screen.getByText("2,450")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "6 day streak" })).toBeInTheDocument();
-  });
-
-  it("renders the weekly-prize timer independently of other resources", async () => {
-    // Points, leaderboard, milestones, engagement and circle never resolve;
-    // only the page-gating summary does. The timer card must not depend on
-    // any of them.
-    mocks.getPoints.mockReturnValue(neverResolves());
-    mocks.getLeaderboard.mockReturnValue(neverResolves());
-    mocks.getMilestones.mockReturnValue(neverResolves());
-    mocks.getEngagement.mockReturnValue(neverResolves());
-    mocks.getCircleSelection.mockReturnValue(neverResolves());
-
-    render(<ReferralDashboardPage />);
-
-    expect(await screen.findByText("Weekly prizes end in")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: /Weekly calendar progress/ })).toBeNull();
-  });
-
-  it("keeps the timer card visible when the challenge resource itself fails", async () => {
-    mocks.getChallenge.mockRejectedValue(new Error("network"));
-
-    render(<ReferralDashboardPage />);
-
-    await waitFor(() => expect(screen.getByText("Unable to load")).toBeInTheDocument());
-    expect(screen.getByText("Weekly prizes")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-  });
-
   it("keeps the reference colours through a route-scoped accent override", async () => {
     render(<ReferralDashboardPage />);
 
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
 
     const inviteButton = screen.getByRole("button", { name: "Invite" });
     // The shared token is deliberately overridden at this route, so a saved
@@ -544,7 +457,7 @@ describe("ReferralDashboardPage", () => {
     });
 
     const { rerender } = render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly prizes end in");
+    await screen.findByRole("button", { name: "Invite" });
 
     // Switch accounts before account A's points request resolves.
     currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
@@ -578,7 +491,7 @@ describe("ReferralDashboardPage", () => {
     const referrals=screen.getAllByText("Referrals").find((node)=>node.closest(".referral-stat"))!.closest(".referral-stat")!;
     expect(within(referrals as HTMLElement).getByText("2")).toBeInTheDocument();
     expect(referrals).not.toHaveTextContent(/qualified|in progress/i);
-    expect(screen.getAllByText("In progress")).toHaveLength(2);
+    expect(screen.queryByText("In progress")).toBeNull();
     fireEvent.click(screen.getByRole("tab",{name:"Rewards"}));
     expect(screen.getByText("2 / 10 referrals")).toBeInTheDocument();
     expect(screen.getByText("20% complete")).toBeInTheDocument();
@@ -596,13 +509,13 @@ describe("ReferralDashboardPage", () => {
     expect(CacheService.getInstance().peek("referral_dashboard_user-a_points")).toBeNull();
   });
 
-  it("renders the current user's row even outside an empty leaderboard page", async () => {
+  it("keeps an off-page viewer discoverable without adding an eleventh list row", async () => {
     mocks.getLeaderboard.mockResolvedValue({entries:[],viewer:{rank:41,points:50,handle:"safe-handle",is_viewer:true},stale:false,snapshot_generated_at:"2026-10-14T00:00:00Z"});
     render(<ReferralDashboardPage />);
     await screen.findByText("#41");
     fireEvent.click(screen.getByRole("tab",{name:"Ranking"}));
-    expect(screen.getByText("safe-handle")).toBeInTheDocument();
-    expect(screen.getByText("safe-handle").closest("li")).toHaveTextContent("You");
+    expect(screen.getByRole("button", { name: "Your rank #41" })).toBeInTheDocument();
+    expect(screen.queryByText("safe-handle")).toBeNull();
   });
 
   it("records only visible dashboard days at the server midnight and retries failures", async () => {
