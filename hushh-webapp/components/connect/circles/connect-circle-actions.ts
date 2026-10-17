@@ -57,14 +57,19 @@ export function createConnectCircleActions({
   }
 
   return {
-    createCircle: (name: string, kind: OneLocationCircleKind) =>
+    createCircle: (name: string, kind: OneLocationCircleKind, existingCircleId?: string) =>
       guard("Could not create the Circle.", async () => {
-        const circle = await OneLocationService.createNamedCircle({
+        const circle = existingCircleId ? await OneLocationService.updateNamedCircle({
+          vaultOwnerToken,
+          circleId: existingCircleId,
+          name,
+          kind,
+        }) : await OneLocationService.createNamedCircle({
           vaultOwnerToken,
           name,
           kind,
         });
-        toast.success(`${circle.name} created.`);
+        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`);
         return circle;
       }),
 
