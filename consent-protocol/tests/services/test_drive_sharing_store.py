@@ -1342,6 +1342,55 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
         True,
     )
     assert review["preparationError"] is None
+    # Allowed and queued: no search has started, so nothing claims to run.
+    queued_at = datetime.fromisoformat(review["queuedAt"])
+    assert abs(queued_at - row["preparation_next_at"]) < timedelta(seconds=5)
+    assert review["queueDelayed"] is False
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert status["queueDelayed"] is False
+        assert abs(datetime.fromisoformat(status["queuedAt"]) - queued_at) < timedelta(seconds=5)
+
+    # Still due after three minutes: delayed for both participants, and the
+    # read asks the bounded heal (which itself refuses while the drain is off).
+    heals = []
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_sharing_store.heal_queued_drive_work",
+        lambda: heals.append(1),
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_next_at=clock_timestamp()-INTERVAL '4 minutes'
+              WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))["queueDelayed"]
+    assert (await sharing.request_status(user_id="recipient", request_id=request_id))[
+        "queueDelayed"
+    ]
+    assert heals == [1, 1]
+
+    # A repeated Allow is a no-op success even after the revision moved on.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET revision=revision+1 WHERE request_id=:id"),
+            {"id": request_id},
+        )
+    repeated = await owner_allow(sharing, created)
+    assert (repeated["ownerAllowed"], repeated["revision"]) == (True, 1)
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await owner_allow(sharing, created, 2000)  # A different price is not a repeat.
+
+    # Once the search starts the request is no longer queued.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp(),
+              preparation_error_code='trusted_auto_active' WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+    started = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert "queuedAt" not in started and "queueDelayed" not in started
 
 
 @pytest.mark.asyncio
@@ -1349,6 +1398,7 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
     sharing, monkeypatch
 ):
     live_drive(sharing, monkeypatch)
+    monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
     created = await request(sharing)
     request_id = created["requestId"]
     with sharing.db.engine.begin() as connection:
@@ -1356,7 +1406,11 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
             text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
             {"id": request_id},
         )
-    for missing_or_invalid in (None, 9, 50001):
+    # The 2026-10-17 first-Allow 422: a cents price on a whole-dollar request.
+    # The review now names the request's rule so every price step offers it.
+    review = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert review["wholeDollarPrice"] is True
+    for missing_or_invalid in (None, 9, 50001, 50, 150):
         with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
             await owner_allow(sharing, created, missing_or_invalid)
 

@@ -15,6 +15,7 @@ from hushh_mcp.services import drive_sharing_center_contributor as contributor
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
+from hushh_mcp.services.drive_request_queue import queue_view, request_queued_since
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor, entry
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_permission_executor import (  # noqa: F401
@@ -712,6 +713,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "recorded_outcome_only",
         "automatic_progress_active",
         "automatic_progress_stage",
+        "automatic_progress_state",
         "accessStopped",
         "owner_attention_required",
         "owner_decision_available",
@@ -1390,3 +1392,38 @@ def test_only_a_delayed_read_heals_the_queue(monkeypatch):
     assert calls == []
     contributor._heal_delayed([queued, delayed])
     assert calls == [1]
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, "queued"),
+        ({"preparation_next_at": _QUEUED_AT - timedelta(minutes=3)}, "delayed"),
+        ({"preparation_next_at": _QUEUED_AT + timedelta(minutes=9)}, "scheduled"),
+        ({"preparation_error_code": "trusted_auto_active"}, None),
+        ({"preparation_error_code": None}, None),  # Waiting for the owner's decision.
+        ({"preparation_error_code": "owner_price_required"}, None),
+        ({"bulk_search_started_at": _QUEUED_AT}, None),
+        ({"access_stop_requested_at": _QUEUED_AT}, None),
+        ({"status": "approved"}, None),
+        ({"expires_at": _QUEUED_AT}, None),
+    ],
+)
+def test_status_queue_view_is_db_backed_and_never_claims_work(changes, expected):
+    row = {
+        "status": "pending",
+        "preparation_error_code": "trusted_auto_queued",
+        "bulk_search_started_at": None,
+        "access_stop_requested_at": None,
+        "preparation_next_at": _QUEUED_AT - timedelta(seconds=30),
+        "expires_at": _QUEUED_AT + timedelta(days=7),
+        **changes,
+    }
+    view = queue_view(request_queued_since(row, _QUEUED_AT), _QUEUED_AT)
+    if expected is None:
+        assert view == {}
+    elif expected == "scheduled":
+        assert view == {"queuedAt": _QUEUED_AT.isoformat(), "queueDelayed": False}
+    else:
+        assert view["queuedAt"] == row["preparation_next_at"].isoformat()
+        assert view["queueDelayed"] is (expected == "delayed")
