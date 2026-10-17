@@ -166,6 +166,14 @@ describe("requester document payment boundary", () => {
       .toMatchObject({ wholeDollarPrice: true, ...queue });
     fetcher.mockResolvedValueOnce(reply(rawReview()));
     expect(await DriveSharingService.review("vault", requestId, guard)).not.toHaveProperty("wholeDollarPrice");
+    // Started work that no worker moves: one additive time, dropped when malformed.
+    const work = { workDelayedSince: "2026-10-17T03:10:00+00:00" };
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "outgoing", ...work }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), ...work }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", workDelayedSince: "later" }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).not.toHaveProperty("workDelayedSince");
   });
 
   it("returns a withdrawal's payment view and surfaces a paid refusal", async () => {

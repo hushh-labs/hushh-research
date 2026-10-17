@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -16,8 +19,6 @@ from hushh_mcp.services import drive_work_wake as wake
 @pytest.fixture(autouse=True)
 def _no_cached_credentials(monkeypatch):
     monkeypatch.setattr(wake, "_cached_credentials", None)
-    monkeypatch.setattr(wake, "_heal_wakes", {})
-    monkeypatch.setattr(wake, "_heal_tasks", set())
     monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
 
 
@@ -260,65 +261,70 @@ async def test_expected_skips_never_warn(monkeypatch, caplog):
 
 
 @pytest.mark.asyncio
-async def test_heal_schedules_nothing_and_calls_nothing_while_the_kill_switch_is_off(monkeypatch):
-    _uat_lane(monkeypatch, enabled="false")
-    monkeypatch.setattr(
-        wake, "default_credentials", lambda **_: pytest.fail("must not request credentials")
+async def test_reads_of_a_stalled_request_never_run_scheduler_jobs(monkeypatch):
+    """2026-10-17: the jobs were paused and the jobRunner grant withdrawn.
+
+    jobs.run still runs a paused job, so a status, review or Consent Center
+    read that sees a delayed request must never call it, even with the API's
+    drain flag on and after a denied wake.
+    """
+    from hushh_mcp.services.drive_sharing_center_contributor import (
+        DriveSharingCenterContributor,
+        entry,
     )
-    monkeypatch.setattr(
-        wake.httpx, "AsyncClient", lambda **_: pytest.fail("must not call scheduler")
+    from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+    _uat_lane(monkeypatch)
+    calls = _scheduler(monkeypatch, 403)
+    assert not await wake.wake_drive_work("v1")  # The committed action's own wake.
+    assert len(calls) == 1
+
+    now = datetime.now(UTC)
+    request_id = str(uuid4())
+    delayed = entry(
+        {
+            "source": "share",
+            "id": f"document_share_request:{request_id}",
+            "request_id": request_id,
+            "bucket": "incoming_requests",
+            "status": "pending",
+            "issued_at": 0,
+            "direction": "incoming",
+            "state": "pending",
+            "revision": 1,
+            "preparation_error_code": "trusted_auto_queued",
+            "owner_search_state": None,
+            "trusted_authority_ready": True,
+            "owner_allowed": True,
+            "automatic_queued_at": now - timedelta(minutes=10),
+        },
+        now=now,
     )
-    for _ in range(50):
-        assert wake.heal_queued_drive_work() is None
-    assert wake._heal_tasks == set()
-    assert wake._heal_wakes == {}
-    await asyncio.sleep(0)
+    assert delayed["metadata"]["automatic_progress_state"] == "delayed"
+    store = DriveSharingStore.__new__(DriveSharingStore)
+    store._transaction = AsyncMock(
+        return_value={"status": "pending", "queuedAt": now.isoformat(), "queueDelayed": True}
+    )
+    center = DriveSharingCenterContributor.__new__(DriveSharingCenterContributor)
+    center._supports_projection = lambda: True
+    center._transaction = AsyncMock(
+        side_effect=lambda _operation: {
+            "total": 1,
+            "items": [delayed],
+            "buckets": {"incoming_requests": [delayed]},
+            "schema_available": True,
+        }
+    )
 
-
-@pytest.mark.asyncio
-async def test_heal_wakes_each_stage_at_most_once_per_interval(monkeypatch):
-    _uat_lane(monkeypatch)
-    calls = _scheduler(monkeypatch)
-    clock = [1000.0]
-    monkeypatch.setattr(wake.time, "monotonic", lambda: clock[0])
-
-    for _ in range(50):
-        wake.heal_queued_drive_work()
-    await asyncio.gather(*wake._heal_tasks)
-    assert sorted(url.rsplit("/", 1)[1] for url, _ in calls) == [
-        "drive-work-suggestions-uat:run",
-        "drive-work-v1-uat:run",
-    ]
-
-    clock[0] += 59.9
-    wake.heal_queued_drive_work()
-    assert wake._heal_tasks == set()
-    clock[0] += 0.1
-    wake.heal_queued_drive_work()
-    await asyncio.gather(*wake._heal_tasks)
-    assert len(calls) == 4
-
-
-@pytest.mark.asyncio
-async def test_a_raising_heal_never_reaches_the_read(monkeypatch, caplog):
-    _uat_lane(monkeypatch)
-
-    async def broken(*_stages):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(wake, "wake_drive_work_stages", broken)
-    caplog.set_level(logging.DEBUG, logger=wake.__name__)
-    assert wake.heal_queued_drive_work() is None
-    tasks = set(wake._heal_tasks)
-    assert len(tasks) == 1  # Held by a strong reference until it ends.
-    await asyncio.gather(*tasks)
-    assert wake._heal_tasks == set()
-    assert _wake_records(caplog) == [
-        (logging.WARNING, "drive_work_wake.failed stage=heal outcome=error")
-    ]
-
-
-def test_heal_outside_an_event_loop_is_a_silent_no_op(monkeypatch):
-    _uat_lane(monkeypatch)
-    assert wake.heal_queued_drive_work() is None
-    assert wake._heal_tasks == set()
+    before = asyncio.all_tasks()
+    for _ in range(25):
+        assert (await store.request_status(user_id="recipient", request_id=request_id))[
+            "queueDelayed"
+        ]
+        await store.owner_review(user_id="owner", request_id=request_id)
+        await center.page("owner", bucket="incoming_requests", limit=20)
+        await center.preview("owner")
+    # Let anything a read scheduled in the background finish before counting.
+    spawned = asyncio.all_tasks() - before - {asyncio.current_task()}
+    await asyncio.wait_for(asyncio.gather(*spawned), timeout=5)
+    assert len(calls) == 1

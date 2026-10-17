@@ -1351,13 +1351,9 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
         assert status["queueDelayed"] is False
         assert abs(datetime.fromisoformat(status["queuedAt"]) - queued_at) < timedelta(seconds=5)
 
-    # Still due after three minutes: delayed for both participants, and the
-    # read asks the bounded heal (which itself refuses while the drain is off).
-    heals = []
-    monkeypatch.setattr(
-        "hushh_mcp.services.drive_sharing_store.heal_queued_drive_work",
-        lambda: heals.append(1),
-    )
+    # Still due after three minutes: delayed for both participants. A read
+    # only reports it; the scheduled drains own the queue (see
+    # test_drive_work_wake::test_reads_of_a_stalled_request_never_run_scheduler_jobs).
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_share_requests
@@ -1369,7 +1365,6 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
     assert (await sharing.request_status(user_id="recipient", request_id=request_id))[
         "queueDelayed"
     ]
-    assert heals == [1, 1]
 
     # A repeated Allow is a no-op success even after the revision moved on.
     with sharing.db.engine.begin() as connection:
@@ -1391,6 +1386,35 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
         )
     started = await sharing.owner_review(user_id="owner", request_id=request_id)
     assert "queuedAt" not in started and "queueDelayed" not in started
+    assert "workDelayedSince" not in started  # No search slice exists to wait.
+
+    # A search slice that no worker has held for ten minutes (the drains are
+    # paused) is delayed for both participants, and moves again once held.
+    job_id = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_owner_search_jobs
+              (job_id,user_id,client_request_id,request_digest,connection_generation,
+               consent_version,status,checkpoint_envelope,next_at,updated_at)
+              VALUES (:job,'owner',:request,:digest,1,'drive-owner-search-v1','queued',
+                '{}'::jsonb,clock_timestamp()-INTERVAL '10 minutes',
+                clock_timestamp()-INTERVAL '10 minutes')"""),
+            {"job": job_id, "request": request_id, "digest": "a" * 64},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        waited = datetime.now(UTC) - datetime.fromisoformat(status["workDelayedSince"])
+        assert timedelta(minutes=9) < waited < timedelta(minutes=11)
+        assert "queuedAt" not in status
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='running',lease_id=:lease,
+              lease_expires_at=clock_timestamp()+INTERVAL '120 seconds' WHERE job_id=:job"""),
+            {"job": job_id, "lease": str(uuid4())},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" not in status
 
 
 @pytest.mark.asyncio

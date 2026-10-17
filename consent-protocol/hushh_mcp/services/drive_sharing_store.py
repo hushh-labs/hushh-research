@@ -43,7 +43,13 @@ from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
 )
-from hushh_mcp.services.drive_request_queue import queue_view, request_queued_since
+from hushh_mcp.services.drive_request_queue import (
+    STARTED_WORK_SQL,
+    queue_view,
+    request_queued_since,
+    started_work_view,
+    started_work_waiting_since,
+)
 from hushh_mcp.services.drive_request_requester_store import (
     REQUESTER_ORIGIN,
     requester_price_view,
@@ -67,7 +73,6 @@ from hushh_mcp.services.drive_sharing_contract import (
     VerifiedGoogleRecipient,
 )
 from hushh_mcp.services.drive_v1_manual_review import manual_selection_marker
-from hushh_mcp.services.drive_work_wake import heal_queued_drive_work
 from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, DriveReadError
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
@@ -358,6 +363,32 @@ class DriveSharingStore(DriveDocumentStore):
             {"user": row["user_id"], "policy": LIVE_POLICY_HASH},
         ).scalar_one()
         return {} if ready else {"ownerDriveReady": False}
+
+    @staticmethod
+    def _started_work(connection, row, now) -> dict:
+        """Both participants: started work that no worker has moved for a while.
+
+        Read from durable search and grant rows only; never "paused", and a
+        read never dispatches work. Absent while the work moves.
+        """
+        if (
+            row["status"] != "pending"
+            or row["bulk_search_started_at"] is None
+            or row["access_stop_requested_at"] is not None
+            or row["expires_at"] <= now
+        ):
+            return {}
+        clocks = (
+            connection.execute(text(STARTED_WORK_SQL), {"request": row["request_id"]})
+            .mappings()
+            .one()
+        )
+        return started_work_view(
+            started_work_waiting_since(
+                clocks["search_waiting_since"], clocks["sharing_waiting_since"], now=now
+            ),
+            now,
+        )
 
     @staticmethod
     def _notify_setup_changed(connection, row) -> None:
@@ -2686,6 +2717,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "direction": "outgoing" if recipient else "incoming",
                 # Waiting in the durable queue with no search yet; never "paused".
                 **queue_view(request_queued_since(row, now), now),
+                **self._started_work(connection, row, now),
                 **(
                     {"ownerPayoutStatus": row["owner_payout_status"]}
                     if not recipient and row["owner_payout_status"] is not None
@@ -2701,10 +2733,7 @@ class DriveSharingStore(DriveDocumentStore):
                 **({} if recipient else self._owner_drive_setup(connection, row)),
             }
 
-        result = cast(dict, await self._transaction(operation))
-        if result.get("queueDelayed") is True:
-            heal_queued_drive_work()
-        return result
+        return cast(dict, await self._transaction(operation))
 
     async def lookup_client_request(self, *, user_id: str, client_request_id: str) -> dict:
         def operation(connection):
@@ -2820,6 +2849,7 @@ class DriveSharingStore(DriveDocumentStore):
                     else {}
                 ),
                 **queue_view(request_queued_since(row, now), now),
+                **self._started_work(connection, row, now),
             }
             if (
                 private.get("v1_live_request") is True
@@ -2928,8 +2958,6 @@ class DriveSharingStore(DriveDocumentStore):
             return result
 
         result = cast(dict, await self._transaction(operation))
-        if result.get("queueDelayed") is True:
-            heal_queued_drive_work()
         if result.pop("_agentPackageRequired", False):
             from hushh_mcp.services.drive_request_package_store import DriveRequestPackageStore
 

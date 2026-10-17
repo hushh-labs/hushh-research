@@ -1,10 +1,12 @@
-"""Truthful wait state of an automatic document request before its search starts.
+"""Truthful wait state of an automatic document request, before and after its search starts.
 
 A request is queued once Trusted access or the owner's Allow lets the
 automatic pipeline take it (``trusted_auto_queued``) and no Drive search has
 started. ``preparation_next_at`` is the moment that durable row became due for
-the scheduled drain. This module only describes rows a read already loaded; it
-never dispatches work, and a queued request is never described as running.
+the scheduled drain. Started work (a search slice, a content check or a Drive
+grant) waits the same way once no worker holds it. This module only describes
+rows a read already loaded; it never dispatches work, and waiting work is
+never described as running.
 """
 
 from __future__ import annotations
@@ -17,6 +19,50 @@ from typing import Any
 # picks a due row within a minute. The request stays saved and continues.
 QUEUE_DELAY_AFTER = timedelta(minutes=3)
 QUEUED_PREPARATION_CODE = "trusted_auto_queued"
+
+# Started work, as SQL scalars over the current drive_share_requests row. Each
+# is the moment that work became due with no worker holding it: the latest of
+# its next attempt, its last progress and any lease that ran out. A held lease
+# reads as clock_timestamp(), so held work is never delayed. NULL: no work.
+# A queued or running search slice.
+SEARCH_WAITING_SINCE_SQL = """(
+  SELECT CASE WHEN j.lease_expires_at>clock_timestamp() THEN clock_timestamp()
+    ELSE GREATEST(j.next_at,j.updated_at,j.lease_expires_at) END
+  FROM drive_owner_search_jobs j
+  WHERE j.user_id=drive_share_requests.user_id
+    AND j.client_request_id=drive_share_requests.request_id
+    AND j.status IN ('queued','running') AND j.expires_at>clock_timestamp()
+)"""
+# A finished search whose content check still runs (V1 and package requests).
+EVALUATION_WAITING_SINCE_SQL = """(
+  SELECT CASE WHEN j.lease_expires_at>clock_timestamp() THEN clock_timestamp()
+    ELSE GREATEST(j.evaluation_next_at,j.updated_at,j.lease_expires_at) END
+  FROM drive_owner_search_jobs j
+  WHERE j.user_id=drive_share_requests.user_id
+    AND j.client_request_id=drive_share_requests.request_id
+    AND j.status='completed' AND j.evaluation_status IN ('pending','running')
+    AND j.expires_at>clock_timestamp()
+)"""
+# Drive grants still in flight for this request's automatic batches. A batch
+# records progress each time one of its grants settles.
+SHARING_WAITING_SINCE_SQL = """(
+  SELECT CASE WHEN bool_or(effect.lease_expires_at>clock_timestamp()) THEN clock_timestamp()
+    ELSE GREATEST(min(effect.next_at),max(b.updated_at)) END
+  FROM drive_bulk_shares b
+  JOIN drive_bulk_share_effects effect ON effect.share_id=b.share_id
+  WHERE b.user_id=drive_share_requests.user_id
+    AND b.origin_request_id=drive_share_requests.request_id
+    AND b.progressive_batch=TRUE AND b.expires_at>clock_timestamp()
+    AND effect.state IN ('queued','dispatching','unknown')
+  HAVING count(*)>0
+)"""
+# Both started-work clocks of one request, for status and review reads. Only
+# the static fragments above fill it; the request is a bound parameter.
+_STARTED_WORK = """SELECT {search} AS search_waiting_since,{sharing} AS sharing_waiting_since
+  FROM drive_share_requests WHERE drive_share_requests.request_id=:request"""
+STARTED_WORK_SQL = _STARTED_WORK.replace("{search}", SEARCH_WAITING_SINCE_SQL).replace(
+    "{sharing}", SHARING_WAITING_SINCE_SQL
+)
 
 
 def request_queued_since(row: Mapping[str, Any], now: datetime) -> datetime | None:
@@ -48,3 +94,22 @@ def queue_view(queued_since: datetime | None, now: datetime) -> dict[str, Any]:
         "queuedAt": queued_since.isoformat(),
         "queueDelayed": queue_delayed(queued_since, now),
     }
+
+
+def started_work_waiting_since(*clocks: object, now: datetime) -> datetime | None:
+    """When the started work stopped moving, or None while any part still moves.
+
+    Every present clock must have waited: one part a worker holds or recently
+    advanced keeps the whole request moving. A future due time waits from now.
+    """
+    present = [clock for clock in clocks if isinstance(clock, datetime)]
+    if not present:
+        return None
+    return min(max(present), now)
+
+
+def started_work_view(waiting_since: datetime | None, now: datetime) -> dict[str, Any]:
+    """Additive status field, present only while started work is delayed."""
+    if waiting_since is None or not queue_delayed(waiting_since, now):
+        return {}
+    return {"workDelayedSince": waiting_since.isoformat()}

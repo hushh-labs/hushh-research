@@ -89,7 +89,14 @@ _MONTH_WORDS = {
         1,
     )
 }
-_TITLE_DATE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
+# Title checks see through "_" and camelCase (_title_words), so title dates
+# must too: "2025_08_14", "2025.08.14" and compact "20250814" are dates. An
+# unread title date falls back to file activity, which would let an
+# out-of-period file into automatic sharing.
+_TITLE_DATE = re.compile(
+    r"(?<!\d)(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})(?!\d)"
+    r"|(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)"
+)
 _TITLE_TIME = re.compile(
     r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
     r"(?P<zone>IST|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b",
@@ -695,7 +702,8 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
     title_days = []
     for match_date in _TITLE_DATE.finditer(match["name"]):
         try:
-            year, month, day = (int(part) for part in match_date.groups())
+            parts = match_date.groups()
+            year, month, day = (int(part) for part in (parts[:3] if parts[0] else parts[3:]))
             title_day = date(year, month, day)
             title_time = _TITLE_TIME.match(match["name"], match_date.end())
             if title_time:

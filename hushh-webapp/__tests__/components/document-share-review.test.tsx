@@ -1642,6 +1642,58 @@ describe("exact-file document review", () => {
       expect(state.startRequestSearch).not.toHaveBeenCalled();
     });
 
+    // The server resumes automatic batches only for a complete search.
+    it.each([
+      ["failed", "Search failed"],
+      ["limited", "Search incomplete"],
+      ["stopped", "Search stopped"],
+    ])("never promises sharing for an automatic search that %s, and offers the next step", async (status, label) => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, trustedAuto: true, ownerAllowed: true,
+        search: durableSearch({ status, matched: 12 }), bulkShare: null, batches: [], batchCount: 0,
+        claimedPositions: [] }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(label));
+      expect(screen.getByRole("status")).not.toHaveTextContent("Waiting to share");
+      expect(screen.getByText(
+        "Automatic sharing stopped because the Drive search didn't finish. Review and share the files yourself.",
+      )).toBeVisible();
+      expect(screen.queryByText(/You can close this window/)).toBeNull();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Search again" }));
+      await waitFor(() => expect(state.startRequestSearch).toHaveBeenCalledOnce());
+    });
+
+    it("stops claiming work when no worker has moved a started request", async () => {
+      // 2026-10-17: the drains were paused between search slices.
+      const working = { durableAvailable: true, trustedAuto: true, ownerAllowed: true,
+        search: durableSearch({ status: "queued", matched: 7 }), bulkShare: null };
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial(working));
+      const view = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Searching Drive · 7 file candidates"));
+      view.unmount();
+
+      state.review.mockResolvedValue(partial({ ...working,
+        workDelayedSince: new Date(Date.now() - 10 * 60_000 - 5_000).toISOString() }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Taking longer than usual · 10 min"));
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+      expect(screen.getByText("This request is saved and continues automatically.")).toBeVisible();
+      expect(screen.getByRole("status")).not.toHaveTextContent(/searching|paused/i);
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+    });
+
+    it("tells the requester when started sharing has not moved, instead of sharing in progress", async () => {
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing",
+        workDelayedSince: new Date(Date.now() - 4 * 60_000 - 5_000).toISOString() });
+      state.delivery.mockResolvedValue({ status: "pending", files: [], bulkStatus: "running" });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Taking longer than usual · 4 min"));
+      expect(screen.getByText("Your request is saved and continues automatically.")).toBeVisible();
+      expect(screen.getByRole("status")).not.toHaveTextContent(/Sharing in progress|paused/i);
+    });
+
     // An owner-allowed request was never Trusted Circle work, so it must not claim Trusted Circle.
     it.each([
       [false, "Trusted Circle changed. Review this request manually before sharing."],

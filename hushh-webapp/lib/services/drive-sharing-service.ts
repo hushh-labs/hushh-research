@@ -51,6 +51,11 @@ export type DocumentRequestQueue = {
   queuedAt?: string;
   /** Still waiting past the server's threshold; the request is saved and continues. */
   queueDelayed?: boolean;
+  /**
+   * Started work (a search or Drive grants) that no worker has moved past the
+   * server's threshold, since this time. Absent while it moves. Never "paused".
+   */
+  workDelayedSince?: string;
 };
 /** A decision's acknowledgement; a withdrawal also carries the payment view. */
 export type SharingDecision = Record<string, unknown> & {
@@ -952,13 +957,15 @@ function withoutEmptySearchProgress(value: RecordValue): RecordValue {
   return result;
 }
 
-/** Additive queue fields; a malformed pair is dropped, never a failed read. */
+/** Additive queue fields; a malformed value is dropped, never a failed read. */
 function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueue {
-  const { queuedAt, queueDelayed } = result;
-  return typeof queuedAt === "string" && !Number.isNaN(Date.parse(queuedAt)) &&
-    typeof queueDelayed === "boolean"
-    ? { queuedAt, queueDelayed }
-    : {};
+  const { queuedAt, queueDelayed, workDelayedSince } = result;
+  return {
+    ...(typeof queuedAt === "string" && !Number.isNaN(Date.parse(queuedAt)) &&
+      typeof queueDelayed === "boolean" ? { queuedAt, queueDelayed } : {}),
+    ...(typeof workDelayedSince === "string" && !Number.isNaN(Date.parse(workDelayedSince))
+      ? { workDelayedSince } : {}),
+  };
 }
 
 /** Absent on older servers; otherwise strictly a boolean. */

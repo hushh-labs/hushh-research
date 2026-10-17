@@ -99,6 +99,13 @@ describe("projectFeedDriveProgress", () => {
     expect(delayed("incoming")).toMatchObject({ title: "Taking longer than usual",
       description: "This request is saved and continues automatically.", waiting: true });
     expect(JSON.stringify([delayed("incoming"), delayed("outgoing")])).not.toMatch(/paused/i);
+    // Started work that no worker moves keeps its legacy stage but no working copy.
+    const [stalled] = projectFeedDriveProgress([entry({ metadata: { ...entry().metadata,
+      automatic_progress_stage: "finding", automatic_progress_state: "delayed",
+      automatic_queued_at: "2026-10-17T02:40:00Z" } })]);
+    expect(stalled).toMatchObject({ title: "Taking longer than usual", waiting: true,
+      queuedAt: Date.parse("2026-10-17T02:40:00Z") });
+    expect(JSON.stringify(stalled)).not.toMatch(/finding documents|Sharing is automatic/);
   });
 
   it("keeps working copy only for started work, and reads an older server's preparing as waiting", () => {

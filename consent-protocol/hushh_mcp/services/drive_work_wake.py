@@ -2,7 +2,9 @@
 
 The durable database queue and scheduled drains remain authoritative. This
 call carries only a fixed stage, never an owner, request, or document value,
-and its log lines carry only that stage and an outcome class.
+and its log lines carry only that stage and an outcome class. Only a committed
+user action wakes a stage; a read never does. An explicit jobs.run still runs
+a paused job, so a read-triggered wake would undo an operator's incident pause.
 """
 
 from __future__ import annotations
@@ -11,7 +13,6 @@ import asyncio
 import logging
 import os
 import threading
-import time
 from typing import Any, cast
 
 import httpx
@@ -39,12 +40,6 @@ _WAKE_BOUND_SECONDS = 5
 # A queued document request needs these stages before its search starts: the
 # same pair the owner's Allow and a preparation retry wake after their commit.
 QUEUED_REQUEST_STAGES = ("v1", "suggestions")
-# A read that sees a stalled queue re-wakes each stage at most this often per
-# process. The kill switch and environment checks still apply to every wake.
-_HEAL_INTERVAL_SECONDS = 60.0
-_heal_wakes: dict[str, float] = {}
-# The loop keeps only weak references to tasks; hold each heal until it ends.
-_heal_tasks: set[asyncio.Task[None]] = set()
 
 logger = logging.getLogger(__name__)
 
@@ -141,38 +136,3 @@ async def wake_drive_work(stage: str) -> bool:
 async def wake_drive_work_stages(*stages: str) -> None:
     """Wake several fixed stages at once; each wake stays independently best-effort."""
     await asyncio.gather(*(wake_drive_work(stage) for stage in stages))
-
-
-async def _heal(stages: tuple[str, ...]) -> None:
-    try:
-        await wake_drive_work_stages(*stages)
-    except Exception:
-        logger.warning("drive_work_wake.failed stage=heal outcome=error")
-
-
-def heal_queued_drive_work(stages: tuple[str, ...] = QUEUED_REQUEST_STAGES) -> None:
-    """Re-wake stages a read saw stalled, without slowing or failing that read.
-
-    Fire-and-forget, at most once per stage per process each heal interval,
-    and only through wake_drive_work. Nothing is scheduled while the operator
-    switch is off. The durable queue and scheduled drains stay authoritative.
-    """
-    try:
-        if not _drain_enabled():
-            return
-        loop = asyncio.get_running_loop()
-        now = time.monotonic()
-        due = tuple(
-            stage
-            for stage in stages
-            if stage not in _heal_wakes or now - _heal_wakes[stage] >= _HEAL_INTERVAL_SECONDS
-        )
-        if not due:
-            return
-        for stage in due:
-            _heal_wakes[stage] = now
-        task = loop.create_task(_heal(due))
-        _heal_tasks.add(task)
-        task.add_done_callback(_heal_tasks.discard)
-    except Exception:
-        return

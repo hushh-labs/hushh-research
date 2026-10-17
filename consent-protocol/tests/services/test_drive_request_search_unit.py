@@ -1706,6 +1706,62 @@ async def test_trusted_title_evidence_sees_words_inside_compound_filenames():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("terms", "outside", "inside"),
+    [
+        (
+            ["meeting", "notes"],
+            [
+                "2025_08_14_MeetingNotes",
+                "2025_08_14_meeting_notes.docx",
+                "20250814_MeetingNotes",
+                "2025.08.14 Meeting Notes",
+                "2025-08-14 Meeting Notes",
+            ],
+            ["2026_09_14_MeetingNotes", "20260914_meeting_notes", "2026.09.14 Meeting Notes"],
+        ),
+        (
+            ["invoice"],
+            ["2025_03_01_invoice.pdf", "20250301_invoice.pdf", "2025-03-01 invoice.pdf"],
+            ["2026_09_03_invoice.pdf"],
+        ),
+    ],
+)
+async def test_automatic_sharing_reads_title_dates_through_compound_spellings(
+    terms, outside, inside
+):
+    # Every file was created and modified inside the consented month. A title
+    # date outside it still wins, however the title spells it.
+    candidates = [
+        _request_candidate(f"title-{index}", name) for index, name in enumerate([*outside, *inside])
+    ]
+    checkpoint = {
+        "authority_mode": "trusted_auto",
+        "request_file_kind": "document",
+        "request_subject_terms": terms,
+        "request_notes": "notes" in terms,
+        "request": {"query": " ".join(terms)},
+        "request_time_intent": "file_activity",
+        "request_owner_review_required": False,
+        "requested_period": {"start": "2026-09-01", "end": "2026-09-30", "timezone": "UTC"},
+        "coverage_counts": {},
+    }
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+
+    assert [file["name"] for file in files] == inside
+    assert checkpoint["coverage_counts"]["excludedByDateCount"] == len(outside)
+    # An in-period title date wins over file activity outside the period too.
+    activity = {"created_time": "2025-01-05T00:00:00Z", "modified_time": "2025-01-05T00:00:00Z"}
+    for name in inside:
+        assert search_module._in_requested_period(
+            {**activity, "name": name}, checkpoint["requested_period"]
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "text,conflict",
     [
         ("3 months meeting notes", "request_mentions_longer_span"),
