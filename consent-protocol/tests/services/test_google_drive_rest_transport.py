@@ -879,3 +879,102 @@ async def test_bad_page_cannot_be_reported_as_complete_empty_results(monkeypatch
             user_id="owner", tool_name="search_files", arguments={"query": "name = 'Plan'"}
         )
     assert str(raised.value) in {"provider_response_invalid", "Invalid Drive listing."}
+
+
+async def test_owner_index_changes_are_owner_search_only_and_keep_the_row_shape(monkeypatch):
+    view = f"https://drive.google.com/file/d/{FILE_ID}/view"
+    changes = AsyncMock(
+        return_value={
+            "changes": [
+                {
+                    "changeType": "file",
+                    "fileId": FILE_ID,
+                    "removed": False,
+                    "file": {
+                        "id": FILE_ID,
+                        "name": "March statement.pdf",
+                        "mimeType": "application/pdf",
+                        "modifiedTime": "2026-09-20T10:00:00Z",
+                        "createdTime": "2026-09-19T10:00:00Z",
+                        "webViewLink": view,
+                        "trashed": True,
+                        "capabilities": {"canShare": True},
+                    },
+                },
+                {"changeType": "file", "fileId": "removed-file", "removed": True},
+                {"changeType": "drive", "removed": False},
+            ],
+            "newStartPageToken": "next-start",
+        }
+    )
+    start = AsyncMock(return_value="start-cursor")
+    drive = transport(
+        adapter=SimpleNamespace(index_changes=changes, collection_start_token=start),
+        monkeypatch=monkeypatch,
+    )
+    cursor = await drive.read_owner_search_page(
+        user_id="owner", tool_name="changes_start_token", arguments={}
+    )
+    assert cursor.payload == {"startPageToken": "start-cursor"}
+    page = await drive.read_owner_search_page(
+        user_id="owner", tool_name="list_changes", arguments={"pageToken": "start-cursor"}
+    )
+    # The changed file has exactly the owner-search row shape.
+    assert page.payload == {
+        "changes": [
+            {
+                "changeType": "file",
+                "fileId": FILE_ID,
+                "removed": False,
+                "trashed": True,
+                "file": {
+                    "id": FILE_ID,
+                    "title": "March statement.pdf",
+                    "mimeType": "application/pdf",
+                    "modifiedTime": "2026-09-20T10:00:00Z",
+                    "createdTime": "2026-09-19T10:00:00Z",
+                    "viewUrl": view,
+                    "capabilities": {"canShare": True},
+                },
+            },
+            {"changeType": "file", "fileId": "removed-file", "removed": True, "trashed": False},
+            {"changeType": "drive", "removed": False, "trashed": False},
+        ],
+        "nextPageToken": None,
+        "newStartPageToken": "next-start",
+    }
+    changes.assert_awaited_once_with(
+        access_token=GRANT, page_token=cursor.payload["startPageToken"], page_size=200
+    )
+    # Agent-facing reads cannot reach the change feed at all.
+    for tool in ("list_changes", "changes_start_token"):
+        with pytest.raises(DriveOAuthError, match="connector_unavailable"):
+            await drive.read_tool(user_id="owner", tool_name=tool, arguments={})
+    for arguments in (
+        {},
+        {"pageToken": "c", "pageSize": 1000},
+        {"pageToken": "c", "fields": "*"},
+        {"pageToken": ""},
+    ):
+        with pytest.raises(DriveOAuthError, match="invalid_argument"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="list_changes", arguments=arguments
+            )
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_owner_search_page(
+            user_id="owner", tool_name="changes_start_token", arguments={"pageToken": "c"}
+        )
+    assert changes.await_count == 1
+    for bad in (
+        {"changes": [], "nextPageToken": "a", "newStartPageToken": "b"},
+        {"changes": []},
+        {
+            "changes": [{"changeType": "file", "fileId": "x", "file": {"id": "other"}}],
+            "newStartPageToken": "b",
+        },
+    ):
+        changes.return_value = bad
+        with pytest.raises(DriveReadError, match="provider_response_invalid"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="list_changes", arguments={"pageToken": "start-cursor"}
+            )

@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_owner_index_port import default_owner_index
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     _is_meeting_note_request,
 )
 from hushh_mcp.services.drive_permission_executor import recipient_identity_for_user
+from hushh_mcp.services.drive_request_brain import RequestBrain, interpret_request, suggested_plan
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_service import (
@@ -39,7 +42,9 @@ _GENERIC_SEARCH_TERM = re.compile(
     r"|\b(?:last|past|latest|recent)\s+\d{1,2}\b",
     re.I,
 )
-_LITERAL_TITLE = re.compile(r"[\"“][^\"”]{3,}[\"”]|\S+\.(?:pdf|docx?|txt|md)\b", re.I)
+_LITERAL_TITLE = re.compile(
+    r"[\"“][^\"”]{3,}[\"”]|\S+\.(?:pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)\b", re.I
+)
 _NAMED_TITLE_CUE = re.compile(r"\b(?:file|document|doc)\s+(?:named|called|titled)\b", re.I)
 _TOPIC_NEAR_DOCUMENT = re.compile(
     r"\b([A-Za-z][A-Za-z0-9_-]*)\s+(?:docs?|documents?)\b"
@@ -90,6 +95,23 @@ _GENERIC_TOPIC = frozenset(
         "thousand",
     }
 )
+# "September documents", "Q3 docs": a date names the listing, not a topic.
+_DATE_TOPIC = re.compile(
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+    r"|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|q[1-4]|fy\d*"
+    r"|yesterday|today|days?|weeks?|months?|quarters?|years?)",
+    re.I,
+)
+
+# The Gemini request planner is opt-in. By owner decision (2026-10-17) the
+# request flow plans with the deterministic brain and makes no model call;
+# the shared Gemini quota is exhausted and paused too often to sit in it.
+GEMINI_PLANNER_FLAG = "DRIVE_REQUEST_GEMINI_PLANNER_ENABLED"
+
+
+def gemini_planner_enabled() -> bool:
+    return os.getenv(GEMINI_PLANNER_FLAG, "").strip().lower() == "true"
+
 
 _STATEMENT_NOUN = re.compile(r"\bstatements?\b", re.I)
 _BROKERAGE_NOUN = re.compile(r"\b(?:brokerage|broker)\b", re.I)
@@ -171,15 +193,19 @@ class DriveRequestBulkService:
         sharing=None,
         search=None,
         bulk=None,
-        planner=interpret_live_search,
+        planner=None,
         recipient_identity=None,
         require_owner=None,
         wake=None,
+        owner_index=None,
     ):
         self.sharing = sharing or DriveSharingStore()
         self.search = search or DriveOwnerSearchService()
         self.bulk = bulk or DriveBulkShareStore()
-        self.planner = planner
+        # None plans with the deterministic brain. A model planner runs only
+        # when one is injected or the operator explicitly enables the flag.
+        self.planner = planner or (interpret_live_search if gemini_planner_enabled() else None)
+        self.owner_index = owner_index or default_owner_index()
         self.recipient_identity = recipient_identity or recipient_identity_for_user
         self.require_owner = require_owner
         self.wake = wake or wake_drive_work
@@ -197,6 +223,84 @@ class DriveRequestBulkService:
         await self._owner()
         return context
 
+    @staticmethod
+    def _plan_mismatch(query, plan, *, require_statement_coverage) -> bool:
+        """The request-consistency rules every plan must meet, model or brain."""
+        documents_only = bool(_DOCUMENT_NOUN.search(query) and not _OTHER_FILE_NOUN.search(query))
+        statement_coverage = (
+            require_statement_coverage
+            and bool(_STATEMENT_NOUN.search(query))
+            and not (explicitly_requests_file_activity(query))
+        )
+        near_kind = _TOPIC_NEAR_DOCUMENT.search(query)
+        near_word = next((part for part in near_kind.groups() if part), "") if near_kind else ""
+        topic_required = bool(
+            near_word
+            and near_word.casefold() not in _GENERIC_TOPIC
+            and not _DATE_TOPIC.fullmatch(near_word)
+        )
+        return bool(
+            documents_only
+            and plan.semantic_intent != "broad_financial_records"
+            and plan.file_kind != "document"
+            or statement_coverage
+            and plan.time_intent != "document_coverage"
+            or any(_GENERIC_SEARCH_TERM.search(term) for term in plan.terms)
+            or bool(
+                plan.exact_title
+                and _PLURAL_DOCUMENT_NOUN.search(query)
+                and not _LITERAL_TITLE.search(query)
+                and not _NAMED_TITLE_CUE.search(query)
+            )
+            or topic_required
+            and not plan.terms
+            and not plan.exact_title
+        )
+
+    async def _brain_plan(
+        self, *, user_id, purpose, timezone, requested_at=None, require_statement_coverage=False
+    ) -> tuple[LiveSearchPlan, RequestBrain]:
+        """Plan without a model: the deterministic brain, never Gemini."""
+        query = purpose["purpose"]
+        try:
+            vocabulary = await self.owner_index.owner_vocabulary(owner_id=user_id)
+        except Exception:  # noqa: BLE001 - the spelling hint is optional
+            vocabulary = None
+        try:
+            picked = (
+                date.fromisoformat(purpose["periodStart"]),
+                date.fromisoformat(purpose["periodEnd"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            picked = None
+        brain = interpret_request(
+            query,
+            now=requested_at if isinstance(requested_at, datetime) else datetime.now(UTC),
+            timezone=timezone,
+            vocabulary=vocabulary,
+            picked_period=picked,
+        )
+        if not (brain.concepts or brain.listing or brain.exact_title):
+            # No subject word survived ("the soft copy", "the latest one") and
+            # the request is not an explicit listing: never list the whole
+            # Drive for it, least of all for automatic sharing.
+            raise DriveReadError("narrow_selection_required")
+        plan = LiveSearchPlan.model_validate(suggested_plan(brain, query))
+        if self._plan_mismatch(query, plan, require_statement_coverage=require_statement_coverage):
+            # Deterministic output cannot improve on a retry; fail closed.
+            raise DriveReadError("invalid_argument")
+        # Counts only: never the request words, concepts or corrections.
+        logger.info(
+            "drive_request.plan source=deterministic_brain topics=%d parts=%d kind=%s"
+            " corrected=%s dropped=%d",
+            len(brain.topics),
+            len(brain.parts),
+            brain.file_kind,
+            brain.corrected,
+            len(brain.dropped),
+        )
+        return plan, brain
+
     async def _plan(
         self, *, user_id, purpose, timezone, requested_at=None, require_statement_coverage=False
     ):
@@ -211,18 +315,6 @@ class DriveRequestBulkService:
             .isoformat(timespec="seconds"),
             "user_timezone": timezone,
         }
-        documents_only = bool(_DOCUMENT_NOUN.search(query) and not _OTHER_FILE_NOUN.search(query))
-        statement_coverage = (
-            require_statement_coverage
-            and bool(_STATEMENT_NOUN.search(query))
-            and not (explicitly_requests_file_activity(query))
-        )
-        near_kind = _TOPIC_NEAR_DOCUMENT.search(query)
-        topic_required = bool(
-            near_kind
-            and next((part for part in near_kind.groups() if part), "").casefold()
-            not in _GENERIC_TOPIC
-        )
         async with asyncio.timeout(65):
             for attempt in (1, 2):
                 plan = await plan_live_search(
@@ -232,22 +324,8 @@ class DriveRequestBulkService:
                 )
                 if plan.mode != "find":
                     raise DriveReadError("invalid_argument")
-                mismatch = (
-                    documents_only
-                    and plan.semantic_intent != "broad_financial_records"
-                    and plan.file_kind != "document"
-                    or statement_coverage
-                    and plan.time_intent != "document_coverage"
-                    or any(_GENERIC_SEARCH_TERM.search(term) for term in plan.terms)
-                    or bool(
-                        plan.exact_title
-                        and _PLURAL_DOCUMENT_NOUN.search(query)
-                        and not _LITERAL_TITLE.search(query)
-                        and not _NAMED_TITLE_CUE.search(query)
-                    )
-                    or topic_required
-                    and not plan.terms
-                    and not plan.exact_title
+                mismatch = self._plan_mismatch(
+                    query, plan, require_statement_coverage=require_statement_coverage
                 )
                 if not mismatch:
                     return plan
@@ -346,6 +424,8 @@ class DriveRequestBulkService:
                 return recovered
         route = None
         planner_fallback = None
+        brain = None
+        plan_source = None
         if authority_mode == "agent_package" and not context.get("v1LiveRequest"):
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
@@ -361,7 +441,22 @@ class DriveRequestBulkService:
             }
         elif context.get("v1LiveRequest") and statement_plan is not None:
             plan = statement_plan.model_dump(mode="json")
+        elif self.planner is None:
+            # Default: no model call anywhere in the request flow.
+            planned, brain = await self._brain_plan(
+                user_id=user_id,
+                purpose=context["purpose"],
+                timezone=timezone,
+                requested_at=requested_at,
+                require_statement_coverage=not context.get("agentPackageRequired"),
+            )
+            plan = planned.model_dump(mode="json")
+            plan_source = "deterministic_brain"
+            if context.get("v1LiveRequest"):
+                # The V1 lane keeps its own lexical sweeps over the plan terms.
+                brain = None
         else:
+            plan_source = "model"
             try:
                 planned = await self._plan(
                     user_id=user_id,
@@ -419,6 +514,8 @@ class DriveRequestBulkService:
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
+            **({"brain": brain.as_checkpoint()} if brain is not None else {}),
+            **({"plan_source": plan_source} if plan_source is not None else {}),
             # A new automatic request shares every in-period match. An owner
             # takeover keeps the owner's exact review.
             **(

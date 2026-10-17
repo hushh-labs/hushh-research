@@ -17,7 +17,7 @@ Allow binds the package revision, digest, exact selected source versions and edi
 ## Existing components reused
 
 - The Documents manifest owns the Gemini planner and the content/package assessment instructions. No second routing model or independent prompt catalog is introduced.
-- Durable owner search provides paginated provider candidates. This is live retrieval, not a new whole-Drive content index.
+- Durable owner search provides paginated provider candidates. This is live retrieval, not a new whole-Drive content index. In the Drive worker only, an in-process owner name index (Gear 1, wired in `hushh_mcp/services/drive_owner_index_port.py`) commits name matches in the first worker slice after the create-time Drive page; it holds file metadata in memory only, never content, and Drive stays the completeness authority. `DRIVE_OWNER_INDEX_ENABLED=false` turns it off.
 - The package store encrypts per-file evidence on those existing result rows and a compact manifest on the search checkpoint. Original document text exists only during bounded reads/model calls.
 - Existing owner review, payment obligations, bulk sharing workers and payout settlement own their established transitions.
 

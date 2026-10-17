@@ -709,3 +709,52 @@ async def test_collection_download_admits_32mb_without_expanding_preview(adapter
             access_token="synthetic",
             max_bytes=drive.LIVE_COLLECTION_CONTENT_LIMIT + 1,
         )
+
+
+async def test_index_change_page_is_the_one_admitted_owner_delta_shape(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    calls = []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def response(request):
+        calls.append(request)
+        body = {"changes": [], "newStartPageToken": "private-next"}
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    page = await adapter.index_changes(access_token="synthetic", page_token="private-cursor")
+    assert page["newStartPageToken"] == "private-next"
+    sent = calls[0].url.params
+    assert sent["fields"] == drive.INDEX_CHANGES_FIELDS and sent["pageSize"] == "200"
+    assert sent["includeRemoved"] == "true" and sent["spaces"] == "drive"
+    await adapter.index_changes(access_token="synthetic", page_token="private-cursor", page_size=25)
+    assert calls[1].url.params["pageSize"] == "25"
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.index_changes(
+            access_token="synthetic", page_token="private-cursor", page_size=1000
+        )
+    base = {
+        "fields": drive.INDEX_CHANGES_FIELDS,
+        "pageSize": "200",
+        "pageToken": "private-cursor",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+        "includeRemoved": "true",
+        "spaces": "drive",
+    }
+    wider = drive.INDEX_CHANGES_FIELDS.replace("trashed,", "trashed,description,")
+    for params, limit in (
+        ({**base, "pageSize": "1000"}, drive.METADATA_LIMIT),
+        ({**base, "q": "trashed = false"}, drive.METADATA_LIMIT),
+        ({**base, "includeRemoved": "false"}, drive.METADATA_LIMIT),
+        ({**base, "fields": wider}, drive.METADATA_LIMIT),
+        (base, drive.CONTENT_LIMIT),
+    ):
+        with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+            await adapter._get("/changes", access_token="synthetic", params=params, limit=limit)
+    assert len(calls) == 2
+    assert all("private-" not in r.getMessage() for r in caplog.records if r.name == drive.__name__)
