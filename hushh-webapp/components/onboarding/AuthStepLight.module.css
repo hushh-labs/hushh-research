@@ -252,11 +252,7 @@
   --app-secondary-surface: #fff;
   --app-separator: #d8d8dc;
   --app-input-radius: var(--auth-control-radius);
-  --app-accent: #0071e3;
-  --app-accent-hover: #0067d1;
-  --app-accent-fg: #fff;
-  --app-accent-tint: #f0f7ff;
-  --app-focus-ring: rgb(0 113 227 / 24%);
+  /* Accent and focus inherit the owner-selected app palette. */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--app-form-related-gap);
