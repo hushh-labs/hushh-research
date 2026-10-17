@@ -16,6 +16,7 @@
 # playwright (test artifacts — not source)
 /playwright-report/
 /test-results/
+/test-results-failed/
 /blob-report/
 /playwright/.cache/
 
