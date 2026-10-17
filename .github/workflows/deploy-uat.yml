@@ -206,6 +206,8 @@ jobs:
       cancel-in-progress: false
       queue: max
     environment: uat
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -288,6 +290,7 @@ jobs:
               scripts/deploy/backend-model-settings.sh \
               scripts/deploy/backend-drive-secret-settings.sh \
               scripts/deploy/scope-commerce-secrets.sh \
+              deploy/email-auth/bind_secrets.sh \
               deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             while IFS= read -r tool; do
               mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
@@ -318,6 +321,7 @@ jobs:
               mkdir -p "$(dirname "$tool")"
               cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
             done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
+            printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration
@@ -723,9 +727,21 @@ jobs:
           UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
         run: |
           set -euo pipefail
+          email_auth_args=()
+          if [[ -f scripts/ops/email_auth_uat_release.py ]] && \
+              grep -q -- '--email-auth-enabled' scripts/ops/sync_backend_runtime_secrets.py; then
+            email_auth_args=(--email-auth-enabled "$UAT_EMAIL_AUTH_ENABLED")
+            if [[ "${{ steps.scope.outputs.deploy_backend }}" == "true" ]]; then
+              "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py preflight
+            fi
+          elif [[ "$UAT_EMAIL_AUTH_ENABLED" != "false" ]]; then
+            echo "Selected SHA cannot preserve enabled email OTP; disable EMAIL_AUTH_ENABLED_UAT for an older approved release." >&2
+            exit 1
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
+            "${email_auth_args[@]}" \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \
@@ -1083,6 +1099,12 @@ jobs:
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-predeploy.json
+          if [[ "$UAT_EMAIL_AUTH_ENABLED" == "true" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py activate \
+              --actor "${{ github.actor }}" \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              > /tmp/uat-email-auth-policy-activation.json
+          fi
           expected_fence_count=0
           if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
             expected_fence_count=2
@@ -1403,6 +1425,10 @@ jobs:
           if [ "${candidate_health_ok}" != "true" ]; then
             echo "Backend candidate tagged health probe failed." >&2
             exit 1
+          fi
+          if [[ "$UAT_EMAIL_AUTH_ENABLED" == "true" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py verify-candidate \
+              --backend-url "$BACKEND_CANDIDATE_URL"
           fi
 
       - name: Verify candidate PKM evaluator in Cloud Run
@@ -3273,6 +3299,7 @@ jobs:
             /tmp/uat-backend-provenance.json
             /tmp/uat-frontend-provenance.json
             /tmp/uat-db-migration-guard-predeploy.json
+            /tmp/uat-email-auth-policy-activation.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/uat-backend-image.json
             /tmp/uat-backend-image-manifest.json

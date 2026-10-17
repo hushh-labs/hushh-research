@@ -17,9 +17,86 @@ import yaml
 from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
-from tests._deploy_contract import managed_vertex_probe_script, managed_vertex_probe_surface
+from tests._deploy_contract import (
+    backend_deploy_script,
+    managed_vertex_probe_script,
+    managed_vertex_probe_surface,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    ("supported", "backend", "flag", "allowed"),
+    [
+        (False, True, "false", True),
+        (False, True, "true", False),
+        (True, True, "true", True),
+        (False, False, "true", False),
+    ],
+)
+def test_email_auth_release_admits_only_supported_enabled_backends(
+    tmp_path, supported, backend, flag, allowed
+):
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    sync = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step["name"] == "Sync canonical hosted runtime secrets"
+    )
+    guard = sync["run"].split(
+        '\n"${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \\\n'
+    )[0]
+    guard = guard.replace("${{ env.PROTOCOL_PYTHON }}", sys.executable)
+    guard = guard.replace("${{ steps.scope.outputs.deploy_backend }}", str(backend).lower())
+    ops = tmp_path / "scripts/ops"
+    ops.mkdir(parents=True)
+    (ops / "sync_backend_runtime_secrets.py").write_text(
+        "# --email-auth-enabled\n" if supported else "# legacy compiler\n"
+    )
+    if supported:
+        (ops / "email_auth_uat_release.py").write_text(
+            "from pathlib import Path\nPath('preflight-ran').touch()\n"
+        )
+    result = subprocess.run(  # noqa: S603 - authored guard and temporary synthetic inputs
+        [shutil.which("bash") or "bash", "-c", guard],
+        cwd=tmp_path,
+        env={**os.environ, "UAT_EMAIL_AUTH_ENABLED": flag},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is allowed
+    assert (tmp_path / "preflight-ran").exists() is (supported and backend)
+
+
+@pytest.mark.parametrize("environment", ["uat", "production", "dev"])
+def test_email_auth_secret_bindings_are_uat_only(environment):
+    body = backend_deploy_script()
+    source = next(line.strip() for line in body.splitlines() if "source deploy/email-auth/" in line)
+    source = source.replace("${_DEPLOY_ENV}", environment)
+    result = subprocess.run(  # noqa: S603 - authored helper with synthetic environment
+        [
+            shutil.which("bash") or "bash",
+            "-c",
+            'append_optional_secret() { echo "$1=$2"; }; ' + source,
+        ],
+        cwd=REPO_ROOT,
+        env=os.environ,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == (
+        [
+            "EMAIL_AUTH_VERIFIER_KEY=EMAIL_AUTH_VERIFIER_KEY",
+            "EMAIL_AUTH_PAYLOAD_KEY=EMAIL_AUTH_PAYLOAD_KEY",
+            "EMAIL_AUTH_LOOKUP_KEY=EMAIL_AUTH_LOOKUP_KEY",
+            "MAIL_API_KEY=EMAIL_AUTH_MAIL_API_KEY",
+        ]
+        if environment == "uat"
+        else []
+    )
 
 
 @pytest.mark.parametrize(
@@ -924,6 +1001,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         "scripts/deploy/backend-model-settings.sh",
         "scripts/deploy/backend-drive-secret-settings.sh",
         "scripts/deploy/scope-commerce-secrets.sh",
+        "deploy/email-auth/bind_secrets.sh",
         "deploy/sso/bind_workos.sh",
     )
     (tmp_path / "runner/release-tools").mkdir(parents=True)

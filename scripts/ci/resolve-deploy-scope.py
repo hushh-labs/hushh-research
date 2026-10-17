@@ -20,6 +20,7 @@ FRONTEND_PREFIXES = (
 )
 BACKEND_PREFIXES = (
     "consent-protocol/",
+    "deploy/email-auth/",
 )
 FRONTEND_EXACT_PATHS = {
     "deploy/frontend.cloudbuild.yaml",
@@ -33,6 +34,7 @@ BACKEND_EXACT_PATHS = {
     "deploy/pod-release.json",
     "deploy/pod-release-reuse.json",
     "scripts/ops/sync_backend_runtime_secrets.py",
+    "scripts/ops/email_auth_uat_release.py",
 }
 NEUTRAL_PREFIXES = (
     ".codex/",
