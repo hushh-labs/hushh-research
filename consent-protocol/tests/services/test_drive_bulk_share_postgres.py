@@ -66,6 +66,15 @@ def bulk(lifecycle, monkeypatch):
         connection.execute(
             text("ALTER TABLE drive_bulk_share_files ADD COLUMN origin_request_id UUID")
         )
+        # Migration 287's per-file removal ledger: the recipient's file lists
+        # hide removed files. Mirror only the columns that check reads.
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_request_bulk_removals (
+            share_id UUID NOT NULL,
+            position INTEGER NOT NULL,
+            recipient_user_id TEXT NOT NULL,
+            UNIQUE (share_id,position,recipient_user_id))""")
+        )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
             mcp_endpoint=:endpoint,capability_policy=CAST(:policy AS jsonb)

@@ -133,7 +133,7 @@ describe("SharedFileRow", () => {
     const hint = document.getElementById(row.getAttribute("aria-describedby") ?? "");
     expect(hint).toHaveClass("sr-only");
     expect(hint).toHaveTextContent(
-      "Swipe left to remove access, swipe right to keep, or press and hold for options.",
+      "Tap for options. Swipe left to remove access, swipe right to keep.",
     );
     expect(row).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
 
@@ -156,6 +156,81 @@ describe("SharedFileRow", () => {
     });
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep" }));
     expect(onKeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the choice on a click, as VoiceOver, TalkBack and browse mode send", () => {
+    const onRemove = vi.fn();
+    render(
+      <ul>
+        <SharedFileRow file={file(1)} kept={false} onRemove={onRemove} onKeep={vi.fn()} />
+      </ul>,
+    );
+    const row = surface(screen.getByTestId("shared-file-row"));
+    fireEvent.click(row);
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("Remove access?")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove access" }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not also open the choice from the click that ends a swipe", () => {
+    const onKeep = vi.fn();
+    render(
+      <ul>
+        <SharedFileRow file={file(1)} kept={false} onRemove={vi.fn()} onKeep={onKeep} />
+      </ul>,
+    );
+    const row = surface(screen.getByTestId("shared-file-row"));
+    swipe(row, 120);
+    fireEvent.click(row);
+    expect(onKeep).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("sets the dialog title at the flow's 15px, inside its portal", () => {
+    render(
+      <ul>
+        <SharedFileRow file={file(1)} kept={false} onRemove={vi.fn()} onKeep={vi.fn()} />
+      </ul>,
+    );
+    fireEvent.keyDown(surface(screen.getByTestId("shared-file-row")), { key: "Enter" });
+    // The base [data-slot$="title"] rule reads this token with !important.
+    expect(screen.getByRole("alertdialog")).toHaveClass(
+      "[--foundation-title3-size:15px]",
+      "[--foundation-title3-line:20px]",
+      "[--foundation-title3-weight:600]",
+    );
+  });
+
+  it("keeps Undo on the row while the server can still cancel the removal", () => {
+    const onUndo = vi.fn();
+    const view = render(
+      <ul>
+        <SharedFileRow
+          file={file(1, { status: "removing", removable: false, undoable: true })}
+          kept={false}
+          onRemove={vi.fn()}
+          onKeep={vi.fn()}
+          onUndo={onUndo}
+        />
+      </ul>,
+    );
+    const row = screen.getByTestId("shared-file-row");
+    expect(row).toHaveTextContent("Removing access");
+    fireEvent.click(within(row).getByRole("button", { name: "Undo removing access to Meeting notes 1" }));
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <ul>
+        <SharedFileRow
+          file={file(1, { status: "removing", removable: false, undoable: false })}
+          kept={false}
+          onRemove={vi.fn()}
+          onKeep={vi.fn()}
+          onUndo={onUndo}
+        />
+      </ul>,
+    );
+    expect(within(screen.getByTestId("shared-file-row")).queryByRole("button")).toBeNull();
   });
 
   it("has no gesture where One cannot remove access", () => {
@@ -246,7 +321,8 @@ describe("FeedSharedFilesSheet", () => {
     await waitFor(() => expect(first).toHaveTextContent("Removing access"));
     expect(toastMock.success).toHaveBeenCalledTimes(1);
     const [message, options] = toastMock.success.mock.calls[0];
-    expect(message).toBe("Access removed");
+    // Queued, not done: the requester keeps access until the drain runs.
+    expect(message).toBe("Removing access");
     expect(options.duration).toBe(FEED_SHARED_FILES_UNDO_MS);
     expect(options.action.label).toBe("Undo");
 

@@ -34,11 +34,39 @@ export const DOCUMENT_FLOW_TEXT_SCALE = [
 export const DOCUMENT_FLOW_SURFACE_TYPE = [
   "[--type-navigation-title-size:15px] [--type-navigation-title-line:20px] [--type-navigation-title-weight:600]",
   "[--foundation-title3-size:15px] [--foundation-title3-line:20px] [--foundation-title3-weight:600]",
-  "[--type-row-description-size:11px] [--type-row-description-line:1.35]",
+  // The Feed row's secondary line steps down to 10px below 360px.
+  "[--type-row-description-size:11px] [--type-row-description-line:1.35] max-[360px]:[--type-row-description-size:10px]",
 ].join(" ");
 
-const SPAN_PHRASE =
-  /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s-]+(days?|weeks?|months?|years?)\b/i;
+/**
+ * A confirm dialog in this flow renders in a portal, outside the surface that
+ * narrows the title token, so it narrows the same token on its own content.
+ */
+export const DOCUMENT_FLOW_DIALOG_TYPE =
+  "[--foundation-title3-size:15px] [--foundation-title3-line:20px] [--foundation-title3-weight:600]";
+
+const SPAN_PHRASES =
+  /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s-]+(days?|weeks?|months?|years?)\b/gi;
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+// The server's shortest calendar length per unit: "1 month" never conflicts with 30 days.
+const SPAN_DAYS: Record<string, number> = { day: 1, week: 7, month: 28, year: 365 };
+
+/** The phrase the server flagged: the first span longer than the picked dates. */
+function longerSpan(purpose: string, periodStart: string, periodEnd: string): string | undefined {
+  const picked =
+    (Date.parse(`${periodEnd}T00:00:00Z`) - Date.parse(`${periodStart}T00:00:00Z`)) / 86_400_000 + 1;
+  if (!Number.isFinite(picked)) return undefined;
+  for (const match of purpose.matchAll(SPAN_PHRASES)) {
+    const [phrase, amount = "", unitText = ""] = match;
+    const count = NUMBER_WORDS[amount.toLowerCase()] ?? Number(amount);
+    const unit = unitText.toLowerCase().replace(/s$/, "");
+    if (count * (SPAN_DAYS[unit] ?? 0) > picked) return phrase;
+  }
+  return undefined;
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -64,7 +92,7 @@ export function periodConflictNote(
   const start = shortDate(periodStart);
   const end = shortDate(periodEnd);
   if (!start || !end) return null;
-  const span = SPAN_PHRASE.exec(purpose)?.[0];
+  const span = longerSpan(purpose, periodStart, periodEnd);
   const dates = `${start} – ${end}`;
   if (audience === "requester")
     return span ? `Your note says ${span}. We used your dates: ${dates}.` : `We used your dates: ${dates}.`;

@@ -49,6 +49,10 @@ import {
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { DOCUMENT_FLOW_TEXT_SCALE, periodConflictNote } from "@/lib/consent/document-request-flow";
+import {
+  effectiveRequesterPaymentState,
+  REQUESTER_PAYMENT_TITLES,
+} from "@/lib/consent/document-request-payment-view";
 import { presentOwnerReviewRequest } from "@/lib/consent/document-request-requester-view";
 import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
@@ -869,10 +873,12 @@ function UnlockedDocumentReview({
   const bulkShare = review?.bulkShare;
   const ownerDecision = isOwnerDecision(snapshot);
   const priceOnly = !agentPackage && ownerDecision && review?.priceOnlyAvailable === true;
-  // Allow takes the requester's estimate (or the owner's price) in one tap,
-  // when that price fits this request's sealed rule.
+  // An autoshare request's Allow takes the requester's estimate (or the
+  // owner's price) in one tap, when that price fits its sealed rule. An older
+  // request keeps its price step.
   const quickAllowCandidate = review?.priceCents ?? review?.estimateCents ?? null;
-  const quickAllowCents = isValidDocumentRequestPriceCents(quickAllowCandidate) &&
+  const quickAllowCents = review?.autoshare === true &&
+    isValidDocumentRequestPriceCents(quickAllowCandidate) &&
     (allowCents || quickAllowCandidate % 100 === 0) ? quickAllowCandidate : null;
   const ownerPeriodNote = review?.periodConflict === "request_mentions_longer_span"
     ? periodConflictNote(review.purpose.purpose, review.purpose.periodStart, review.purpose.periodEnd, "owner")
@@ -1260,21 +1266,35 @@ function UnlockedDocumentReview({
   const ownerName = counterpartLabel?.trim() && counterpartLabel.trim() !== "Document request"
     ? counterpartLabel.trim() : "the owner";
   const sentCount = snapshot?.delivery?.sharedCount ?? 0;
+  const sentSoFar = `${sentCount.toLocaleString()} sent so far`;
   const requesterPayment = outgoingStatus?.payment;
+  // As of now: a checkout deadline passes on the device without a refetch.
+  const requesterPaymentState = requesterPayment
+    ? effectiveRequesterPaymentState(requesterPayment, now) : null;
   const requesterLine = !outgoingStatus
     ? null
     : outgoingStatus.awaitingOwnerAllow === true && UNDECIDED.has(outgoingStatus.status)
       ? `Waiting for ${ownerName} to allow`
-    : requesterPayment?.nextAction === "pay" && requesterPayment.amountCents !== null
+    : requesterPaymentState === "payable" && requesterPayment && requesterPayment.amountCents !== null
       ? `Pay ${formatDocumentRequestPrice(requesterPayment.amountCents)} to get the files`
+    : requesterPaymentState === "link_expired"
+      ? REQUESTER_PAYMENT_TITLES.linkExpired
+    : requesterPaymentState === "request_expired"
+      ? REQUESTER_PAYMENT_TITLES.requestExpired
     : outgoingStatus.status === "completed" && sentCount > 0
       ? `All files sent · ${sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
     : outgoingStatus.status === "no_files_shared" && sentCount === 0
       ? "No matching files"
+    // Stalled or still queued work says so; it never reads as running.
+    : requesterDelayed
+      ? `${queueLabel({ queuedAt: outgoingStatus.workDelayedSince, queueDelayed: true }, now)}${
+        sentCount > 0 ? ` · ${sentSoFar}` : ""}`
+    : requesterQueued
+      ? queueLabel(outgoingStatus, now)
     : sentCount > 0 && (UNDECIDED.has(outgoingStatus.status) || outgoingStatus.status === "approved" ||
         ["queued", "running"].includes(snapshot?.delivery?.bulkStatus ?? ""))
-      ? `Sending files · ${sentCount.toLocaleString()} sent so far`
-    : outgoingStatus.autoshare === true && UNDECIDED.has(outgoingStatus.status) && !requesterDelayed
+      ? `Sending files · ${sentSoFar}`
+    : outgoingStatus.autoshare === true && UNDECIDED.has(outgoingStatus.status)
       ? "Finding files"
       : null;
   const statusLine =
@@ -1595,6 +1615,7 @@ function UnlockedDocumentReview({
           recipientEmail={review.recipientEmail}
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
+          periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
           description={review.paymentRequired ? "Allow this exact package at your chosen price. Files are shared after the requester pays." : "Allow your private agent to share this exact package."}
           estimateCents={review.estimateCents ?? null}
@@ -1614,11 +1635,14 @@ function UnlockedDocumentReview({
             <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} />
           ) : null}
           <Fact label="Access" value="Viewer, until removed" />
+          {review.paymentRequired === true && quickAllowCents !== null && !priceOnly ? (
+            <Fact label="Price" value={formatDocumentRequestPrice(quickAllowCents)} />
+          ) : null}
         </dl>
-        {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
         {review.paymentRequired === true && quickAllowCents !== null && !priceOnly ? (
-          <Fact label="Price" value={formatDocumentRequestPrice(quickAllowCents)} />
+          <HelperText>You get this minus a 3% fee and Stripe&apos;s fee.</HelperText>
         ) : null}
+        {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.autoshare === true
           ? review.paymentRequired === true
             ? "Allow and Agent One sends every matching file after they pay."
@@ -1659,6 +1683,7 @@ function UnlockedDocumentReview({
           recipientEmail={review.recipientEmail}
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
+          periodNote={ownerPeriodNote}
           paymentRequired={review.paymentRequired === true}
           estimateCents={review.estimateCents ?? null}
           initialAmountCents={review.priceCents ?? null}

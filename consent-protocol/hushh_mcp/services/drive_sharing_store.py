@@ -1085,6 +1085,10 @@ class DriveSharingStore(DriveDocumentStore):
                 "package_existing_access_requires_review",
                 "payment_not_ready",
                 "trusted_relationship_changed",
+                # Another request's batch is sharing from this Drive. The
+                # request keeps its automatic state and tries again later;
+                # waiting never counts toward the three failed attempts.
+                "share_in_progress",
             }
             | OWNER_SETUP_CODES
         ):
@@ -2699,7 +2703,7 @@ class DriveSharingStore(DriveDocumentStore):
                 """
                 SELECT r.*,p.status AS owner_payout_status,
                        account.account_ready AS payout_account_ready,
-                       o.amount_cents AS order_amount_cents
+                       o.amount_cents AS order_amount_cents,o.status AS order_status
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
@@ -2765,12 +2769,22 @@ class DriveSharingStore(DriveDocumentStore):
                 **queue_view(request_queued_since(row, now), now),
                 **self._started_work(connection, row, now, private),
                 **_period_conflict_view(private),
-                # Both sides: an automatic request (Trusted or allowed) shares
-                # every in-period match after payment; otherwise it waits for
-                # the owner's Allow. Presentation only, never authority.
+                # Both sides: an automatic request (Trusted or allowed) whose
+                # work is queued or running: it shares every in-period match
+                # after payment. Absent while payment is due or its link has
+                # expired, and once the work stopped or failed, so no one is
+                # told files are being found while nothing runs.
+                # Presentation only, never authority.
                 **(
                     {"autoshare": True}
-                    if autoshare_request(private) and private.get("trusted_auto") is True
+                    if autoshare_request(private)
+                    and private.get("trusted_auto") is True
+                    and row["status"] == "pending"
+                    and row["access_stop_requested_at"] is None
+                    and row["expires_at"] > now
+                    and row.get("preparation_error_code")
+                    in {"trusted_auto_queued", "trusted_auto_active"}
+                    and row.get("order_status") in {None, "paid"}
                     else {}
                 ),
                 **(

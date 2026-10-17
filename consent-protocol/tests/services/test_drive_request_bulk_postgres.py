@@ -1051,7 +1051,7 @@ def _recipient(user_id, email):
     }
 
 
-async def _trusted_request(sharing):
+async def _trusted_request(sharing, *, purpose_text="Standup notes from last 3 months"):
     today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
@@ -1065,7 +1065,7 @@ async def _trusted_request(sharing):
         client_request_id=str(uuid4()),
         expected_quote_version=1,
         purpose=ShareRequestPurpose(
-            purpose="Standup notes from last 3 months",
+            purpose=purpose_text,
             periodStart=(today - timedelta(days=90)).isoformat(),
             periodEnd=today.isoformat(),
         ),
@@ -1101,6 +1101,80 @@ async def _trusted_review(bulk, sharing, *, paid=True):
                 {"request": request["requestId"]},
             )
     return review
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("autoshare_search", [True, False])
+async def test_paid_autoshare_statement_request_is_granted_after_payment(
+    request_bulk, sharing, autoshare_search
+):
+    """A Trusted "Schwab statements" request: pay, then One shares the file."""
+    request_id = (await _trusted_request(sharing, purpose_text="Schwab statements for September"))[
+        "requestId"
+    ]
+    today = datetime.now(UTC).date()
+    selection = (
+        {
+            # The autoshare date selection create_for_request froze.
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": False,
+            "request_selection_policy": "title_then_created_then_modified_v1",
+            "authority_mode": "trusted_auto",
+            "agent_package_required": False,
+            "requested_period": {
+                "start": (today - timedelta(days=90)).isoformat(),
+                "end": today.isoformat(),
+                "timezone": "UTC",
+            },
+        }
+        if autoshare_search
+        else {
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+        }
+    )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(request_bulk, request_id=request_id, count=1, selection=selection),
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("trusted-member", "trusted@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    with request_bulk.db.engine.begin() as connection:
+        origin = request_bulk._row(
+            connection,
+            "SELECT * FROM drive_share_requests WHERE request_id=:request",
+            {"request": request_id},
+        )
+        private = sharing._open_request(origin)
+        assert (private["trusted_auto"], private["request_flow"]) == (True, "oct17_autoshare")
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    approve = request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        approval_source="trusted_auto",
+    )
+    if not autoshare_search:
+        # Without the autoshare selection a statement still needs the owner.
+        with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+            await approve
+        return
+    await approve
+    grant = await request_bulk.claim(
+        user_id="owner", share_id=review["shareId"], position=1, recipient_user_id="trusted-member"
+    )
+    assert grant is not None
 
 
 async def _paid_partial_progressive_request(bulk, sharing, *, batches=1):
@@ -3898,16 +3972,40 @@ async def test_owner_removes_one_file_through_the_durable_removal_queue(request_
             request_id=request_id,
         )
 
-    page = await recipient_page()
-    assert page["sharedCount"] == 2
-    assert {item["openUrl"] for item in page["files"]} == {
+    recipient = {
+        "recipient_user_id": "recipient",
+        "recipient_subject": "1234567",
+        "recipient_email": "b@example.invalid",
+    }
+
+    async def received():
+        # Profile "Drive files shared with you": the collection count and its
+        # file names and links.
+        [collection] = (await request_bulk.inbox(**recipient))["shares"]
+        files = await request_bulk.recipient_files(**recipient, share_id=share)
+        return (
+            collection["sharedCount"],
+            files["sharedCount"],
+            {item["openUrl"] for item in files["files"]},
+        )
+
+    remaining = {
         "https://drive.google.com/file/d/standup-file-2/view",
         "https://drive.google.com/file/d/standup-file-3/view",
     }
+    page = await recipient_page()
+    assert page["sharedCount"] == 2
+    assert {item["openUrl"] for item in page["files"]} == remaining
+    assert await received() == (2, 2, remaining)
     assert (await store.restore_file(user_id="owner", request_id=request_id, file_ref=one))[
         "status"
     ] == "shared"
     assert (await recipient_page())["sharedCount"] == 3
+    assert await received() == (
+        3,
+        3,
+        remaining | {"https://drive.google.com/file/d/standup-file-1/view"},
+    )
 
     # Once due, the existing worker claims the owner's one-file removal even
     # though the request was never stopped.
@@ -3959,6 +4057,27 @@ async def test_unscoped_removal_still_requires_a_request_wide_stop(request_bulk,
                     )
                 ),
             },
+        )
+    # The owner's Undo cancels only its own one-file removal. A removal a Stop
+    # or an access expiry queued is never undoable, even while unclaimed.
+    from hushh_mcp.services.drive_owner_shared_files import DriveOwnerSharedFilesStore
+
+    _owner_feed_schema(sharing.db)
+    store = DriveOwnerSharedFilesStore(db=sharing.db, cipher=request_bulk.cipher)
+    ref = f"{share}:1"
+    [listed] = (await store.shared_files(user_id="owner", request_id=request_id))["files"]
+    assert (listed["status"], listed["undoable"]) == ("removing", False)
+    removed = await store.remove_file(user_id="owner", request_id=request_id, file_ref=ref)
+    assert (removed["status"], removed["undoable"]) == ("removing", False)
+    with pytest.raises(DriveSharingError, match="revocation_pending"):
+        await store.restore_file(user_id="owner", request_id=request_id, file_ref=ref)
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_bulk_removals WHERE removal_id=:id"),
+                {"id": removal_id},
+            ).scalar_one()
+            == 1
         )
     with pytest.raises(DriveSharingError, match="approval_superseded"):
         await removals.claim(user_id="owner", removal_id=removal_id)

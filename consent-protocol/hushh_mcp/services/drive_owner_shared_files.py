@@ -55,6 +55,28 @@ WHERE b.origin_request_id=:request AND b.user_id=:owner
   AND e.state IN ('succeeded','preexisting')
 """
 
+# While a batch settles, a repeated first file leaves the card alone.
+_FILES_SENT_CREATE_SQL = """
+INSERT INTO feed_events(user_id,source_domain,event_type,actor_label,metadata,source_row_id)
+VALUES(:owner,'connected_systems',:event,CAST(:label AS text),CAST(:metadata AS jsonb),:source)
+ON CONFLICT (user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL
+DO NOTHING
+RETURNING id
+"""
+# A finished batch writes the count; GREATEST keeps it from going down.
+_FILES_SENT_UPSERT_SQL = """
+INSERT INTO feed_events(user_id,source_domain,event_type,actor_label,metadata,source_row_id)
+VALUES(:owner,'connected_systems',:event,CAST(:label AS text),CAST(:metadata AS jsonb),:source)
+ON CONFLICT (user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL
+DO UPDATE SET metadata=feed_events.metadata || jsonb_build_object(
+    'shared_count', GREATEST(
+      COALESCE((feed_events.metadata->>'shared_count')::int, 0), :count))
+    || CASE WHEN CAST(:label AS text) IS NULL THEN '{}'::jsonb
+       ELSE jsonb_build_object('counterpart_label', CAST(:label AS text)) END,
+  actor_label=COALESCE(CAST(:label AS text), feed_events.actor_label)
+RETURNING id
+"""
+
 
 def _file_ref(share_id: object, position: int) -> str:
     return f"{share_id}:{position}"
@@ -120,25 +142,8 @@ def _upsert_files_sent_card(connection, *, request_id, share_id) -> None:
     # settling, later files leave it alone (one Feed wake per batch, not per
     # file); a finished batch writes the count. GREATEST keeps the count from
     # ever going down; read, dismissal and Clear state are never touched.
-    conflict = (
-        """DO UPDATE SET metadata=feed_events.metadata || jsonb_build_object(
-             'shared_count', GREATEST(
-               COALESCE((feed_events.metadata->>'shared_count')::int, 0), :count))
-             || CASE WHEN CAST(:label AS text) IS NULL THEN '{}'::jsonb
-                ELSE jsonb_build_object('counterpart_label', CAST(:label AS text)) END,
-           actor_label=COALESCE(CAST(:label AS text), feed_events.actor_label)"""
-        if batch_done
-        else "DO NOTHING"
-    )
     feed_id = connection.execute(
-        text(f"""INSERT INTO feed_events(
-            user_id,source_domain,event_type,actor_label,metadata,source_row_id)
-          VALUES(:owner,'connected_systems',:event,CAST(:label AS text),
-            CAST(:metadata AS jsonb),:source)
-          ON CONFLICT (user_id,source_domain,event_type,source_row_id)
-            WHERE source_row_id IS NOT NULL
-          {conflict}
-          RETURNING id"""),  # noqa: S608 - fixed SQL fragments; values are bound.
+        text(_FILES_SENT_UPSERT_SQL if batch_done else _FILES_SENT_CREATE_SQL),
         {
             "owner": owner,
             "event": FILES_SENT_EVENT,
@@ -219,7 +224,9 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
                       f.source_position,e.state AS grant_state,
                       e.receipt_envelope IS NOT NULL AS has_receipt,
                       removal.state AS removal_state,removal.attempts AS removal_attempts,
-                      removal.lease_id AS removal_lease
+                      removal.lease_id AS removal_lease,removal.removal_id AS removal_id,
+                      removal.user_id AS removal_user_id,
+                      removal.plan_envelope AS removal_plan_envelope
                     FROM drive_bulk_share_files f
                     JOIN drive_bulk_shares b ON b.share_id=f.share_id
                     JOIN drive_bulk_share_effects e
@@ -261,9 +268,16 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
                         "removable": status == "shared"
                         and row["grant_state"] == "succeeded"
                         and bool(row["has_receipt"]),
-                        "undoable": row["removal_state"] == "queued"
-                        and row["removal_attempts"] == 0
-                        and row["removal_lease"] is None,
+                        "undoable": self._undoable(
+                            {
+                                "state": row["removal_state"],
+                                "attempts": row["removal_attempts"],
+                                "lease_id": row["removal_lease"],
+                                "removal_id": row["removal_id"],
+                                "user_id": row["removal_user_id"],
+                                "plan_envelope": row["removal_plan_envelope"],
+                            }
+                        ),
                     }
                 )
             return {
@@ -313,7 +327,8 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
     def _removal(connection, *, share, position, recipient):
         row = (
             connection.execute(
-                text("""SELECT state,attempts,lease_id FROM drive_request_bulk_removals
+                text("""SELECT removal_id,user_id,plan_envelope,state,attempts,lease_id
+                FROM drive_request_bulk_removals
                 WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
                 {"share": share, "position": position, "recipient": recipient},
             )
@@ -322,15 +337,26 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
         )
         return dict(row) if row is not None else None
 
-    @staticmethod
-    def _removal_result(file_ref, removal):
+    def _undoable(self, removal) -> bool:
+        """Only the owner's own unclaimed one-file removal; never a Stop or expiry."""
+        if not (
+            removal["state"] == "queued"
+            and removal["attempts"] == 0
+            and removal["lease_id"] is None
+            and removal["plan_envelope"] is not None
+        ):
+            return False
+        try:
+            return self._plan(removal).get("scope") == OWNER_FILE_REMOVAL_SCOPE
+        except (DriveSharingError, TypeError, ValueError):
+            return False
+
+    def _removal_result(self, file_ref, removal):
         status = _file_status({"removal_state": removal["state"], "grant_state": "succeeded"})
         return {
             "fileRef": file_ref,
             "status": status,
-            "undoable": removal["state"] == "queued"
-            and removal["attempts"] == 0
-            and removal["lease_id"] is None,
+            "undoable": self._undoable(removal),
             "undoSeconds": UNDO_SECONDS,
         }
 
@@ -437,6 +463,10 @@ class DriveOwnerSharedFilesStore(DriveRequestBulkRemovalStore):
             )
             if existing is None:
                 return {"fileRef": file_ref, "status": "shared", "undoable": False}
+            if not self._undoable(existing):
+                # A claimed removal, or one a Stop or access expiry queued,
+                # is not this owner's one-file Undo.
+                raise DriveSharingError("revocation_pending")
             deleted = connection.execute(
                 text("""DELETE FROM drive_request_bulk_removals
                 WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient

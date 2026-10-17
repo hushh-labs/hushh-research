@@ -7,11 +7,11 @@ time, then its modified time (the autoshare precedence rule).
 ``in_requested_period`` is a drop-in superset of the owner search rule
 ``drive_owner_search_service._in_requested_period``: for every title that rule
 can read (``2026-09-02``, ``2026/09/02 23:42 IST``, ``2026_09_02``,
-``20260902``) it returns the same answer (parity-tested). It also reads
-day-first numeric dates (``14-09-2026``), month names (``Sept 14``,
-``14 Sept 2026``, ``September 14, 2026``) and month-only titles
-(``September 2026``, ``2026-09``), which the older rule silently replaced with
-file activity times.
+``20260902``, and for autoshare ``14-09-2026`` and ``Sep 14, 2026``) it
+returns the same answer (parity-tested), including the autoshare rule that
+every title date must be inside the period. It also reads year-less month
+names (``Sept 14``) and month-only titles (``September 2026``, ``2026-09``),
+which the owner search rule replaces with file activity times.
 
 Parsing is split from resolution so an index can parse each title once and
 resolve it per request time zone cheaply.
@@ -270,10 +270,11 @@ def period_decision(
     or None. With ``precedence`` only the first present date decides: title,
     else created, else modified. Without it either timestamp may match.
 
-    Several distinct title dates match when any is inside the period. One
-    numeric date that reads two ways (``03-04-2026``) matches only when both
-    readings are inside, so an ambiguous title never widens automatic
-    sharing. A month-only title matches when that month overlaps the period.
+    With ``precedence`` every title date must be inside the period, as the
+    owner search rule requires for autoshare; without it, any one inside
+    matches. One numeric date that reads two ways (``03-04-2026``) is inside
+    only when both readings are, so an ambiguous title never widens automatic
+    sharing. A month-only title is inside when that month overlaps the period.
     """
     zone = _zone(period.get("timezone")) if period else ZoneInfo("UTC")
     start = date.fromisoformat(period["start"]) if period else None
@@ -294,16 +295,19 @@ def period_decision(
                 + [_month_bounds(*month)[0] for month in title.months]
             )
             return PeriodDecision(True, latest.isoformat(), "title")
-        for day in title.days:
-            if start <= day <= end:
-                return PeriodDecision(True, day.isoformat(), "title")
-        for group in title.either:
-            if all(start <= day <= end for day in group):
-                return PeriodDecision(True, max(group).isoformat(), "title")
-        for month in title.months:
-            first, last = _month_bounds(*month)
-            if first <= end and start <= last:
-                return PeriodDecision(True, max(first, start).isoformat(), "title")
+        readings = (
+            [(start <= day <= end, day) for day in title.days]
+            + [(all(start <= day <= end for day in group), max(group)) for group in title.either]
+            + [
+                (first <= end and start <= last, max(first, start))
+                for first, last in (_month_bounds(*month) for month in title.months)
+            ]
+        )
+        inside = [day for matched, day in readings if matched]
+        # Autoshare (precedence) never grants a file with any title date
+        # outside the period, the owner search rule; file activity needs one.
+        if inside and (not precedence or len(inside) == len(readings)):
+            return PeriodDecision(True, inside[0].isoformat(), "title")
         return PeriodDecision(False, None, "title")
     for basis, key in (("created", "created_time"), ("modified", "modified_time")):
         day = _timestamp_day(match.get(key), zone)

@@ -478,6 +478,19 @@ def rest_like(names, created="2026-09-15T12:00:00.000Z"):
         ("Plan 03-04-2026", None, "2026-03-01..2026-04-30/UTC", True),
         ("Statement September 2026", "2026-11-02T00:00:00Z", "2026-09-20..2026-10-09/UTC", True),
         ("Statement June 2026", "2026-09-25T00:00:00Z", "2026-09-20..2026-10-09/UTC", False),
+        # Autoshare needs every title date inside: one outside keeps it out.
+        (
+            "Notes 2026-09-10 and 2026-06-16",
+            "2026-09-10T00:00:00Z",
+            "2026-09-01..2026-09-30/UTC",
+            False,
+        ),
+        (
+            "Notes 2026-09-10 and 2026-09-16",
+            "2026-08-10T00:00:00Z",
+            "2026-09-01..2026-09-30/UTC",
+            True,
+        ),
         # No title date: created time decides; a later edit never rescues it.
         ("Board deck", "2026-08-30T00:00:00Z", "2026-09-01..2026-09-30/UTC", False),
     ],
@@ -506,24 +519,46 @@ def test_new_title_rule_agrees_with_the_owner_search_rule_on_its_formats():
         "Plain title",
         "Huddle 2026.09.15 08:00 IST",
     ]
+    # The owner search rule reads these only for autoshare (precedence), where
+    # every title date must be inside the period.
+    autoshare_names = [
+        "Notes 14-09-2026",
+        "Notes 10-09-2026",
+        "Notes 30/08/2026",
+        "Meeting notes - Sep 15, 2026",
+        "16 June 2026 meeting notes",
+        "Notes 2026-09-10 and 2026-06-16",
+        "Range 28-08-2026 to Oct 2, 2026",
+    ]
     stamps = [None, "2026-08-31T20:00:00Z", "2026-09-30T23:30:00Z", "2026-10-01T03:00:00+05:30"]
     zones = ["UTC", "Asia/Kolkata", "America/Los_Angeles"]
     checked = 0
+    outcomes = set()
     for _ in range(600):
         start = date(2026, 8, rng.randint(25, 31))
         end = date(2026, rng.choice([9, 10]), rng.randint(1, 30))
         period = {"start": start.isoformat(), "end": end.isoformat(), "timezone": rng.choice(zones)}
-        match = {
-            "name": rng.choice(names),
-            "created_time": rng.choice(stamps),
-            "modified_time": rng.choice(stamps),
-        }
+        stamps_for = {"created_time": rng.choice(stamps), "modified_time": rng.choice(stamps)}
+        match = {"name": rng.choice(names), **stamps_for}
         for precedence in (True, False):
             assert in_requested_period(match, period, precedence=precedence) == (
                 _in_requested_period(match, period, precedence=precedence)
             ), (match, period, precedence)
             checked += 1
-    assert checked == 1200
+        autoshare_match = {"name": rng.choice(autoshare_names), **stamps_for}
+        decided = in_requested_period(autoshare_match, period, precedence=True)
+        assert decided == _in_requested_period(autoshare_match, period, precedence=True), (
+            autoshare_match,
+            period,
+        )
+        outcomes.add((autoshare_match["name"], decided))
+        checked += 1
+    assert checked == 1800
+    # A two-date title passes only when both dates are inside some period;
+    # one date outside every period never passes.
+    assert ("Range 28-08-2026 to Oct 2, 2026", True) in outcomes
+    assert ("Range 28-08-2026 to Oct 2, 2026", False) in outcomes
+    assert ("Notes 2026-09-10 and 2026-06-16", True) not in outcomes
     assert parse_title_dates("Top 10 Marketing ideas") == ()
 
 

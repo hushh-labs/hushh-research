@@ -33,6 +33,9 @@ def _defer_code(error: BaseException) -> str:
         return "background_preparation_required"
     if str(error) == "trusted_request_unavailable":
         return "trusted_relationship_changed"
+    if str(error) == "drive_share_in_progress":
+        # Another request's batch holds the owner's Drive. Wait; not a failure.
+        return "share_in_progress"
     return "preparation_unavailable"
 
 
@@ -249,7 +252,9 @@ class DriveTrustedAutoService:
         ):
             # A saved one-query job may still carry the older file-activity
             # marker until its lease is replanned. It cannot auto-select files.
-            # An autoshare request was searched under its own date selection.
+            # An autoshare request passes only with its own date selection:
+            # any other search needs owner review below, and approve refuses
+            # a statement grant without that selection.
             return 0
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its

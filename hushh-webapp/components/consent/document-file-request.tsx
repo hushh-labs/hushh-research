@@ -15,6 +15,10 @@ import {
 } from "@/lib/services/drive-sharing-service";
 import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import {
+  DOCUMENT_FLOW_SURFACE_TYPE,
+  DOCUMENT_FLOW_TEXT_SCALE,
+} from "@/lib/consent/document-request-flow";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -40,6 +44,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+
+const REQUEST_FILES_DIALOG_TYPE = [
+  DOCUMENT_FLOW_SURFACE_TYPE,
+  DOCUMENT_FLOW_TEXT_SCALE,
+  "[&_.ui-text-form-label]:!text-[13px] [&_.ui-text-form-label]:!leading-[1.25]",
+].join(" ");
 
 export type FileRequestTerms = {
   purpose: string;
@@ -385,7 +395,9 @@ export function RequestFilesButton({
           // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
           // the centering translate is reset here because a CSS `translate`
           // reset does not survive production minification.
-          className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
+          // The flow's Feed type scale: 15px title, 13px body and labels,
+          // 11px secondary. Inputs keep their own 16px so iOS never zooms.
+          className={`max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md ${REQUEST_FILES_DIALOG_TYPE}`}
           showCloseButton={Boolean(created)}
           srDescription={`Request files from ${personName}.`}
         >

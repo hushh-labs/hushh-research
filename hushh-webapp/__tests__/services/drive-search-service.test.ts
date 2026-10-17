@@ -40,6 +40,27 @@ describe("owner Drive search API boundary", () => {
     expect((await DriveSearchService.get("owner", jobId, () => undefined)).coverage)
       .toMatchObject({ ownerReviewRequired: true, dateBasis: "title_date_then_created_or_modified" });
   });
+  it("accepts the autoshare coverage every new Trusted or allowed search sends", async () => {
+    // Exactly what create_for_request(autoshare=True) freezes and the owner
+    // search status serves: document coverage with no owner file review.
+    const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "document",
+      requestedPeriod: { start: "2026-09-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+      dateBasis: "title_date_then_created_then_modified", timeIntent: "document_coverage",
+      ownerReviewRequired: false, contentPeriodVerified: false,
+      providerRowsScanned: 262, excludedByDateCount: 4, deduplicatedCount: 0,
+      unavailableShortcutCount: 0, providerPagesExhausted: false, shareabilityVerified: true };
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage }));
+    expect((await DriveSearchService.get("owner", jobId, () => undefined)).coverage).toEqual(coverage);
+    // The autoshare basis never claims owner review, and no other basis skips it.
+    for (const change of [
+      { ownerReviewRequired: true }, { ownerReviewRequired: undefined },
+      { dateBasis: "title_date_then_created_or_modified" },
+      { dateBasis: "content_period_unverified" },
+    ]) {
+      api.fetch.mockResolvedValueOnce(Response.json({ ...status, coverage: { ...coverage, ...change } }));
+      await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
   it("preserves finalized top-N coverage and rejects partial or inconsistent selection claims", async () => {
     const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "document",
       requestedPeriod: null, dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,
