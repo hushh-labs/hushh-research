@@ -17251,7 +17251,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "_build_backend_runtime_config",
-      "value": 100
+      "value": 104
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17260,7 +17260,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "main",
-      "value": 267
+      "value": 268
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18709,7 +18709,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1421
+      "value": 1425
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22327,7 +22327,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1545
+      "value": 1623
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26080,7 +26080,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 782
+      "value": 787
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29129,7 +29129,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_one_time_uat_vertex_skip_is_bound_to_the_approved_release",
-      "value": 144
+      "value": 145
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29939,7 +29939,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_email_auth_postgres.py",
       "symbol": null,
-      "value": 718
+      "value": 845
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -62860,5 +62860,68 @@
     "new_occurrence_appends": 2,
     "review": "21 exact size-only observations across 14 paths: 13 exact incoming occurrences and 8 reviewed compositions. Singleton ranks only. New _list_state retains prior list_state behavior, strict source completeness and mandatory pod read-only admission; prior list_state ceiling remains. No detector, budget, exclusion or previous occurrence removal. Measured debt only; no runtime, release or payment acceptance claimed.",
     "upstream_source": "6ab7790055b58d118981f03f783c036e0a26740e"
+  },
+  "main_email_auth_integration_review_20261017": {
+    "entries": [
+      {
+        "after": 268,
+        "before": 267,
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "review": "Four non-secret runtime defaults and one explicit boolean CLI argument. UAT activation still requires the existing attested release preflight; dev and production stay disabled by default. Existing configuration composition retained.",
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      },
+      {
+        "after": 145,
+        "before": 144,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "review": "Incoming UAT-only deployment contract extended behind the existing extracted-script reader; older-release tooling restore fixture includes the new exact binder. All existing scope, candidate, and one-time-exception conditions retained. 64 focused checks pass.",
+        "source_sha256": "e4e89995815027ec5b51a2a17874777e3d107a00bd7b95bbf32fe98a08e2ecbc"
+      },
+      {
+        "after": 104,
+        "before": 100,
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "review": "Four non-secret runtime defaults and one explicit boolean CLI argument. UAT activation still requires the existing attested release preflight; dev and production stay disabled by default. Existing configuration composition retained.",
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      },
+      {
+        "after": 1623,
+        "before": 1545,
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "review": "Incoming UAT-only deployment contract extended behind the existing extracted-script reader; older-release tooling restore fixture includes the new exact binder. All existing scope, candidate, and one-time-exception conditions retained. 64 focused checks pass.",
+        "source_sha256": "e4e89995815027ec5b51a2a17874777e3d107a00bd7b95bbf32fe98a08e2ecbc"
+      },
+      {
+        "after": 1425,
+        "before": 1421,
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "review": "Four exact email-auth environment mappings added alongside unchanged Shared Files and commerce mappings. No authority, secret values, or environment enablement inferred from mapping presence.",
+        "source_sha256": "098ce5804b9aa750a74be9dd5fe8967f8de5682a70a43f65405c0a677be9eafe"
+      },
+      {
+        "after": 845,
+        "before": 718,
+        "key": "module_size|consent-protocol/tests/services/test_email_auth_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "review": "Incoming nearest-suite release authority checks use synthetic credentials, explicit database-target attestation and negative controls. Existing real PostgreSQL atomicity coverage retained; 46 tests pass on isolated PostgreSQL.",
+        "source_sha256": "4a6e2e1d98165aafd3e63b005307a0f0b27544ee64d6a90839682fef98f0f9f9"
+      },
+      {
+        "after": 787,
+        "before": 782,
+        "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "review": "Four non-secret runtime defaults and one explicit boolean CLI argument. UAT activation still requires the existing attested release preflight; dev and production stay disabled by default. Existing configuration composition retained.",
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      }
+    ],
+    "measurement_source": "2cc452ce7bd1977902e67a0dbaec8e7670a0d653",
+    "review": "Seven exact existing size observations across four incoming paths, reviewed by the release owner. Detector, budgets, exclusions, and existing occurrence multiplicity unchanged. Deployment bindings and private-pod configuration preserved; no live email-provider or UAT release acceptance inferred. No fresh independent agent review claimed after host initialization failure.",
+    "upstream_source": "ea5b4e72c2a3fb929257d5cc47d4d9afdaf8d648"
   }
 }
