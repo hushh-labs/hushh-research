@@ -16,6 +16,38 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Native Voice preferences — 2026-10-17
+
+The qualified iPhone stack now owns the complete Voice page: Live readiness,
+microphone check/results, speakerphone policy, command availability, Location
+defaults, connection-access reuse and currently supported voice domains. The
+existing React feature models and preference writers retain all operations;
+there is no native voice runtime or preference store. Unavailable server defaults
+remain explicit and can be retried deliberately. Unsupported domains remain
+unavailable rather than receiving new authority.
+
+NativeDrawers v1 negotiates `profileVoiceSettings`. Partial/older wrappers retain
+the coherent React page before reveal. The existing Profile history owner now
+exposes public parent-panel metadata, so UIKit represents actual visited ancestry
+rather than inserting Preferences for a direct Voice entry. Ambiguous older
+entries retain their established renderer; actual Back routing is unchanged.
+
+The shared microphone check cancels both its preliminary probe and capture on
+owner departure/privacy transitions. A late permission grant is released before
+worklet setup; cancellation during worklet loading immediately releases the
+actual stream. Native receives a bounded result, never microphone frames.
+
+Source verification: 228 nearest contracts, typecheck, focused lint, UAT static
+export/CSS freshness, Capacitor sync and iPhone build-for-testing pass. The real
+probe cancellation regression fails with its post-permission guard removed and
+passes after restoration. Independent read-only native/security review found no
+blocking issue after the probe fix. Physical qualification is recorded separately
+after installation; this section does not qualify the combined Profile program.
+
+Rollback: revert the Voice-family increment, or disable the existing single
+custom-native qualification flag. Standard native bottom navigation and ordinary
+web/Android behavior are unchanged.
+
 ### Native Legal reader — 2026-10-17
 
 Initial source checkpoint: `c459cf1332` (local, not pushed).

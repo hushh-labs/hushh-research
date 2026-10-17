@@ -39,6 +39,8 @@ vi.mock("@/lib/services/connections-service", () => ({
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { useVoiceLocationDefaults, useVoiceConnectDefaults } from "@/components/profile/use-voice-preferences-model";
+import { useVoiceCommandPreferences, useVoiceSpeakerphonePreference } from "@/components/profile/use-voice-policy-preferences";
+import { readSpeakerphoneSafePreference } from "@/lib/one-voice/speakerphone-preferences";
 import {
   forgetVoicePreferences,
   readVoicePreferences,
@@ -256,22 +258,31 @@ describe("VoicePreferencesPanel", () => {
     const getIdToken = async () => "synthetic-current-token";
     const view = renderHook(({ owner, token }) => ({
       location: useVoiceLocationDefaults(owner, token), connect: useVoiceConnectDefaults(owner, getIdToken),
+      commands: useVoiceCommandPreferences(owner), speaker: useVoiceSpeakerphonePreference(owner),
     }), { initialProps: { owner: "synthetic-first-owner", token: "synthetic-first-token" } });
     await waitFor(() => expect(view.result.current.location.defaults).not.toBeNull());
     await waitFor(() => expect(view.result.current.connect.shareScopes).toBe(false));
     const staleAutoApprove = view.result.current.location.setAutoApprove;
     const staleConnect = view.result.current.connect.setShareScopes;
+    const staleCommands = view.result.current.commands.change;
+    const staleSpeaker = view.result.current.speaker.change;
+    const firstVoice = view.result.current.commands.state.voiceEnabled;
+    const firstSpeaker = view.result.current.speaker.value;
     view.rerender({ owner: "synthetic-next-owner", token: "synthetic-next-token" });
     await waitFor(() => expect(view.result.current.location.defaults).not.toBeNull());
     await waitFor(() => expect(view.result.current.connect.shareScopes).toBe(false));
     await act(async () => {
       expect(await staleAutoApprove(true)).toBe(false);
       expect(await staleConnect(true)).toBe(false);
+      staleCommands(state => ({ ...state, voiceEnabled: !firstVoice }));
+      staleSpeaker(!firstSpeaker);
     });
     expect(mockUpdateAutoApprovePreference).not.toHaveBeenCalled();
     expect(mockUpdateVoicePreferences).not.toHaveBeenCalled();
     expect(view.result.current.location.defaults?.autoApproveRequests).toBe(false);
     expect(view.result.current.connect.shareScopes).toBe(false);
+    expect(readVoicePreferences("synthetic-first-owner").voiceEnabled).toBe(firstVoice);
+    expect(readSpeakerphoneSafePreference("synthetic-first-owner")).toBe(firstSpeaker);
   });
 
   it("Connect agent defaults load from the voice-preferences endpoint and persist on toggle", async () => {

@@ -58,14 +58,15 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings, support, legal, onVoiceCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
   page: Omit<ComponentProps<typeof NativeFeaturePage>, "open" | "onReady" | "children">;
   children: ReactNode;
   account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
-  settings?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
+  settings?: { active: boolean; requiresVoice?: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
+  onVoiceCapability?: (supported: boolean) => void;
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   legal?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void };
 }) {
@@ -73,6 +74,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [settingsSupported, setSettingsSupported] = useState(false);
   const [supportSupported, setSupportSupported] = useState(false);
   const [legalSupported, setLegalSupported] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
   const [presentedDestination, setPresentedDestination] = useState<string | undefined>();
   const hasAccount = account !== undefined;
@@ -91,12 +93,14 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
           hasNativeProfileScene(nativeDrawers, "writing-style"));
         setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
         setLegalSupported(stack && capability.profileLegalReader === true);
+        const voice = stack && capability.profileSettingsPages === true && capability.profileVoiceSettings === true;
+        setVoiceSupported(voice); onVoiceCapability?.(voice);
       }
-    }).catch(() => { if (current) setStackSupported(false); });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount]);
+  }, [hasAccount, onVoiceCapability]);
   const nativeAccount = stackSupported === true && account?.active === true;
-  const nativeSettings = settingsSupported && settings?.active === true;
+  const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : [];

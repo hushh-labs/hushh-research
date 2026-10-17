@@ -44,6 +44,7 @@ import secondaryTypographyStyles from "@/components/profile/profile-secondary-ty
 import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
+import { useNativeVoiceProfile } from "./use-native-voice-profile";
 import { NativeSupportComposer } from "./native-support-composer";
 import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
@@ -158,6 +159,7 @@ import {
 import {
   popProfilePaneLocation,
   profileLegalParentForPresentation,
+  profilePanelParentForPresentation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
   resolveProfilePaneUrlState,
@@ -1154,6 +1156,12 @@ function ProfilePageContent({
     userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
     onGemini: () => updateProfileView({ panel: "preferences", detail: "gemini" }, "push"),
     onVoice: () => updateProfileView({ panel: "preferences", detail: "voice" }, "push"),
+  });
+  const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
+  const voiceParent = profilePanelParentForPresentation("preferences");
+  const nativeVoice = useNativeVoiceProfile({
+    enabled: nativeVoiceAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && activeDetail === "voice" && isVaultUnlocked,
+    userId: user?.uid ?? null, vaultOwnerToken, getIdToken: voiceGetIdToken,
   });
 
   useEffect(() => {
@@ -4940,7 +4948,7 @@ function ProfilePageContent({
       { id: "security-sign-out", label: "Sign out", detail: "Sign out on this device.", enabled: true, destructive: true, artworkId: "sign-out" },
     ] },
   ] };
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
@@ -4956,10 +4964,11 @@ function ProfilePageContent({
           updateProfileView({ panel: null, detail: null }, "replace");
         },
       }} /> }}
-    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && !activeDetail ||
+    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null) ||
         activePanel === "security" && (!activeDetail || activeDetail === "session")),
-      pages: activePanel === "preferences" ? [nativePreferences.page] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
-      rows: new Map([...nativePreferences.rows,
+      requiresVoice: activePanel === "preferences" && activeDetail === "voice",
+      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows,
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
       ]), root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: nativePreferences.editor }}

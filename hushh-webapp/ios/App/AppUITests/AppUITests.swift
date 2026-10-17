@@ -4595,6 +4595,29 @@ final class AppUITests: XCTestCase {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
                     guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     child.tap()
+                    let nativeMicrophone = app.buttons["native-profile-row-voice-microphone-test"].firstMatch
+                    if childID == "preferences-voice", nativeMicrophone.waitForExistence(timeout: 3) {
+                        let voiceBack = app.navigationBars.buttons["Preferences"].firstMatch
+                        let speaker = app.switches["native-profile-row-voice-speaker-safe"].firstMatch
+                        guard waitForAdmittedControl(voiceBack), waitForAdmittedControl(nativeMicrophone),
+                              waitForAdmittedControl(speaker) else { XCTFail("PROFILE_NATIVE_VOICE_NOT_ADMITTED"); return }
+                        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                            "PROFILE_NATIVE_VOICE_DUPLICATE_WEB_BODY")
+                        // The microphone check records/sends nothing and changes
+                        // no preference on the shared reviewer account.
+                        nativeMicrophone.tap()
+                        let result = app.descendants(matching: .any).matching(identifier: "native-profile-row-voice-microphone-result").firstMatch
+                        guard result.waitForExistence(timeout: 15), waitForAdmittedControl(nativeMicrophone) else {
+                            XCTFail("PROFILE_NATIVE_MICROPHONE_DID_NOT_COMPLETE"); return
+                        }
+                        XCTAssertFalse(result.label.contains("Microphone check couldn’t finish"), "PROFILE_NATIVE_MICROPHONE_FAILED")
+                        voiceBack.tap()
+                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else {
+                            XCTFail("PROFILE_NATIVE_VOICE_PARENT_NOT_RESTORED"); return
+                        }
+                        print("PROFILE_NATIVE_VOICE_CONTINUITY microphone=true switches=true returned=true")
+                        continue
+                    }
                     let childBack = app.buttons["Back in Profile"].firstMatch
                     guard waitForAdmittedControl(childBack), publicPaneLevel() == 2,
                           waitForAdmittedControl(app.buttons["profile-close"].firstMatch) else {

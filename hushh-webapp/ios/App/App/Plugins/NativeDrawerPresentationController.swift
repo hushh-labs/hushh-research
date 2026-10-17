@@ -292,7 +292,10 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
             configure(page)
             pages[id] = page
         }
-        for (id, page) in pages { page.title = model.page(id)?.title }
+        for (id, page) in pages {
+            page.title = model.page(id)?.title
+            page.navigationItem.backButtonTitle = id == "preferences" ? "Preferences" : page.title
+        }
         navigationBar.tintColor = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
         reconcileInteraction()
         guard !transitioning else { return } // didShow reconciles the latest projection.
@@ -1070,6 +1073,7 @@ struct NativeDrawerContent: View {
                 .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
         } else if row.readOnly == true {
             profileRowLabel(row).accessibilityElement(children: .combine)
+                .accessibilityIdentifier("native-profile-row-\(row.id)")
         } else {
             Button { model.choice("row", row: row.id) } label: { profileRowLabel(row) }
                 .buttonStyle(.plain)

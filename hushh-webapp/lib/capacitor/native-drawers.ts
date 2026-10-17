@@ -31,7 +31,7 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativeProfilePage = { id: "account" | "preferences" | "security" | "session" | "legal" | "privacy" | "terms";
+export type NativeProfilePage = { id: "account" | "preferences" | "voice" | "security" | "session" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument };
 export type NativeDrawerIdentity = {
   documentId: string;
@@ -78,7 +78,7 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
   getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
   applyProfileSupportScene?(options: Parameters<NativeSupportScenePort["applyProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["applyProfileSupportScene"]>;
   confirmProfileSupportAction?(options: Parameters<NativeSupportScenePort["confirmProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["confirmProfileSupportAction"]>;
@@ -215,7 +215,8 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
       value.profileStack.length > 2 || new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument"]) ||
-        !(index === 0 ? ["account", "preferences", "security", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["account", "preferences", "voice", "security", "legal", "privacy", "terms"].includes(page.id) :
+          page.id === "voice" && value.profileStack?.[0]?.id === "preferences" ||
           page.id === "session" && value.profileStack?.[0]?.id === "security" ||
           ["privacy", "terms"].includes(page.id) && value.profileStack?.[0]?.id === "legal") ||
         (["privacy", "terms"].includes(page.id) ? !page.legalDocument || !validNativeLegalDocument(page.legalDocument) ||

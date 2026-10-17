@@ -408,15 +408,33 @@ export type MicrophoneProbe = {
  * real session would and never sends audio anywhere.
  */
 export async function probeMicrophone(
-  options: LiveAudioCaptureOptions = {},
+  options: LiveAudioCaptureOptions & { signal?: AbortSignal } = {},
 ): Promise<MicrophoneProbe> {
   const getUserMedia = options.getUserMedia ?? defaultGetUserMedia;
   const AudioContextImpl =
     options.AudioContextImpl ?? resolveAudioContextCtor();
   let stream: MediaStream | null = null;
   let context: AudioContext | null = null;
+  const release = () => {
+    const acquired = stream;
+    stream = null;
+    for (const track of acquired?.getTracks() ?? []) {
+      try { track.stop(); } catch { /* best-effort release */ }
+    }
+    const allocated = context;
+    context = null;
+    if (allocated) void allocated.close().catch(() => undefined);
+  };
+  const requireCurrent = () => {
+    if (options.signal?.aborted) throw new DOMException("Microphone check cancelled.", "AbortError");
+  };
+  options.signal?.addEventListener("abort", release, { once: true });
   try {
+    requireCurrent();
     stream = await getUserMedia(MIC_CONSTRAINTS);
+    // getUserMedia cannot be aborted. A late grant must be released without
+    // allocating a context or beginning asynchronous worklet preparation.
+    requireCurrent();
     const echoCancellation = readEchoCancellation(stream);
     if (!AudioContextImpl) {
       return {
@@ -430,6 +448,7 @@ export async function probeMicrophone(
       };
     }
     context = new AudioContextImpl();
+    const activeContext = context;
     let workletLoaded = false;
     if (
       context.audioWorklet &&
@@ -444,9 +463,10 @@ export async function probeMicrophone(
         workletLoaded = false;
       }
     }
+    requireCurrent();
     return {
       ok: workletLoaded,
-      sampleRate: context.sampleRate,
+      sampleRate: activeContext.sampleRate,
       echoCancellation,
       workletLoaded,
       ...(workletLoaded
@@ -461,15 +481,7 @@ export async function probeMicrophone(
   } catch (error) {
     return { ok: false, error: describeMicError(error) };
   } finally {
-    if (stream) {
-      for (const track of stream.getTracks()) {
-        try {
-          track.stop();
-        } catch {
-          // ignore
-        }
-      }
-    }
-    if (context) void context.close().catch(() => undefined);
+    options.signal?.removeEventListener("abort", release);
+    release();
   }
 }

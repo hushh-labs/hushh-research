@@ -19,6 +19,7 @@ import {
   popProfilePaneLocation,
   profileLegalLocation,
   profileLegalParentForPresentation,
+  profilePanelParentForPresentation,
   profilePaneParentLocation,
   openProfilePane,
   pushProfilePaneLocation,
@@ -43,7 +44,7 @@ function currentUrl() {
 }
 
 describe("Profile pane navigation state", () => {
-  it("projects only Legal parents owned by Back, preserving document replacement and ambiguous-entry fallback", () => {
+  it("projects only visited panel parents owned by Back, preserving replacements and ambiguous-entry fallback", () => {
     window.history.replaceState(null, "", "/one");
     openProfilePane("/one", window.location.search);
     pushProfilePaneLocation("/one", window.location.search, profileLegalLocation("privacy"));
@@ -77,6 +78,21 @@ describe("Profile pane navigation state", () => {
     window.history.replaceState(null, "", "/one");
     openProfilePane("/one", window.location.search, profileLegalLocation("privacy"), { returnsToOrigin: true });
     replaceProfilePaneLocation("/one", window.location.search, profileLegalLocation("terms"));
+    expect(profileLegalParentForPresentation()).toBe(false);
+
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search);
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: "voice" });
+    expect(profilePanelParentForPresentation("preferences")).toBe(false);
+    replaceProfilePaneLocation("/one", window.location.search, { panel: null, detail: null });
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: null });
+    pushProfilePaneLocation("/one", window.location.search, { panel: "preferences", detail: "voice" });
+    expect(profilePanelParentForPresentation("preferences")).toBe(true);
+    window.history.replaceState({ __hushhProfilePane: { depth: 3 } }, "", window.location.href);
+    expect(profilePanelParentForPresentation("preferences")).toBeNull();
+    window.history.replaceState({ __hushhProfilePane: { depth: 3, parentPanel: "security" } }, "", window.location.href);
+    expect(profilePanelParentForPresentation("preferences")).toBeNull();
+    window.history.replaceState({ __hushhProfilePane: { depth: 2, legalParent: false } }, "", window.location.href);
     expect(profileLegalParentForPresentation()).toBe(false);
   });
   it("unwinds the pane's local step before its query parent without touching the covered workspace", () => {

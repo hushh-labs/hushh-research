@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { PageSubtitle } from "@/components/app-ui/typography";
 import { OneVoicePreferencesSection } from "@/components/profile/one-voice-preferences-section";
@@ -14,14 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  readVoicePreferences,
-  subscribeVoicePreferences,
-  updateVoicePreferences,
-  type OneVoicePreferencesState,
-} from "@/lib/agent/voice-preferences";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { useVoiceLocationDefaults, useVoiceConnectDefaults } from "./use-voice-preferences-model";
+import { useVoiceCommandPreferences } from "./use-voice-policy-preferences";
 import detailStyles from "./profile-preference-details.module.css";
 
 function VoiceHeader() {
@@ -175,21 +168,7 @@ export function VoicePreferencesPanel({
   vaultOwnerToken?: string | null;
   getIdToken?: (() => Promise<string>) | null;
 }) {
-  const [state, setState] = useState<OneVoicePreferencesState>(() =>
-    readVoicePreferences(userId),
-  );
-
-  useEffect(() => {
-    setState(readVoicePreferences(userId));
-    if (!userId) return;
-    return subscribeVoicePreferences(userId, setState);
-  }, [userId]);
-
-  const set = (
-    updater: (current: OneVoicePreferencesState) => OneVoicePreferencesState,
-  ) => {
-    updateVoicePreferences(userId, updater);
-  };
+  const { state, change: set } = useVoiceCommandPreferences(userId);
 
   return (
     <div className={`${detailStyles.voiceRoot} space-y-4`}>

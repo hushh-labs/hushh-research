@@ -1,10 +1,57 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LiveAudioCapture } from "@/lib/one-voice/audio/capture";
+import { LiveAudioCapture, probeMicrophone } from "@/lib/one-voice/audio/capture";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("LiveAudioCapture microphone ownership", () => {
+  it("cancels a probe before late permission and immediately releases a pending worklet's resources", async () => {
+    const stop = vi.fn();
+    const stream = { getAudioTracks: () => [], getTracks: () => [{ stop }] } as unknown as MediaStream;
+    let grant!: (stream: MediaStream) => void;
+    const late = new AbortController();
+    const contextCreated = vi.fn();
+    class Context {
+      constructor() { contextCreated(); }
+      close = async () => undefined;
+    }
+    const pendingPermission = probeMicrophone({
+      signal: late.signal,
+      getUserMedia: () => new Promise(resolve => { grant = resolve; }),
+      AudioContextImpl: Context as unknown as typeof AudioContext,
+    });
+    late.abort();
+    grant(stream);
+    expect((await pendingPermission).ok).toBe(false);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(contextCreated).not.toHaveBeenCalled();
+
+    let finishWorklet!: () => void;
+    let startedWorklet!: () => void;
+    const workletStarted = new Promise<void>(resolve => { startedWorklet = resolve; });
+    const close = vi.fn(async () => undefined);
+    class LoadingContext {
+      sampleRate = 48_000;
+      close = close;
+      audioWorklet = { addModule: () => { startedWorklet(); return new Promise<void>(resolve => { finishWorklet = resolve; }); } };
+    }
+    const loading = new AbortController();
+    const pendingWorklet = probeMicrophone({
+      signal: loading.signal,
+      getUserMedia: async () => stream,
+      AudioContextImpl: LoadingContext as unknown as typeof AudioContext,
+    });
+    await workletStarted;
+    loading.abort();
+    // No worklet completion is needed to stop the actual microphone.
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(1);
+    finishWorklet();
+    expect((await pendingWorklet).ok).toBe(false);
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("releases a late permission grant after Stop without starting a worklet", async () => {
     let grant!: (stream: MediaStream) => void;
     const stop = vi.fn();

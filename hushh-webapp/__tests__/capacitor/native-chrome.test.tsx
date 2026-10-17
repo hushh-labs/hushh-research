@@ -3210,22 +3210,26 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const scene = (account: boolean, settings?: "preferences" | "security" | "session", support = false, legal?: "privacy" | "terms") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session", support = false, legal?: "privacy" | "terms") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
-      settings={{ active: !!settings, pages: settings === "preferences" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
+      settings={{ active: !!settings, requiresVoice: settings === "voice", pages: settings === "preferences" || settings === "voice" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
         { id: "theme-choice", label: "Appearance", enabled: true, options: [
           { id: "pick-light", label: "Light", selected: true }, { id: "pick-dark", label: "Dark", selected: false },
         ] },
-      ] }] }] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
-        rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()]]), root: vi.fn() }}
+      ] }] }, ...(settings === "voice" ? [{ id: "voice" as const, title: "Voice", sections: [{ id: "voice-controls", rows: [
+        { id: "voice-enabled", label: "Voice control", enabled: true, toggle: true, options: [
+          { id: "voice-on", label: "On", selected: true }, { id: "voice-off", label: "Off", selected: false },
+        ] },
+      ] }] }] : [])] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
+        rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()], ["voice-on", vi.fn()], ["voice-off", vi.fn()]]), root: vi.fn() }}
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
@@ -3261,6 +3265,17 @@ describe("native chrome presentation lease", () => {
       const duplicateChoices = structuredClone(preferences);
       duplicateChoices.profileStack![0].sections[0].rows[0].options![1].id = "pick-light";
       expect(validNativeDrawerProjection(duplicateChoices)).toBe(false);
+      view.rerender(scene(false, "voice"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["preferences", "voice"]));
+      const voice = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(voice)).toBe(true);
+      expect(nativeDrawerChoiceAllowed({ ...selection, ...voice, rowId: "voice-off" }, voice)).toBe(true);
+      const unrelatedVoiceParent = structuredClone(voice);
+      unrelatedVoiceParent.profileStack![0].id = "security";
+      expect(validNativeDrawerProjection(unrelatedVoiceParent)).toBe(false);
+      const rootVoice = structuredClone(voice);
+      rootVoice.profileStack = rootVoice.profileStack!.slice(1);
+      expect(validNativeDrawerProjection(rootVoice)).toBe(true);
       view.rerender(scene(false, "session"));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["security", "session"]));
       const nested = drawerBridge.apply.mock.calls.at(-1)![0];
@@ -3317,6 +3332,16 @@ describe("native chrome presentation lease", () => {
         }
       }
       const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileVoiceSettings: false });
+      drawerBridge.apply.mockClear();
+      const legacyVoice = render(scene(false, "voice"));
+      try {
+        await waitFor(() => expect(legacyVoice.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "voice"))).toBe(false);
+      } finally {
+        legacyVoice.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
       drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileLegalReader: false });
       drawerBridge.apply.mockClear();
       const legacyLegal = render(scene(false, undefined, false, "privacy"));

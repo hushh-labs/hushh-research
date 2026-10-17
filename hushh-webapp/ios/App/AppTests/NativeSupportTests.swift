@@ -1071,6 +1071,13 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(preferences.allows(action: "root", row: nil), "A single page only admits its immediate Back")
         XCTAssertFalse(preferences.allows(action: "row", row: "theme-light"), "Reselecting does not perform another write")
         XCTAssertFalse(preferences.allows(action: "row", row: "theme-selector"), "The trigger is not operation authority")
+        var voice = preferences
+        voice.profileStack = preferences.profileStack! + [NativeProfilePage(id: "voice", title: "Voice", sections: [])]
+        XCTAssertTrue(voice.valid)
+        voice.profileStack![0] = NativeProfilePage(id: "security", title: "Security", sections: [])
+        XCTAssertFalse(voice.valid, "An unrelated panel cannot become the Voice parent")
+        voice.profileStack = Array(voice.profileStack!.suffix(1))
+        XCTAssertTrue(voice.valid, "A direct owned Voice entry must not invent a Preferences parent")
         controller.update(preferences)
         await requireRow("theme-selector")
         let preferencesPage = try XCTUnwrap(navigation.topViewController)

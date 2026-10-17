@@ -248,6 +248,9 @@ export function stripProfilePaneTransientParams(
 
 type ProfilePaneHistoryState = {
   depth?: number;
+  /** Public visited panel only, never record/connector IDs or another stack.
+   * null means the actual preceding entry was the Profile root. */
+  parentPanel?: ProfilePanel | null;
   /** Presentation of the existing Legal Back owner, not another route stack.
    * A document opened from Profile returns there; a visited Legal section is
    * retained as its parent. No document content or private route IDs are kept. */
@@ -275,7 +278,12 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
     ? { depth, returnsToOrigin: true }
     : { depth };
   const legalParent = (paneState as Record<string, unknown>).legalParent;
-  return typeof legalParent === "boolean" ? { ...origin, legalParent } : origin;
+  const result: ProfilePaneHistoryState = typeof legalParent === "boolean" ? { ...origin, legalParent } : origin;
+  const parentPanel = (paneState as Record<string, unknown>).parentPanel;
+  if (parentPanel === null || typeof parentPanel === "string" && normalizeProfilePanel(parentPanel) === parentPanel) {
+    result.parentPanel = parentPanel as ProfilePanel | null;
+  }
+  return result;
 }
 
 /** Renderer projection only. Actual Back remains popProfilePaneLocation.
@@ -283,10 +291,19 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
  * reader instead of inventing native ancestry. Direct/resumed entries use the
  * same authored parent rule as Back below. */
 export function profileLegalParentForPresentation(): boolean | null {
+  return profilePanelParentForPresentation("legal");
+}
+
+/** Shared native presentation ancestry. An unrelated visited panel or older
+ * ambiguous entry keeps the established renderer; actual Back is unchanged. */
+export function profilePanelParentForPresentation(panel: ProfilePanel): boolean | null {
   if (typeof window === "undefined") return null;
   const pane = currentPaneHistoryState();
   if ((pane.depth ?? 0) <= 1) return pane.returnsToOrigin !== true;
-  return pane.legalParent ?? null;
+  if (pane.parentPanel === panel) return true;
+  if (pane.parentPanel === null) return false;
+  if (pane.parentPanel !== undefined) return null;
+  return panel === "legal" ? pane.legalParent ?? null : null;
 }
 
 /** Browser Back must preserve this owner-authored stack beneath a modal. */
@@ -345,8 +362,11 @@ export function pushProfilePaneLocation(
   state[PROFILE_PANE_HISTORY_KEY] = (
     options.returnsToOrigin && depth === 1 ? { depth, returnsToOrigin: true } : { depth }
   ) satisfies ProfilePaneHistoryState;
+  const previous = resolveProfilePaneUrlState(window.location.search);
+  if (previous.open && previous.location.detail === null) {
+    (state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState).parentPanel = previous.location.panel;
+  }
   if (location.panel === "legal" && (location.detail === "privacy" || location.detail === "terms")) {
-    const previous = resolveProfilePaneUrlState(window.location.search);
     const entry = state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState;
     entry.legalParent = previous.open && previous.location.panel === "legal" && previous.location.detail === null;
   }
