@@ -93,15 +93,17 @@ def test_substrate_resources_names_the_project_level_grant():
     sa_email = f"{pod_service_account_id('ha1_abc')}@proj-x.iam.gserviceaccount.com"
     resources = substrate_resources("ha1_abc", "proj-x")
     bindings = [r for r in resources if r["type"] == "iam_binding"]
-    # exactly ONE project-level grant: bootstrap's iam_pod_sa_vertex Vertex binding
-    assert len(bindings) == 1
-    assert bindings[0]["role"] == "roles/aiplatform.user"
-    assert bindings[0]["member"] == f"serviceAccount:{sa_email}"
+    # Every declared runtime project grant remains an explicit cleanup obligation.
+    roles = {"roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer"}
+    assert {(binding["role"], binding["member"]) for binding in bindings} == {
+        (role, f"serviceAccount:{sa_email}") for role in roles
+    }
+    assert len(bindings) == len(roles)
     plan = plan_teardown(resources)
-    binding = next(a for a in plan if a["type"] == "iam_binding")
-    # plan_teardown carries the structured fields through to the deleter
-    assert binding["role"] == "roles/aiplatform.user"
-    assert binding["member"] == f"serviceAccount:{sa_email}"
+    # Structured role/member pairs survive planning; naming never authorizes deletion.
+    assert {(a["role"], a["member"]) for a in plan if a["type"] == "iam_binding"} == {
+        (role, f"serviceAccount:{sa_email}") for role in roles
+    }
     # removed after the bucket and BEFORE the SA delete, so the live member form
     # (not the deleted: residue) is what the first attempt sees
     order = [a["type"] for a in plan]
