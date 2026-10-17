@@ -4786,7 +4786,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/consent_center_service.py",
       "symbol": "ConsentCenterService",
-      "value": 2487
+      "value": 2500
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5434,7 +5434,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10366
+      "value": 10459
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5443,7 +5443,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_center_contributor.py",
       "symbol": "OneLocationCenterContributor",
-      "value": 421
+      "value": 428
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5821,7 +5821,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/ria_claim_service.py",
       "symbol": "RIAClaimService",
-      "value": 683
+      "value": 685
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5857,7 +5857,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
       "symbol": "StripeConnectBankPayouts",
-      "value": 588
+      "value": 590
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5929,7 +5929,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": "WalletCardAccessService",
-      "value": 709
+      "value": 711
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -18331,7 +18331,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/ria.py",
       "symbol": null,
-      "value": 1492
+      "value": 1493
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18889,7 +18889,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/consent_center_service.py",
       "symbol": null,
-      "value": 2612
+      "value": 2625
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19465,7 +19465,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": null,
-      "value": 11505
+      "value": 11599
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19474,7 +19474,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_center_contributor.py",
       "symbol": null,
-      "value": 521
+      "value": 528
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19816,7 +19816,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/ria_claim_service.py",
       "symbol": null,
-      "value": 1311
+      "value": 1313
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19834,7 +19834,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
       "symbol": null,
-      "value": 10416
+      "value": 10417
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19852,7 +19852,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
       "symbol": null,
-      "value": 928
+      "value": 930
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22201,7 +22201,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_ria_claim_flow.py",
       "symbol": null,
-      "value": 864
+      "value": 873
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22246,7 +22246,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_ria_iam_service_architecture.py",
       "symbol": null,
-      "value": 2084
+      "value": 2088
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22300,7 +22300,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_stripe_connect_bank_payouts.py",
       "symbol": null,
-      "value": 1196
+      "value": 1215
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26783,7 +26783,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": null,
-      "value": 777
+      "value": 779
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29138,7 +29138,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_wallet_card_access_postgres.py",
       "symbol": null,
-      "value": 673
+      "value": 674
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -29543,7 +29543,7 @@
       "limit": 80,
       "path": "deploy/drive/v1_scheduler_state.py",
       "symbol": "main",
-      "value": 83
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29994,6 +29994,24 @@
       "path": "hushh-webapp/__tests__/components/wallet-browser-workspace.test.tsx",
       "symbol": null,
       "value": 529
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|_list_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
+      "symbol": "_list_state",
+      "value": 458
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_drive_v1_worker_lane.py|test_paused_release_never_dispatches_or_resumes_work|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_drive_v1_worker_lane.py",
+      "symbol": "test_paused_release_never_dispatches_or_resumes_work",
+      "value": 116
     }
   ],
   "inspected_files": 6625,
@@ -62577,5 +62595,163 @@
     "new_occurrence_appends": 30,
     "review": "153 exact size-only observations: 85 exact incoming file/spans and 68 reviewed compositions; no parser, import, direction or unresolved occurrence-rank findings. Retained owner/private-runtime guards, incoming functionality and bounded fixture corrections. Qualifies measured debt, not universal semantic correctness or runtime/provider/release acceptance. No detector, budget or exclusion change; every previous occurrence and unrelated ceiling retained.",
     "upstream_source": "71dccde384c7ac459201566a92fd0ef086897197"
+  },
+  "scope_commerce_main_6ab779_size_review_20261016": {
+    "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",
+    "entries": [
+      {
+        "after": 10459,
+        "before": 10366,
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "1bf2ed535b9ae3cff329416d36a7ce7b09cc064a808fda258088b492de40b3e5"
+      },
+      {
+        "after": 2500,
+        "before": 2487,
+        "key": "class_size|consent-protocol/hushh_mcp/services/consent_center_service.py|ConsentCenterService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "c91b6a5e633dbfdaa10aefadbe18b53ededa3022bc5c75e9cafbe1999cc1206b"
+      },
+      {
+        "after": 711,
+        "before": 709,
+        "key": "class_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py|WalletCardAccessService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "153cf613788ab3efee0160c7fe507e093ca0563e27cc985e03ce706d89ceda47"
+      },
+      {
+        "after": 685,
+        "before": 683,
+        "key": "class_size|consent-protocol/hushh_mcp/services/ria_claim_service.py|RIAClaimService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "a97c3456aabb0a94f6d2de8ec35a454fb9a575c4f7da56f47e8bd1cee30f4e02"
+      },
+      {
+        "after": 590,
+        "before": 588,
+        "key": "class_size|consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py|StripeConnectBankPayouts|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "d648a62d1f29015b5f9920c24b3c243970f85fb948e190cb396376aabd25ba9a"
+      },
+      {
+        "after": 428,
+        "before": 421,
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_center_contributor.py|OneLocationCenterContributor|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "89c9c33430eb221b59f78e9bd500d94e1705e7f8fc0cfb407c49daac528c962c"
+      },
+      {
+        "after": 458,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|_list_state|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_sha256": "1bf2ed535b9ae3cff329416d36a7ce7b09cc064a808fda258088b492de40b3e5"
+      },
+      {
+        "after": 116,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_drive_v1_worker_lane.py|test_paused_release_never_dispatches_or_resumes_work|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_sha256": "43de8163a612c2b2579a75e7b6d916c9c6b1d750f75d767fb0d08940a869e114"
+      },
+      {
+        "after": 110,
+        "before": 83,
+        "key": "function_size|deploy/drive/v1_scheduler_state.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "source_sha256": "2319cb1c46a36e94debed720ff7bc2e48ce81b8840974612167d89945cb84109"
+      },
+      {
+        "after": 11599,
+        "before": 11505,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "1bf2ed535b9ae3cff329416d36a7ce7b09cc064a808fda258088b492de40b3e5"
+      },
+      {
+        "after": 10417,
+        "before": 10416,
+        "key": "module_size|consent-protocol/hushh_mcp/services/ria_iam_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "92241060a870d662ca1f4ab9059c156e14838cbbf9f7c92108c2fd23b57f090a"
+      },
+      {
+        "after": 2625,
+        "before": 2612,
+        "key": "module_size|consent-protocol/hushh_mcp/services/consent_center_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "c91b6a5e633dbfdaa10aefadbe18b53ededa3022bc5c75e9cafbe1999cc1206b"
+      },
+      {
+        "after": 2088,
+        "before": 2084,
+        "key": "module_size|consent-protocol/tests/test_ria_iam_service_architecture.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "4c912ccda55af662056797ff24e1647627b2f477ef07bf04e4b3054346671193"
+      },
+      {
+        "after": 1493,
+        "before": 1492,
+        "key": "module_size|consent-protocol/api/routes/ria.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "54595166599112272467f3f3ed8bbf7719acca2f264327d0b6ca301fe6a8dc9f"
+      },
+      {
+        "after": 1313,
+        "before": 1311,
+        "key": "module_size|consent-protocol/hushh_mcp/services/ria_claim_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "a97c3456aabb0a94f6d2de8ec35a454fb9a575c4f7da56f47e8bd1cee30f4e02"
+      },
+      {
+        "after": 1215,
+        "before": 1196,
+        "key": "module_size|consent-protocol/tests/test_stripe_connect_bank_payouts.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "3c38bed5adb82ee7b616fef183fb6494169392234a81dd83ec6d995f273f7f8e"
+      },
+      {
+        "after": 930,
+        "before": 928,
+        "key": "module_size|consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "d648a62d1f29015b5f9920c24b3c243970f85fb948e190cb396376aabd25ba9a"
+      },
+      {
+        "after": 873,
+        "before": 864,
+        "key": "module_size|consent-protocol/tests/test_ria_claim_flow.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "fa3131dc1931ce2b0aa6ce5fb86d3b436b79ce176acfe387f1f8adb2eea5e1fd"
+      },
+      {
+        "after": 779,
+        "before": 777,
+        "key": "module_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "153cf613788ab3efee0160c7fe507e093ca0563e27cc985e03ce706d89ceda47"
+      },
+      {
+        "after": 674,
+        "before": 673,
+        "key": "module_size|consent-protocol/tests/test_wallet_card_access_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "98a92237f8f6b7b65d5d7be0f8746b0f7f6c937523d463a8d0a460e84b08f7cf"
+      },
+      {
+        "after": 528,
+        "before": 521,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_center_contributor.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_sha256": "89c9c33430eb221b59f78e9bd500d94e1705e7f8fc0cfb407c49daac528c962c"
+      }
+    ],
+    "existing_value_replacements": 19,
+    "independent_review": "architecture_review",
+    "measurement_source": "35ec23614a497c3a0443fb602f48de4653b17d84",
+    "new_occurrence_appends": 2,
+    "review": "21 exact size-only observations across 14 paths: 13 exact incoming occurrences and 8 reviewed compositions. Singleton ranks only. New _list_state retains prior list_state behavior, strict source completeness and mandatory pod read-only admission; prior list_state ceiling remains. No detector, budget, exclusion or previous occurrence removal. Measured debt only; no runtime, release or payment acceptance claimed.",
+    "upstream_source": "6ab7790055b58d118981f03f783c036e0a26740e"
   }
 }
