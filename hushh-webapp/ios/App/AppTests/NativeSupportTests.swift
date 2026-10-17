@@ -263,11 +263,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
-            XCTAssertEqual(artwork.base.size, CGSize(width: 28, height: 28))
-            XCTAssertEqual(artwork.base.renderingMode, .alwaysTemplate)
-            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing", "my-data", "world-model"].contains(id))
+            let glyphSize: CGFloat = id == "gemini" ? 32 : 28
+            XCTAssertEqual(artwork.base.size, CGSize(width: glyphSize, height: glyphSize))
+            XCTAssertEqual(artwork.base.renderingMode, id == "gemini" ? .alwaysOriginal : .alwaysTemplate)
+            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing", "my-data", "world-model", "accent"].contains(id))
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
+        XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
+        XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
         XCTAssertNil(NativeProfileArtwork.resolve("unknown"))

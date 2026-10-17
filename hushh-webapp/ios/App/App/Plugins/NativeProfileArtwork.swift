@@ -8,45 +8,48 @@ enum NativeProfileArtwork {
         let accent: UIImage?
         let colorHex: String?
     }
-    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice"]
+    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "gemini"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let hasAccent: Bool
+        let original: Bool
         switch id {
-        case "account": colorHex = "#2563EB"; hasAccent = false
-        case "payouts": colorHex = nil; hasAccent = true
-        case "request-pricing": colorHex = nil; hasAccent = true
-        case "my-data": colorHex = nil; hasAccent = true
-        case "world-model": colorHex = nil; hasAccent = true
-        case "preferences": colorHex = "#8B5CF6"; hasAccent = false
-        case "security": colorHex = "#10B981"; hasAccent = false
-        case "devices": colorHex = "#6366F1"; hasAccent = false
-        case "connectors": colorHex = "#00E5FF"; hasAccent = false
-        case "invite": colorHex = "#8B5CF6"; hasAccent = false
-        case "support": colorHex = "#0284C7"; hasAccent = false
-        case "developer-tools": colorHex = "#8B5CF6"; hasAccent = false
-        case "privacy": colorHex = nil; hasAccent = false
-        case "terms": colorHex = nil; hasAccent = false
-        case "sign-out": colorHex = "#EF4444"; hasAccent = false
-        case "style-name": colorHex = "#2563EB"; hasAccent = false
-        case "style-tone": colorHex = "#8B5CF6"; hasAccent = false
-        case "style-length": colorHex = "#0284C7"; hasAccent = false
-        case "style-language": colorHex = "#6366F1"; hasAccent = false
-        case "style-punctuation": colorHex = "#F59E0B"; hasAccent = false
-        case "account-mail": colorHex = "#E11D48"; hasAccent = false
-        case "account-phone": colorHex = "#10B981"; hasAccent = false
-        case "account-wallet": colorHex = "#F59E0B"; hasAccent = false
-        case "account-reset": colorHex = "#F59E0B"; hasAccent = false
-        case "account-delete": colorHex = "#EF4444"; hasAccent = false
-        case "appearance": colorHex = "#6366F1"; hasAccent = false
-        case "accent": colorHex = nil; hasAccent = false
-        case "voice": colorHex = "#8B5CF6"; hasAccent = false
+        case "account": colorHex = "#2563EB"; hasAccent = false; original = false
+        case "payouts": colorHex = nil; hasAccent = true; original = false
+        case "request-pricing": colorHex = nil; hasAccent = true; original = false
+        case "my-data": colorHex = nil; hasAccent = true; original = false
+        case "world-model": colorHex = nil; hasAccent = true; original = false
+        case "preferences": colorHex = "#8B5CF6"; hasAccent = false; original = false
+        case "security": colorHex = "#10B981"; hasAccent = false; original = false
+        case "devices": colorHex = "#6366F1"; hasAccent = false; original = false
+        case "connectors": colorHex = "#00E5FF"; hasAccent = false; original = false
+        case "invite": colorHex = "#8B5CF6"; hasAccent = false; original = false
+        case "support": colorHex = "#0284C7"; hasAccent = false; original = false
+        case "developer-tools": colorHex = "#8B5CF6"; hasAccent = false; original = false
+        case "privacy": colorHex = nil; hasAccent = false; original = false
+        case "terms": colorHex = nil; hasAccent = false; original = false
+        case "sign-out": colorHex = "#EF4444"; hasAccent = false; original = false
+        case "style-name": colorHex = "#2563EB"; hasAccent = false; original = false
+        case "style-tone": colorHex = "#8B5CF6"; hasAccent = false; original = false
+        case "style-length": colorHex = "#0284C7"; hasAccent = false; original = false
+        case "style-language": colorHex = "#6366F1"; hasAccent = false; original = false
+        case "style-punctuation": colorHex = "#F59E0B"; hasAccent = false; original = false
+        case "account-mail": colorHex = "#E11D48"; hasAccent = false; original = false
+        case "account-phone": colorHex = "#10B981"; hasAccent = false; original = false
+        case "account-wallet": colorHex = "#F59E0B"; hasAccent = false; original = false
+        case "account-reset": colorHex = "#F59E0B"; hasAccent = false; original = false
+        case "account-delete": colorHex = "#EF4444"; hasAccent = false; original = false
+        case "appearance": colorHex = "#6366F1"; hasAccent = false; original = false
+        case "accent": colorHex = nil; hasAccent = true; original = false
+        case "voice": colorHex = "#8B5CF6"; hasAccent = false; original = false
+        case "vault-methods": colorHex = "#10B981"; hasAccent = false; original = false
+        case "gemini": colorHex = nil; hasAccent = false; original = true
         default: return nil
         }
         guard let base = UIImage(named: "HushhProfile-\(id)-base") else { return nil }
         let accent = hasAccent ? UIImage(named: "HushhProfile-\(id)-accent") : nil
         guard !hasAccent || accent != nil else { return nil }
-        return Artwork(base: base.withRenderingMode(.alwaysTemplate),
+        return Artwork(base: base.withRenderingMode(original ? .alwaysOriginal : .alwaysTemplate),
                        accent: accent?.withRenderingMode(.alwaysTemplate), colorHex: colorHex)
     }
 }

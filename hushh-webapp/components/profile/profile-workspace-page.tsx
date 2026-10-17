@@ -4864,7 +4864,7 @@ function ProfilePageContent({
   ] };
   const nativeSecurityPage: NativeProfilePage = { id: "security", title: PROFILE_LABELS.security, sections: [
     { id: "security-methods", rows: [
-      { id: "security-vault", label: "Vault methods", detail: "Password, passkey, and unlock method.", enabled: true, artworkId: "security", chevron: true },
+      { id: "security-vault", label: "Vault methods", detail: "Password, passkey, and unlock method.", enabled: true, artworkId: "vault-methods", chevron: true },
     ] },
   ] };
   const nativeSessionPage: NativeProfilePage = { id: "session", title: PROFILE_LABELS.accountAccess, sections: [

@@ -16,6 +16,31 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Profile artwork parity and runner admission — 2026-10-17
+
+The existing shared artwork generator now projects the active web Gemini brand
+mark and Vault methods fingerprint into the qualification-only Profile stack.
+Gemini retains original colors and its authored 32-point footprint; ordinary
+glyphs retain 28 points inside the shared 32-point column. Accent uses a separate
+app-colored layer in both SwiftUI rows and UIKit finite-menu triggers, rather
+than silently becoming the semantic foreground. No new icon registry, operation
+owner or renderer admission is introduced.
+
+The nearest native artwork regression passes on the headless iPhone simulator,
+and all 467 existing Back cases pass. These are source/host checks, not physical
+visual acceptance. The installed physical candidate remains `67ed4931e4` below;
+this artwork follow-up has not been installed there.
+
+The iPhone's wireless tunnel, unlocked state and compatible/usable developer
+image were verified. Its attach definition was corrected against Xcode's
+generated runner metadata and installed `xcodebuild.xctestrun` manual, preserving
+destination artifacts and disabled attachments. Admission still timed out before
+test-body entry, with no private input. The timeout category does not establish
+that an approval prompt is visible or identify the underlying startup cause.
+No repeated unchanged retries, service resets or native qualification followed.
+Rollback is the independently reversible artwork commit; the custom-native flag
+remains opt-in and established platform fallbacks are unchanged.
+
 ### Shared Profile navigation and finite settings — 2026-10-16
 
 The qualification-only Profile stack now supports Account, Preferences, Security

@@ -968,7 +968,8 @@ struct NativeDrawerContent: View {
                             Image(uiImage: accent).resizable()
                                 .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
                         }
-                    }.frame(width: 28, height: 28).frame(width: 32, height: 32).accessibilityHidden(true)
+                    }.frame(width: artwork.base.size.width, height: artwork.base.size.height)
+                        .frame(width: 32, height: 32).accessibilityHidden(true)
                 } else if let symbol = row.symbol {
                     Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
                         .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
@@ -1179,10 +1180,15 @@ struct NativeProfileChoiceMenu: UIViewRepresentable {
             return attributes
         }
         if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
-            let icon = artwork.base.withTintColor(HushhNativeControlAppearance.color(artwork.colorHex) ?? .label, renderingMode: .alwaysOriginal)
-            // Same 28pt artwork in a 32pt well as the shared SettingsRow.
+            let icon = artwork.base.renderingMode == .alwaysOriginal ? artwork.base :
+                artwork.base.withTintColor(HushhNativeControlAppearance.color(artwork.colorHex) ?? .label, renderingMode: .alwaysOriginal)
+            // Preserve the authored glyph's size inside the shared 32pt well.
+            let iconFrame = CGRect(x: (32 - icon.size.width) / 2, y: (32 - icon.size.height) / 2,
+                width: icon.size.width, height: icon.size.height)
             configuration.image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { _ in
-                icon.draw(in: CGRect(x: 2, y: 2, width: 28, height: 28))
+                icon.draw(in: iconFrame)
+                artwork.accent?.withTintColor(HushhNativeControlAppearance.color(state.accentHex) ?? .label,
+                    renderingMode: .alwaysOriginal).draw(in: iconFrame)
             }.withRenderingMode(.alwaysOriginal)
         } else if let symbol = row.symbol { configuration.image = UIImage(systemName: symbol) }
         configuration.preferredSymbolConfigurationForImage = .init(pointSize: 24)
