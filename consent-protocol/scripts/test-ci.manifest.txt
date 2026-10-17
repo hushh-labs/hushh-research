@@ -27,6 +27,8 @@ tests/services/test_drive_file_routing.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
+tests/services/test_drive_pdf_engine.py
+tests/services/test_drive_request_content_check.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
 tests/services/test_drive_extraction_mime_admission.py
