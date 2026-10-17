@@ -80,3 +80,12 @@ export function isAgentGeminiVoiceEnabled(): boolean {
   }
   return !DISABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
 }
+
+const VOICE_WAKE_REGEX =
+  /^\s*(hello|hi|hey)\s+(agent\s+one|one)\b|^\s*(talk\s+to\s+one|start\s+voice(\s+mode)?|trigger\s+voice(\s+agent)?|open\s+voice(\s+mode)?)\b/i;
+
+export function isVoiceWakePhrase(text?: string | null): boolean {
+  if (!text) return false;
+  return VOICE_WAKE_REGEX.test(text.trim());
+}
+
