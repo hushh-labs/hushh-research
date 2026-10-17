@@ -22,8 +22,11 @@ from hushh_mcp.services.drive_suggestion_service import (
     interpret_live_search,
     plan_live_search,
 )
+from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+logger = drive_logger("drive_request_bulk")
 
 _DOCUMENT_NOUN = re.compile(r"\b(?:docs?|documents?)\b", re.I)
 _PLURAL_DOCUMENT_NOUN = re.compile(r"\b(?:docs|documents)\b", re.I)
@@ -342,6 +345,7 @@ class DriveRequestBulkService:
                     await self.wake("v1" if context.get("v1LiveRequest") else "suggestions")
                 return recovered
         route = None
+        planner_fallback = None
         if authority_mode == "agent_package" and not context.get("v1LiveRequest"):
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
@@ -355,18 +359,50 @@ class DriveRequestBulkService:
                 "file_kind": "any",
                 "time_intent": "document_coverage",
             }
+        elif context.get("v1LiveRequest") and statement_plan is not None:
+            plan = statement_plan.model_dump(mode="json")
         else:
-            plan = (
-                statement_plan
-                if context.get("v1LiveRequest") and statement_plan is not None
-                else await self._plan(
+            try:
+                planned = await self._plan(
                     user_id=user_id,
                     purpose=context["purpose"],
                     timezone=timezone,
                     requested_at=requested_at,
                     require_statement_coverage=not context.get("agentPackageRequired"),
                 )
-            ).model_dump(mode="json")
+            except DriveReadError:
+                # The planner answered and the host rejected its plan. Asking
+                # it again is the correction path; a substitute would decide
+                # instead of the model.
+                raise
+            except Exception as error:  # noqa: BLE001 - only a planner failure lands here
+                # A planner timeout, provider refusal (such as a Vertex 403) or
+                # output that failed its schema twice is a model failure. A
+                # clear statement or meeting-notes request keeps its
+                # deterministic plan, which still leaves every candidate to the
+                # owner's review; anything else waits for the planner as before.
+                # The substitution is recorded in the frozen checkpoint.
+                fallback = statement_plan or _deterministic_meeting_note_plan(purpose)
+                if fallback is None:
+                    raise
+                reason = (
+                    "timeout"
+                    if isinstance(error, TimeoutError)
+                    else "invalid_plan"
+                    if isinstance(error, ValueError)
+                    else "model_error"
+                )
+                planner_fallback = {
+                    "reason": reason,
+                    "plan": "statements" if fallback is statement_plan else "meeting_notes",
+                }
+                logger.warning(
+                    "drive_request.plan status=deterministic_fallback reason=%s plan=%s",
+                    reason,
+                    planner_fallback["plan"],
+                )
+                planned = fallback
+            plan = planned.model_dump(mode="json")
         context = await self._context(user_id, request_id, start=True)
         await self._owner()
         return await self.search.create_for_request(
@@ -382,6 +418,7 @@ class DriveRequestBulkService:
             **({"v1_live_request": True} if context.get("v1LiveRequest") else {}),
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
+            **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
         )
 
     async def search_status(self, *, user_id, request_id):

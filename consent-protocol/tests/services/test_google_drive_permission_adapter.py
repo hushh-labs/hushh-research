@@ -334,6 +334,40 @@ async def test_uncertain_mutation_never_retries(monkeypatch, mode):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,reason,code",
+    [
+        # A recipient without a Google account, with notification email off.
+        (400, "invalidSharingRequest", "permission_rejected"),
+        # Workspace sharing policy on the owner's domain or shared drive.
+        (403, "shareOutNotPermitted", "permission_target_unavailable"),
+        (403, "cannotShareTeamDriveWithNonGoogleAccounts", "permission_target_unavailable"),
+        # The file was deleted or trashed after the search confirmed it.
+        (404, "notFound", "permission_target_unavailable"),
+    ],
+)
+async def test_definitive_grant_refusals_are_one_per_file_outcome(
+    monkeypatch, status, reason, code
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(status, {"error": {"code": status, "errors": [{"reason": reason}]}})
+
+    install(monkeypatch, handle)
+    with pytest.raises(acl.DrivePermissionError, match=f"^{code}$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # Google answered: the bulk worker records this file and moves on. It is
+    # neither an unknown outcome to reconcile nor a POST to repeat.
+    assert not caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert len(seen) == 1 and seen[0].url.params["sendNotificationEmail"] == "false"
+
+
+@pytest.mark.asyncio
 async def test_cancellation_after_dispatch_is_not_a_safe_retry(monkeypatch):
     dispatched = asyncio.Event()
 
