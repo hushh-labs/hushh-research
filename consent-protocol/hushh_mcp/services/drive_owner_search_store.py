@@ -9,6 +9,7 @@ and names use the existing Drive authenticated cipher, never the owner's key.
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import math
@@ -29,12 +30,51 @@ from hushh_mcp.services.drive_request_review_policy import (
     checkpoint_requires_owner_review,
 )
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
-from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    PAGE_TOKEN_INVALID,
+    QUOTA_DEFERRED,
+    RATE_LIMITED,
+    READ_FAILURE_PUBLIC_CODES,
+    READ_FAILURE_REASONS,
+    DriveReadError,
+    read_failure_reason,
+)
 
 CONSENT_VERSION = "drive-owner-search-v1"
 MAX_RESULTS = 10000
 ACTIVE = frozenset({"queued", "running"})
 _ROW = "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:user AND expires_at>clock_timestamp()"
+# Retryable provider failures (rate limits, 5xx, timeouts, the slice deadline)
+# back off with truncated exponential delay and equal jitter, at most 64 s
+# (Google's guidance), and fail a job only after six in a row. A Retry-After
+# from Google is a floor on the delay. The public retry_count column is
+# constrained to 0..3, so the true run length lives in the encrypted checkpoint.
+RETRY_BASE_SECONDS = 8
+RETRY_MAX_SECONDS = 64
+MAX_CONSECUTIVE_RETRYABLE = 6
+# Google: a rejected page token must be discarded and paging restarted from
+# page 1. The per-job file digest removes rows seen before the restart.
+PAGE_TOKEN_RESTARTS_PER_PASS = 2
+# The public error_code column predates the precise read-path causes; it may
+# hold only these. The precise cause stays in the encrypted checkpoint.
+PUBLIC_ERROR_CODES = frozenset(
+    {
+        "provider_unavailable",
+        "connection_changed",
+        "connector_unavailable",
+        "provider_response_invalid",
+    }
+)
+FAILURE_CAUSES = READ_FAILURE_REASONS | frozenset(
+    {
+        "operation_not_allowed",
+        "file_too_large",
+        "source_changed",
+        "request_changed",
+        "date_range_required",
+        "invalid_argument",
+    }
+)
 
 
 def _identity(value: str) -> str:
@@ -98,6 +138,93 @@ def validate_reusable_packet(manifest, binding, user_id, *, approved_terms=False
     return manifest
 
 
+def _public_error(error: str | None) -> str | None:
+    """The schema-compatible error_code for a failure code or precise cause."""
+    if error is None:
+        return None
+    if error in PUBLIC_ERROR_CODES:
+        return error
+    public = READ_FAILURE_PUBLIC_CODES.get(error)
+    return public if public in PUBLIC_ERROR_CODES else "provider_unavailable"
+
+
+def release_detail(error: BaseException) -> dict:
+    """Keyword arguments for release() beyond the raised code, only when they matter.
+
+    ``cause`` is passed when the precise read-path cause is not already the
+    raised code and is not a plain rate limit (whose public code and retry
+    already say everything); ``retry_after`` only when known.
+    """
+    detail: dict = {}
+    reason = read_failure_reason(error)
+    if reason in FAILURE_CAUSES and reason != str(error) and reason != RATE_LIMITED:
+        detail["cause"] = reason
+    retry_after = getattr(error, "retry_after", None)
+    if type(retry_after) in {int, float} and retry_after > 0:
+        detail["retry_after"] = retry_after
+    return detail
+
+
+def retry_delay_seconds(streak: int, retry_after: float | None = None) -> float:
+    """Delay before retry ``streak`` (1-based): equal-jitter backoff, Retry-After floor."""
+    nominal = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * 2 ** max(0, streak - 1))
+    delay = nominal * (0.5 + random.random() / 2)  # noqa: S311 - jitter, not security
+    if type(retry_after) in {int, float} and retry_after > 0:
+        delay = max(delay, float(retry_after))
+    return min(float(RETRY_MAX_SECONDS), delay)
+
+
+def _pass_identity(checkpoint: dict) -> str | None:
+    """Which corpus pass the current provider cursor belongs to, if any."""
+    phase = checkpoint.get("phase")
+    scope = None
+    if phase == "files":
+        drives, index = checkpoint.get("drives") or [], checkpoint.get("drive_index", 0)
+        scope = drives[index] if type(index) is int and 0 <= index < len(drives) else None
+    elif phase == "folder_files":
+        queue = checkpoint.get("folder_queue") or []
+        scope = queue[0].get("id") if queue and isinstance(queue[0], dict) else None
+    elif phase not in {"user", "drives"}:
+        return None
+    material = json.dumps([checkpoint.get("query_index", 0), phase, scope], sort_keys=True)
+    return hashlib.sha256(material.encode()).hexdigest()[:24]
+
+
+def restart_rejected_pass(checkpoint: dict) -> bool:
+    """Discard a rejected page token and restart its pass from page 1, twice at most.
+
+    Returns False when the current phase carried no provider cursor or this
+    pass already restarted PAGE_TOKEN_RESTARTS_PER_PASS times; a rejected
+    cursor is discarded either way, so an owner's retry starts the pass afresh.
+    """
+    identity = _pass_identity(checkpoint)
+    token_key = "drive_page_token" if checkpoint.get("phase") == "drives" else "page_token"
+    if identity is None or not checkpoint.get(token_key):
+        return False
+    previous = checkpoint.get("page_token_restarts")
+    count = (
+        previous.get("count", 0)
+        if isinstance(previous, dict) and previous.get("pass") == identity
+        else 0
+    )
+    if token_key == "drive_page_token":  # noqa: S105 - a checkpoint key
+        # Re-list shared drives from the first page; their files re-scan and
+        # the per-job digest drops every row already committed.
+        checkpoint.update(drive_page_token=None, drive_tokens=[], drives=[], drive_index=0)
+    else:
+        checkpoint.update(page_token=None, seen_tokens=[])
+        # An ordering proof spans the pages of one pass; start it over too.
+        checkpoint.pop("request_rank_scan", None)
+    if type(count) is not int or count >= PAGE_TOKEN_RESTARTS_PER_PASS:
+        checkpoint.pop("page_token_restarts", None)
+        return False
+    checkpoint["page_token_restarts"] = {"pass": identity, "count": count + 1}
+    counts = checkpoint.get("coverage_counts")
+    if isinstance(counts, dict):
+        counts["pageTokenRestarts"] = counts.get("pageTokenRestarts", 0) + 1
+    return True
+
+
 def view(row: dict) -> dict:
     return {
         "jobId": str(row["job_id"]),
@@ -147,6 +274,16 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     def _view(self, row):
         result = view(row)
         checkpoint = self._checkpoint(row)
+        cause = checkpoint.get("last_search_failure_cause")
+        if (
+            row["status"] == "failed"
+            and cause in FAILURE_CAUSES
+            and checkpoint.get("last_search_failure_revision") == row["revision"]
+        ):
+            # Owner-only: why Drive refused (for example a Workspace policy or
+            # a restricted download), from a fixed vocabulary, and only for the
+            # failure that ended the job. errorCode keeps the public value.
+            result["errorCause"] = cause
         if checkpoint.get("v1_live_request") is True:
             preview = checkpoint.get("v1_verified_preview", {})
             evaluated = min(row["matched"], preview.get("evaluated", 0))
@@ -1521,38 +1658,75 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             )
         return result
 
-    async def release(self, job, *, error=None, retryable=False):
-        # Error/Stop cleanup must remain possible after OAuth revocation. It
-        # cannot publish files or advance the checkpoint and only owns this lease.
+    async def release(self, job, *, error=None, retryable=False, cause=None, retry_after=None):
+        """End this lease: continue, defer, retry later or fail the job.
+
+        ``error`` is the raised code; ``cause`` the precise read-path reason
+        (read_failure_reason) and ``retry_after`` Google's Retry-After or the
+        local quota deferral, in seconds. Error/Stop cleanup must remain
+        possible after OAuth revocation. Release never publishes files or
+        advances the checkpoint; it may only move a rejected provider cursor
+        back to the start of its pass.
+        """
+        precise = cause if cause in FAILURE_CAUSES else error if error in FAILURE_CAUSES else None
+
         def operation(connection):
             self._lock(connection, {"user_id": job["user_id"], "connector_id": "google_drive"})
             row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
             if row["status"] != "running" or str(row["lease_id"]) != job["lease_id"]:
                 return row["status"]
-            retries = row["retry_count"] + int(error is not None)
-            retry = retryable and retries < 3
-            state = "queued" if error is None or retry else "failed"
-            # The table's public error-code constraint predates this local
-            # adapter failure. Keep its precise cause only in the encrypted
-            # checkpoint, while persisting a schema-compatible public code.
-            checkpoint = None
-            if error == "operation_not_allowed":
+            retries = row["retry_count"]
+            detail = None
+            delay = 0.0
+            code = _public_error(error)
+            record_cause = precise is not None
+            if error is None:
+                state, record_cause = "queued", False
+            elif precise == PAGE_TOKEN_INVALID:
+                # Not a provider outage: no backoff, no count. A third rejected
+                # token in one pass fails with the precise cause.
                 detail = self._checkpoint(row)
-                detail["last_search_failure_cause"] = error
-                checkpoint = self._seal(
-                    detail, job["user_id"], str(row["job_id"]), "owner-search-checkpoint"
+                if restart_rejected_pass(detail):
+                    state, code, record_cause = "queued", None, False
+                else:
+                    state, retries = "failed", retries + 1
+            elif precise == QUOTA_DEFERRED:
+                # This process's own unit budget, not Google's answer: wait it
+                # out (with jitter) and never count it toward failing the job.
+                state, record_cause = "queued", False
+                wait = retry_after if type(retry_after) in {int, float} else 1.0
+                delay = min(
+                    float(RETRY_MAX_SECONDS),
+                    max(1.0, wait) * (1 + random.random() / 4),  # noqa: S311 - jitter
                 )
-            code = (
-                error
-                if error
-                in {
-                    "provider_unavailable",
-                    "connection_changed",
-                    "connector_unavailable",
-                    "provider_response_invalid",
-                }
-                else "provider_unavailable"
-                if error
+            elif retryable:
+                detail = self._checkpoint(row)
+                previous = detail.get("provider_retry_streak") if retries > 0 else 0
+                # A job retried under the old three-attempt rule has no streak.
+                previous = previous if type(previous) is int and previous >= 0 else retries
+                streak = previous + 1
+                detail["provider_retry_streak"] = streak
+                retries = streak
+                if streak < MAX_CONSECUTIVE_RETRYABLE:
+                    state = "queued"
+                    delay = retry_delay_seconds(streak, retry_after)
+                else:
+                    state = "failed"
+            else:
+                state, retries = "failed", retries + 1
+            if record_cause:
+                # The table's public error-code constraint predates the precise
+                # read-path causes. Keep the cause only in the encrypted
+                # checkpoint, while persisting a schema-compatible public code.
+                detail = detail if detail is not None else self._checkpoint(row)
+                detail["last_search_failure_cause"] = precise
+                if type(row.get("revision")) is int:
+                    # Bound to the revision this update writes, so a later
+                    # claim, commit or failure never shows a stale cause.
+                    detail["last_search_failure_revision"] = row["revision"] + 1
+            checkpoint = (
+                self._seal(detail, job["user_id"], str(row["job_id"]), "owner-search-checkpoint")
+                if detail is not None
                 else None
             )
             connection.execute(
@@ -1567,11 +1741,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "code": code,
                     "checkpoint": checkpoint,
                     "retries": min(retries, 3),
-                    # Equal jitter: owners rate limited together (429 or a
-                    # userRateLimitExceeded 403) do not all retry in lockstep.
-                    "delay": 5 * 2 ** (retries - 1) * (0.5 + random.random() / 2)  # noqa: S311
-                    if retry
-                    else 0,
+                    "delay": delay,
                 },
             )
             return state

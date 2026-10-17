@@ -978,3 +978,121 @@ async def test_owner_index_changes_are_owner_search_only_and_keep_the_row_shape(
             await drive.read_owner_search_page(
                 user_id="owner", tool_name="list_changes", arguments={"pageToken": "start-cursor"}
             )
+
+
+# --- Content routing fields, owner pacing and precise read-path reasons ---
+
+
+async def test_listing_rows_carry_size_and_can_download_for_content_routing(monkeypatch):
+    from hushh_mcp.services.drive_file_routing import content_route
+
+    listing = AsyncMock(
+        return_value={
+            "files": [
+                {
+                    **_file("big-scan", modified="2026-09-20T10:00:00Z"),
+                    "size": str(31_000_000),
+                    "capabilities": {"canShare": True, "canDownload": False},
+                },
+                _file("plain", modified="2026-09-20T10:00:00Z"),
+            ]
+        }
+    )
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    result = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'scan'", "pageSize": 100},
+    )
+    big, plain = result.payload["files"]
+    assert big["size"] == 31_000_000
+    assert big["capabilities"] == {"canShare": True, "canDownload": False}
+    assert "size" not in plain and "capabilities" not in plain
+    route = content_route(big)
+    assert route.drive_blind and route.read_block_reason == "download_restricted"
+    # The agent-facing read keeps the same scalar facts, nothing else.
+    agent = await drive.read_tool(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'scan'", "pageSize": 8},
+    )
+    assert agent.payload["files"][0]["size"] == 31_000_000
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"size": 12},
+        {"size": "12 MB"},
+        {"size": "-1"},
+        {"capabilities": {"canDownload": "yes"}},
+        {"capabilities": {"canShare": True, "canDownload": 1}},
+    ],
+)
+async def test_malformed_routing_facts_fail_the_page_closed(monkeypatch, item):
+    listing = AsyncMock(
+        return_value={"files": [{**_file("one", modified="2026-09-20T10:00:00Z"), **item}]}
+    )
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        await drive.read_owner_search_page(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "title contains 'one'", "pageSize": 100},
+        )
+
+
+async def test_every_drive_call_of_an_operation_is_charged_to_that_owner(monkeypatch):
+    from hushh_mcp.services.drive_provider_pacing import DrivePacing
+
+    pacing = DrivePacing(enforce=lambda: True)
+    monkeypatch.setattr(adapter_module, "PACING", pacing)
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        adapter_module.httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            **kw,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, stream=httpx.ByteStream(b'{"files": []}'))
+            ),
+        ),
+    )
+    drive = transport(adapter=adapter_module.GoogleDriveAdapter(), monkeypatch=monkeypatch)
+    await drive.read_owner_search_page(
+        user_id="owner-a",
+        tool_name="search_files",
+        arguments={"query": "title contains 'x'", "pageSize": 100},
+    )
+    await drive.read_tool(
+        user_id="owner-b",
+        tool_name="search_files",
+        arguments={"query": "title contains 'x'", "pageSize": 8},
+    )
+    assert pacing.spent("owner-a") == pacing.spent("owner-b") == 100
+    assert pacing.spent() == 200
+    # Outside an owner operation nothing is attributed to an owner.
+    assert adapter_module.current_owner() is None
+
+
+async def test_precise_denials_keep_compatible_codes_on_the_agent_read_path(monkeypatch):
+    """The agent read and shortcut checks still see source_unavailable; the cause rides along."""
+    original = httpx.AsyncClient
+
+    def handler(request):
+        body = {"error": {"code": 403, "errors": [{"reason": "domainPolicy", "message": "x"}]}}
+        return httpx.Response(403, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        adapter_module.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    drive = transport(adapter=adapter_module.GoogleDriveAdapter(), monkeypatch=monkeypatch)
+    with pytest.raises(DriveReadError) as caught:
+        await drive.read_tool(
+            user_id="owner", tool_name="get_file_metadata", arguments={"fileId": FILE_ID}
+        )
+    assert str(caught.value) == "source_unavailable"
+    assert adapter_module.read_failure_reason(caught.value) == "domain_policy"
+    assert caught.value.status_code == 403

@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
@@ -18,6 +19,7 @@ from uuid import uuid4
 
 from hushh_mcp.services.drive_document_pages import MAX_BATCH_PAGES, OCR_IMAGE_MIMES
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
+from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -25,8 +27,12 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_COLLECTION_CONTENT_LIMIT,
     LIVE_PARTIAL_EXPORTS,
     LIVE_POLICY_HASH,
+    PROVIDER_RESPONSE_INVALID,
+    READ_FAILURE_REASONS,
     DriveReadError,
     GoogleDriveAdapter,
+    failure_log_label,
+    read_failure_reason,
 )
 from hushh_mcp.services.google_drive_rest_transport import (
     PARSE_REASONS,
@@ -34,6 +40,8 @@ from hushh_mcp.services.google_drive_rest_transport import (
     compile_search_terms,
     quote_literal,
 )
+
+logger = drive_logger(__name__)
 
 MAX_SEARCH_RESULTS = 25
 MAX_OWNER_LIST_RESULTS = 100
@@ -859,7 +867,12 @@ class DriveLiveReader:
                     access_token=credential["accessToken"],
                 )
             except DriveReadError as error:
-                if str(error) in {"source_unavailable", "unsupported_format"}:
+                # A 4xx whose body could not be read is as unavailable to this
+                # metadata read as a plain denial; it never fails the search.
+                if (
+                    str(error) in {"source_unavailable", "unsupported_format"}
+                    or read_failure_reason(error) == PROVIDER_RESPONSE_INVALID
+                ):
                     truncated = True
                     continue
                 raise
@@ -1070,6 +1083,7 @@ class DriveLiveReader:
         """
         content: list[dict] = []
         unreadable: list[dict] = []
+        causes: Counter[str] = Counter()
         self._rows = []
         # Only two independent Google reads run at once. Each retains its own
         # before/read/after source and access fences; results are consumed in
@@ -1118,7 +1132,7 @@ class DriveLiveReader:
                 require_genai_eligibility=False,
             )
             if isinstance(metadata, DriveReadError):
-                return None, None, str(metadata)
+                return None, None, metadata
             if expected_names is not None and metadata.name != expected_names[file_id]:
                 raise DriveReadError("source_changed")
             read = await provider_read(
@@ -1128,12 +1142,12 @@ class DriveLiveReader:
                 arguments={"fileId": file_id},
             )
             if isinstance(read, DriveReadError):
-                return None, None, str(read)
+                return None, None, read
             try:
                 body = self._content(read)
             except DriveReadError as error:
                 if str(error) in UNREADABLE:
-                    return None, None, str(error)
+                    return None, None, error
                 raise
             await self.require_access()
             after = await provider_read(
@@ -1144,7 +1158,7 @@ class DriveLiveReader:
                 require_genai_eligibility=False,
             )
             if isinstance(after, DriveReadError):
-                return None, None, str(after)
+                return None, None, after
             if after != metadata:
                 raise DriveReadError("source_changed")
             return metadata, body, None
@@ -1166,7 +1180,7 @@ class DriveLiveReader:
         # limit.
         try:
             for position, file_id in enumerate(file_ids):
-                metadata, body, reason = await pending.pop(position)
+                metadata, body, failure = await pending.pop(position)
                 if on_progress is not None:
                     try:
                         # Counts only. The callback never receives a private
@@ -1174,14 +1188,21 @@ class DriveLiveReader:
                         on_progress(position + 1, len(file_ids))
                     except Exception:  # noqa: BLE001 - progress cannot fail a read
                         pass
-                if reason is not None:
+                if failure is not None:
+                    reason, cause = str(failure), read_failure_reason(failure)
                     unreadable.append(
                         {
                             "name": (expected_names or {}).get(file_id),
                             "reason": reason,
                             "source_ref": (match_refs or {}).get(file_id),
+                            # The precise Drive cause (for example a restricted
+                            # download) when the allowlisted reason is broader.
+                            **(
+                                {"cause": cause} if cause in READ_FAILURE_REASONS - {reason} else {}
+                            ),
                         }
                     )
+                    causes[cause if cause in READ_FAILURE_REASONS else reason] += 1
                     truncated = True
                     start_reads()
                     continue
@@ -1236,6 +1257,14 @@ class DriveLiveReader:
                 for task in pending.values():
                     task.cancel()
                 await asyncio.gather(*pending.values(), return_exceptions=True)
+        if causes:
+            # Counts by fixed cause only: never a name, file id or provider text.
+            logger.info(
+                "drive_live_read.unreadable causes=%s",
+                ",".join(
+                    f"{failure_log_label(cause)}:{count}" for cause, count in sorted(causes.items())
+                ),
+            )
         return {
             "untrusted_external_content": content,
             "truncated": truncated,

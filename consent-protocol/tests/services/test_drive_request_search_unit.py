@@ -121,7 +121,9 @@ async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("draw", "retry_count", "delay"), [(0.0, 0, 2.5), (0.999, 1, 9.995)])
+@pytest.mark.parametrize(
+    ("draw", "retry_count", "delay"), [(0.0, 0, 4.0), (0.999, 1, 15.992), (0.0, 3, 32.0)]
+)
 async def test_rate_limited_search_retries_back_off_with_jitter(
     monkeypatch, draw, retry_count, delay
 ):
@@ -144,16 +146,22 @@ async def test_rate_limited_search_retries_back_off_with_jitter(
     monkeypatch.setattr(
         store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
     )
+    detail = {"page_token": "saved-page", "provider_retry_streak": retry_count}
+    monkeypatch.setattr(store, "_checkpoint", lambda _row: detail)
+    monkeypatch.setattr(store, "_seal", lambda *_args: "sealed-checkpoint")
     monkeypatch.setattr(store_module.random, "random", lambda: draw)
     state = await store.release(
         {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
         error="provider_unavailable",
         retryable=True,
     )
-    # Same durable cursor, queued again within [half, full] of 5s, 10s, 20s.
+    # Same durable cursor, queued again within [half, full] of 8s, 16s, 32s, 64s.
     assert state == "queued"
     assert updated[0]["delay"] == pytest.approx(delay)
-    assert updated[0]["retries"] == retry_count + 1
+    # The public column keeps its 0..3 constraint; the true run is sealed.
+    assert detail["provider_retry_streak"] == retry_count + 1
+    assert detail["page_token"] == "saved-page"
+    assert updated[0]["retries"] == min(retry_count + 1, 3)
 
 
 @pytest.mark.parametrize(
