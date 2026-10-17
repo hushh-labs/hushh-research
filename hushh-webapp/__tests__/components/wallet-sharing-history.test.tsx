@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
-vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: mocks }));
+vi.mock("@/lib/services/wallet-card-access-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/wallet-card-access-service")>(), WalletCardAccessService: mocks,
+}));
+import { CardAccessUnavailableError } from "@/lib/services/wallet-card-access-service";
 vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: ({ card }: { card: { cardId: string } }) => <button>Share {card.cardId}</button> }));
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
@@ -103,4 +106,29 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     expect(screen.getByText("Identity verification required")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Revoke/ })).toBeNull();
   });
+});
+
+it.each(["refresh", "pagination"])("pauses timer, focus and pagination after unavailable %s, retains history, and allows retry", async (source) => {
+  const intervals = vi.spyOn(window, "setInterval");
+  mocks.history.mockResolvedValueOnce(page(["Verified history"], "payment:cursor"));
+  const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+  await screen.findByText("Verified history");
+  mocks.history.mockRejectedValueOnce(new CardAccessUnavailableError("WALLET_CARD_ACCESS_DISABLED"));
+  if (source === "pagination") fireEvent.click(screen.getByRole("button", { name: "Load more shares" }));
+  else await act(async () => window.dispatchEvent(new Event("focus")));
+  await screen.findByText("Card sharing is unavailable. Automatic refresh is paused.");
+  expect(screen.getByText("Verified history")).toBeVisible();
+  const refresh = intervals.mock.calls.find(call => call[1] === 30_000)?.[0] as () => void;
+  expect(refresh).toBeTypeOf("function");
+  await act(async () => { refresh(); window.dispatchEvent(new Event("focus")); });
+  fireEvent.click(screen.getByRole("button", { name: /(?:Load more|Retry loading) shares/ }));
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(3));
+  mocks.history.mockRejectedValueOnce(new CardAccessUnavailableError("WALLET_CARD_ACCESS_NOT_READY"));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await screen.findByText("Card sharing is unavailable. Automatic refresh is paused.");
+  await act(async () => advanceVaultSessionEpoch("test-new-session"));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(5));
+  view.unmount(); intervals.mockRestore();
 });

@@ -11,7 +11,13 @@ from verify_worker_revision import verify_revision
 
 
 def verify_v1_revision(
-    revision: dict, *, sha: str, image: str, scanner_index: str, scanner_amd64: str
+    revision: dict,
+    *,
+    sha: str,
+    image: str,
+    scanner_index: str,
+    scanner_amd64: str,
+    drain_enabled: str = "true",
 ) -> None:
     verify_revision(
         revision,
@@ -19,8 +25,12 @@ def verify_v1_revision(
         app_image=image,
         scanner_index_digest=scanner_index,
         scanner_amd64_digest=scanner_amd64,
-        drain_enabled="true",
+        drain_enabled=drain_enabled,
     )
+    if revision["spec"].get("serviceAccountName") != (
+        "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+    ):
+        raise ValueError("V1 worker runtime identity mismatch")
     worker = next(
         item
         for item in revision["spec"]["containers"]
@@ -45,6 +55,7 @@ def main() -> int:
             image=os.environ["EXPECTED_APP_IMAGE"],
             scanner_index=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
             scanner_amd64=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
+            drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED", "true"),
         )
     except (
         KeyError,

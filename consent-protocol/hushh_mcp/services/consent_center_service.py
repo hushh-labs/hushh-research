@@ -309,6 +309,20 @@ class ConsentCenterService:
         """
         return await run_in_threadpool(self._location_buckets, user_id)
 
+    async def _location_counts_async(self, user_id: str) -> dict[str, int]:
+        if not getattr(self, "_location_center", None):
+            return {"pending": 0, "active": 0, "previous": 0}
+        # Keep the contributor's count authority, without loading the full picker.
+        try:
+            return await run_in_threadpool(self._location_center.counts, user_id)
+        except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
+            logger.warning(
+                "consent_center.one_location_counts_failed error_type=%s", type(exc).__name__
+            )
+            return {"pending": 0, "active": 0, "previous": 0}
+
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
         if isinstance(value, dict):
@@ -2135,14 +2149,14 @@ class ConsentCenterService:
             )
         elif normalized_actor == "investor":
             (
-                location_buckets,
+                location_counts,
                 marketplace_buckets,
                 pending_entries,
                 active_entries,
                 previous_entries,
                 (connection_count, drive_counts),
             ) = await asyncio.gather(
-                self._location_buckets_async(user_id),
+                self._location_counts_async(user_id),
                 self._extra_buckets_async(user_id),
                 self._load_investor_pending_entries(user_id),
                 self._load_investor_active_entries(user_id),
@@ -2160,7 +2174,7 @@ class ConsentCenterService:
                     "previous": "history",
                 }[surface]
                 return (
-                    len(location_buckets[bucket])
+                    location_counts[surface]
                     + len(marketplace_buckets[bucket])
                     + drive_counts[bucket]
                 )
