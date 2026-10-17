@@ -75,6 +75,18 @@ async function ask(question = "A synthetic question") {
 }
 
 describe("private Puppy relay", () => {
+  it("does not dispatch an unfinished IME composition as a Puppy turn", async () => {
+    render(<PrivatePuppyInferencePanel />);
+    const input = screen.getByRole("textbox", { name: "Message Puppy One" });
+    fireEvent.change(input, { target: { value: "A composed synthetic question" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
+    expect(input).toHaveValue("A composed synthetic question");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: false });
+    expect(await screen.findByText("Puppy answered")).toBeInTheDocument();
+    expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("fences new input behind History without discarding the draft", async () => {
     const { rerender } = render(<PrivatePuppyInferencePanel />);
     const input = screen.getByRole("textbox", { name: "Message Puppy One" });

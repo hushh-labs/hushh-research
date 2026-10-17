@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Laptop, Send, StopSquare } from "@/components/icons";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Laptop } from "@/components/icons";
+import { PuppyComposer, PuppyControlRibbon } from "@/components/agent/puppy-chat-controls";
 
 import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";
@@ -106,49 +106,6 @@ function PuppyGreeting({ machine, onPick }: { machine: string; onPick: (prompt: 
   );
 }
 
-function PuppyComposer({ busy, stopping, disabled, onSend, onStop }: {
-  busy: boolean;
-  stopping: boolean;
-  disabled: boolean;
-  onSend: (message: string) => void;
-  onStop: () => void;
-}) {
-  const [draft, setDraft] = useState("");
-  const submit = () => {
-    if (disabled || busy || !draft.trim()) return;
-    onSend(draft);
-    setDraft("");
-  };
-  return (
-    <div className="shrink-0 px-0 pt-3">
-      <div data-testid="puppy-chat-composer" className="bottom-chrome-surface flex min-h-[3.75rem] items-center gap-2 rounded-[var(--app-input-radius)] px-2.5 pl-3.5">
-        <textarea
-          value={draft}
-          disabled={disabled}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
-          }}
-          rows={1}
-          placeholder="Message Puppy One"
-          aria-label="Message Puppy One"
-          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 sm:max-h-36 sm:text-sm"
-        />
-        {busy ? (
-          <ShellActionSurface type="button" onClick={onStop} disabled={stopping} aria-label="Stop" title="Stop"
-            className="border-transparent bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12]">
-            <StopSquare className="size-3.5" aria-hidden />
-          </ShellActionSurface>
-        ) : (
-          <ShellActionSurface type="button" onClick={submit} disabled={disabled || !draft.trim()} aria-label="Send to Puppy One" title="Send"
-            className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]">
-            <Send className="size-4" aria-hidden />
-          </ShellActionSurface>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * Puppy One's chat. The pod path is fixed (app -> owner pod -> Puppy relay ->
@@ -188,13 +145,14 @@ export function PrivatePuppyInferencePanel({
     // One's chat tokens (bubble greys) apply here too, also on /one/puppy,
     // which sits outside the workspace that normally scopes them.
     <div data-one-chat-surface className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex min-h-10 items-center gap-2">
+      <PuppyControlRibbon accessory={accessory}>
         <PuppyRemoteModelPicker
           hushhId={hushhId}
           deviceId={link?.device?.id ?? null}
           vaultOwnerToken={vaultOwnerToken ?? null}
           chatModel={chatModel?.model ?? null}
-          busy={busy || composerDisabled}
+          active={!composerDisabled}
+          busy={busy}
           hasTurns={turns.length > 0}
           machineState={machineState}
           machine={machine}
@@ -212,8 +170,7 @@ export function PrivatePuppyInferencePanel({
           memoryPhrase={hushhId ? podMemoryConsentPhrase(memoryWord) : undefined}
           onOpenChange={(open) => { if (!open) setMenuCloses((count) => count + 1); }}
         />
-        {accessory ? <div className="ml-auto shrink-0">{accessory}</div> : null}
-      </div>
+      </PuppyControlRibbon>
       <div ref={scroller} onScroll={onScroll} data-testid="puppy-transcript" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 py-4">
         {turns.length === 0 ? <PuppyGreeting machine={machine} onPick={(prompt) => { if (!composerDisabled) void send(prompt); }} /> : null}
         <div className="flex flex-col gap-4">

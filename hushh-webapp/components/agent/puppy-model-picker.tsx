@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, ChevronDown, Cloud, Cpu, Loader2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
   Popover,
   PopoverContent,
@@ -48,11 +49,15 @@ export interface ModelSelection {
 
 export function PuppyModelPicker({
   onApplied,
+  active = true,
+  currentModel,
   className,
 }: {
   /** Called once the assignment lands, so the caller can start a new session. */
   onApplied: (selection: ModelSelection) => void;
   className?: string;
+  active?: boolean;
+  currentModel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<PickerPayload | null>(null);
@@ -66,6 +71,8 @@ export function PuppyModelPicker({
     onDevice: boolean;
   } | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => { if (!active) { setOpen(false); setConfirm(null); } }, [active]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +147,8 @@ export function PuppyModelPicker({
   );
 
   const current = payload?.current;
-  const label = current?.model ? shortModelName(current.model) : "model";
+  const model = current?.model ?? currentModel;
+  const label = model ? shortModelName(model) : "model";
   // A heading with nothing under it is exactly the dead row this change exists
   // to remove, so a provider that arrives with no models is not drawn at all.
   const groups = (payload?.providers ?? []).filter(
@@ -148,20 +156,20 @@ export function PuppyModelPicker({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={active && open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <ShellActionSurface variant="pill" wrapperClassName="min-w-0 max-w-full"
+          disabled={!active}
           type="button"
           className={cn(
-            "relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+            "h-11 min-w-0 max-w-full px-3 text-xs font-medium sm:px-3 sm:text-sm",
             className,
           )}
           title="Choose the model and reasoning effort"
         >
-          {label}
+          <span className="min-w-0 truncate">{label}</span>
           <ChevronDown className="size-3" aria-hidden />
-          <MaterialRipple variant="none" effect="glass" />
-        </button>
+        </ShellActionSurface>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <div className="border-b border-border/60 px-3 py-2">

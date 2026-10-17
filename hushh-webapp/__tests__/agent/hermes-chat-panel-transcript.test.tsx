@@ -89,6 +89,7 @@ async function ask(text: string) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  mocks.abortRun.mockReset();
   mocks.runAgent.mockResolvedValue(undefined);
 });
 
@@ -237,6 +238,23 @@ describe("HermesChatPanel transcript", () => {
     expect(panels[1].parentElement?.parentElement).toHaveClass("hidden");
     view.rerender(<PuppyOneSurface conversations={[conversations[1]]} activeConversationId="b" />);
     expect(screen.queryByText("First topic")).not.toBeInTheDocument();
+  });
+
+  it("stops the local stream once without replacing partial text with an outage", async () => {
+    let reject: (error: Error) => void = () => {};
+    mocks.runAgent.mockImplementation((_params, handlers) => {
+      handlers.onTextMessageContentEvent({ event: { delta: "Partial answer" } });
+      return new Promise((_resolve, fail) => { reject = fail; });
+    });
+    mocks.abortRun.mockImplementation(() => reject(new Error("aborted")));
+    await mount();
+    await ask("Synthetic question");
+    fireEvent.click(await screen.findByRole("button", { name: "Stop", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop", exact: true })).toBeNull());
+    expect(mocks.abortRun).toHaveBeenCalledOnce();
+    expect(screen.getByText("Partial answer")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).not.toBeDisabled();
   });
 
   it("aborts an in-flight request on actual unmount, not when hidden", async () => {

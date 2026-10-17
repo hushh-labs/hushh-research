@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/lib/morphy-ux/morphy";
 import { usePuppyCatalog, type PuppyCatalog } from "@/lib/agent/use-puppy-catalog";
 import { cn } from "@/lib/utils";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
 type Scope = "chat" | "global";
 export type PuppyMachineState = "live" | "quiet" | "unavailable";
@@ -118,7 +119,7 @@ function ModelSection({ error, onRetry, ...list }: Parameters<typeof ModelList>[
  */
 export function PuppyRemoteModelPicker({
   hushhId, deviceId, vaultOwnerToken, chatModel, busy, hasTurns, onChatModel, onGlobalModel,
-  machineState = "unavailable", machine = "your computer", lastKnownModel = null, footer, memoryPhrase, onOpenChange,
+  active = true, machineState = "unavailable", machine = "your computer", lastKnownModel = null, footer, memoryPhrase, onOpenChange,
 }: {
   hushhId: string | null;
   deviceId: string | null;
@@ -128,6 +129,7 @@ export function PuppyRemoteModelPicker({
   hasTurns: boolean;
   onChatModel: (model: string, catalogVersion: string) => void;
   onGlobalModel: (previousDefault: string, catalog: PuppyCatalog) => void;
+  active?: boolean;
   machineState?: PuppyMachineState;
   machine?: string;
   /** The model the machine last reported running, shown until a list arrives. */
@@ -143,12 +145,18 @@ export function PuppyRemoteModelPicker({
   const choiceAfterClose = useRef<string | null>(null);
   const { catalog, loading, error, pending, load, applyGlobal } = usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine });
 
-  useEffect(() => { if (open) void load(); }, [open, load]);
+  useEffect(() => {
+    if (active) return;
+    choiceAfterClose.current = null;
+    setOpenState(false);
+    setChoice(null);
+  }, [active]);
+  useEffect(() => { if (active && open) void load(); }, [active, open, load]);
 
   function confirm(scope: Scope) {
     const model = choice;
     setChoice(null);
-    if (!model || !catalog || !catalog.models.some(({ id }) => id === model)) return;
+    if (!active || !model || !catalog || !catalog.models.some(({ id }) => id === model)) return;
     if (scope === "chat") onChatModel(model, catalog.catalogVersion);
     else void applyGlobal(model, onGlobalModel);
   }
@@ -157,24 +165,24 @@ export function PuppyRemoteModelPicker({
   const Machine = machine.charAt(0).toUpperCase() + machine.slice(1);
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={active && open} onOpenChange={setOpen}>
         {/* Enabled whenever the agent is known: the memory grant inside is the
             agent's, so it must stay reachable mid-answer and with no device. */}
         <PopoverTrigger asChild>
-          <button type="button" aria-label={["Choose Puppy model", memoryPhrase].filter(Boolean).join(". ")}
-            title={memoryPhrase} data-testid="puppy-header-chip" disabled={!hushhId}
-            className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full bg-foreground/[0.04] px-3 text-xs text-foreground transition-colors hover:bg-foreground/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
+          <ShellActionSurface variant="pill" wrapperClassName="min-w-0 max-w-full" contentClassName="justify-start" type="button" aria-label={["Choose Puppy model", memoryPhrase].filter(Boolean).join(". ")}
+            title={memoryPhrase} data-testid="puppy-header-chip" disabled={!active || !hushhId}
+            className="h-11 min-w-0 max-w-full px-3 text-xs font-normal sm:px-3 sm:text-sm">
             <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT[machineState])} aria-hidden />
-            <span className="shrink-0 font-medium">{Machine}</span>
-            {selected ? <span className="min-w-0 truncate text-muted-foreground">{selected}</span> : null}
+            <span className="sr-only">{Machine}. </span>
+            <span className="min-w-0 truncate font-medium" title={selected ?? undefined}>{selected ? selected.slice(selected.lastIndexOf("/") + 1) : "Choose model"}</span>
             {pending ? <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" aria-label="Model change pending" /> : null}
             <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-          </button>
+          </ShellActionSurface>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2" aria-label="Available local models"
           onCloseAutoFocus={(event) => {
             const picked = choiceAfterClose.current;
-            if (!picked) return;
+            if (!active || !picked) return;
             event.preventDefault();
             choiceAfterClose.current = null;
             setChoice(picked);
@@ -191,7 +199,7 @@ export function PuppyRemoteModelPicker({
           {footer ? <div className="mt-2 border-t border-border/60 pt-2">{footer}</div> : null}
         </PopoverContent>
       </Popover>
-      <ModelScopeDialog choice={choice} hasTurns={hasTurns} pending={pending}
+      <ModelScopeDialog choice={active ? choice : null} hasTurns={hasTurns} pending={pending}
         onCancel={() => setChoice(null)} onConfirm={confirm} />
     </>
   );

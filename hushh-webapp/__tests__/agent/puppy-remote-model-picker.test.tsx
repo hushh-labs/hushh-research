@@ -24,6 +24,24 @@ beforeEach(() => {
 });
 
 describe("Puppy remote model picker", () => {
+  it.each([false, true])("retires the model portal on loss of ownership (confirmation: %s)", async confirmation => {
+    const props = { hushhId: "owner-1", deviceId: "device-1", vaultOwnerToken: "owner-capability",
+      chatModel: null, busy: false, hasTurns: false, onChatModel: vi.fn(), onGlobalModel: vi.fn() };
+    const view = render(<PuppyRemoteModelPicker {...props} active />);
+    fireEvent.click(screen.getByRole("button", { name: /^Choose Puppy model/ }));
+    const option = await screen.findByRole("button", { name: "local/other" });
+    if (confirmation) {
+      fireEvent.click(option);
+      await screen.findByRole("heading", { name: "Use local/other?" });
+    }
+    view.rerender(<PuppyRemoteModelPicker {...props} active={false} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    view.rerender(<PuppyRemoteModelPicker {...props} active />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(props.onChatModel).not.toHaveBeenCalled();
+    expect(props.onGlobalModel).not.toHaveBeenCalled();
+  });
+
   it("keeps confirmation open after the model list closes", async () => {
     const onChatModel = vi.fn();
     render(<PuppyRemoteModelPicker
@@ -93,7 +111,8 @@ describe("Puppy remote model picker", () => {
     />);
     const chip = screen.getByTestId("puppy-header-chip");
     expect(chip).toHaveTextContent("Your Mac");
-    expect(chip).toHaveTextContent("google/gemma-4-12b");
+    expect(chip).toHaveTextContent("gemma-4-12b");
+    expect(screen.getByTitle("google/gemma-4-12b")).toBeInTheDocument();
   });
 
   const baseProps = {

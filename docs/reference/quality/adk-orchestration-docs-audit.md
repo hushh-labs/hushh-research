@@ -65,6 +65,22 @@ cloud fallback, re-enrollment or change to the global 12B default. Phone testing
 was removed from this pass by the owner; independent-network acceptance remains
 unclaimed and is not a device prerequisite for this pass.
 
+**Local Puppy interface follow-up — 17 October:** Gemma 12B remains the
+machine default; no additional live model qualification was run. The isolated
+patch reuses One’s composer styling and adds a responsive model/“This machine”
+ribbon. Stop preserves partial answers; History and mode changes retire model
+and machine portals. Initial 92 focused Puppy checks and 20 Chromium/WebKit
+layout cases pass. The local Hermes bridge now aborts its same upstream stream
+on request/reader cancellation; three focused lifetime cases pass. A combined
+portal test exceeded its five-second test budget on a contended host; both
+ownership states pass separately without increasing that timeout. The final
+wrapped-control alignment passes in Chromium and WebKit.
+Grid captures cover 320, 390, 768 and 1280 px; probe exports are headless
+attribution only and include hitches, not phone performance certification.
+The Back-generation attempt reported unrelated Memory/map failures and was
+interrupted without stamping; no UI gate or release success is claimed. Type
+validation remains in progress. This UI is not deployed.
+
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
 relay admission are separate facts. Existing owners retain resources and selected
@@ -129,7 +145,11 @@ on `702ad9939d` was deliberately interrupted for this repair; it is not a green
 candidate. The cohesive grant/protocol extraction then passed 420 focused checks
 and four real-PostgreSQL parity/rollback cases; changed Python files pass the
 unchanged architecture ratchet. Personal pods and the serving `0b1d4202d9` release
-are unchanged.
+are unchanged. Core on frozen `62a2805412` passed 21,046 protocol cases and
+skipped 137; it stopped on an outdated one-role inventory assertion and a
+20-second shell-fixture timeout. The inventory now checks both exact role/member
+pairs, and the focused rerun passes all 26 cases. The original failed run is
+retained; remaining core stages have not been represented as passed.
 
 Historical anchor: the [architecture baseline](./architecture-fitness-baseline.json)
 owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 and
