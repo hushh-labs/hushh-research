@@ -35,7 +35,10 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://backend.example.test/api/consent/events/user-1?capabilities=1",
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer test-token" }) }),
+      expect.objectContaining({ headers: expect.objectContaining({
+        Authorization: "Bearer test-token",
+        "X-Hussh-Stream-Via": "next-proxy",
+      }) }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ enabled: false });

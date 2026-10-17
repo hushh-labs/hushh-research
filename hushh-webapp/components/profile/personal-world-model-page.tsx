@@ -160,6 +160,7 @@ function statusCopy(input: {
   checkpoint: boolean;
   /** The step line while research runs; never empty. */
   stepLine: string;
+  stalled: boolean;
   /** The count beside the step line, when there is one. */
   stepDetail: string | null;
   /** True when research named a wait before it can be asked again. */
@@ -231,6 +232,12 @@ function statusCopy(input: {
   switch (result.status) {
     case "pending":
     case "paused":
+      if (input.stalled)
+        return {
+          kind: "preparing",
+          title: "Research hasn't updated",
+          body: "Try again to check for new results.",
+        };
       return {
         kind: "preparing",
         title: "Preparing your model",
@@ -768,6 +775,7 @@ export function PersonalWorldModelPage({
     saved: saved.length + sourcedFacts.length,
     checkpoint: progress !== null,
     stepLine: step.step,
+    stalled,
     stepDetail: step.detail,
     waiting,
     retryAt,
@@ -866,8 +874,10 @@ export function PersonalWorldModelPage({
                 </span>
               }
             />
-            {preparing ? (
+            {preparing && !stalled ? (
               <WorldModelProgressRows progress={shownProgress} />
+            ) : preparing && shownProgress ? (
+              <WorldModelProgressRows progress={shownProgress} active={false} />
             ) : checkpoint ? (
               <WorldModelProgressRows progress={checkpoint} active={false} />
             ) : null}
@@ -956,7 +966,9 @@ export function PersonalWorldModelPage({
           ) : stalled ? (
             <div>
               <HelperText role="status" className="profile-account-note">
-                Taking longer than usual. Your progress is kept.
+                {shownProgress
+                  ? "Taking longer than usual. Your progress is kept."
+                  : "No research progress has been received yet."}
               </HelperText>
               <Button
                 type="button"

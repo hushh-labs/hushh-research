@@ -180,6 +180,17 @@ for (const width of [320, 390, 768, 1440]) {
     await panel
       .getByRole("button", { name: "Add Asha Rao to Investor Circle" })
       .click();
+    await expect(panel.getByRole("button", { name: "Add Asha Rao to Investor Circle" })).toHaveAttribute("aria-pressed", "true");
+    const alex = panel.getByRole("button", { name: "Add Alex Chen to Investor Circle" });
+    await alex.click();
+    await expect(alex).toHaveAttribute("aria-pressed", "true");
+    await expect(panel.getByRole("button", { name: "Add 2 people", exact: true })).toBeEnabled();
+    await panel.screenshot({ path: testInfo.outputPath("circle-selection.png"), animations: "disabled" });
+    await alex.click();
+    await expect(alex).toHaveAttribute("aria-pressed", "false");
+    await expect(spots).toHaveCount(3);
+    await panel.getByRole("button", { name: "Add 1 person", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "Adding people…" })).toBeDisabled();
     await expect(spots).toHaveCount(2);
     await expect(panel.getByText("2 people in this circle")).toBeVisible();
     await expect(orbit.locator('[title="Asha Rao"]:visible')).toBeVisible();

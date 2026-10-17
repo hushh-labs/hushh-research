@@ -129,18 +129,18 @@ Rules:
 
 ## Pattern: Shared Search and Filters
 
-Use the shared command/search surface for global route action discovery and agent search.
+App-wide Search is disabled and archived. Keep page-local collection filters
+inside their owning feature.
 
 ```tsx
-import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { CommandPickerField } from "@/components/app-ui/command-fields";
 ```
 
 Rules:
 
-1. Signed-in dashboards and workspaces should rely on `KaiCommandBarGlobal` for global search.
+1. Do not mount or import the archived global Search implementation.
 2. Use route-local search only for visible local collections, and keep it inside the surface it filters.
-3. Do not add a second floating search bar when the shared command surface is already visible.
+3. Do not introduce a replacement app-wide Search launcher.
 4. Preserve query params only when they are part of the route contract or a shareable/recoverable workspace state.
 5. Search overlays must respect the top shell and bottom command chrome instead of using route-local viewport math.
 
@@ -158,11 +158,11 @@ import {
 
 Rules:
 
-1. Keep the signed-in primary bottom navigation constant and ordered: `Chat`, `One`, `Connect`, `Feed`, and `Search`. `Chat` is the canonical home route `/`; Search is a segment, never a detached control. The five equal-width segments use the shared bottom-chrome frame and remain centered at every breakpoint.
+1. Keep the signed-in primary bottom navigation constant and ordered: `Chat`, `One`, `Connect`, and `Feed`. `Chat` is the canonical home route `/`; App-wide Search is disabled and archived under `archive/app-wide-search/`. The four equal-width segments use the shared bottom-chrome frame and remain centered at every breakpoint.
 2. Keep the bar compact and fixed. The voice-only agent control occupies a narrower content-sized slot in the same bottom surface; do not add a divider, inter-slot gap, route-local navigation, or empty Chat launcher.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Their route bodies render the central registry's tabs directly below the module heading, while the fixed top shell stays back/navigation-only. Profile remains the rightmost signed-in top-bar action.
 4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
-5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
+5. The bottom bar has no Search action. Legacy `?search=1` URLs must not reopen a palette or select a removed tab.
 6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
 
 ## Pattern: Nested Route Back Navigation

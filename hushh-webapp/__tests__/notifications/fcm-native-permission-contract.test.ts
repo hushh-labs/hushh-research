@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
   addListener: vi.fn(),
   registerPushToken: vi.fn(),
+  getNotificationSettings: vi.fn(),
   listeners: new Map<string, (event: { token: string }) => Promise<void>>(),
   currentUser: { uid: "user-1", getIdToken: vi.fn() },
 }));
@@ -35,7 +36,7 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-vi.mock("@/lib/capacitor", () => ({ HushhNotifications: { deletePushToken: mocks.deletePushToken } }));
+vi.mock("@/lib/capacitor", () => ({ HushhNotifications: { deletePushToken: mocks.deletePushToken, getNotificationSettings: mocks.getNotificationSettings } }));
 vi.mock("@/lib/firebase/config", () => ({ auth: { get currentUser() { return mocks.currentUser; } } }));
 
 import { initializeFCM, deleteFCMToken } from "@/lib/notifications/fcm-service";
@@ -51,6 +52,7 @@ describe("native FCM permission ownership", () => {
     mocks.checkPermissions.mockResolvedValue({ receive: "prompt" });
     mocks.requestPermissions.mockResolvedValue({ receive: "granted" });
     mocks.getToken.mockResolvedValue({ token: "test-token" });
+    mocks.getNotificationSettings.mockResolvedValue({ alertsEnabled: true, soundsEnabled: true, emergencySoundEnabled: true });
     mocks.registerPushToken.mockResolvedValue({
       ok: true,
       clone: () => ({ json: vi.fn().mockResolvedValue({ registered: true }) }),
@@ -95,6 +97,22 @@ describe("native FCM permission ownership", () => {
     expect(mocks.registerPushToken).toHaveBeenCalledOnce();
     expect(mocks.registerPushToken.mock.calls[0][0]).toBe("new-account");
   });
+  it("reports quiet OS sound settings without discarding the valid registration", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    mocks.getNotificationSettings.mockResolvedValue({ alertsEnabled: true, soundsEnabled: false, emergencySoundEnabled: false });
+    await expect(initializeFCM("user-1", "id-token")).resolves.toEqual({ status: "push_active", detail: "native_sound_disabled" });
+    expect(mocks.registerPushToken).toHaveBeenCalledOnce();
+    expect(mocks.requestPermissions).not.toHaveBeenCalled();
+  });
+  it("refreshes a native token through its authenticated session when web auth differs", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    const getIdToken = vi.fn().mockResolvedValue("fresh-native-proof");
+    await initializeFCM("user-1", "id-token", { getIdToken });
+    mocks.currentUser.uid = "unrelated-web-session";
+    await mocks.listeners.get("tokenReceived")!({ token: "rotated-token" });
+    expect(getIdToken).toHaveBeenCalledOnce();
+    expect(mocks.registerPushToken).toHaveBeenLastCalledWith("user-1", "test-token", "ios", "fresh-native-proof", expect.any(Function));
+  });
 
   it("waits for native token deletion before a new account obtains and registers a token", async () => {
     mocks.currentUser.uid = "old-account";
@@ -115,6 +133,20 @@ describe("native FCM permission ownership", () => {
     expect(mocks.getToken).toHaveBeenCalledTimes(3);
     expect(mocks.registerPushToken.mock.calls.at(-1)?.[0]).toBe("new-account");
     expect(mocks.registerPushToken.mock.calls.slice(1).every((call) => call[1] === "new-provider-token")).toBe(true);
+  });
+
+  it("does not register the previous owner when its delayed native identity proof resolves", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    let resolveProof!: (proof: string) => void;
+    const getIdToken = vi.fn(() => new Promise<string>((resolve) => { resolveProof = resolve; }));
+    await initializeFCM("old-account", "old-proof", { getIdToken });
+    const refresh = mocks.listeners.get("tokenReceived")!({ token: "rotated-token" });
+    await vi.waitFor(() => expect(getIdToken).toHaveBeenCalledOnce());
+    await initializeFCM("new-account", "new-proof");
+    mocks.registerPushToken.mockClear();
+    resolveProof("stale-owner-proof");
+    await refresh;
+    expect(mocks.registerPushToken).not.toHaveBeenCalled();
   });
 
 });

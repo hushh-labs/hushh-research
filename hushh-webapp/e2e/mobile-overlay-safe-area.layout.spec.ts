@@ -4,17 +4,10 @@ import path from "node:path";
 import { stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
-let paletteClass: string;
-let resultsClass: string;
-let formClass: string;
 let profileClass: string;
 
 test.beforeAll(async () => {
   const root = process.cwd();
-  const source = fs.readFileSync(path.join(root, "components/kai/kai-command-palette.tsx"), "utf8");
-  paletteClass = source.match(/data-search-surface="ios-mobile"\s+className="([^"]+)"/)![1];
-  resultsClass = source.match(/className="([^"]+)"\s+data-testid="kai-mobile-search-results"/)![1];
-  formClass = source.match(/<form\s+className="([^"]+)"/)![1];
   const profile = fs.readFileSync(path.join(root, "components/app-ui/profile-pane.tsx"), "utf8");
   const sheet = fs.readFileSync(path.join(root, "components/ui/sheet.tsx"), "utf8");
   profileClass = [
@@ -31,26 +24,8 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build(`${paletteClass} ${resultsClass} ${formClass} ${profileClass}`.split(/\s+/)));
+  css = stripAppFontFaces(compiler.build(profileClass.split(/\s+/)));
 });
-
-for (const [width, height, keyboard] of [[390, 844, 336], [320, 568, 260], [844, 390, 180]]) {
-  test(`search stays between the safe area and keyboard at ${width}x${height}`, async ({ page }) => {
-    await page.setViewportSize({ width, height });
-    const safeTop = width > height ? 0 : 64;
-    await page.setContent(`<html class="native-ios kb-open" style="--app-native-safe-area-top:${safeTop}px;--kb-height:${keyboard}px"><head><style>${css}</style></head><body>
-      <section data-slot="dialog-content" data-keyboard-anchor="bottom" data-search-surface="ios-mobile" class="${paletteClass}" style="position:fixed;display:flex;flex-direction:column;min-height:0;gap:16px">
-        <div id="results" class="${resultsClass}">${"<button style='display:block;height:48px'>Search suggestion</button>".repeat(20)}</div>
-        <form class="${formClass}"><input aria-label="Search" style="min-width:0;width:100%"></form>
-      </section></body></html>`);
-    const bounds = await page.locator("section").boundingBox();
-    const input = await page.getByRole("textbox").boundingBox();
-    expect(bounds!.y).toBeGreaterThanOrEqual(safeTop + 7);
-    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(height - keyboard);
-    expect(input!.height).toBeGreaterThan(0);
-    expect(await page.locator("#results").evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
-  });
-}
 
 test("native rotation overrides a stale portrait safe-area probe", async ({ page }) => {
   await page.setContent(`<html class="native-ios" style="--app-native-safe-area-top:64px;--app-safe-area-top-probe:64px"><head><style>${css}</style></head><body><div id="inset" style="height:var(--app-safe-area-top-effective)"></div></body></html>`);

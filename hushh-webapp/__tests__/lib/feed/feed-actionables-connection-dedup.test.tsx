@@ -910,6 +910,39 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     expect(() => guard()).toThrow(DriveSharingError);
   });
 
+  // 2026-10-17: the Feed offered a cents price on a whole-dollar request and Allow got a 422.
+  it("prices a whole-dollar request in whole dollars and never sends a cents price", async () => {
+    mocks.review.mockResolvedValue(ownerReview({ wholeDollarPrice: true, priceCents: 100 }));
+    mocks.allow.mockResolvedValue({ requestId: DOC_ID, status: "pending", revision: 3 });
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => { actionOf(documentRow(result), "allow").run(); });
+    await waitFor(() => expect(result.current.documentPricePrompt.detailsPending).toBe(false));
+    expect(result.current.documentPricePrompt).toMatchObject({
+      moneyPolicy: "legacy_whole_dollars", initialAmountCents: 100 });
+
+    act(() => result.current.documentPricePrompt.submit(50));
+    await waitFor(() => expect(result.current.documentPricePrompt.error)
+      .toBe("Choose a whole-dollar price from $1 to $500."));
+    expect(mocks.allow).not.toHaveBeenCalled();
+    expect(result.current.documentPricePrompt.open).toBe(true);
+
+    act(() => result.current.documentPricePrompt.submit(100));
+    await waitFor(() => expect(result.current.documentPricePrompt.open).toBe(false));
+    expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
+      "vault-token", DOC_ID, { revision: 3, amountCents: 100 }, expect.any(Function));
+  });
+
+  it("keeps cents for a request whose review sets no whole-dollar rule", async () => {
+    mocks.allow.mockResolvedValue({ requestId: DOC_ID, status: "pending", revision: 3 });
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => { actionOf(documentRow(result), "allow").run(); });
+    await waitFor(() => expect(result.current.documentPricePrompt.detailsPending).toBe(false));
+    expect(result.current.documentPricePrompt.moneyPolicy).toBe("drive_cents");
+    act(() => result.current.documentPricePrompt.submit(50));
+    await waitFor(() => expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
+      "vault-token", DOC_ID, { revision: 3, amountCents: 50 }, expect.any(Function)));
+  });
+
   it("holds Allow until the request's terms load, and sends nothing without them", async () => {
     mocks.review.mockRejectedValue(
       new DriveSharingError("request_unavailable", 404),

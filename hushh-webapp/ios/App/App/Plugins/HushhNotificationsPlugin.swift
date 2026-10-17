@@ -26,6 +26,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhNotificationsPlugin"
     public let jsName = "HushhNotifications"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "getNotificationSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "playEmergencySmsCue", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopEmergencySmsCue", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deletePushToken", returnType: CAPPluginReturnPromise),
@@ -38,6 +39,15 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private let TAG = "HushhNotifications"
+    @objc func getNotificationSettings(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            call.resolve([
+                "alertsEnabled": settings.alertSetting == .enabled,
+                "soundsEnabled": settings.soundSetting == .enabled,
+                "emergencySoundEnabled": settings.soundSetting == .enabled
+            ])
+        }
+    }
     private var chatHandler: ChatNotificationHandler?
     private let chatLock = NSLock()
     private var activeChatTag = ""

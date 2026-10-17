@@ -17,7 +17,7 @@ import path from "node:path";
 const WEBAPP_ROOT = process.cwd();
 
 function read(relativePath: string): string {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n?/g, "\n");
 }
 
 function fail(what: string, where: string): never {
@@ -428,6 +428,19 @@ const welcome = workspace.slice(workspace.indexOf("function AgentWelcomePanel(")
 const transcriptViewport = workspace.slice(workspace.indexOf("One's transcript region"), workspace.indexOf("ref={transcriptRef}"));
 const transcript = workspace.slice(workspace.indexOf("ref={transcriptRef}"), workspace.indexOf("{visibleMessages.map"));
 const transcriptClasses = one(transcript, /className=\{cn\(\s*"([^"]+)",\s*"([^"]+)"/, "transcript scroll classes", WORKSPACE_PATH);
+const welcomeDescriptionLayout = one(
+  welcome,
+  /<p className=\{cn\("([^"]+)",\s*CHAT_WELCOME_COPY_CLASSNAME\)\}/,
+  "welcome description using shared chat typography",
+  WORKSPACE_PATH,
+)[1];
+const chatStylesPath = "components/agent/chat-message-styles.tsx";
+const welcomeDescriptionTypography = one(
+  read(chatStylesPath),
+  /export const CHAT_WELCOME_COPY_CLASSNAME\s*=\s*"([^"]+)";/,
+  "shared welcome typography",
+  chatStylesPath,
+)[1];
 
 export const AGENT_SURFACE_SOURCE = {
   welcome: {
@@ -435,7 +448,7 @@ export const AGENT_SURFACE_SOURCE = {
     sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", WORKSPACE_PATH)[1],
     columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", WORKSPACE_PATH)[1],
     headingClass: one(welcome, /<h2 className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
-    descriptionClass: one(welcome, /<p className="([^"]+)"/, "welcome description", WORKSPACE_PATH)[1],
+    descriptionClass: `${welcomeDescriptionLayout} ${welcomeDescriptionTypography}`,
     scrollClass: `${transcriptClasses[1]} ${transcriptClasses[2]}`,
     transcriptColumnClass: one(transcript, /<div className="(mx-auto flex min-h-full [^"]+)"/, "transcript reading column", WORKSPACE_PATH)[1],
   },

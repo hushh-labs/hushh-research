@@ -487,12 +487,21 @@ class ExternalConnectorGoogleOAuth:
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def current_credential(
-        self, *, user_id: str, required_profile: DriveProfile | None = None, cleanup: bool = False
+        self,
+        *,
+        user_id: str,
+        required_profile: DriveProfile | None = None,
+        cleanup: bool = False,
+        refresh: bool = True,
     ) -> tuple[dict, dict]:
         from hushh_mcp.services.google_connector_credential_execution import current_credential
 
         return await current_credential(
-            self, user_id=user_id, required_profile=required_profile, cleanup=cleanup
+            self,
+            user_id=user_id,
+            required_profile=required_profile,
+            cleanup=cleanup,
+            refresh=refresh,
         )
 
     async def verify_live(self, *, user_id: str) -> bool:

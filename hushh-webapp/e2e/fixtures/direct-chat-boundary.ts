@@ -36,8 +36,12 @@ let settleHistory: (() => void) | null = null;
 let pendingHistory = false;
 let delayRead = false;
 let settleRead: (() => void) | null = null;
+const routeRequests: { conversationId?: string; personRef?: string }[] = [];
+let failRouteMint = false;
 const fixture = {
   sends, reads, deliveries,
+  routeRequests,
+  failNextRouteMint: () => { failRouteMint = true; },
   holdReaction: () => { delayReaction = true; },
   releaseReaction: () => { delayReaction = false; settleReaction?.(); settleReaction = null; },
   holdOlder: () => { delayOlder = true; }, olderPending: () => olderPending,
@@ -109,7 +113,11 @@ export class DirectMessagesService {
     const ref = input.token?.replace(/^dm1\.(?:person\.)?/, "") ?? input.conversationId ?? input.personRef ?? "maya";
     return { token: `dm1.${kind === "person" ? "person." : ""}${ref}`, kind, ref };
   }
-  static async routeHref(input: { conversationId?: string; personRef?: string }) { return `/one/messages?token=dm1.${input.conversationId ?? `person.${input.personRef}`}`; }
+  static async routeHref(input: { conversationId?: string; personRef?: string }) {
+    routeRequests.push({ conversationId: input.conversationId, personRef: input.personRef });
+    if (failRouteMint) { failRouteMint = false; throw new Error("Synthetic route service unavailable"); }
+    return `/one/messages?token=dm1.${input.conversationId ?? `person.${input.personRef}`}`;
+  }
 
   static async listConversations() {
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });

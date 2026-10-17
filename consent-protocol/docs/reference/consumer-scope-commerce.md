@@ -44,15 +44,18 @@ Existing funding is $10.50 per reviewer and cumulative tagged capital is $15;
 these receipts must not be repeated. **No completed paid scope exchange is yet
 established.** The corrected rehearsal passes canonical schema, reviewer unlock,
 Sandbox pins and the public recipient-registry authentication boundary. The
-primary has no historical public recipient registration; the counterpart has
-one active registration. At `2026-10-17T11:29:48Z`, normal application setup created the primary
+primary had no historical public recipient registration before setup; the
+counterpart had one active registration. At `2026-10-17T11:29:48Z`, normal application setup created the primary
 recipient key in its encrypted vault and verified public registration. The
 operator observed no private key. Its separate synthetic denial-control request
-is unapproved and requires owner decline during cleanup. The next step is the
-approved one-cent reservation and delivery. A coherent connector-domain
+is unapproved and requires owner decline during cleanup. The latest rehearsal verified all four existing funding returns through cold
+recovery, set the synthetic one-cent tariff, and obtained normal owner approval.
+The resulting authorization remains inactive and export retrieval was denied.
+The buyer price-review step failed before quote confirmation; no reservation or
+earnings movement is established. Reservation and encrypted delivery remain next. A coherent connector-domain
 snapshot returned 404; that observation alone does not exclude a legacy combined
 blob. The normal application loader retains responsibility for compatibility.
-No tariff, paid purchase or additional funding was submitted in these attempts.
+No purchase confirmation or additional funding was submitted in these attempts.
 
 A request-review attempt exposed pointer obstruction at the footer. Source
 inspection also identified pending-summary bookkeeping events that discard the
@@ -64,6 +67,29 @@ UI contracts and typecheck pass. This correction is not yet deployed. The
 setup-only rehearsal also incorrectly selected a one-hour option absent from the
 profile screen; its unapproved denial-control request uses the offered one-day
 option. Paid acceptance still requires the approved one-hour terms.
+
+The next canonical financial attempt stopped before purchase because Dev returned
+PKM 500 and readiness 429 responses. Cloud Run independently recorded instance
+capacity rejection at the configured three instances / 40 concurrent requests.
+The listener sampled 32 shared notification subscriptions for two users on one
+instance; this aggregate includes consent, Feed and direct messages and does not
+attribute all subscriptions to one endpoint. Reconciliation remained fresh, with
+zero pending provider events, backing shortfall or unbalanced journals.
+
+The source repair extends Feed's existing per-worker admission budget to consent
+and message streams, bounds their lifetimes, rechecks original owner authority,
+and closes subscriptions after eviction, disconnect or failed body sends. Web
+consent streams use the existing shorter proxy lease and honor bounded busy
+retry delays. All 67 nearest backend stream/message cases, 19 notification client cases, and
+stream type checks pass. The integrated frontend passes 187 focused cases, all
+472 Back cases, generated UI contracts and TypeScript. Two original-defect
+controls reject missing response cleanup and ignored coalescing maximum wait. The former
+scheduler-sensitive payout timing test is replaced by a deterministic queued
+maximum-wait case; exact debounce/cap arithmetic and payload coverage remain.
+This repair is not yet deployed. Main integration preserves migration bodies and
+rollbacks; the canonical manifest and all environment contracts verify head 406.
+UI behavior, core, hosted CI and governed Dev deployment remain required before
+resuming the preserved financial checkpoint.
 
 The private agent's latest authenticated read-only connector observation
 (`2026-10-17T09:04Z`) still has no verified Stripe OAuth account/balance connection.

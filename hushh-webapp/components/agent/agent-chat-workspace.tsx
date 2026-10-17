@@ -211,6 +211,7 @@ import { type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
+  CHAT_WELCOME_COPY_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
   OneChatBubble,
   OneChatTimeSeparator,
@@ -284,6 +285,7 @@ import {
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
 import {
+  isUnresolvedSourceBlock,
   prepareNaturalLanguagePkm,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
@@ -352,6 +354,7 @@ import {
   InformationRequestReceiptError,
   recordAgentChatInformationRequestWithRetry,
   parseRestoredTurnActivity,
+  prepareAgentChatConnectorConfigurations,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import {
@@ -1662,7 +1665,7 @@ function AgentWelcomePanel({
         <h2 className="max-w-full break-words text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
+        <p className={cn("mt-3 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
           What would you like to do today?
         </p>
         <AgentPromptSuggestions
@@ -4441,8 +4444,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!handoff || consumedHandoffIdRef.current === handoff.id) return;
     // Calendar continues the selected chat after its history is restored.
     // Other handoff owners retain their existing new-chat behavior.
-    if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest) {
-      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
+    if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance) {
+      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
       if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== user?.uid))) return;
     }
     consumedHandoffIdRef.current = handoff.id;
@@ -4465,6 +4468,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       queuedMeetingRef.current = handoff.calendarRequest.meeting;
       setQueuedHandoffPrompt(handoff.calendarRequest.request);
       consumeHandoff(handoff.id);
+      return;
+    }
+    if (handoff.calendarAttendance) {
+      const attendance = handoff.calendarAttendance;
+      consumeHandoff(handoff.id);
+      if (!isVaultSessionEpochCurrent(attendance.epoch)) return;
+      historyRestoreEpochRef.current += 1;
+      setPendingSpecialistDirective(null);
+      const attendanceChatEpoch = chatSessionRef.current.value;
+      const id = `calendar-attendance-${handoff.id}`;
+      setMessages(current => [...current, { id, role: "assistant", timestamp, sentAtMs,
+        text: `Declining ${attendance.title} and sending your email to ${attendance.recipient}…`,
+        status: "done", renderAsPlainAssistantMessage: true }]);
+      void attendance.outcome.then(outcome => {
+        if (!isVaultSessionEpochCurrent(attendance.epoch) || !chatSessionRef.current.isCurrent(attendanceChatEpoch)) return;
+        setMessages(current => current.map(message => message.id === id ? { ...message,
+          text: "result" in outcome ? attendanceResultMessage(outcome.result) : outcome.error,
+          status: "error" in outcome || ("result" in outcome && [outcome.result.calendar, outcome.result.email].some(value => value === "failed" || value === "unknown")) ? "error" : "done",
+        } : message));
+      });
       return;
     }
     if (handoff.calendarInvitation) {
@@ -5645,8 +5668,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [conversationId, getVaultOwnerToken],
   );
 
-  // One memory-only job belongs to its originating turn. Later turns may
-  // continue; a conversation/owner/vault change cancels pending effects.
+  // Capture belongs to the unlocked owner session. Changing screens or chats
+  // must not discard a profile while its semantic preparation is still running.
   const captureEligiblePkmFactsInBackground = useCallback(
     (params: {
       turnId: string;
@@ -5686,15 +5709,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const scope = pkmCaptureScopeRef.current;
       const scopeIsCurrent = () => pkmCaptureScopeRef.current === scope && pkmCaptureOwnerRef.current === userId;
       const controller = new AbortController();
+      const captureChatEpoch = chatSessionRef.current.value;
+      const captureVaultEpoch = snapshotVaultSessionEpoch();
+      const mayUpdateWorkspace = () => workspaceOwnerIdRef.current === userId &&
+        chatSessionRef.current.isCurrent(captureChatEpoch) &&
+        isVaultSessionEpochCurrent(captureVaultEpoch);
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        // An explicit request does not depend on the background auto-save
-        // policy; it still needs the same unlocked, unexpired vault session.
-        isEnabled: () => scopeIsCurrent() &&
+        // Explicit jobs stay resumable in their originating scope. Ambient
+        // capture may finish detached while the same global owner/vault/token
+        // authority remains current; it cannot publish into another chat.
+        isEnabled: () => (!userRequestedSave || scopeIsCurrent()) &&
+          getVaultOwnerToken() === token &&
           (pkmCaptureEnabledRef.current || ownerConfirmedKycSave || explicitRequest) &&
           isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
-      pkmAbortControllersRef.current.add(controller);
+      // Explicit jobs pause with their originating UI; ambient capture retains
+      // the global owner/vault guard across ordinary navigation.
+      if (userRequestedSave) pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);
       if (userRequestedSave) setVisiblePkmToolCount((count) => count + 1);
       let timedOut = false;
@@ -5708,7 +5740,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const settle = (status: AgentPkmCaptureStatus) => {
         // Ambient memory never narrates an ordinary answer. Explicit outcomes
         // survive token expiry only in their originating owner/conversation.
-        if (!userRequestedSave) return status;
+        if (!userRequestedSave) {
+          if (status.phase === "failed" && guard.isCurrent() && mayUpdateWorkspace()) {
+            toast.error("One couldn't update memory.md. Your message is still in chat; try saving it again.");
+          }
+          return status;
+        }
         if (!shouldPublishAgentPkmCapture(status, guard.isCurrent(), scopeIsCurrent())) return status;
         if (!shouldPresentAgentPkmCapture(status, userRequestedSave)) return status;
         const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
@@ -5789,6 +5826,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             isEffectCurrent: guard.isCurrent,
           });
           await guard.assertCurrent();
+          if (prepared.sourceCoverage?.some(isUnresolvedSourceBlock) ||
+              prepared.cards.some(card => card.preparation_requires_review || card.preview_degraded || card.drift_flags?.fallback_used) ||
+              prepared.previews?.some(preview => preview.used_fallback || preview.error)) {
+            return settle({ phase: "failed", saved: 0 });
+          }
           // The V1 Markdown document has no review queue. The semantic agents
           // still decide what is durable; this projection accepts every usable
           // fact and leaves do_not_save/degraded output out.
@@ -5813,7 +5855,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
             },
           });
-          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.success ? 0 : 1 });
+          if (mayUpdateWorkspace()) appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.success ? 0 : 1 });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
             saved_count_bucket: toPkmFactCountBucket(result.saved),
@@ -5829,7 +5871,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             saved: result.saved,
           });
         } catch {
-          appendDebugEvent(params.turnId, "pkm_capture_failed", {
+          if (mayUpdateWorkspace()) appendDebugEvent(params.turnId, "pkm_capture_failed", {
             kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
             requested_by_owner: userRequestedSave,
           });
@@ -5837,8 +5879,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
           globalThis.clearTimeout(deadline);
-          // A canceled old job must not decrement a new conversation's count.
-          if (pkmAbortControllersRef.current.delete(controller)) {
+          pkmAbortControllersRef.current.delete(controller);
+          // A detached job keeps saving but cannot update another chat's UI.
+          if (mayUpdateWorkspace()) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
             if (userRequestedSave) setVisiblePkmToolCount((count) => Math.max(0, count - 1));
           }
@@ -6581,6 +6624,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       : null;
     const pkmContextStartedAt = performance.now();
     performance.mark("hushh:agent-chat:pkm-prepare-start");
+    const loadConnectorConfigurations = prepareAgentChatConnectorConfigurations({
+      userId,
+      signal: streamAbortController.signal,
+      loadConnectorConfigurations: async () => {
+        if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
+        return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
+      },
+    });
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
@@ -6756,10 +6807,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
-        loadConnectorConfigurations: async () => {
-          if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
-        },
+        loadConnectorConfigurations,
         pkmContext: [
           latestPkmSaveReceiptRef.current
             ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
@@ -10314,7 +10362,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
-              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
+              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
                 <p>Your conversation could not be restored. Your Calendar selection is retained.</p>
                 <Button variant="secondary" disabled={isLoadingHistory} onClick={() => setSlotHistoryRetry(value => value + 1)}>Retry conversation</Button>
               </div> : null}

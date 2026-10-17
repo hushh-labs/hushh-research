@@ -7,9 +7,11 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from openai import AuthenticationError, PermissionDeniedError, RateLimitError
 
 from hushh_mcp.services import profile_research_jobs as jobs
 from hushh_mcp.services.chat_key import (
@@ -947,6 +949,39 @@ class ProviderThrottled(Exception):
     status = "RESOURCE_EXHAUSTED"
 
 
+def openai_rate_limit_error():
+    return RateLimitError(
+        "private provider detail",
+        response=httpx.Response(
+            429,
+            request=httpx.Request("POST", "https://example.test/openai/v1/responses"),
+        ),
+        body={"code": "rate_limit_exceeded"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("error_type", "status_code"),
+    [(AuthenticationError, 401), (PermissionDeniedError, 403)],
+)
+def test_openai_auth_refusals_use_http_status_code(error_type, status_code):
+    error = error_type(
+        "private provider detail",
+        response=httpx.Response(
+            status_code,
+            request=httpx.Request("POST", "https://example.test/openai/v1/responses"),
+        ),
+        body={"code": "provider_refusal"},
+    )
+    code, status = jobs.provider_error(error)
+    assert (code, status) == (status_code, None)
+    assert jobs.provider_rejected(code, status)
+
+
+def test_application_http_error_is_not_a_provider_refusal():
+    assert jobs.provider_error(HTTPException(status_code=403)) == (None, None)
+
+
 class TurnFailed(RuntimeError):
     pass
 
@@ -1033,6 +1068,103 @@ async def test_pwm_429_before_first_checkpoint_reuses_paid_start_without_work(mo
     assert second["starts"] == [10_000.0]
     assert second["job_id"] == first["job_id"]
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_pwm_openai_rate_limit_uses_throttle_cooldown_and_reuses_paid_start(monkeypatch):
+    now = [10_000.0]
+    calls = []
+
+    async def research(**kwargs):
+        calls.append(kwargs["attempts_used"])
+        await kwargs["on_attempts_start"]((33 + len(calls),))
+        raise openai_rate_limit_error()
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, clock=lambda: now[0])
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    first = instance.store.rows["owner"]
+    assert first["result"]["reason"] == "provider_throttled"
+    assert first["starts"] == [now[0]]
+    assert (await instance.start("owner", "fixture-token"))["retry_after_s"] == 900
+    assert len(calls) == 1
+
+    now[0] += jobs.PROVIDER_THROTTLE_COOLDOWN_SECONDS + 1
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    second = instance.store.rows["owner"]
+    assert second["job_id"] == first["job_id"]
+    assert second["starts"] == [10_000.0]
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_pwm_first_openai_429_with_unknown_bing_spend_is_terminal_for_the_day(monkeypatch):
+    calls = []
+
+    async def research(**kwargs):
+        calls.append(kwargs["attempts_used"])
+        await kwargs["on_attempts_start"]((1,))
+        await kwargs["on_progress"](
+            {
+                "azure_work_version": 1,
+                "sources": {},
+                "attempts": {"1": {"state": "started", "observed": False}},
+            }
+        )
+        await kwargs["on_attempts_start"]((33,))
+        raise openai_rate_limit_error()
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, clock=lambda: 10_000.0)
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    row = instance.store.rows["owner"]
+    assert row["attempted_combinations"] == [1, 33]
+    assert row["work"]["attempts"]["1"] == {"state": "started", "observed": False}
+    assert row["result"] == {
+        "status": "unavailable",
+        "pkm_written": False,
+        "reason": "provider_throttled",
+        "research_exhausted": True,
+        "draft_id": row["job_id"],
+    }
+    assert await instance.start("owner", "fixture-token") == row["result"]
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_pwm_legacy_429_checkpoint_reports_terminal_without_another_paid_call(monkeypatch):
+    calls = []
+
+    async def research(**kwargs):
+        calls.append(kwargs["attempts_used"])
+        await kwargs["on_attempts_start"]((1,))
+        await kwargs["on_progress"](
+            {
+                "azure_work_version": 1,
+                "sources": {},
+                "attempts": {"1": {"state": "started", "observed": False}},
+            }
+        )
+        await kwargs["on_attempts_start"]((33,))
+        raise RuntimeError("synthetic old provider failure")
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, clock=lambda: 10_000.0)
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    legacy = instance.store.rows["owner"]
+    assert legacy["result"] == {
+        "status": "unavailable",
+        "pkm_written": False,
+        "draft_id": legacy["job_id"],
+    }
+    expected = {**legacy["result"], "research_exhausted": True}
+    status = await instance.status("owner", "fixture-token")
+    assert {key: status[key] for key in expected} == expected
+    assert status["validated_facts"] == []
+    assert await instance.start("owner", "fixture-token") == expected
+    assert instance.store.rows["owner"] == legacy
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

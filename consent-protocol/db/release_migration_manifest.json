@@ -325,6 +325,7 @@
     "357_circle_chat_message_actions.sql",
     "358_circle_wars_weekly_opt_in.sql",
     "359_independent_email_otp.sql",
+    "361_system_push_outbox.sql",
     "400_vault_environment_enrollment.sql",
     "401_consumer_scope_commerce.sql",
     "402_one_shared_hosting_choice.sql",
@@ -703,6 +704,7 @@
     "357_circle_chat_message_actions.sql": "rollback/357_circle_chat_message_actions.rollback.sql",
     "358_circle_wars_weekly_opt_in.sql": "rollback/358_circle_wars_weekly_opt_in.rollback.sql",
     "359_independent_email_otp.sql": "rollback/359_independent_email_otp.rollback.sql",
-    "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql"
+    "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql",
+    "361_system_push_outbox.sql": "rollback/361_system_push_outbox.rollback.sql"
   }
 }

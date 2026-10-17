@@ -29,6 +29,7 @@ from ag_ui.core import (
     ToolCallStartEvent,
 )
 from ag_ui_adk import ADKAgent
+from google.adk.models.llm_response import LlmResponse
 
 from hushh_mcp.one_adk import agui_turn_timing
 from hushh_mcp.one_adk.agui_turn_timing import (
@@ -802,6 +803,29 @@ async def test_a_client_that_leaves_after_the_run_settled_is_still_notified():
     await stream.aclose()
 
     assert await asyncio.wait_for(settled.get(), timeout=10) == (USER_ID, THREAD_ID)
+
+
+def test_model_duration_includes_partial_streams_until_the_final_response(monkeypatch):
+    """A partial response must not turn time-to-first-chunk into total model time."""
+    now = [1.0]
+    monkeypatch.setattr(agui_turn_timing.time, "perf_counter", lambda: now[0])
+    timing = agui_turn_timing.TurnTiming(head=HEAD_ONE, run="run", started_at=now[0])
+    token = agui_turn_timing._CURRENT_TURN.set(timing)
+    try:
+        timing.begin_model_call(SimpleNamespace(model="test", config=None, contents=[]))
+        now[0] = 4.0
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=True))
+        assert timing.model_call_total_ms == 0
+        assert timing.pending_model_call_starts == [1.0]
+        now[0] = 6.0
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=False))
+        assert timing.model_call_total_ms == 5000
+        assert timing.pending_model_call_starts == []
+        # A duplicate final event cannot count the same provider call twice.
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=False))
+        assert timing.model_call_total_ms == 5000
+    finally:
+        agui_turn_timing._CURRENT_TURN.reset(token)
 
 
 def test_failed_drive_guard_does_not_count_a_model_call():

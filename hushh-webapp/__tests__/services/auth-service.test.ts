@@ -502,6 +502,21 @@ describe("AuthService.getIdTokenWithRetry", () => {
 
     expect(result).toBeNull();
   });
+
+  it.each(["ios", "android"])("accepts an owner-bound native token on %s without a JS user", async (platform) => {
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockCapacitor.getPlatform.mockReturnValue(platform);
+    const token = createIdToken(3600, "native-owner");
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValueOnce({ token } as any);
+    await expect(AuthService.getIdTokenWithRetry({ expectedUserId: "native-owner" })).resolves.toBe(token);
+  });
+
+  it("rejects a stale JS account token even while another owner is validated", async () => {
+    const getIdToken = vi.fn().mockResolvedValue(createIdToken(3600, "other-owner"));
+    mockAuth.currentUser = { getIdToken } as any;
+    await expect(AuthService.getIdTokenWithRetry({ expectedUserId: "native-owner", delayMs: 1 })).resolves.toBeNull();
+    expect(getIdToken).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("AuthService.restoreNativeSession", () => {

@@ -166,16 +166,15 @@ safe area
                     Market · Portfolio · Analysis
                              route content
                               voice-only control (narrow slot)
-                              Chat · One · Connect · Feed · Search
+                              Chat · One · Connect · Feed
 safe area
 ```
 
 1. The centered primary bottom navigation is fixed and constant: **Chat**,
-   **One**, **Connect**, **Feed**, and **Search**, in that order. **Chat** is
-   the canonical home route (`/`). Search is a segment in that shared control
-   and opens the global command surface. Profile remains a top-bar control.
-2. Search opens the existing global command/search surface. It is not agent
-   chat and has no route-local replacement.
+   **One**, **Connect**, and **Feed**, in that order. **Chat** is the canonical
+   home route (`/`). Profile remains a top-bar control.
+2. App-wide Search is disabled and archived under `archive/app-wide-search/`.
+   Existing page-local collection filters remain available.
 3. The voice-only control and bottom navigation are one bottom-chrome surface.
    There is no divider, nested material, or inter-slot gap; their transform,
    safe-area clearance, and fade are measured by the shared shell. Neither

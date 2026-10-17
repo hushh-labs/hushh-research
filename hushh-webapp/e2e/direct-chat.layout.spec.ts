@@ -27,6 +27,7 @@ test.beforeAll(async () => {
         { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         { find: "@/lib/one-location/service", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         { find: "@/lib/firebase/config", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
+        { find: "@/lib/services/auth-service", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/components/connect/circles/circle-messages-pane", replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         { find: "next/link", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
@@ -66,6 +67,35 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
 
+test("native session opens a conversation without a browser Firebase user", async ({ page }) => {
+  await mount(page, false, false, true);
+  await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).directChatAuthFixture.tokenRequests)).toEqual(["fixture-owner"]);
+  await expect(page.getByText("This conversation could not be opened. Try again.")).toHaveCount(0);
+});
+
+for (const failure of ["token unavailable", "route mint failed"] as const) {
+  test(`native session can retry after ${failure}`, async ({ page }) => {
+    await mount(page, false, false, true);
+    await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
+    if (failure === "token unavailable") {
+      await page.evaluate(() => (window as any).directChatAuthFixture.setTokenAvailable(false));
+    } else {
+      await fixture(page, "fixture.failNextRouteMint()");
+    }
+    const row = page.getByRole("button", { name: /Arjun Mehta/ });
+    await row.click();
+    await expect(page.getByText("This conversation could not be opened. Try again.")).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    expect(await page.evaluate(() => (window as any).directChatFixture.routeRequests.length)).toBe(failure === "token unavailable" ? 0 : 1);
+    await page.evaluate(() => (window as any).directChatAuthFixture.setTokenAvailable(true));
+    await row.click();
+    await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
+  });
+}
+
 test("chat theme follows the device, persists a choice, and keeps the shared navbar centered", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -90,7 +120,8 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   expect(navLabels).toContain("One");
   expect(navLabels).toContain("Connect");
   expect(navLabels).toContain("Feed");
-  expect(navLabels).toContain("Search");
+  expect(navLabels).not.toContain("Search");
+  await expect(navigation.getByRole("radio")).toHaveCount(4);
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
@@ -169,6 +200,7 @@ test("system Back closes message search before returning from a People thread", 
 test("New chat creates a first private conversation and sends two distinct emoji selections", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
+  await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
   await page.getByRole("button", { name: "New chat", exact: true }).first().click();
   const picker = page.getByRole("dialog", { name: "New chat" });
   await expect(picker).toHaveAttribute("aria-modal", "true");

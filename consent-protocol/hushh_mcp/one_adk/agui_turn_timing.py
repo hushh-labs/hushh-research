@@ -907,7 +907,9 @@ def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmRespon
 
 
 def timed_one_after_model(_callback_context: Any, _llm_response: Any) -> None:
-    """Record provider-call duration without logging prompts or response data."""
+    """Finish provider timing on the final response, after all streamed chunks."""
+    if getattr(_llm_response, "partial", False):
+        return
     timing = _CURRENT_TURN.get()
     if timing is not None:
         timing.finish_model_call()

@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import time
+from collections import OrderedDict
 from copy import copy
 from typing import Any
 
@@ -20,6 +21,7 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.agui_turn_timing import record_connector_discovery
 from hushh_mcp.one_adk.governed_mcp_toolset import (
+    McpConnectionBinding,
     mcp_call_timeout_seconds,
     mcp_discovery_timeout_seconds,
     native_registration_admitted,
@@ -83,6 +85,36 @@ _REASON_UNAVAILABLE = "unavailable"
 _MAX_TOOLS_PER_CONNECTOR = 200
 _MAX_TOOLS_PER_TURN = 500
 _MAX_DESCRIPTION_CHARS = 2_000
+
+# Only failed catalog discovery is deferred. Every new turn still resolves the
+# live owner/connection binding before consulting this bounded metadata cache;
+# reconnecting or changing a vault configuration gives it a different key.
+# No credential, live toolset or callable authority is retained here.
+_DISCOVERY_RETRY_SECONDS = 60.0
+_DISCOVERY_FAILURES: OrderedDict[McpConnectionBinding, float] = OrderedDict()
+_DISCOVERY_FAILURE_LIMIT = 256
+
+
+def _discovery_retry_deferred(binding: McpConnectionBinding | None) -> bool:
+    if binding is None:
+        return False
+    retry_at = _DISCOVERY_FAILURES.get(binding)
+    if retry_at is None:
+        return False
+    if retry_at <= time.monotonic():
+        _DISCOVERY_FAILURES.pop(binding, None)
+        return False
+    _DISCOVERY_FAILURES.move_to_end(binding)
+    return True
+
+
+def _defer_discovery_retry(binding: McpConnectionBinding | None) -> None:
+    if binding is None:
+        return
+    _DISCOVERY_FAILURES[binding] = time.monotonic() + _DISCOVERY_RETRY_SECONDS
+    _DISCOVERY_FAILURES.move_to_end(binding)
+    while len(_DISCOVERY_FAILURES) > _DISCOVERY_FAILURE_LIMIT:
+        _DISCOVERY_FAILURES.popitem(last=False)
 
 
 def _still_current(toolset: Any, tools: Any) -> bool:
@@ -317,6 +349,7 @@ class RegisteredMcpToolset(BaseToolset):
             raise ExternalMcpError("Connector limit reached.", code="MCP_TURN_LIMIT")
         semaphore = asyncio.Semaphore(4)
         per_connector = mcp_discovery_timeout_seconds()
+        catalog_budget_elapsed = False
 
         def note_unavailable(connector_id, display_name, reason):
             scope.unavailable_connectors[connector_id] = reason
@@ -338,6 +371,7 @@ class RegisteredMcpToolset(BaseToolset):
                 toolset, tools = held
             else:
                 async with semaphore:
+                    binding = None
                     try:
                         async with asyncio.timeout(per_connector):
                             toolset = await scope.acquire(
@@ -345,12 +379,33 @@ class RegisteredMcpToolset(BaseToolset):
                                 connector_id,
                                 authorize_call=self._authorize_call or review_or_resume_call,
                             )
+                            candidate = getattr(toolset, "binding", None)
+                            if isinstance(candidate, McpConnectionBinding):
+                                binding = candidate
+                            if _discovery_retry_deferred(binding):
+                                logger.info(
+                                    "mcp_connector_discovery_deferred connector=%s", connector_id
+                                )
+                                return note_unavailable(
+                                    connector_id, display_name, _REASON_UNAVAILABLE
+                                )
                             tools = await toolset.get_tools(context)
+                            if binding is not None:
+                                _DISCOVERY_FAILURES.pop(binding, None)
+                    except asyncio.CancelledError:
+                        # The aggregate catalog budget can lapse before this
+                        # connector's own timeout. Only our budget expiry is a
+                        # discovery failure; a cancelled owner turn is not.
+                        if catalog_budget_elapsed:
+                            _defer_discovery_retry(binding)
+                        raise
                     except Exception as error:
                         # A disconnected, revoked or slow provider must not disable
                         # the other connectors or the turn. Never log a message or
                         # body: provider diagnostics can include private details.
                         reason = _unavailable_reason(error)
+                        if reason == _REASON_UNAVAILABLE:
+                            _defer_discovery_retry(binding)
                         if reason != _REASON_QUIET:
                             logger.warning(
                                 "mcp_connector_unavailable connector=%s reason=%s type=%s code=%s",
@@ -380,7 +435,8 @@ class RegisteredMcpToolset(BaseToolset):
         tasks = [asyncio.ensure_future(discover(item)) for item in admitted]
         try:
             if tasks:
-                await asyncio.wait(tasks, timeout=budget)
+                _, pending = await asyncio.wait(tasks, timeout=budget)
+                catalog_budget_elapsed = bool(pending)
         finally:
             # A lapsed budget or a cancelled turn must not leave work running.
             for task in tasks:

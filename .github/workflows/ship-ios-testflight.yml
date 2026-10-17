@@ -395,20 +395,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export_options="hushh-webapp/ios/ExportOptions/AppStoreConnect.plist"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            export_options="$RUNNER_TEMP/testflight-export-options.plist"
-            cp "hushh-webapp/ios/ExportOptions/AppStoreConnect.plist" "$export_options"
-            /usr/libexec/PlistBuddy -c "Set :destination export" "$export_options"
-          fi
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$export_options" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          python3 scripts/ci/export-ios-distribution.py \
+            --archive "$RUNNER_TEMP/App.xcarchive" \
+            --export-path "$RUNNER_TEMP/export" \
+            --options hushh-webapp/ios/ExportOptions/AppStoreConnect.plist \
+            --p8-path "$RUNNER_TEMP/asc.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer-id "$ASC_ISSUER_ID" \
+            --dry-run "${{ inputs.dry_run }}"
 
       - name: Preserve dry-run UAT IPA in private bucket
         id: private_artifact

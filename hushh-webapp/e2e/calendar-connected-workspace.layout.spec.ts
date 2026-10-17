@@ -182,7 +182,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
         response_status: body.response_status || "declined", calendar_id: body.calendar_id, expires_at: "2030-01-01T00:00:00Z",
         conflicts: body.response_status === "accepted" ? [{ title: "QA Existing meeting", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:00:00Z" } }] : [],
         openings: body.offer_times ? [{ start_at: "2030-10-15T04:30:00Z", end_at: "2030-10-15T05:00:00Z" }] : [],
-        recipient: body.offer_times ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : null,
+        recipient: body.offer_times || body.send_message ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : null,
         message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : null,
         rescheduling_link: body.offer_times ? "https://one.example.test/calendar/reschedule#synthetic-capability" : null,
       } });
@@ -190,7 +190,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     if (routePath.endsWith("/attendance/confirm")) {
       const review = attendanceReviews.get(String(body.review_id))!;
       invitationResponses.set(String(review.event_id), String(review.response_status || "declined"));
-      return route.fulfill({ json: { calendar: review.response_status || "declined", email: review.offer_times ? mailFailure ? "failed" : "sent" : "not_sent", calendar_error: null, email_error: mailFailure ? "Synthetic Mail failure. Your RSVP is saved." : null } });
+      return route.fulfill({ json: { calendar: review.response_status || "declined", email: (review.offer_times || review.send_message) ? mailFailure ? "failed" : "sent" : "not_sent", calendar_error: null, email_error: mailFailure ? "Synthetic Mail failure. Your RSVP is saved." : null } });
     }
     if (replay && routePath.endsWith("/schedule/availability")) {
       const bundle = JSON.parse(fs.readFileSync(process.env.CALENDAR_PROVIDER_REPLAY_PATH!, "utf8"));
@@ -489,12 +489,14 @@ for (const width of [320, 390, 1440]) {
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Decline & offer another time" }).click();
     await expect(dialog.getByLabel("Alternative date")).toBeVisible();
+    await expect(dialog.getByLabel("Alternative duration in minutes")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Check time & send email" })).toBeDisabled();
     await expect(page.getByTestId("calendar-action")).toBeEmpty();
     await dialog.getByRole("button", { name: "Back", exact: true }).click();
     const accept = page.getByRole("button", { name: "Accept", exact: true });
     await accept.scrollIntoViewIfNeeded();
     await accept.click();
-    await expect(page.getByText("This overlaps another meeting")).toBeVisible();
+    await expect(page.getByText("This time is already booked")).toBeVisible();
     expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
     await page.getByRole("button", { name: "Accept anyway" }).click();
     await expect(dialog).toBeHidden();
@@ -651,4 +653,18 @@ test("quiet loading preserves same-context previews and exposes real failures", 
   await expect(page.getByLabel("Snapshot loading")).toBeVisible();
   release();
   await expect(page.getByRole("alert")).toBeVisible();
+});
+
+
+test("decline reason sends once and hands the actual email outcome to One", async ({ page }) => {
+  const { calls, errors, unexpectedRequests } = await openFixture(page, 390);
+  await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+  await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
+  await page.getByRole("button", { name: "Decline", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Decline & send email" })).toBeDisabled();
+  await page.getByLabel("Reason for declining").fill("I have another commitment.");
+  await page.getByRole("button", { name: "Decline & send email" }).click();
+  await expect(page.getByTestId("calendar-action")).toHaveText("calendar-email:sent");
+  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });

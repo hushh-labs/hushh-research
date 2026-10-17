@@ -254,6 +254,14 @@ def assert_contract(progress):
         assert private not in serialized
 
 
+def use_azure_budget(story, monkeypatch):
+    monkeypatch.setattr(pwm, "POLICY", {**pwm.POLICY, "provider": "azure_openai_web_search"})
+    monkeypatch.setattr(pwm, "azure_bing_consented", lambda _consent: True)
+    story.jobs.search_slots = 8
+    story.jobs.max_attempts = 24
+    story.jobs.stored_attempts = 24
+
+
 @pytest.mark.asyncio
 async def test_pending_before_worker_admission_does_not_request_a_restart(story):
     instance = story.jobs
@@ -403,3 +411,200 @@ async def test_owner_can_read_cited_partial_batch_after_failure_but_changed_bind
     instance.check.return_value = (None, "changed-owner-binding")
     denied = await instance.status("owner", "fixture-token")
     assert denied == jobs.pending(restart=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_work", [False, True])
+async def test_legacy_vertex_budget_starts_fresh_azure_job_without_losing_hourly_starts(
+    story, monkeypatch, with_work
+):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.middlewares.chat_key import require_vault_owner_chat_key
+    from api.routes.one import world_model as routes
+
+    use_azure_budget(story, monkeypatch)
+    instance, now = story.jobs, story.now[0]
+    old_job = str(uuid.uuid4())
+    old_start = now - 120
+    instance.store.rows["owner"] = {
+        "job_id": old_job,
+        "status": "unavailable",
+        "started_at": old_start,
+        "finished_at": now - 70,
+        "discovery_started_at": old_start,
+        "identity_binding": "legacy-vertex-binding",
+        "starts": [old_start],
+        "attempted_combinations": [*range(1, 6), *range(33, 66)],
+        "consent_generation": GENERATION,
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "legacy",
+        **({"work": {"attempts": {"1": {"observed": True}}}} if with_work else {}),
+    }
+    offer = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+    instance.offer = offer
+
+    monkeypatch.setattr(routes, "world_model_jobs", instance)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+        "user_id": "owner",
+        "token": "fixture-token",
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/one/world-model/ensure")
+        assert response.status_code == 202
+        assert response.json() == jobs.pending()
+    await settle(instance)
+
+    row = instance.store.rows["owner"]
+    assert row["job_id"] != old_job
+    assert row["budget_scope"] == instance.budget_scope()
+    assert row["attempted_combinations"] == []
+    assert row["starts"] == [old_start, now]
+    assert "work" not in row
+    assert offer.await_args.kwargs["attempts_used"] == ()
+    assert offer.await_args.kwargs["work"] == {}
+
+
+@pytest.mark.asyncio
+async def test_legacy_vertex_migration_keeps_three_starts_per_hour_limit(story, monkeypatch):
+    use_azure_budget(story, monkeypatch)
+    instance, now = story.jobs, story.now[0]
+    instance.store.rows["owner"] = {
+        "job_id": str(uuid.uuid4()),
+        "status": "unavailable",
+        "started_at": now - 120,
+        "finished_at": now - 70,
+        "identity_binding": "legacy-vertex-binding",
+        "starts": [now - 120, now - 90, now - 60],
+        "attempted_combinations": [33],
+        "consent_generation": GENERATION,
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "legacy",
+    }
+    offer = instance.offer = AsyncMock(return_value=OFFERED)
+
+    result = await instance.ensure("owner", "fixture-token")
+
+    assert result["status"] == "unavailable"
+    assert result["retry_after_s"] > 0
+    offer.assert_not_awaited()
+    assert instance.store.rows["owner"]["starts"] == [now - 120, now - 90, now - 60]
+
+
+@pytest.mark.asyncio
+async def test_azure_budget_scope_preserves_paid_slots_and_rejects_malformed_ledger(
+    story, monkeypatch
+):
+    use_azure_budget(story, monkeypatch)
+    instance, now = story.jobs, story.now[0]
+    old_job = str(uuid.uuid4())
+    row = {
+        "job_id": old_job,
+        "status": "unavailable",
+        "started_at": now - 120,
+        "finished_at": now - 70,
+        "discovery_started_at": now - 120,
+        "identity_binding": "owner-bound-identity",
+        "starts": [now - 120],
+        "attempted_combinations": [1, 9],
+        "consent_generation": GENERATION,
+        "work": {"azure_work_version": 1},
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "azure",
+    }
+    instance.store.rows["owner"] = row
+    offer = instance.offer = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+
+    assert await instance.ensure("owner", "fixture-token") == jobs.pending()
+    await settle(instance)
+    assert offer.await_args.kwargs["attempts_used"] == (1, 9)
+    assert offer.await_args.kwargs["work"] == {"azure_work_version": 1}
+    assert instance.store.rows["owner"]["job_id"] == old_job
+
+    malformed = {**row, "budget_scope": instance.budget_scope(), "attempted_combinations": [33]}
+    instance.store.rows["owner"] = malformed
+    with pytest.raises(RuntimeError, match="Invalid discovery attempt budget"):
+        await instance.ensure("owner", "fixture-token")
+
+    instance.store.rows["owner"] = {
+        **row,
+        "budget_scope": "unknown-provider:v2:8:16",
+        "attempted_combinations": [1, 9],
+    }
+    with pytest.raises(RuntimeError, match="Unsupported discovery budget scope"):
+        await instance.ensure("owner", "fixture-token")
+
+    instance.store.rows["owner"] = {**row, "work": {"azure_work_version": 2}}
+    with pytest.raises(RuntimeError, match="Unsupported discovery work version"):
+        await instance.ensure("owner", "fixture-token")
+
+
+@pytest.mark.asyncio
+async def test_azure_consent_change_keeps_paid_slots_but_clears_private_work(story, monkeypatch):
+    use_azure_budget(story, monkeypatch)
+    instance, now = story.jobs, story.now[0]
+    instance.store.rows["owner"] = {
+        "job_id": str(uuid.uuid4()),
+        "status": "unavailable",
+        "started_at": now - 120,
+        "finished_at": now - 70,
+        "discovery_started_at": now - 120,
+        "identity_binding": "prior-consent-binding",
+        "starts": [now - 120],
+        "attempted_combinations": [1, 9],
+        "budget_scope": instance.budget_scope(),
+        "consent_generation": "00000000-0000-4000-8000-000000000002",
+        "work": {"azure_work_version": 1, "sources": {"private": "old consent"}},
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "azure",
+    }
+    offer = instance.offer = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+
+    assert await instance.ensure("owner", "fixture-token") == jobs.pending()
+    await settle(instance)
+
+    assert offer.await_args.kwargs["attempts_used"] == (1, 9)
+    assert offer.await_args.kwargs["work"] == {}
+    assert instance.store.rows["owner"]["starts"] == [now - 120, now]
+
+
+@pytest.mark.asyncio
+async def test_azure_checkpoint_cannot_be_reused_after_vertex_rollback(story, monkeypatch):
+    monkeypatch.setattr(pwm, "POLICY", {**pwm.POLICY, "provider": "vertex_google_search"})
+    instance, now = story.jobs, story.now[0]
+    instance.search_slots = 32
+    instance.max_attempts = 160
+    instance.stored_attempts = 160
+    old_start = now - 120
+    instance.store.rows["owner"] = {
+        "job_id": str(uuid.uuid4()),
+        "status": "unavailable",
+        "started_at": old_start,
+        "finished_at": now - 70,
+        "identity_binding": "azure-binding",
+        "starts": [old_start],
+        "attempted_combinations": [1, 9],
+        "budget_scope": "azure_openai_web_search:v1:8:16",
+        "consent_generation": GENERATION,
+        "work": {"azure_work_version": 1},
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "azure",
+    }
+    offer = instance.offer = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+
+    assert await instance.ensure("owner", "fixture-token") == jobs.pending()
+    await settle(instance)
+
+    assert offer.await_args.kwargs["attempts_used"] == ()
+    assert offer.await_args.kwargs["work"] == {}
+    row = instance.store.rows["owner"]
+    assert row["budget_scope"] == instance.budget_scope()
+    assert row["starts"] == [old_start, now]

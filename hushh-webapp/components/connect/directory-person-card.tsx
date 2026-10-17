@@ -3,7 +3,10 @@
 import type { ReactNode } from "react";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
-import { getDirectoryPersonDescription } from "@/app/connect/directory-person-label";
+import {
+  getDirectoryPersonDescription,
+  getDirectoryPersonMaskedPhone,
+} from "@/app/connect/directory-person-label";
 
 /** Presentation only: the directory page retains every request/selection action. */
 export function DirectoryPersonCard({
@@ -24,6 +27,7 @@ export function DirectoryPersonCard({
 }) {
   const name = person.displayName || "Hussh member";
   const detail = getDirectoryPersonDescription(person);
+  const maskedPhone = getDirectoryPersonMaskedPhone(person);
   const mutualCount = person.mutualConnectionCount ?? 0;
   const mutual = person.mutualConnectionPreview;
   const mutualProfile = mutual ? (
@@ -49,9 +53,17 @@ export function DirectoryPersonCard({
       <span className="ui-text-row-label-compact mt-2 block text-center [overflow-wrap:anywhere]">
         {title}
       </span>
-      {detail ? (
+      {detail && detail !== maskedPhone ? (
         <span className="ui-text-caption mt-1 block text-center text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
           {detail}
+        </span>
+      ) : null}
+      {maskedPhone ? (
+        <span
+          data-testid="directory-person-masked-phone"
+          className="ui-text-caption mt-1 block text-center tabular-nums text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]"
+        >
+          {maskedPhone}
         </span>
       ) : null}
     </>

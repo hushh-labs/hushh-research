@@ -1838,6 +1838,24 @@ existing Calendar router. Calendar lifecycle, setup, and chat proposal APIs
 remain owned by `calendar.py`; their onboarding workflow inventory and paused
 cursors retain their existing contract.
 
+Attendance review accepts additive `send_message` and `exact_time` booleans.
+`send_message` requires a nonempty reason and a decline response; it prepares
+organizer Mail independently of `offer_times`. With `offer_times` and
+`exact_time`, From/Until describe one proposed interval. The service derives
+its elapsed duration in the supplied IANA zone, reports busy intervals as
+conflicts, and emails the proposed time rather than a free-slot link. The
+confirm call rechecks included calendars and conflicts before RSVP or Mail.
+Legacy window-search callers retain their existing duration and link contract.
+All availability paths use the same recognized-holiday exclusion; unreadable
+included calendars still fail closed.
+
+The reason/alternative form's send CTA authorizes preparation and confirmation
+only for the displayed organizer. Changed recipients or conflicts require a
+fresh visible review. One chat receives only the memory-held settlement promise,
+owner and vault epoch, never the review token or a model send instruction.
+Expired reviews are discarded while edited terms remain; renewing one requires
+fresh confirmation. Partial or unknown delivery is reported without auto-retry.
+
 Attendance review stores only an opaque idempotency ledger in
 `calendar_attendance_reviews` (migration 337); encrypted review contents remain
 in memory in the client. The three-day organizer link uses
@@ -2211,10 +2229,29 @@ Connect directory search keeps the existing exact-name, name-prefix and
 word-prefix ranking. It also matches case-insensitive literal email fragments
 (including before `@`) and digit fragments of verified phone numbers from the
 first character. Phone formatting (`+`, spaces, parentheses and hyphens) is
-ignored; national numbers match stored international numbers without assuming
+ignored, including Unicode phone digits, pasted direction markers and dashes.
+International `00` and optional national trunk prefixes are normalized while
+preserving the original digits and countries' significant leading zeros;
+national numbers match stored international numbers without assuming
 a fixed country-code or national-number length. Contact-only matches follow
 name matches in stable alphabetical order. Matching and eligibility checks
-happen before pagination, and email/phone response labels remain masked.
+happen before pagination, and email/phone response labels remain masked. Directory
+phone labels exclude the country calling code and expose only the first two and
+last two national digits, with `*` for every middle digit: `+91 9876543210`
+becomes `98******10`. Significant national leading zeros are preserved. Ambiguous
+legacy numbers without a region and legacy last-four masks are omitted rather
+than guessing a prefix; raw phone values never enter the directory response.
+
+Existing accounts whose provider-verified phone never reached the identity
+cache need a one-time index repair. Run
+`python scripts/backfill_actor_identity_cache.py --missing-phones-only --limit 1000`
+from `consent-protocol` to count candidates; add `--execute` to repair them.
+This bounded repair uses fresh enabled Firebase evidence and the canonical
+serialized writer. Add `--all` to continue through bounded batches past
+phone-less profiles. It preserves existing verified phone bindings, including
+claims committed during provider lookup, and changes neither discoverability
+nor referral/reward state.
+
 Voice and chat name resolvers use `name_only=true` matching so contact
 fragments cannot interfere with person disambiguation or near-spelling fallback.
 

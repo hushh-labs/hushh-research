@@ -175,6 +175,10 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       retryAt: number | null = null,
       retryTimer: ReturnType<typeof setTimeout> | null = null,
       preferencesRequested = false;
+    // A status read is not research activity. Ignore server timestamps here:
+    // they can be re-derived when a different instance first sees a checkpoint.
+    const progressContent = (value: PwmProgress) =>
+      JSON.stringify({ ...value, started_at: undefined, last_activity_at: undefined });
     const store = writer.current;
     const publish = () => {
       if (guard.isCurrent())
@@ -219,20 +223,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         Math.min(Math.max(0, at - Date.now()), 2_147_483_647),
       );
     };
-    // A long hidden spell is not a quiet one: running research is counted
-    // fresh when the owner returns, until the next real frame arrives.
-    const onVisible = () => {
-      if (document.hidden) return;
-      if (latest?.status !== "pending" && latest?.status !== "paused") return;
-      lastActivityAt = Date.now();
-      publish();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    const cleanup = () => {
-      controller.abort();
-      document.removeEventListener("visibilitychange", onVisible);
-      clearRetry();
-    };
+    const cleanup = () => { controller.abort(); clearRetry(); };
     // Read after ensure, so a first-time owner sees the enrolled row; a failed
     // run still reads them, so the off switch stays reachable.
     const readPreferences = () => {
@@ -266,15 +257,17 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         ownerDecisions,
         refresh: explicitRefresh,
         onProgress: (next) => {
+          if (!progress || progressContent(next) !== progressContent(progress))
+            lastActivityAt = Date.now();
           progress = next;
           live = true;
-          lastActivityAt = Date.now();
           publish();
         },
         onPartial: (next) => {
+          if (JSON.stringify(next) !== JSON.stringify(validatedFacts))
+            lastActivityAt = Date.now();
           validatedFacts = next;
           live = true;
-          lastActivityAt = Date.now();
           publish();
         },
         onInterrupted: () => {
@@ -282,11 +275,15 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
           publish();
         },
         onResult: (result) => {
+          const wasRunning = latest?.status === "pending" || latest?.status === "paused";
+          const receivedAt = Date.now();
           latest = result;
           retrying = false;
           live = true;
-          lastActivityAt = Date.now();
           if (result.status === "pending" || result.status === "paused") {
+            // Anchor a newly observed run once. Identical pending/restart reads
+            // must not make a stalled worker look active forever.
+            if (!wasRunning) lastActivityAt = receivedAt;
             // A bare restart_required response can mean the sealed work no
             // longer matches this identity binding. Only an explicitly
             // returned checkpoint can survive that boundary.
@@ -298,11 +295,13 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
               if (result.validated_facts) validatedFacts = result.validated_facts;
             }
           } else if (result.status === "unavailable") {
+            lastActivityAt = receivedAt;
             // Terminal checkpoints are authoritative only when the server
             // returns both fields after its current owner/binding check.
             progress = result.progress ?? null;
             validatedFacts = result.validated_facts ?? [];
           } else {
+            lastActivityAt = receivedAt;
             progress = null;
             validatedFacts = [];
           }
@@ -310,7 +309,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
           retryAt =
             result.status === "unavailable" &&
             result.retry_after_s !== undefined
-              ? lastActivityAt + result.retry_after_s * 1_000
+              ? receivedAt + result.retry_after_s * 1_000
               : null;
           if (retryAt !== null) scheduleRetry(retryAt);
           publish();

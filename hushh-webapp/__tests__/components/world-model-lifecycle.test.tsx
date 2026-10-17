@@ -526,17 +526,21 @@ describe("PWM owner and request isolation", () => {
     });
     expect(mock.observe).toHaveBeenCalledTimes(2);
   });
-  it("counts running research fresh when the owner returns after a hidden spell", async () => {
+  it("does not count repeated pending reads or tab visibility as research activity", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
     const started = Date.now();
+    let onResult!: (result: typeof pending) => void;
+    let onProgress!: (progress: { stage: string; searches_used: number; last_activity_at?: string }) => void;
     let hidden = false;
     Object.defineProperty(document, "hidden", {
       configurable: true,
       get: () => hidden,
     });
-    mock.observe.mockImplementation(async ({ onResult }) => {
-      onResult(pending);
+    mock.observe.mockImplementation(async (callbacks) => {
+      onResult = callbacks.onResult;
+      onProgress = callbacks.onProgress;
+      callbacks.onResult(pending);
       await new Promise(() => {});
     });
     render(
@@ -548,14 +552,28 @@ describe("PWM owner and request isolation", () => {
     hidden = true;
     await act(async () => {
       vi.setSystemTime(started + 6 * 60_000);
+      onResult(pending);
     });
     hidden = false;
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    // Nothing new arrived, yet the page must not announce a six-minute stall.
+    expect(screen.getByText(`activity ${started}`)).toBeInTheDocument();
+    await act(async () => onProgress({ stage: "coverage", searches_used: 1 }));
     expect(screen.getByText(`activity ${Date.now()}`)).toBeInTheDocument();
-    expect(Date.now()).toBeGreaterThanOrEqual(started + 6 * 60_000);
+    const progressedAt = Date.now();
+    await act(async () => {
+      vi.setSystemTime(progressedAt + 60_000);
+      onProgress({
+        stage: "coverage",
+        searches_used: 1,
+        last_activity_at: new Date().toISOString(),
+      });
+      onResult(pending);
+    });
+    expect(screen.getByText(`activity ${progressedAt}`)).toBeInTheDocument();
+    await act(async () => onProgress({ stage: "coverage", searches_used: 2 }));
+    expect(screen.getByText(`activity ${Date.now()}`)).toBeInTheDocument();
   });
   it("tells a page when no provider is mounted", () => {
     render(<Probe />);

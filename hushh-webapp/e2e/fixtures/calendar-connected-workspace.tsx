@@ -18,7 +18,7 @@ function Fixture() {
       </div> : <CalendarConnectedWorkspace userId="synthetic-calendar-owner"
         status={{ configured: true, connected: true, status: "connected", google_email: "qa-owner@example.com", access_level: "manage", scope_csv: "calendar.events calendar.freebusy", calendar_list_access: true }}
         busy={false} getIdToken={async () => "synthetic-firebase-owner-token"} onConnect={access => setAction(`connect:${access}`)}
-        onChat={(prompt, slot) => setAction(slot ? `calendar-slot:${JSON.stringify(slot)}` : prompt ? `calendar-chat:${prompt}` : "calendar-chat")} onDisconnect={() => setAction("disconnect-calendar")} />}
+        onChat={(prompt, slot, _invitation, attendance) => { if (attendance) { void attendance.outcome.then(outcome => setAction("result" in outcome ? `calendar-email:${outcome.result.email}` : `calendar-error:${outcome.error}`)); return; } setAction(slot ? `calendar-slot:${JSON.stringify(slot)}` : prompt ? `calendar-chat:${prompt}` : "calendar-chat"); }} onDisconnect={() => setAction("disconnect-calendar")} />}
     </div>
     <button data-testid="calendar-fixture-proposal" className="sr-only" onClick={() => setProposal(true)}>Synthetic proposal preview</button>
     <output data-testid="calendar-action" className="sr-only">{action}</output>

@@ -553,10 +553,10 @@ export function AgentHistorySidebar({
             {puppyFootnote}
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
               data-chat-new-button
-              className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
+              className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-0 bg-transparent px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-row-hover)] active:bg-[color:var(--one-chat-row-active)] dark:bg-transparent dark:hover:bg-[color:var(--one-chat-row-hover)]"
               onClick={onCreateNew}
               disabled={createNewDisabled}
               aria-label="Create new chat"

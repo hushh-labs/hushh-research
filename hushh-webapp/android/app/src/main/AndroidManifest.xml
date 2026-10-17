@@ -27,6 +27,7 @@
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="hushh_activity_alerts_v1" />
         <!-- Restricted Android Maps SDK key is generated from the build
              environment. Never point this at the web or backend Maps key. -->
         <meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key" />

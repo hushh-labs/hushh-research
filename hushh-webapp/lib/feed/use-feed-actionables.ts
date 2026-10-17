@@ -99,6 +99,7 @@ import {
 import {
   formatDocumentRequestPrice,
   isValidDocumentRequestPriceCents,
+  isValidWholeDollarRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import {
   driveSharingSelectionId,
@@ -260,6 +261,11 @@ export interface DocumentPricePrompt {
   initialAmountCents?: number | null;
   /** The estimate the requester saw when sending; display only, never a fixed price. */
   estimateCents?: number | null;
+  /**
+   * The request's own price rule from its review. A whole-dollar request
+   * refuses cents, so its price step never offers them.
+   */
+  moneyPolicy?: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
   purpose: string | null;
   recipientEmail: string | null;
@@ -286,12 +292,15 @@ type DocumentPriceTerms = {
   lockedAmountCents: number | null;
   initialAmountCents?: number | null;
   estimateCents: number | null;
+  moneyPolicy: "legacy_whole_dollars" | "drive_cents";
   priceOnly?: boolean;
   purpose: string;
   recipientEmail: string;
   periodStart: string | null;
   periodEnd: string | null;
 };
+
+const WHOLE_DOLLAR_PRICE_RULE = "Choose a whole-dollar price from $1 to $500.";
 
 function decisionErrorCode(cause: unknown): string {
   return cause instanceof DriveSharingError ? cause.code : "request_failed";
@@ -1109,6 +1118,8 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         estimateCents: isValidDocumentRequestPriceCents(review.estimateCents)
           ? review.estimateCents
           : null,
+        // On 2026-10-17 a cents price on a whole-dollar request got a 422.
+        moneyPolicy: review.wholeDollarPrice === true ? "legacy_whole_dollars" : "drive_cents",
         priceOnly: target.priceOnly === true,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
@@ -1151,8 +1162,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       }
       // A free request never carries a price; a paid one never goes without.
       const price = terms.paymentRequired ? amountCents : null;
-      if (terms.paymentRequired && !isValidDocumentRequestPriceCents(price)) {
-        setPriceError(documentDecisionErrorCopy("invalid_payment_amount"));
+      const validPrice = terms.moneyPolicy === "legacy_whole_dollars"
+        ? isValidWholeDollarRequestPriceCents : isValidDocumentRequestPriceCents;
+      if (terms.paymentRequired && !validPrice(price)) {
+        setPriceError(terms.moneyPolicy === "legacy_whole_dollars"
+          ? WHOLE_DOLLAR_PRICE_RULE : documentDecisionErrorCopy("invalid_payment_amount"));
         return;
       }
       priceBusyRef.current = true;
@@ -1169,7 +1183,9 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
           documentSessionGuard(token),
         );
       } catch (cause) {
-        setPriceError(documentDecisionErrorCopy(decisionErrorCode(cause)));
+        const code = decisionErrorCode(cause);
+        setPriceError(code === "invalid_payment_amount" && terms.moneyPolicy === "legacy_whole_dollars"
+          ? WHOLE_DOLLAR_PRICE_RULE : documentDecisionErrorCopy(code));
         // Read the request again before another try: the sheet stays open
         // only while it can still be allowed, at its current revision.
         setPriceTerms(null);
@@ -1211,6 +1227,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       lockedAmountCents: priceTerms?.lockedAmountCents ?? null,
       initialAmountCents: priceTerms?.initialAmountCents ?? null,
       estimateCents: priceTerms?.estimateCents ?? null,
+      moneyPolicy: priceTerms?.moneyPolicy ?? "drive_cents",
       priceOnly: priceTerms?.priceOnly ?? priceTarget?.priceOnly ?? false,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,

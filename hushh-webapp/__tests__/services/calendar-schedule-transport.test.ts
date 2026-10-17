@@ -18,6 +18,7 @@ describe("connected Calendar transport authority", () => {
   });
 
   it.each(["review", "confirm"])("sends matching Firebase/vault authority and the current-lifetime guard for %s", async kind => {
+    if (kind === "confirm") apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ calendar: "declined", email: "sent", calendar_error: null, email_error: null }), { status: 200 }));
     const current = vi.fn(() => true);
     const credentials = { firebaseIdToken: "firebase-owner", vaultOwnerToken: "vault-owner", isEffectCurrent: current };
     if (kind === "review") await GoogleCalendarService.reviewAttendance({
@@ -282,4 +283,12 @@ it("meeting context uses Firebase plus separate vault authority and no-store", a
   const read = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(Response.json({ sources: [] }));
   await CalendarInsightsService.read("meetings/context", { calendar_id: "primary", event_id: "provider-event", expected_account_email: "owner@example.test" }, "identity", undefined, "owner-capability");
   expect(read).toHaveBeenCalledWith("/api/one/calendar/meetings/context", expect.objectContaining({ cache: "no-store", headers: { Authorization: "Bearer identity", "X-Hushh-Consent": "Bearer owner-capability", "Content-Type": "application/json" } }));
+});
+
+
+it("rejects an unverified attendance outcome without claiming email success", async () => {
+  apiFetch.mockReset();
+  apiFetch.mockResolvedValue(new Response(JSON.stringify({ calendar: "declined" }), { status: 200 }));
+  await expect(GoogleCalendarService.confirmAttendance({ firebaseIdToken: "firebase", vaultOwnerToken: "owner", reviewId: "review", reviewToken: "review-token" })).rejects.toMatchObject({ reasonCode: "calendar_invalid_response" });
+  expect(apiFetch).toHaveBeenCalledOnce();
 });

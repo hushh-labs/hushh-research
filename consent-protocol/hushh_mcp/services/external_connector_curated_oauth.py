@@ -521,6 +521,31 @@ class ExternalConnectorCuratedOAuth:
             logger.warning("curated_connector_oauth.verify_failed code=%s", error)
         return {"connectorId": attempt["connector_id"], "status": status}
 
+    async def _validated_connection(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> tuple[dict, ExternalMcpConnectorDefinition, str, str | None]:
+        from hushh_mcp.services.curated_connector_credential_execution import validated_connection
+
+        return await validated_connection(
+            self, user_id=user_id, connector_id=connector_id, connector=connector
+        )
+
+    async def connection_snapshot(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> dict:
+        row, _, _, _ = await self._validated_connection(
+            connector_id=connector_id, user_id=user_id, connector=connector
+        )
+        return row
+
     async def current_credential(
         self,
         *,

@@ -6,7 +6,7 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
-import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -572,9 +572,9 @@ export function CalendarAgentPage({
     </div>
   ) : null;
 
-  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff) => {
+  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff, calendarAttendance?: CalendarAttendanceHandoff) => {
     trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-    if (!prompt && !calendarSlot && !calendarInvitation) {
+    if (!prompt && !calendarSlot && !calendarInvitation && !calendarAttendance) {
       navigateToAgentChat();
       return;
     }
@@ -585,6 +585,7 @@ export function CalendarAgentPage({
       transcript: prompt,
       calendarSlot,
       calendarInvitation,
+      calendarAttendance,
       createdAtMs,
     });
     navigateToAgentChat();

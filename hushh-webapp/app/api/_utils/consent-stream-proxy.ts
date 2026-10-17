@@ -1,7 +1,7 @@
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store", Vary: "Authorization" };
-// A fixed marker the backend trusts only to end proxied Feed streams before
+// A fixed marker the backend trusts only to end proxied notification streams before
 // this server's request timeout (120 s in production, 300 s in UAT), so they
 // rotate cleanly instead of being cut mid-frame.
 const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
@@ -71,7 +71,7 @@ export async function proxyConsentStream(
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   };
-  if (stream === "document-feed") headers[STREAM_PROXY_HEADER] = STREAM_PROXY_VALUE;
+  headers[STREAM_PROXY_HEADER] = STREAM_PROXY_VALUE;
   try {
     const upstream = await fetch(
       `${getPythonApiUrl()}/api/consent/${stream}/${encodeURIComponent(userId)}${query}`,

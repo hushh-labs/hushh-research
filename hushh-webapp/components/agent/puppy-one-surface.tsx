@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
 import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
+import { CHAT_WELCOME_COPY_CLASSNAME } from "@/components/agent/chat-message-styles";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { isLocalHost } from "@/lib/hermes/local-host";
@@ -82,8 +83,8 @@ export function PuppyOneSurface({
       data-agent-surface="puppy"
     >
       {/* The measure lives on an INNER wrapper, because One puts its gutters
-          outside the 896px column and merging `max-w-4xl` onto the padded
-          outer div would leave Puppy 48px narrower than One at the same
+          outside the 768px column and merging the measure onto the padded
+          outer div would leave Puppy narrower than One at the same
           viewport. The wrapper repeats the flex chain on purpose: an inert
           wrapper here would let the chat panel's flex-1 basis collapse. */}
       <div className="mx-auto flex min-h-0 w-full max-w-[var(--app-bottom-shell-max-width)] flex-1 flex-col gap-3">
@@ -93,7 +94,7 @@ export function PuppyOneSurface({
             what the thing is). `/one/puppy` already says this in its own page
             header, so the claim still appears exactly once per screen. */}
         {link?.state === "unlinked" ? (
-          <p className="shrink-0 text-xs text-muted-foreground">
+          <p className={cn("shrink-0", CHAT_WELCOME_COPY_CLASSNAME)}>
             A local model on your trusted machine. Requests and replies travel
             through your private pod.
           </p>

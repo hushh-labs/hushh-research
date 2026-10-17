@@ -55,7 +55,7 @@ describe("native navigation presentation boundary", () => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios";
     bridge.callbacks.clear();
-    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, columnLayout: true, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
@@ -80,7 +80,7 @@ describe("native navigation presentation boundary", () => {
     expect(measureNativeNavigationColumn(null)).toBeNull();
   });
   it("projects shared scroll without React rerenders only after native capability and state admission", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, supported: true, synchronizedBottomScroll: true,
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, synchronizedBottomScroll: true,
       wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockImplementation(async state => ({ supported: true, contentHeight: 49, bottomInset: 34,
       scrollGeneration: state.revision, privacyGeneration: 0, scrollFollowing: state.scrollFollowing }));
@@ -110,7 +110,7 @@ describe("native navigation presentation boundary", () => {
   });
 
   it("requires acknowledged pinned state after a scroll delivery failure instead of leaving CSS moving alone", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, supported: true, synchronizedBottomScroll: true,
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, synchronizedBottomScroll: true,
       wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockImplementation(async state => ({ supported: true, contentHeight: 49, bottomInset: 34,
       scrollGeneration: state.revision, privacyGeneration: 0, scrollFollowing: state.scrollFollowing }));
@@ -170,7 +170,7 @@ describe("native navigation presentation boundary", () => {
     "uses web fallback for an old experimental %s wrapper instead of reserving a stranded native bar", async (capability) => {
       vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
       bridge.regions.mockResolvedValue(false);
-      bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, [capability]: true });
+      bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, [capability]: true });
       const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
       await waitFor(() => expect(view.result.current.reserved).toBe(false));
       expect(view.result.current.ready).toBe(false);
@@ -180,8 +180,7 @@ describe("native navigation presentation boundary", () => {
     });
   it("retains standard native navigation in recovery and isolates full-height React overlays", async () => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true,
-      columnLayout: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     bridge.regions.mockResolvedValue(false);
     const action = vi.fn();
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
@@ -201,8 +200,7 @@ describe("native navigation presentation boundary", () => {
 
   it("keeps native tabs materially present beneath a whole native drawer without the legacy clipping protocol", async () => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true,
-      columnLayout: true, wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
     const action = vi.fn();
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
     await waitFor(() => expect(view.result.current.ready).toBe(true));
@@ -257,7 +255,7 @@ describe("native navigation presentation boundary", () => {
     view.unmount();
   });
   it("keeps the shared DOM column when an older wrapper cannot accept its geometry", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, supported: true, contentHeight: 49, bottomInset: 34 });
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
     await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
     expect(view.result.current.ready).toBe(false);
@@ -299,8 +297,8 @@ describe("native navigation presentation boundary", () => {
     await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
     view.unmount();
   });
-  it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, contentHeight: 49, bottomInset: 34 });
+  it.each([1, 2])("retains the four-tab web bar for older native contract %s", async (contractVersion) => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion, columnLayout: true, supported: true, contentHeight: 49, bottomInset: 34 });
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
     await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
     expect(view.result.current.ready).toBe(false);
@@ -323,6 +321,8 @@ describe("native navigation presentation boundary", () => {
     select(original, "feed"); // A badge/theme revision must not drop the final native tap.
     await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith("feed"));
     onSelect.mockClear();
+    select(original, "search");
+    expect(onSelect).not.toHaveBeenCalled();
     select(original, "arbitrary-url");
     expect(onSelect).not.toHaveBeenCalled();
 
@@ -399,7 +399,7 @@ describe("native navigation presentation boundary", () => {
   });
 
   it("retains negotiated navigation through repeated drawer cycles without admitting covered or stale choices", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, interactionIsolation: true, supported: true, contentHeight: 49, bottomInset: 34 });
     const onSelect = vi.fn();
     const view = renderHook(({ interactive, visible }) => useNativeNavigation({ ...options, visible, interactionEnabled: interactive, onSelect }), {
       initialProps: { interactive: true, visible: true },
@@ -438,7 +438,7 @@ describe("native navigation presentation boundary", () => {
     const shell = document.createElement("main");
     shell.dataset.appShellRoot = "true";
     document.body.appendChild(shell);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true,
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, interactionIsolation: true,
       contentBackedPresentation: true, reservedPresentationRegions: reserved, underlayPresentation: false, supported: true, contentHeight: 49, bottomInset: 34 });
     const onSelect = vi.fn();
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect }));
@@ -467,7 +467,7 @@ describe("native navigation presentation boundary", () => {
     const shell = document.createElement("main");
     shell.dataset.appShellRoot = "true";
     document.body.appendChild(shell);
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true, underlayPresentation: true,
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, interactionIsolation: true, underlayPresentation: true,
       supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34,
       frame: { x: 0, y: 400, width: 300, height: 83 } });

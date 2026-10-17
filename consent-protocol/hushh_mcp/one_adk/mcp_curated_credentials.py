@@ -27,22 +27,30 @@ def _consume_outcome(task: asyncio.Future[Any]) -> None:
 
 
 async def current_curated_credential(
-    owner: str, connector: Any, *, logger: Logger
-) -> tuple[dict[str, Any], str]:
+    owner: str, connector: Any, *, logger: Logger, metadata_only: bool = False
+) -> tuple[dict[str, Any], str | None]:
     from hushh_mcp.services.external_connector_oauth_service import (
         get_external_connector_oauth_service,
     )
 
     adapter = get_external_connector_oauth_service().curated()
-    refresh = asyncio.ensure_future(
-        adapter.current_credential(
-            connector_id=connector.connector_id, user_id=owner, connector=connector
-        )
-    )
+    refresh = None
     try:
-        row, secret = await asyncio.shield(refresh)
+        if metadata_only:
+            row = await adapter.connection_snapshot(
+                connector_id=connector.connector_id, user_id=owner, connector=connector
+            )
+            secret = {}
+        else:
+            refresh = asyncio.ensure_future(
+                adapter.current_credential(
+                    connector_id=connector.connector_id, user_id=owner, connector=connector
+                )
+            )
+            row, secret = await asyncio.shield(refresh)
     except asyncio.CancelledError:
-        refresh.add_done_callback(_consume_outcome)
+        if refresh is not None:
+            refresh.add_done_callback(_consume_outcome)
         raise
     except CuratedNotConnectedError:
         raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
@@ -71,7 +79,7 @@ async def current_curated_credential(
     ):
         raise ExternalMcpError("Reconnect this service.", code="MCP_CONNECTION_CHANGED")
     token = secret.get("accessToken")
-    if (
+    if not metadata_only and (
         not isinstance(token, str)
         or not token.strip()
         or any(ord(c) < 32 or ord(c) == 127 for c in token)

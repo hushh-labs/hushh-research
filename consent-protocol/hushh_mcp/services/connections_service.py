@@ -45,6 +45,7 @@ from hushh_mcp.services.contact_sync_contract import (
 )
 from hushh_mcp.services.people_search_sql import (
     directory_search_rank,
+    mask_directory_phone,
     normalize_directory_name,
     people_query_match_params,
 )
@@ -3416,7 +3417,10 @@ class ConnectionsService:
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
                     "maskedEmail": p.get("maskedEmail"),
-                    "maskedPhone": p.get("maskedPhone"),
+                    "maskedPhone": mask_directory_phone(
+                        (p.get("phoneNumber") if p.get("phoneVerified") else None)
+                        or p.get("maskedPhone")
+                    ),
                     "relationship": relationship(str(p.get("userId") or "")),
                     **mutual_payload(str(p.get("userId") or "")),
                     "isRia": str(p.get("userId") or "") in ria_user_ids,

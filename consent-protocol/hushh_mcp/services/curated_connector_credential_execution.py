@@ -10,14 +10,11 @@ from typing import Any
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
-async def current_credential(
+async def validated_connection(
     service, *, user_id: str, connector_id: str, connector=None
-) -> tuple[dict, dict]:
-    """Internal only. Execution additionally enforces chat admission and
-    the review policy before/after any tool call. `connector` is the live
-    registry row when the caller already holds it."""
+) -> tuple[dict, Any, str, str | None]:
+    """Current placement and registry metadata, without opening or refreshing a credential."""
     from hushh_mcp.services.external_connector_curated_oauth import (
-        _REFRESH_MARGIN,
         CuratedConnectorOAuthError,
         CuratedNotConnectedError,
         curated_policy_hash,
@@ -39,6 +36,24 @@ async def current_credential(
     # refresh token or access token to a changed target.
     if row.get("verified_policy_hash") not in (None, curated_policy_hash(connector)):
         raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
+    await admit_hub_content(user_id, "curated_connection_snapshot_return")
+    return row, connector, client_id, client_secret
+
+
+async def current_credential(
+    service, *, user_id: str, connector_id: str, connector=None
+) -> tuple[dict, dict]:
+    """Internal only. Execution additionally enforces chat admission and
+    the review policy before/after any tool call. `connector` is the live
+    registry row when the caller already holds it."""
+    from hushh_mcp.services.external_connector_curated_oauth import (
+        _REFRESH_MARGIN,
+        CuratedConnectorOAuthError,
+    )
+
+    row, connector, client_id, client_secret = await validated_connection(
+        service, user_id=user_id, connector_id=connector_id, connector=connector
+    )
     await admit_hub_content(user_id, "curated_credential_open")
     credential = service.credentials.open_credential(
         user_id=user_id, connector_id=connector_id, row=row

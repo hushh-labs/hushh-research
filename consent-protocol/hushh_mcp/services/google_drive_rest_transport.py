@@ -34,6 +34,7 @@ from hushh_mcp.services.google_drive_adapter import (
     RESOURCE_KEY,
     DriveReadError,
     GoogleDriveAdapter,
+    query_has_full_text_term,
 )
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 from hushh_mcp.services.google_drive_write_adapter import (
@@ -60,8 +61,8 @@ _SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 # Drive refuses any orderBy on a query with a fullText term ("Sorting is not
 # supported for queries with fullText terms. Results are always in descending
-# relevance order."), so such a search sends no orderBy at all.
-_FULL_TEXT = re.compile(r"\bfullText\b")
+# relevance order."), so such a search sends no orderBy at all. The adapter's
+# fence owns the detection and refuses a request that still carries both.
 logger = drive_logger(__name__)
 
 
@@ -71,7 +72,7 @@ _QUERY_PARTS = re.compile(r"('(?:\\.|[^'\\])*')")
 
 
 def has_full_text_term(query: str) -> bool:
-    return any(_FULL_TEXT.search(part) for part in _QUERY_PARTS.split(query)[::2])
+    return query_has_full_text_term(query)
 
 
 # Friendly type names the model can use instead of exact MIME types.

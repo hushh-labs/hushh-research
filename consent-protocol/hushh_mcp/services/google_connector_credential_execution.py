@@ -10,7 +10,7 @@ from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 async def current_credential(
-    service, *, user_id: str, required_profile=None, cleanup: bool = False
+    service, *, user_id: str, required_profile=None, cleanup: bool = False, refresh: bool = True
 ) -> tuple[dict, dict]:
     """Internal only. Execution additionally enforces policy before/after I/O."""
     from hushh_mcp.services.external_connector_google_oauth import (
@@ -25,7 +25,9 @@ async def current_credential(
 
     if not cleanup:
         await admit_hub_content(user_id, "drive_credential")
-    row = await service.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
+    row = await service.lifecycle.read(
+        user_id=user_id, connector_id=CONNECTOR_ID, **({"purge": False} if not refresh else {})
+    )
     if not row or row["status"] not in {"connected", "verifying"} or row["envelope_version"] != 2:
         raise DriveOAuthError("reconnect_required", status_code=401)
     if not cleanup:
@@ -51,7 +53,7 @@ async def current_credential(
         raise DriveOAuthError("connector_configuration_invalid", status_code=503)
     if credential.get("oauthClientId") != client_id:
         raise DriveOAuthError("reconnect_required", status_code=401)
-    if row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
+    if not refresh or row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
         if not cleanup:
             await admit_hub_content(user_id, "drive_credential_return")
         return row, credential

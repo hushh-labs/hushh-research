@@ -14,18 +14,47 @@ export interface FeedDriveProgress {
   description: string;
   href: string;
   requestedAt: number | null;
+  /** True while the request only waits in the queue: the row shows no working motion. */
+  waiting?: boolean;
+  /** When a waiting request entered the queue, so the row can show how long it waited. */
+  queuedAt?: number | null;
 }
 
-function progressTitle(stage: unknown): string {
-  if (stage === "finding") return "One is finding documents";
-  if (stage === "checking") return "One is checking documents";
-  if (stage === "sharing") return "One is sharing documents";
-  return "One is preparing the document request";
+type ProgressState = "queued" | "delayed" | "searching" | "sharing" | "checking";
+const PROGRESS_STATES = new Set<unknown>(["queued", "delayed", "searching", "sharing", "checking"]);
+const LEGACY_STAGE_STATES: Record<string, ProgressState> = {
+  // An older server's "preparing" meant nothing had started yet.
+  preparing: "queued", finding: "searching", sharing: "sharing", checking: "checking",
+};
+
+/** The server's truthful state, or the legacy stage it replaces on older servers. */
+function progressState(metadata: Record<string, unknown>): ProgressState {
+  const state = metadata.automatic_progress_state;
+  if (PROGRESS_STATES.has(state)) return state as ProgressState;
+  return LEGACY_STAGE_STATES[String(metadata.automatic_progress_stage)] ?? "queued";
+}
+
+function progressTitle(state: ProgressState): string {
+  if (state === "searching") return "One is finding documents";
+  if (state === "checking") return "One is checking documents";
+  if (state === "sharing") return "One is sharing documents";
+  // Nothing runs yet; never claim work, and never "paused".
+  return state === "delayed" ? "Taking longer than usual" : "Waiting to start";
 }
 
 /** An owner-allowed request runs the Trusted Circle pipeline; its copy must not claim Trusted Circle. */
-function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean, stage: unknown): string {
-  if (stage === "checking") return "One is checking the documents for this request.";
+function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean, state: ProgressState): string {
+  if (state === "checking") return "One is checking the documents for this request.";
+  if (state === "delayed") {
+    return direction === "incoming"
+      ? "This request is saved and continues automatically."
+      : "Your request is saved and continues automatically.";
+  }
+  if (state === "queued") {
+    return ownerAllowed
+      ? "Request allowed. The Drive search starts soon."
+      : "Trusted Circle request. The Drive search starts soon.";
+  }
   if (ownerAllowed) {
     return direction === "incoming"
       ? "Request allowed. One is handling it for you. Sharing is automatic."
@@ -80,17 +109,22 @@ export function projectFeedDriveProgress(
     if (!pending && !active) continue;
     if (!automatic && !pending) continue;
 
+    const state = progressState(metadata);
+    const waiting = automatic && !unavailable && (state === "queued" || state === "delayed");
+    const queuedAt = waiting && typeof metadata.automatic_queued_at === "string"
+      ? parseConsentInstant(metadata.automatic_queued_at) : null;
     byRequest.set(entry.id, {
       id: entry.id,
-      title: unavailable ? "Documents unavailable" : automatic ? progressTitle(metadata.automatic_progress_stage) : "Document request sent",
+      title: unavailable ? "Documents unavailable" : automatic ? progressTitle(state) : "Document request sent",
       description: [
         quote,
         unavailable
           ? "One couldn't verify the documents for this request."
           : automatic
-          ? progressDescription(direction, metadata.owner_allowed === true, metadata.automatic_progress_stage)
+          ? progressDescription(direction, metadata.owner_allowed === true, state)
           : "Waiting for the owner to review your request.",
       ].filter(Boolean).join(" · "),
+      ...(waiting ? { waiting: true, queuedAt } : {}),
       href: buildConsentCenterHref(active ? "active" : "pending", {
         requestId: entry.id,
         requestView: pending && direction === "outgoing" ? "sent" : "received",

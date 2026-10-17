@@ -121,19 +121,7 @@ describe("Top app bar responsive contract", () => {
     expect(topShellMount).toBeLessThan(
       providers.indexOf("<Suspense", topShellMount),
     );
-    expect(
-      providers.match(/<KaiCommandBarGlobal \/>/g),
-    ).toHaveLength(1);
-    // Physical iPhone regression: native Search dispatched its event, but
-    // Chat excluded the only receiver. Idle top chrome must stay separate
-    // from mounting the closed, request-driven palette.
-    const paletteHostGuard = providers.match(
-      /\{([^{}]+)\?\s*\(\s*<KaiCommandBarGlobal \/>/,
-    )?.[1];
-    expect(paletteHostGuard).toBeDefined();
-    expect(paletteHostGuard).toContain("!hidesPersistentChrome");
-    expect(paletteHostGuard).toContain("!effectiveHideCommandBar");
-    expect(paletteHostGuard).not.toContain("isCanonicalChatRoute");
+    expect(providers).not.toContain("KaiCommandBarGlobal");
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");

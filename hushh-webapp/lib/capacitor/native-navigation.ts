@@ -5,7 +5,7 @@ import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { nativeDrawerIsolation } from "./native-drawers";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
 import { nativeDocumentId, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
-import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import type { NativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
@@ -13,7 +13,8 @@ import { nativePresentationAdmission, setNativePresentationRegionIsolation, sync
 import { bottomChromeScrollTravel, snapKaiBottomChromeVisible, subscribeKaiBottomChromeProgress } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { NativeNavigationScrollDelivery, type NativeNavigationScroll, type NativeNavigationScrollReset } from "./native-navigation-scroll";
 
-export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
+export const NATIVE_NAVIGATION_CONTRACT_VERSION = 3;
+export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
 type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame; presentationApplied?: boolean;
   scrollGeneration?: number; privacyGeneration?: number; scrollFollowing?: boolean };
@@ -235,7 +236,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     void (async () => {
       try {
         const capability = await nativeNavigation().getCapabilities();
-        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || capability.columnLayout !== true || cancelled) return;
+        if (!capability.supported || capability.contractVersion !== NATIVE_NAVIGATION_CONTRACT_VERSION || capability.columnLayout !== true || cancelled) return;
         // Experimental wrappers requiring apertures/regions cannot host the
         // recovery renderer. Use their established web fallback, never strand
         // a reserved bar or resurrect the rejected custom composition.

@@ -546,6 +546,94 @@ describe("PWM research driver never storms the server", () => {
     await expect(run).rejects.toThrow();
   });
 
+  it("stops after failed ensure is followed only by bare pending reads", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      const call = record(path, init);
+      if (call.method === "POST")
+        throw new ApiError("Research unavailable", 503);
+      return restart;
+    });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    const outcome = run.then(() => "completed", () => "failed");
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(await outcome).toBe("failed");
+    expect(posts().length).toBeGreaterThanOrEqual(2);
+    expect(Math.min(...gaps(posts()))).toBeGreaterThanOrEqual(60_000);
+    expect(onResult).toHaveBeenCalledWith(restart);
+  });
+
+  it("checks status after a hidden spell instead of spending the failed-start wait", async () => {
+    let hidden = false;
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+    try {
+      api.mockImplementation(async (path: string, init: RequestInit) => {
+        const call = record(path, init);
+        if (call.method === "POST") throw new ApiError("Research unavailable", 503);
+        return restart;
+      });
+      const controller = new AbortController();
+      const run = WorldModelResearchService.observe({
+        ...session,
+        signal: controller.signal,
+        onResult: vi.fn(),
+      });
+      let settled = false;
+      run.finally(() => { settled = true; }).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(0);
+      hidden = true;
+      await vi.advanceTimersByTimeAsync(6_000 + 600_000);
+      expect(calls).toHaveLength(1);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls.some((call) => call.method === "GET")).toBe(true);
+      expect(settled).toBe(false);
+      controller.abort();
+      await expect(run).rejects.toThrow();
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
+
+  it("continues when a failed ensure is followed by a real checkpoint", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      const call = record(path, init);
+      if (call.method === "POST")
+        throw new ApiError("Research unavailable", 503);
+      return {
+        ...restart,
+        progress: {
+          stage: "starting", searches_used: 0, searches_total: 8,
+          model_calls_used: 0, model_calls_total: 16,
+          topics_checked: [], sources_found: 0, recent_sources: [],
+          identity_state: null, candidates: 0, started_at: null,
+          last_activity_at: null, slice: 1,
+        },
+      };
+    });
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: controller.signal,
+      onResult: vi.fn(),
+      onProgress,
+    });
+    run.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(150_000);
+    expect(onProgress).toHaveBeenCalled();
+    controller.abort();
+    await expect(run).rejects.toThrow();
+  });
+
   it("does not end a rate-limited retry on the previous run's unavailable status", async () => {
     api.mockImplementation(async (path: string, init: RequestInit) => {
       const call = record(path, init);

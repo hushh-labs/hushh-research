@@ -401,7 +401,7 @@ function shouldPrioritizeConsentHydration(pathname: string): boolean {
 class ConsentSseError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number, readonly disabled = false) {
+  constructor(message: string, status: number, readonly disabled = false, readonly retryAfterMs = 0) {
     super(message);
     this.name = "ConsentSseError";
     this.status = status;
@@ -700,6 +700,8 @@ export function ConsentNotificationProvider({
     useState(false);
   const { user } = useAuth();
   const requestPushPermissionRef = useRef(false);
+  const pushRetryAttemptRef = useRef(0);
+  const lastPushAttemptAtRef = useRef(0);
   const lastAuthenticatedUidRef = useRef<string | null>(null);
   // Track which message identities have already been ingested this session.
   const ingestedMessageIdsRef = useRef(new Set<string>());
@@ -1185,6 +1187,7 @@ export function ConsentNotificationProvider({
     if (!user) return;
     clearPersistedDeliveryState(user.uid);
     requestPushPermissionRef.current = true;
+    pushRetryAttemptRef.current = 0;
     setIsRetryingPushRegistration(true);
     setFcmInitGeneration((current) => current + 1);
   }, [user]);
@@ -1222,7 +1225,9 @@ export function ConsentNotificationProvider({
     }
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     if (lastAuthenticatedUidRef.current !== user.uid) {
+      pushRetryAttemptRef.current = 0;
       ingestedMessageIdsRef.current = new Set<string>();
       smsPresentationRef.current.clear();
       knownPendingConsentIdsRef.current = new Set<string>();
@@ -1234,7 +1239,15 @@ export function ConsentNotificationProvider({
 
     const requestPermission = requestPushPermissionRef.current;
     requestPushPermissionRef.current = false;
+    const scheduleRegistrationRetry = () => {
+      const delay = [2_000, 10_000, 30_000][pushRetryAttemptRef.current++];
+      if (delay === undefined || cancelled) return;
+      retryTimer = setTimeout(() => {
+        if (!cancelled) setFcmInitGeneration((value) => value + 1);
+      }, delay);
+    };
     const run = async () => {
+      lastPushAttemptAtRef.current = Date.now();
       const shouldRestoreFromSession = fcmInitGeneration === 0;
       if (shouldRestoreFromSession) {
         const persisted = readPersistedDeliveryState(user.uid);
@@ -1258,6 +1271,7 @@ export function ConsentNotificationProvider({
         if (cancelled) return;
         const result = await initializeFCM(user.uid, idToken, {
           requestPermission,
+          ...(Capacitor.isNativePlatform() ? { getIdToken: () => user.getIdToken() } : {}),
         });
         if (cancelled) return;
 
@@ -1269,6 +1283,8 @@ export function ConsentNotificationProvider({
         setFcmInitStatus(result.status);
         setDeliveryDetail(result.detail ?? null);
         setDeliveryMode(deliveryModeFromInitStatus(result.status));
+        if (result.status === "push_failed") scheduleRegistrationRetry();
+        else pushRetryAttemptRef.current = 0;
         console.info("[NotificationProvider] Delivery init:", result);
       } catch (err) {
         if (cancelled) return;
@@ -1282,6 +1298,7 @@ export function ConsentNotificationProvider({
         setFcmInitStatus("push_failed");
         setDeliveryMode("push_failed_fallback_active");
         setDeliveryDetail(detail);
+        scheduleRegistrationRetry();
       } finally {
         if (!cancelled) {
           setIsRetryingPushRegistration(false);
@@ -1293,41 +1310,36 @@ export function ConsentNotificationProvider({
 
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
     };
   }, [fcmInitGeneration, user]);
 
   useEffect(() => {
-    if (!user || !Capacitor.isNativePlatform()) return;
-    let disposed = false;
-    let handle: { remove: () => Promise<void> } | undefined;
+    if (!user) return;
     const refresh = () => {
-      if (!disposed) setFcmInitGeneration((value) => value + 1);
+      if (document.visibilityState !== "visible" || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+      // Focus, visibility and the shell lifecycle can describe the same resume.
+      // Native Settings may change sound/alert settings even for an active token.
+      const cooldown = !Capacitor.isNativePlatform() && fcmInitStatus === "push_active" ? 30_000 : 1_000;
+      if (Date.now() - lastPushAttemptAtRef.current < cooldown) return;
+      lastPushAttemptAtRef.current = Date.now();
+      pushRetryAttemptRef.current = 0;
+      setFcmInitGeneration((value) => value + 1);
     };
-    void import("@capacitor/app")
-      .then(async ({ App }) => {
-        const listener = await App.addListener(
-          "appStateChange",
-          ({ isActive }) => {
-            if (isActive) refresh();
-            else stopOneLocationNotificationSound();
-          },
-        );
-        if (disposed) await listener.remove();
-        else handle = listener;
-      })
-      .catch(() => {
-        /* The web visibility bridge remains available. */
-      });
-    const visible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    document.addEventListener("visibilitychange", visible);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") refresh();
+      else stopOneLocationNotificationSound();
+    });
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
     return () => {
-      disposed = true;
-      void handle?.remove();
-      document.removeEventListener("visibilitychange", visible);
+      removeLifecycle();
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
     };
-  }, [user]);
+  }, [fcmInitStatus, user]);
 
   useEffect(() => {
     if (!user) { disabledSseUser.current = null; return; }
@@ -1396,7 +1408,10 @@ export function ConsentNotificationProvider({
               disabled = body?.detail?.error_code === "CONSENT_SSE_DISABLED";
             } catch { /* An expired or unrecognized stream gets bounded recovery. */ }
           }
-          throw new ConsentSseError(`consent_sse_${response.status}`, response.status, disabled);
+          const retryAfter = response.status === 503 ? response.headers?.get("retry-after") : null;
+          const retryAfterMs = retryAfter && /^\d{1,4}$/.test(retryAfter)
+            ? Math.min(Number(retryAfter) * 1000, MAX_SSE_RECONNECT_DELAY_MS) : 0;
+          throw new ConsentSseError(`consent_sse_${response.status}`, response.status, disabled, retryAfterMs);
         }
 
         if (cancelled) return;
@@ -1450,6 +1465,7 @@ export function ConsentNotificationProvider({
               window.dispatchEvent(
                 new CustomEvent(FCM_MESSAGE_EVENT, {
                   detail: {
+                    notification: { title: payload.title || "", body: payload.body || "" },
                     data: {
                       ...payload,
                       type,
@@ -1513,9 +1529,9 @@ export function ConsentNotificationProvider({
           );
           return;
         }
-        const delay = Math.min(
-          3000 * 2 ** (reconnectAttempt - 1),
-          MAX_SSE_RECONNECT_DELAY_MS,
+        const delay = Math.max(
+          error instanceof ConsentSseError ? error.retryAfterMs : 0,
+          Math.min(3000 * 2 ** (reconnectAttempt - 1), MAX_SSE_RECONNECT_DELAY_MS),
         );
         reconnectTimer = globalThis.setTimeout(() => {
           void connect();

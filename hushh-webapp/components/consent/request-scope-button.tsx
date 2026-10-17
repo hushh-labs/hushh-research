@@ -13,7 +13,7 @@
  */
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -40,7 +40,8 @@ import {
 export interface RequestScopeButtonProps {
   personRef: string;
   personName: string;
-  /** Grid placement from the profile's action cluster. */
+  /** Optional profile action presentation; default callers keep the plain label. */
+  renderTrigger?: (label: string) => ReactNode;
   className?: string;
   canRequest?: boolean;
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
@@ -52,6 +53,7 @@ export function RequestScopeButton({
   className,
   canRequest = true,
   returnFocusRef,
+  renderTrigger,
 }: RequestScopeButtonProps) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -167,17 +169,13 @@ export function RequestScopeButton({
       }}
     >
       {canRequest ? <DialogTrigger asChild>
-        {/* Same bare Button as the file actions, so `.actions button` in
-            person-profile-page.module.css gives it their exact styling. The
-            className carries only grid placement: a third auto-placed button
-            would skip the occupied Manage row and land underneath it. */}
         <Button
           size="standard"
           variant="none"
           className={className}
           data-voice-control-id="person-profile-request-scope"
         >
-          Request scope
+          {renderTrigger?.("Request scope") ?? "Request scope"}
         </Button>
       </DialogTrigger> : null}
       <DialogContent

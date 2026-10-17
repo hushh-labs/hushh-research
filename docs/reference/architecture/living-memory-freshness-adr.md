@@ -1,13 +1,14 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
 Status: **V1 chat memory, an open, unlocked source projection and one shared Live Mirror are implemented; lossless history and locked or closed-app operation are not.**
-Updated: 2026-10-15.
+Updated: 2026-10-17.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  Legacy[Existing encrypted PKM domains] -->|first-session compatibility seed| Client[Open unlocked owner client]
+  Legacy[Existing encrypted PKM domains] --> Specialists[Existing specialist workflows]
+  Client[Open unlocked owner client]
   Client --> ChatMemory[Canonical One one_memory.markdown]
   ChatMemory --> Prompt[Whole file in every One prompt]
   Sources[Profile, Consent, connections, curated OAuth, document earnings, PKM domains] -->|verified snapshots while unlocked| Client
@@ -32,6 +33,15 @@ save/review contract for sharing and pricing. Its acknowledgement counts remain
 separate from private-agent memory; no whole PKM packet enters One's prompt.
 
 Chat facts are selected by the existing semantic preparation stage using `soul_markdown_v1`, then silently applied to the RAM document and encrypted through the existing writer. The model supplies a plain attributed bullet and section; corrections/extensions replace an exact offered bullet, and deletions remove it rather than saving the request. No legacy domains are imported. This V1 path has no per-fact confirmation card or automatic-memory switch: while the vault is unlocked, usable durable facts use the product-default authorization record and no capture status is added to chat. Owner identifiers may be retained; passwords, passphrases, API keys, tokens, private keys, PINs and card security codes are omitted. The whole document is bounded to 18,000 characters; reconciliation offers at most 256 bullets without silent truncation.
+
+Typed text and pasted text attachments are assessed together. Preparation runs
+beside the answer and can finish after navigation to Memory or another chat in
+the same unlocked owner session. Lock, owner changes, token replacement, expired
+access and unavailable authentication still fence effects, including after the
+chat component unmounts. Only the originating mounted chat receives UI updates.
+Incomplete preparation refuses automatic writes and reports failure while that
+chat remains visible; a valid assessment with no durable facts remains quiet.
+RAM publication precedes encrypted cloud sync, whose status is shown in Memory.
 
 Target references exist only in the preparation snapshot and encrypted recovery envelope, never as paths or IDs inside Soul.md. Stale, duplicate or unoffered targets fail closed. Automatic replacement refuses masked targets; multiline/nested owner-authored bullets need the editor rather than partial mutation. Unrelated text and fenced examples remain unchanged. Encrypted recovery envelopes carry their staging order, so interrupted dependent corrections replay FIFO even when device keys or encryption finish out of order. If any envelope cannot be read, recovery waits rather than replaying a later correction first.
 

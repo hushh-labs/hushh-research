@@ -5,6 +5,33 @@ Notion and Attio today) that an owner connects from Connectors and then uses in
 One chat. Everything the application must not take from the operator-writable
 registry is kept in one reviewed, checked-in file per provider.
 
+## Chat preparation and connection lifetime
+
+The client starts its encrypted connector-configuration read alongside required
+Markdown memory preparation, and overlaps catalog projection with chat-key and
+bounded location preparation. Consuming the prepared configuration re-enters
+the existing owner/vault cache so intervening connector edits remain visible.
+Location permission discovery and GPS share one 1.5-second budget.
+
+Backend catalog admission validates current owner and connection metadata before
+reusing owner/configuration-bound tool descriptions. A warm catalog does not
+refresh OAuth credentials or connect to the provider. Cold or explicitly
+refreshed catalogs still need authenticated discovery; tool execution always
+resolves current credentials and enforces connection, schema and review checks.
+Independent owner-ledger and registry reads overlap; credential access follows
+their validation.
+
+Failed discovery has a 60-second retry cooldown in a bounded process-local
+metadata cache. A changed owner, connection generation or configuration does
+not inherit an old failure. The unavailable connector remains represented in
+the tool catalog; a cooldown never grants access or substitutes an empty
+successful response.
+
+Client marks `hushh:agent-chat:wire-start`, `response-headers` and `first-text`
+(each under the same prefix) distinguish preparation, transport and visible
+output without recording prompts or credentials. Backend model duration ends
+on the final streamed response; partial chunks do not finish that timer.
+
 ## Visual Map
 
 ```mermaid

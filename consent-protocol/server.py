@@ -1611,6 +1611,15 @@ async def startup_direct_message_push_worker() -> None:
     )
 
 
+@app.on_event("startup")
+async def startup_system_push_worker() -> None:
+    from hushh_mcp.services.system_push_delivery import run_system_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_system_push_worker(), name="system-push")
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -100,7 +100,8 @@
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding"
+    "enforce_stripe_payout_source_binding",
+    "queue_system_push"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -3800,6 +3801,24 @@
       "expires_at",
       "owner_user_id",
       "request_id"
+    ],
+    "system_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "accepted_at"
+    ],
+    "system_push_outbox": [
+      "id",
+      "source_kind",
+      "source_id",
+      "source_revision",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at",
+      "expires_at",
+      "lease_id",
+      "created_at"
     ]
   },
   "expected_schema_head": 406

@@ -961,8 +961,9 @@ export function VaultProvider({ children }: VaultProviderProps) {
   }, []);
 
   const getVaultOwnerToken = useCallback(() => {
-    // Check expiry
+    // Detached work must observe live authentication readiness and expiry.
     return mountedRef.current &&
+      authStateRef.current.ready &&
       vaultUserIdRef.current === authStateRef.current.user?.uid &&
       tokenExpiresAtRef.current !== null &&
       Date.now() < tokenExpiresAtRef.current

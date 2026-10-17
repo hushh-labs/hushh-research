@@ -27,6 +27,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AgentFollowUpSuggestions } from "@/components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AppStreamSection } from "@/components/app-ui/stream-progress-panel";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { Button as StockButton } from "@/components/ui/button";
@@ -409,7 +410,7 @@ describe("agent chat", () => {
     );
   });
 
-  it("wires the ripple into the chat's message actions and Activity trigger", () => {
+  it("wires the ripple into the chat's message actions and Activity trigger", async () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     for (const label of [
       "Copy response",
@@ -422,12 +423,18 @@ describe("agent chat", () => {
       const close = workspace.indexOf("</button>", at);
       expect(workspace.slice(at, close), label).toContain("<MaterialRipple");
     }
-    const activity = read("components/app-ui/stream-progress-panel.tsx");
-    const trigger = activity.slice(
-      activity.indexOf("<CollapsibleTrigger asChild>"),
-      activity.indexOf("</CollapsibleTrigger>"),
-    );
-    expect(trigger).toContain("<MaterialRipple");
-    expect(trigger).toMatch(/className="[^"]*\brelative\b/);
+    // The control can compose classes with cn(). Prove its rendered ripple
+    // ownership for both appearances instead of requiring literal JSX syntax.
+    for (const appearance of ["surface", "plain"] as const) {
+      const view = render(<AppStreamSection title="Activity" items={[]} defaultOpen={false} appearance={appearance} />);
+      const trigger = screen.getByRole("button", { name: "Activity" });
+      expect(trigger).toHaveClass("relative");
+      expect(rippleHosts(trigger)).toHaveLength(1);
+      await waitFor(() => {
+        const ripple = trigger.querySelector("md-ripple") as (HTMLElement & { attachedTo: HTMLElement | null }) | null;
+        expect(ripple?.attachedTo).toBe(trigger);
+      });
+      view.unmount();
+    }
   });
 });
