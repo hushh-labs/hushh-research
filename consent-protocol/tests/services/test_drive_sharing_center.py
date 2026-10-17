@@ -839,13 +839,21 @@ async def test_trusted_auto_progress_never_claims_owner_attention(sharing, reque
             ),
             {"id": request_id},
         )
-    for state in ("queued", "running", "completed"):
+    for state in ("queued", "running"):
         with sharing.db.engine.begin() as connection:
             connection.execute(
                 text("UPDATE drive_owner_search_jobs SET status=:state WHERE job_id=:job"),
                 {"state": state, "job": job_id},
             )
         assert await attention() is False
+    # A completed search whose results never reached an automatic batch waits
+    # for the owner's review, so the next step is the owner's.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status='completed' WHERE job_id=:job"),
+            {"job": job_id},
+        )
+    assert await attention() is True
 
     # release() can fail the job without updating the request's trusted_auto_active
     # marker. The Feed must surface the owner task using the linked job state.
