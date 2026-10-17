@@ -93,7 +93,9 @@ Operational owners: [Files](../operations/private-files-library.md),
 Frozen ADK intake preserves private-runtime authority and canonical CI/browser
 coverage. Focused UI checks, browser collection, typecheck and design checks pass;
 streamed-command replay and session-renewal scroll regressions retain failing
-old-source controls. The candidate builds a new Dev 22 image; its predecessor list
+old-source controls. Workflow history now survives either merge-parent order,
+with exact retired revisions still refused;48 focused checks and two old-source
+failures prove this correction. The candidate builds a new Dev 22 image; its predecessor list
 stays empty until exact-image recovery qualifies a transition. No install is offered
 by a version label alone.
 

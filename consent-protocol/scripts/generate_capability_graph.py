@@ -789,6 +789,10 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
             continue
         if lineage[1] in descendants:
             predecessors.extend(lineage[2:])
+        elif any(parent in descendants for parent in lineage[2:]):
+            # Isolated verification may receive the base via a second parent.
+            # Its pre-base first parent still owns a separately shipped history.
+            predecessors.extend(parent for parent in lineage[1:] if parent not in descendants)
     return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
 
 

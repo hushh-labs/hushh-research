@@ -222,10 +222,10 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
     # A verification merge can carry the main merge through its second parent.
     repo.git("checkout", "-q", "-b", "verification", feature_tip)
     (repo.root / "verification.txt").write_text("isolated verification\n", encoding="utf-8")
-    repo.commit("prepare isolated verification")
+    verification_tip = repo.commit("prepare isolated verification")
     repo.git("merge", "--no-ff", "--no-edit", "feature")
 
-    assert set(generator._merged_workflow_predecessor_refs("main")) == expected
+    assert set(generator._merged_workflow_predecessor_refs("main")) == expected | {verification_tip}
 
 
 @pytest.mark.parametrize(
@@ -234,7 +234,7 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
         (
             "verification pre-base newer\nnewer matching parallel\n"
             "matching base feature-a feature-b\nparallel base parallel-tip\n",
-            ("parallel", "feature-a", "feature-b", "parallel-tip"),
+            ("pre-base", "parallel", "feature-a", "feature-b", "parallel-tip"),
         ),
         ("newer parent-a parent-b\nolder parent-c parent-d\n", ()),
     ],
