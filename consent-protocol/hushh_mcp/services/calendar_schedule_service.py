@@ -596,6 +596,7 @@ class CalendarScheduleService:
                 )
         calendars = await self._included_calendars(user_id, binding=binding)
         await self.calendar._check_read_binding(user_id, binding)
+        calendars, _ = self._availability_selection(calendars)
         # The owning service merges overlapping busy intervals in UTC and fails
         # closed on missing/failed calendars. No client-side slot calculation.
         ids = [item["id"] for item in calendars]
@@ -780,6 +781,38 @@ class CalendarScheduleService:
             raise _error("This invitation changed. Load it again before responding.", 409)
         return selected["conflicts"], [c["id"] for c in snapshot["unreadable_calendars"]]
 
+    async def _proposed_time(self, *, user_id, date, time_zone, start_time, end_time):
+        """An exact proposal, never represented as a free opening when busy."""
+        start, end = day_window(date, time_zone, start_time, end_time)
+        if start <= datetime.now(UTC):
+            raise _error("Choose a proposed time in the future.")
+        binding = await self._read_binding(user_id)
+        calendars = await self._included_calendars(user_id, binding=binding)
+        calendars, _ = self._availability_selection(calendars)
+        busy = await self._busy_intervals(
+            user_id=user_id,
+            start=start,
+            end=end,
+            calendar_ids=[item["id"] for item in calendars],
+            binding=binding,
+        )
+        await self.calendar._check_read_binding(user_id, binding)
+        return {
+            "start_at": GoogleCalendarService._utc_iso(start),
+            "end_at": GoogleCalendarService._utc_iso(end),
+            "duration_minutes": int((end - start).total_seconds() // 60),
+            "calendar_ids": [item["id"] for item in calendars],
+            "conflicts": [
+                {
+                    "id": "busy-" + left.isoformat(),
+                    "title": "Already booked",
+                    "start": {"dateTime": GoogleCalendarService._utc_iso(left)},
+                    "end": {"dateTime": GoogleCalendarService._utc_iso(right)},
+                }
+                for left, right in busy
+            ],
+        }
+
     async def review(
         self,
         *,
@@ -787,6 +820,8 @@ class CalendarScheduleService:
         event_id: str,
         calendar_id: str = "primary",
         offer_times: bool = False,
+        send_message: bool = False,
+        exact_time: bool = False,
         message: str = "",
         date: str = "",
         time_zone: str = "UTC",
@@ -796,8 +831,12 @@ class CalendarScheduleService:
         response_status: str = "declined",
         expected_account_email: str | None = None,
     ):
-        if offer_times and response_status != "declined":
+        if (offer_times or send_message) and response_status != "declined":
             raise _error("Alternative-time messages require a decline response.")
+        if exact_time and not offer_times:
+            raise _error("An exact proposed time requires an alternative-time response.")
+        if send_message and not message.strip():
+            raise _error("Write a reason for declining before sending your email.")
         binding = await self._read_binding(user_id)
         event, patch, email = await self._event(
             user_id, event_id, calendar_id, binding, response_status
@@ -834,59 +873,94 @@ class CalendarScheduleService:
             "binding": list(binding),
         }
         mail_review, link, draft, alternatives = None, None, None, []
-        if offer_times:
+        if offer_times or send_message:
             organizer_email = str((event.get("organizer") or {}).get("email") or "")
             if not organizer_email:
                 raise _error("This invitation has no organizer email address.")
-            openings = await self.availability(
-                user_id=user_id,
-                date=date,
-                time_zone=time_zone,
-                start_time=start_time,
-                end_time=end_time,
-                duration_minutes=duration_minutes,
-                future_only=True,
-                invitation_duration=True,
-            )
-            openings["openings"] = [
-                slot
-                for slot in openings["openings"]
-                if datetime.fromisoformat(slot["start_at"].replace("Z", "+00:00"))
-                > datetime.now(UTC)
-            ]
-            if not openings["openings"]:
-                raise _error(
-                    "No alternative times are available in this window. Choose another date or window."
+            proposed = None
+            if exact_time:
+                proposed = await self._proposed_time(
+                    user_id=user_id,
+                    date=date,
+                    time_zone=time_zone,
+                    start_time=start_time,
+                    end_time=end_time,
                 )
-            alternatives = openings["openings"]
-            origin = _recipient_origin(get_app_runtime_settings().app_frontend_origin)
-            public_plan = {
-                "user_id": user_id,
-                "email": email,
-                "binding": list(binding),
-                "expires": (datetime.now(UTC) + timedelta(days=3)).timestamp(),
-                "openings": openings["openings"],
-                "calendar_ids": [c["id"] for c in openings["calendars"]],
-                "time_zone": time_zone,
-                "event_link": event.get("htmlLink"),
-            }
-            link = (
-                origin.rstrip("/")
-                + "/calendar/reschedule#"
-                + self._seal(public_plan, "calendar-public-v1")
-            )
+                conflicts = proposed["conflicts"]
+                plan["conflicts"] = conflicts
+                plan["proposed_calendar_ids"] = proposed["calendar_ids"]
+                plan["proposed_time"] = {
+                    "date": date,
+                    "time_zone": time_zone,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                }
+                alternatives = [
+                    {key: proposed[key] for key in ("start_at", "end_at", "duration_minutes")}
+                ]
+            elif offer_times:
+                openings = await self.availability(
+                    user_id=user_id,
+                    date=date,
+                    time_zone=time_zone,
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration_minutes=duration_minutes,
+                    future_only=True,
+                    invitation_duration=True,
+                )
+                openings["openings"] = [
+                    slot
+                    for slot in openings["openings"]
+                    if datetime.fromisoformat(slot["start_at"].replace("Z", "+00:00"))
+                    > datetime.now(UTC)
+                ]
+                if not openings["openings"]:
+                    raise _error(
+                        "No alternative times are available in this window. Choose another date or window."
+                    )
+                alternatives = openings["openings"]
+                origin = _recipient_origin(get_app_runtime_settings().app_frontend_origin)
+                public_plan = {
+                    "user_id": user_id,
+                    "email": email,
+                    "binding": list(binding),
+                    "expires": (datetime.now(UTC) + timedelta(days=3)).timestamp(),
+                    "openings": openings["openings"],
+                    "calendar_ids": [c["id"] for c in openings["calendars"]],
+                    "time_zone": time_zone,
+                    "event_link": event.get("htmlLink"),
+                }
+                link = (
+                    origin.rstrip("/")
+                    + "/calendar/reschedule#"
+                    + self._seal(public_plan, "calendar-public-v1")
+                )
             body = (
                 message.strip()
                 or "I can't attend our meeting. Please choose an alternative time using the link below and update the invitation."
             )
-            # The exact final editable message including this link is reviewed.
+            if proposed:
+                display_zone = ZoneInfo(time_zone)
+                start_label = (
+                    datetime.fromisoformat(proposed["start_at"].replace("Z", "+00:00"))
+                    .astimezone(display_zone)
+                    .strftime("%d %b %Y, %H:%M")
+                )
+                end_label = (
+                    datetime.fromisoformat(proposed["end_at"].replace("Z", "+00:00"))
+                    .astimezone(display_zone)
+                    .strftime("%d %b %Y, %H:%M")
+                )
+                body += f"\n\nProposed time: {start_label} – {end_label} ({time_zone}), {proposed['duration_minutes']} minutes. Please confirm and update your invitation."
+            # The sealed plan binds the exact recipient and message to confirmation.
             draft = {
                 "to": organizer_email,
                 "subject": (
-                    "Another time for "
+                    ("Another time for " if offer_times else "Unable to attend: ")
                     + " ".join(str(event.get("summary") or "our meeting").split())
                 )[:256],
-                "body": body + "\n\n" + link,
+                "body": body + ("\n\n" + link if link else ""),
             }
             mail = self.mail or get_gmail_delivery_service()
             mail_review = await mail.prepare(
@@ -912,6 +986,7 @@ class CalendarScheduleService:
             "conflicts": conflicts,
             "unchecked_calendars": unchecked,
             "openings": alternatives,
+            "exact_time": exact_time,
             "review_token": self._seal(plan, "calendar-review-v1"),
             "title": event.get("summary") or "Untitled event",
             "recipient": draft["to"] if draft else None,
@@ -979,6 +1054,13 @@ class CalendarScheduleService:
                     raise _error(
                         "Calendar access changed. Review conflicts again before accepting.", 409
                     )
+            if plan.get("proposed_time"):
+                proposed = await self._proposed_time(user_id=user_id, **plan["proposed_time"])
+                if set(proposed["calendar_ids"]) != set(plan.get("proposed_calendar_ids", [])):
+                    raise _error("Included calendars changed. Review the proposed time again.", 409)
+                self.calendar._reject_new_conflicts(
+                    planned=plan.get("conflicts", []), current=proposed["conflicts"]
+                )
             attendee_email = patch["attendees"][0]["email"].casefold()
             attendee = next(
                 item

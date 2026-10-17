@@ -186,6 +186,7 @@ import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/conn
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
+  CHAT_WELCOME_COPY_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
   OneChatBubble,
   OneChatTimeSeparator,
@@ -1595,7 +1596,7 @@ function AgentWelcomePanel({
         <h2 className="max-w-full break-words text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
+        <p className={cn("mt-3 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
           What would you like to do today?
         </p>
         <AgentPromptSuggestions
@@ -4213,8 +4214,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!handoff || consumedHandoffIdRef.current === handoff.id) return;
     // Calendar continues the selected chat after its history is restored.
     // Other handoff owners retain their existing new-chat behavior.
-    if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest) {
-      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
+    if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance) {
+      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
       if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== user?.uid))) return;
     }
     consumedHandoffIdRef.current = handoff.id;
@@ -4237,6 +4238,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       queuedMeetingRef.current = handoff.calendarRequest.meeting;
       setQueuedHandoffPrompt(handoff.calendarRequest.request);
       consumeHandoff(handoff.id);
+      return;
+    }
+    if (handoff.calendarAttendance) {
+      const attendance = handoff.calendarAttendance;
+      consumeHandoff(handoff.id);
+      if (!isVaultSessionEpochCurrent(attendance.epoch)) return;
+      historyRestoreEpochRef.current += 1;
+      setPendingSpecialistDirective(null);
+      const attendanceChatEpoch = chatSessionRef.current.value;
+      const id = `calendar-attendance-${handoff.id}`;
+      setMessages(current => [...current, { id, role: "assistant", timestamp, sentAtMs,
+        text: `Declining ${attendance.title} and sending your email to ${attendance.recipient}…`,
+        status: "done", renderAsPlainAssistantMessage: true }]);
+      void attendance.outcome.then(outcome => {
+        if (!isVaultSessionEpochCurrent(attendance.epoch) || !chatSessionRef.current.isCurrent(attendanceChatEpoch)) return;
+        setMessages(current => current.map(message => message.id === id ? { ...message,
+          text: "result" in outcome ? attendanceResultMessage(outcome.result) : outcome.error,
+          status: "error" in outcome || ("result" in outcome && [outcome.result.calendar, outcome.result.email].some(value => value === "failed" || value === "unknown")) ? "error" : "done",
+        } : message));
+      });
       return;
     }
     if (handoff.calendarInvitation) {
@@ -9528,7 +9549,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
-              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
+              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
                 <p>Your conversation could not be restored. Your Calendar selection is retained.</p>
                 <Button variant="secondary" disabled={isLoadingHistory} onClick={() => setSlotHistoryRetry(value => value + 1)}>Retry conversation</Button>
               </div> : null}
