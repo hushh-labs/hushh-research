@@ -80,14 +80,18 @@ const connections = () =>
       connectedFromContacts: index === 1,
     }),
   );
-const people = ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
+const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   (displayName, index) => ({
     userId: `directory-${index}`,
-    displayName,
+    displayName: dataset().longDirectoryIdentity === "1" && index === 0
+      ? "Avery Featherstonehaugh-Rajendran"
+      : displayName,
     photoUrl: null,
     email: null,
-    maskedPhone: `••• ••• ${4400 + index}`,
-    maskedEmail: `p***${index}@example.com`,
+    maskedPhone: `98******${10 + index}`,
+    maskedEmail: dataset().longDirectoryIdentity === "1" && index === 0
+      ? "a***@international-research-department.example.com"
+      : `p***${index}@example.com`,
     mutualConnectionCount: index === 0 ? 2 : 0,
     mutualConnectionPreview: index === 0 ? { displayName: "Alex Chen", photoUrl: null, publicPersonRef: "person_alex" } : null,
     relationship: "none",
@@ -106,13 +110,15 @@ export const ConnectionsService = {
     });
   },
   listRequests: async () => [],
-  searchDirectory: () =>
-    after(delay("directoryMs", 400), {
-      items: people,
+  searchDirectory: ({ query }: { query?: string }) => {
+    const items = query && dataset().emptyDirectoryOnQuery === "1" ? [] : people();
+    return after(delay("directoryMs", 400), {
+      items,
       page: 1,
       hasMore: false,
-      totalCount: people.length,
-    }),
+      totalCount: items.length,
+    });
+  },
   getScopeCatalog: async () => ({ scopes: [] }),
   getPersonContext: async () => null,
   sendRequest: async () => ({}),

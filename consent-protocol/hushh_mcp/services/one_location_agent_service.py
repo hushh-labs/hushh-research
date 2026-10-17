@@ -51,6 +51,7 @@ from hushh_mcp.services.one_location_public_invite_url import (
 from hushh_mcp.services.people_search_sql import (
     directory_contact_match_params,
     directory_search_rank,
+    mask_directory_phone,
     people_query_match_params,
 )
 from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
@@ -2077,6 +2078,7 @@ class OneLocationAgentService:
         row: dict[str, Any] | None,
         *,
         allow_email_handle: bool = False,
+        directory_phone_mask: bool = False,
     ) -> dict[str, Any] | None:
         """Project one person for a client list.
 
@@ -2097,6 +2099,10 @@ class OneLocationAgentService:
 
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
+        if directory_phone_mask:
+            masked_phone = (
+                mask_directory_phone(row.get("phone_number")) if row.get("phone_verified") else None
+            )
         user_id = str(row.get("user_id") or "")
         # The masked phone stays a rung, below the name and the handle. It is
         # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
@@ -5046,7 +5052,11 @@ class OneLocationAgentService:
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
                 LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
                 OR (a.phone_verified = TRUE
-                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains)
+                    AND (
+                      REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains
+                      OR REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g')
+                           LIKE ANY(CAST(:phone_alternates AS TEXT[]))
+                    ))
               ))
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
@@ -5175,7 +5185,11 @@ class OneLocationAgentService:
         )
         has_more = len(eligible_rows) > offset + limit
         page_rows = eligible_rows[offset : offset + limit]
-        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        recipients = [
+            payload
+            for row in page_rows
+            if (payload := self._recipient_payload(row, directory_phone_mask=True))
+        ]
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,

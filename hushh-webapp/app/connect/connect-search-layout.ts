@@ -32,6 +32,14 @@ export const CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME = "pr-11";
 export const CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME = "pr-3.5";
 
 /**
+ * Phone identities use the full reading width. Only person cards become a
+ * multi-column grid; status, invite and paging rows always span that grid.
+ * SettingsRow roots have caller-owned test IDs, not a settings-row data slot.
+ */
+export const CONNECT_DIRECTORY_CONTENT_CLASSNAME =
+  "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 [&>:not([data-testid=directory-person-card])]:col-span-full";
+
+/**
  * The selection toggle, at a fixed width so switching between "Select"
  * and "Cancel" cannot resize the directory header beside it.
  *
