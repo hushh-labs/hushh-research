@@ -73,7 +73,7 @@ function shouldValidateLinkToken(token) {
   return false;
 }
 
-function resolveCandidate(baseFile, token) {
+function resolveCandidate(baseFile, token, exists = fs.existsSync) {
   const cleaned = token.split("#")[0].trim();
   const baseDir = path.dirname(path.join(repoRoot, baseFile));
 
@@ -85,7 +85,33 @@ function resolveCandidate(baseFile, token) {
     return path.resolve(baseDir, cleaned);
   }
 
+  // Markdown resolves a bare link such as `(sibling.md)` from the linking
+  // file's folder. Repo-root paths such as `docs/...` still resolve as before.
+  const sibling = path.resolve(baseDir, cleaned);
+  if (!path.isAbsolute(cleaned) && exists(sibling)) {
+    return sibling;
+  }
+
   return path.join(repoRoot, cleaned);
+}
+
+/**
+ * Prove bare links resolve beside their document without losing repo-root
+ * links or letting a missing file pass. Uses virtual files, not the disk.
+ */
+function selfTestResolveCandidate() {
+  const files = new Set(
+    ["docs/guide/page.md", "docs/guide/sibling.md", "docs/reference/target.md"].map((rel) =>
+      path.join(repoRoot, rel),
+    ),
+  );
+  const exists = (candidate) => files.has(candidate);
+  const resolves = (token) => exists(resolveCandidate("docs/guide/page.md", token, exists));
+  const problems = [];
+  if (!resolves("sibling.md")) problems.push("self-test: bare sibling link did not resolve");
+  if (!resolves("docs/reference/target.md")) problems.push("self-test: repo-root docs/ link did not resolve");
+  if (resolves("missing.md")) problems.push("self-test: missing bare link resolved");
+  return problems;
 }
 
 /**
@@ -137,7 +163,7 @@ function resolveCodePath(baseFile, token) {
 
 function main() {
   const mdFiles = [...new Set(docTargets.flatMap((target) => walkMarkdown(target)))].sort();
-  const errors = [];
+  const errors = [...selfTestResolveCandidate()];
 
   for (const relFile of mdFiles) {
     const src = fs.readFileSync(path.join(repoRoot, relFile), "utf8");
