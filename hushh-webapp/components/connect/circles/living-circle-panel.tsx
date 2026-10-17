@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Trash2, UsersRound } from "@/components/icons";
+import { Check, Plus, Trash2, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
 import { CircleAvatar } from "./circle-photo-editor";
 import { Button } from "@/components/ui/button";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleMember,
@@ -26,8 +27,10 @@ export function LivingCirclePanel({
   remainingCapacity,
   loading,
   error,
-  addingUserId,
+  selectedUserIds,
+  submitting,
   onAdd,
+  onSubmit,
   onRemove,
   searchQuery,
   onSearchChange,
@@ -48,8 +51,10 @@ export function LivingCirclePanel({
   remainingCapacity: number;
   loading: boolean;
   error: string | null;
-  addingUserId: string | null;
+  selectedUserIds: ReadonlySet<string>;
+  submitting: boolean;
   onAdd: (userId: string) => void;
+  onSubmit: () => void;
   onRemove?: (userId: string) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -67,6 +72,7 @@ export function LivingCirclePanel({
   const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
+  const selectionLimit = circleInviteSelectionLimit(remainingCapacity);
   const owner = members.find((member) => member.role === "owner");
   const orbitMembers = owner && !showGroupIdentity
     ? members.filter((member) => member.userId !== owner.userId)
@@ -85,7 +91,7 @@ export function LivingCirclePanel({
         )
       : 0;
   const addFromDrop = (userId: string) => {
-    if (!canInvite || addingUserId || remainingCapacity <= 0) return;
+    if (!canInvite || submitting || selectedUserIds.has(userId) || selectedUserIds.size >= selectionLimit) return;
     if (candidates.some((candidate) => candidate.userId === userId)) onAdd(userId);
   };
   const profileHref = (publicPersonRef: string) =>
@@ -178,7 +184,7 @@ export function LivingCirclePanel({
       </div>
       <p aria-live="polite" className="ui-text-row-description mt-1 text-center text-[color:var(--app-secondary-label)]">
         {overCircle
-          ? "Release to add this person"
+          ? "Release to select this person"
           : overRemoveZone
             ? "Release to remove from circle"
             : draggingMemberId
@@ -240,7 +246,7 @@ export function LivingCirclePanel({
                 <div>
                   <h2 className="ui-text-card-title text-[color:var(--app-primary-label)]">Bring in your connections</h2>
                   <p className="ui-text-row-description mt-1 text-[color:var(--app-secondary-label)]">
-                    {focusOnAdding ? "Tap Add next to someone you want in this Circle." : "Drag a person into the circle on desktop, or tap Add on any device."}
+                    Select people, then add them together. You can also drag someone into the circle to select them.
                   </p>
                 </div>
                 {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
@@ -269,21 +275,23 @@ export function LivingCirclePanel({
                   />
                 </label>
               ) : null}
-              {loading ? (
-                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
-              ) : error ? (
-                <div className="mt-4 flex items-center gap-3">
+              {error ? (
+                <div className="mt-4 flex items-center gap-3" role="status">
                   <p className="ui-text-row-description text-[color:var(--app-secondary-label)]">{error}</p>
                   <Button type="button" variant="outline" size="compact" onClick={onRetry}>Retry</Button>
                 </div>
-              ) : remainingCapacity <= 0 ? (
+              ) : null}
+              {loading && !candidates.length ? (
+                <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
+              ) : error && !candidates.length ? null
+              : remainingCapacity <= 0 ? (
                 <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">This circle is full.</p>
               ) : shownCandidates.length ? (
                 <div className="mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
                   {shownCandidates.map((person) => (
                     <div
                       key={person.userId}
-                      draggable={!addingUserId}
+                      draggable={!submitting && (selectedUserIds.has(person.userId) || selectedUserIds.size < selectionLimit)}
                       onDragStart={(event) => {
                         event.dataTransfer.setData(DRAG_TYPE, person.userId);
                         event.dataTransfer.effectAllowed = "copy";
@@ -296,10 +304,12 @@ export function LivingCirclePanel({
                         type="button"
                         className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm font-semibold text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-50"
                         onClick={() => onAdd(person.userId)}
-                        disabled={Boolean(addingUserId)}
+                        disabled={submitting || (!selectedUserIds.has(person.userId) && selectedUserIds.size >= selectionLimit)}
+                        aria-pressed={selectedUserIds.has(person.userId)}
                         aria-label={`Add ${person.displayName} to ${circleName}`}
                       >
-                        <Plus aria-hidden="true" className="size-4" /> {addingUserId === person.userId ? "Adding…" : "Add"}
+                        {selectedUserIds.has(person.userId) ? <Check aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
+                        {selectedUserIds.has(person.userId) ? "Selected" : "Add"}
                       </button>
                     </div>
                   ))}
@@ -313,6 +323,19 @@ export function LivingCirclePanel({
                   No connections available to add. <Link className="font-semibold text-[color:var(--app-accent)] underline-offset-2 hover:underline" href={`${ROUTES.CONNECT}?tab=all`}>Find people</Link>
                 </p>
               )}
+              {selectedUserIds.size > 0 || submitting ? (
+                <div className="mt-4 space-y-2">
+                  <p role="status" className="ui-text-row-description text-[color:var(--app-secondary-label)]">
+                    {submitting ? "Adding selected people…" : `${selectedUserIds.size} selected`}
+                  </p>
+                  {selectedUserIds.size >= selectionLimit && !submitting ? (
+                    <p className="text-xs text-[color:var(--app-secondary-label)]">You can add up to {selectionLimit} people at a time.</p>
+                  ) : null}
+                  <Button type="button" className="w-full" onClick={onSubmit} disabled={submitting || Boolean(error) || selectedUserIds.size > selectionLimit}>
+                    {submitting ? "Adding people…" : `Add ${selectedUserIds.size} ${selectedUserIds.size === 1 ? "person" : "people"}`}
+                  </Button>
+                </div>
+              ) : null}
               {expanded && hasMore && !loading && !error && remainingCapacity > 0 ? (
                 <Button type="button" variant="outline" size="compact" className="mt-4 w-full" disabled={loadingMore} onClick={onLoadMore}>
                   {loadingMore ? "Loading…" : "Load more connections"}

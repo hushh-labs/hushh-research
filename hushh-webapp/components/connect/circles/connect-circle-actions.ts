@@ -163,18 +163,14 @@ export function createConnectCircleActions({
         }),
       ),
 
-    inviteConnections: (circleId: string, inviteeUserIds: string[]) =>
+    inviteConnections: (circleId: string, inviteeUserIds: string[], notify = true) =>
       guard("Could not add those people.", async () => {
         const added = await OneLocationService.createNamedCircleMemberInvites({
           vaultOwnerToken,
           circleId,
           inviteeUserIds,
         });
-        toast.success(
-          inviteeUserIds.length === 1
-            ? "Added to the Circle."
-            : `${inviteeUserIds.length} people added.`,
-        );
+        if (notify) toast.success("Circle members updated.");
         return added;
       }),
 
