@@ -1321,7 +1321,11 @@ final class AppUITests: XCTestCase {
                     guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CANCEL_LOST_CLOSE"); return }
                 }
                 close.tap()
-                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return }
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return
+                }
                 continuity()
                 profile.tap()
                 let profileClose = app.buttons["Close Profile"].firstMatch
@@ -1331,7 +1335,9 @@ final class AppUITests: XCTestCase {
                 // through the real native Back, never reset/cold-navigate the app.
                 let nativeStackBack = app.navigationBars.buttons["Profile"].firstMatch
                 var resumedBack: XCUIElement {
-                    nativeStackBack.exists ? nativeStackBack : app.buttons["profile-back"].firstMatch
+                    let native = app.navigationBars.buttons.matching(NSPredicate(
+                        format: "label IN %@", ["Profile", "Security & privacy"])).firstMatch
+                    return native.exists ? native : app.buttons["profile-back"].firstMatch
                 }
                 for _ in 0..<3 {
                     let entry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -1340,6 +1346,7 @@ final class AppUITests: XCTestCase {
                     }, object: app)
                     guard XCTWaiter.wait(for: [entry], timeout: 10) == .completed else { break }
                     if profileClose.exists && profileClose.isHittable && profileClose.isEnabled && !resumedBack.exists { break }
+                    guard waitForAdmittedControl(resumedBack) else { XCTFail("COHERENT_PROFILE_PARENT_BACK_NOT_ADMITTED"); return }
                     resumedBack.tap()
                 }
                 guard waitForAdmittedControl(profileClose) else {
@@ -1359,16 +1366,15 @@ final class AppUITests: XCTestCase {
                 guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
                 XCTAssertFalse(editor.isHittable)
                 preferences.tap()
-                let nativeSettings = nativeStackBack.waitForExistence(timeout: 5)
-                let back = nativeSettings ? nativeStackBack : app.buttons["profile-back"].firstMatch
-                guard waitForAdmittedControl(back) else {
+                guard nativeStackBack.waitForExistence(timeout: 5), waitForAdmittedControl(nativeStackBack),
+                      app.buttons["native-profile-row-preferences-theme"].firstMatch.exists else {
                     printCoherentPresentationAdmission(app)
                     printNativeControlStatuses(web)
-                    XCTFail("COHERENT_DETAIL_BACK_NOT_ADMITTED"); return
+                    XCTFail("COHERENT_NATIVE_PREFERENCES_NOT_ADMITTED"); return
                 }
-                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, nativeSettings ? 0 : 1,
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
                     "A complete native Preferences page excludes the covered WebView from accessibility")
-                back.tap()
+                nativeStackBack.tap()
                 guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
                 profileClose.tap()
                 guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
