@@ -109,6 +109,11 @@ The remaining canonical web-core, packaged MCP and integration stages pass on
 `fd4e38838e`. This is composite core evidence: the original failed runs and
 targeted repairs remain recorded, rather than a claim that one uninterrupted
 core invocation passed. Hosted CI on the final publication SHA remains required.
+The first hosted candidate `09f3d53a10` exposed four stale web expectations and
+one obsolete Puppy fixture anchor across the three browser shards. The existing
+runtime contracts remain unchanged: 99 affected web checks and 52 Chromium/WebKit
+model-authority checks pass after test repairs, including the original authority
+negative controls. A document-feed-only proxy-marker mutation is refused.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and

@@ -173,6 +173,10 @@ describe("PWM owner and request isolation", () => {
     await waitFor(() => expect(mock.preferences).toHaveBeenCalledOnce());
     expect(mock.observe).not.toHaveBeenCalled();
     expect(mock.load).not.toHaveBeenCalled();
+    fireEvent(document, new Event("visibilitychange"));
+    await settle();
+    expect(mock.observe).not.toHaveBeenCalled();
+    expect(mock.load).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Refresh"));
     await waitFor(() => expect(mock.observe).toHaveBeenCalledOnce());
     expect(mock.observe.mock.calls[0][0].refresh).toBe(true);

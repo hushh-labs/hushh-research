@@ -2,16 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * The Agent Chat header, read out of the shipped source rather than retyped.
- *
- * The workspace depends on Firebase, the vault and AG-UI; an unauthenticated
- * visit proves only the welcome screen. This fixture instead extracts shipped
- * classes, copy and conditional expressions, including imported header controls.
- * It executes plain guards with fixture state so removed gates or moved controls
- * change the measured screen. Every anchor must match exactly once.
- *
- * This proves source-derived presentation, not real React state, focus effects
- * or Radix behavior. The owning spec records those separate acceptance limits.
+ * Model authority from shipped classes, copy and plain guards, including imported
+ * controls. Every anchor matches once; changed gates alter the measured screen.
+ * Unlike an unauthenticated visit, this exercises the signed-in header shape.
+ * It proves presentation, not React state, focus or Radix behavior; the owning
+ * spec records those separate acceptance limits. No Firebase or vault is mocked.
  */
 
 const WEBAPP_ROOT = process.cwd();
@@ -358,6 +353,10 @@ const puppyPicker = read(PUPPY_PICKER_PATH);
 const puppyRibbon = read(PUPPY_RIBBON_PATH);
 const puppyControls = read(PUPPY_CONTROLS_PATH);
 const segmented = read(SEGMENTED_PATH);
+
+// Refuse a fixture whose extracted controls are no longer composed by the panel.
+one(panel, /<PuppyLocalControls\b/, "the local controls composition", PANEL_PATH);
+one(panel, /<AgentBarSurface\b/, "the native-aware composer composition", PANEL_PATH);
 
 const panelHeaderClass = one(
   puppyRibbon,
