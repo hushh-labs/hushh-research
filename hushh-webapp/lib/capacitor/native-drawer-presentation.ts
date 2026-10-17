@@ -22,6 +22,12 @@ function receiptMatches(receipt: NativeDrawerReceipt, state: NativeDrawerProject
     receipt.updateSequence === state.updateSequence && receipt.privacyGeneration === state.privacyGeneration;
 }
 
+function profileDestinationKey(state: NativeDrawerProjection): string {
+  if (state.profileSupportDestinationId !== undefined) return `support:${state.profileSupportDestinationId}`;
+  if (state.profileDestinationId !== undefined) return `page:${state.profileDestinationId}`;
+  return "root";
+}
+
 /** One volatile presentation replica, not a feature controller. Authored row
  * handles call the current React owner only after both sides validate a choice.
  * No private projection is logged, persisted, or retained in an event queue. */
@@ -40,7 +46,7 @@ export class NativeDrawerPresentation {
   private applied = 0;
   private latestReceipt: NativeDrawerReceipt | null = null;
   private highestUpdate = 0;
-  private readonly destinations = new Map<number, string | undefined>();
+  private readonly destinations = new Map<number, string>();
   private seenChoice = 0;
   private withdrawal: Promise<boolean> | null = null;
   private phase: NativeDrawerPresentationPhase = "preparing";
@@ -112,7 +118,7 @@ export class NativeDrawerPresentation {
     if (!this.fence.update(snapshot)) return false;
     this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };
     this.highestUpdate = snapshot.updateSequence;
-    this.destinations.set(snapshot.updateSequence, snapshot.profileDestinationId);
+    this.destinations.set(snapshot.updateSequence, profileDestinationKey(snapshot));
     while (this.destinations.size > 128) this.destinations.delete(this.destinations.keys().next().value!);
     this.pending = snapshot;
     this.pump();
@@ -227,7 +233,7 @@ export class NativeDrawerPresentation {
 
   private destinationWasSuperseded(event: NativeDrawerChoice): boolean {
     return this.current?.state.profileStack !== undefined && this.destinations.has(event.updateSequence) &&
-      this.destinations.get(event.updateSequence) !== this.current.state.profileDestinationId;
+      this.destinations.get(event.updateSequence) !== profileDestinationKey(this.current.state);
   }
 
   private setPhase(phase: NativeDrawerPresentationPhase) {

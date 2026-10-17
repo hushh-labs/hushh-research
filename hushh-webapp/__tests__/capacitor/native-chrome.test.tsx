@@ -569,25 +569,29 @@ describe("private native drawer action boundary", () => {
       } };
   }
 
-  it.each([false, true])("quarantines an uncertain Back unless its destination was superseded=%s", async superseded => {
+  it.each([
+    ["account", false], ["account", true], ["support", false], ["support", true],
+  ] as const)("quarantines an uncertain %s choice unless its destination was superseded=%s", async (family, superseded) => {
     const bridge = presentationBridge();
     const capabilities = await bridge.plugin.getCapabilities();
     bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
     const confirmation = deferred<{ valid: boolean }>();
     vi.mocked(bridge.plugin.confirmChoice).mockImplementationOnce(() => confirmation.promise);
     bridge.plugin.settleChoice = vi.fn(async () => ({ valid: false }));
-    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
-      profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] };
+    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: family === "account",
+      ...(family === "account" ? { profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] }
+        : { profileStack: [] }) };
     const phases = vi.fn(), back = vi.fn();
     const presentation = new NativeDrawerPresentation(account, bridge.plugin, () => true, phases);
     const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back };
     await presentation.listen();
     presentation.publish(account, actions);
     await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
-    bridge.emit({ ...choice(), family: "profile", action: "back", rowId: undefined });
+    bridge.emit({ ...choice(), family: "profile", action: family === "account" ? "back" : "row", rowId: family === "account" ? undefined : "row-handle" });
     await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
-    presentation.publish({ ...account, updateSequence: 2, appearance: "dark",
-      profileDestinationId: superseded ? "account-returned" : "account-first" }, actions);
+    presentation.publish({ ...account, updateSequence: 2, appearance: "dark", ...(family === "account"
+      ? { profileDestinationId: superseded ? "account-returned" : "account-first" }
+      : { ...(superseded ? { profileSupportDestinationId: "support-next" } : {}) }) }, actions);
     await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
     confirmation.resolve({ valid: false });
     await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
