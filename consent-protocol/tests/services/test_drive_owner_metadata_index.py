@@ -295,6 +295,51 @@ async def test_a_failed_fence_check_keeps_the_last_good_page(monkeypatch):
     assert (status.indexed, status.pages, status.ready) == (1000, 1, False)
 
 
+async def test_provider_trouble_serves_what_is_indexed_and_resumes(monkeypatch):
+    rows = [rest_row(file_id("u", index), f"Receipt {index}") for index in range(2_500)]
+    adapter = FakeDriveAdapter(rows)
+    listing, failures = adapter.list_files, [1]
+
+    async def flaky(**arguments):
+        if arguments.get("page_token") is not None and failures[0]:
+            failures[0] -= 1
+            raise DriveReadError("provider_unavailable")
+        return await listing(**arguments)
+
+    adapter.list_files = flaky
+    now = [0.0]
+    indexer = gear1.OwnerMetadataIndexer(transport_for(adapter, monkeypatch), clock=lambda: now[0])
+    partial = await indexer.match(OWNER, ["receipt"], None, connection_generation=7)
+    assert (partial.ready, partial.error, partial.total_matches) == (
+        False,
+        "provider_unavailable",
+        1000,
+    )
+    done = await indexer.match(OWNER, ["receipt"], None, connection_generation=7)
+    assert done.ready and done.error is None and done.total_matches == 2_500
+
+    # A change page that keeps failing is answered from the ready index, then
+    # the next call lists Drive afresh instead of staying stale.
+    async def broken(**_arguments):
+        raise DriveReadError("provider_response_invalid")
+
+    changes, adapter.index_changes = adapter.index_changes, broken
+    for _ in range(gear1.MAX_DELTA_FAILURES):
+        now[0] += gear1.DELTA_INTERVAL_SECONDS + 1
+        served = await indexer.match(OWNER, ["receipt"], None, connection_generation=7)
+        assert (served.total_matches, served.error) == (2_500, "provider_response_invalid")
+    adapter.index_changes = changes
+    assert (await indexer.refresh(OWNER, connection_generation=7, max_pages=0)).indexed == 0
+
+    # A revoked grant is never treated as transient.
+    async def revoked(**_arguments):
+        raise DriveReadError("reconnect_required")
+
+    adapter.list_files = revoked
+    with pytest.raises(DriveReadError, match="reconnect_required"):
+        await indexer.match(OWNER, ["receipt"], None, connection_generation=7)
+
+
 def file_change(row=None, *, file_id_=None, removed=False):
     change = {"changeType": "file", "fileId": row["id"] if row else file_id_, "removed": removed}
     return {**change, "file": row} if row is not None else change

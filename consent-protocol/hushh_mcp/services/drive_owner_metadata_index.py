@@ -24,6 +24,9 @@ Contract for the request brain (drive_owner_search_* owner)::
     result.candidates   # tuple[MetadataCandidate], best first
     result.ready        # every corpus has been listed at least once
     result.complete     # ready, and Drive reported no incompleteSearch / invalid rows
+    result.error        # transient provider code when this call could not list or
+                        # catch up (answered from what is indexed); grant, fence and
+                        # argument errors raise instead
 
     vocabulary = await owner_vocabulary(owner_id, connection_generation=...)  # set[str]
 
@@ -105,6 +108,13 @@ _SAFE_ERRORS = frozenset(
         "invalid_argument",
     }
 )
+# Provider trouble that leaves the index usable: the call returns what it has
+# and the next call resumes the same cursor. Grant, fence and argument errors
+# still raise, so names are never served across a revoked or changed grant.
+_TRANSIENT_ERRORS = frozenset(
+    {"provider_unavailable", "provider_response_invalid", "file_too_large"}
+)
+MAX_DELTA_FAILURES = 3
 
 # Token match scores. Exact words outrank spelling forms, prefixes ("state"
 # for "statement", like Drive's own name search), inner words and typos.
@@ -331,6 +341,7 @@ class MetadataMatchResult:
     indexed: int
     total_matches: int
     elapsed_ms: float
+    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -647,6 +658,8 @@ class _OwnerState:
     pages: int = 0
     rows: int = 0
     built_at: float | None = None
+    delta_failures: int = 0
+    error: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @property
@@ -660,6 +673,7 @@ class IndexStatus:
     complete: bool
     indexed: int
     pages: int
+    error: str | None = None
 
 
 def _status(state: _OwnerState) -> IndexStatus:
@@ -668,7 +682,17 @@ def _status(state: _OwnerState) -> IndexStatus:
         complete=state.ready and not state.incomplete,
         indexed=len(state.index),
         pages=state.pages,
+        error=state.error,
     )
+
+
+def _transient(error: Exception) -> str | None:
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    if isinstance(error, DriveReadError) and str(error) in _TRANSIENT_ERRORS:
+        return str(error)
+    # The shared listing projection reports a malformed provider page this way.
+    return "provider_response_invalid" if isinstance(error, ExternalMcpError) else None
 
 
 def _next_token(payload: dict, state: _OwnerState, current: str | None) -> str | None:
@@ -942,6 +966,26 @@ class OwnerMetadataIndexer:
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         require_current: Callable[[], Awaitable[object]] | None = None,
     ) -> IndexStatus:
+        """Spend at most ``max_pages`` provider pages listing, then catching up."""
+        return (
+            await self._refresh(
+                owner_id,
+                connection_generation=connection_generation,
+                max_pages=max_pages,
+                deadline_seconds=deadline_seconds,
+                require_current=require_current,
+            )
+        )[1]
+
+    async def _refresh(
+        self,
+        owner_id: str,
+        *,
+        connection_generation: int,
+        max_pages: int,
+        deadline_seconds: float,
+        require_current: Callable[[], Awaitable[object]] | None,
+    ) -> tuple[_OwnerState, IndexStatus]:
         """Spend at most ``max_pages`` provider pages listing, then catching up.
 
         Progress is kept between calls in this process, so a large Drive
@@ -961,15 +1005,38 @@ class OwnerMetadataIndexer:
                     state.last_delta_at is None
                     or self._clock() - state.last_delta_at >= DELTA_INTERVAL_SECONDS
                 )
+                state.error = None
                 while state.pages - pages_before < max_pages and self._clock() < deadline:
                     if not state.ready:
-                        await self._page(owner_id, state, require_current)
+                        try:
+                            await self._page(owner_id, state, require_current)
+                        except Exception as error:
+                            state.error = _transient(error)
+                            if state.error is None:
+                                raise
+                            outcome = state.error
+                            break
                         continue
                     if state.built_at is None:
                         state.built_at = self._clock()
                     if not delta_due or state.changes_token is None:
                         break
-                    if await self._delta_page(owner_id, state, require_current):
+                    try:
+                        caught_up = await self._delta_page(owner_id, state, require_current)
+                    except Exception as error:
+                        state.error = _transient(error)
+                        if state.error is None:
+                            raise
+                        outcome = "delta_" + state.error
+                        state.last_delta_at = self._clock()
+                        state.delta_failures += 1
+                        if state.delta_failures >= MAX_DELTA_FAILURES:
+                            # A change page that keeps failing cannot stall
+                            # freshness: the next call lists Drive afresh.
+                            state.built_at = float("-inf")
+                        break
+                    state.delta_failures = 0
+                    if caught_up:
                         state.last_delta_at = self._clock()
                         delta_due = False
                 if state.ready and state.built_at is None:
@@ -991,7 +1058,7 @@ class OwnerMetadataIndexer:
                     int(state.ready and not state.incomplete),
                     (time.perf_counter() - started) * 1000,
                 )
-        return _status(state)
+        return state, _status(state)
 
     async def match(
         self,
@@ -1007,14 +1074,14 @@ class OwnerMetadataIndexer:
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         require_current: Callable[[], Awaitable[object]] | None = None,
     ) -> MetadataMatchResult:
-        status = await self.refresh(
+        # The state this refresh used answers the call, even if it just aged out.
+        state, status = await self._refresh(
             owner_id,
             connection_generation=connection_generation,
             max_pages=max_pages,
             deadline_seconds=deadline_seconds,
             require_current=require_current,
         )
-        state = self._state(owner_id, connection_generation)
         started = time.perf_counter()
         candidates, total = state.index.match(
             concepts, period, precedence=precedence, mime_filter=mime_filter, limit=limit
@@ -1036,6 +1103,7 @@ class OwnerMetadataIndexer:
             indexed=status.indexed,
             total_matches=total,
             elapsed_ms=elapsed,
+            error=status.error,
         )
 
     async def vocabulary(
@@ -1047,14 +1115,14 @@ class OwnerMetadataIndexer:
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         require_current: Callable[[], Awaitable[object]] | None = None,
     ) -> set[str]:
-        await self.refresh(
+        state, _ = await self._refresh(
             owner_id,
             connection_generation=connection_generation,
             max_pages=max_pages,
             deadline_seconds=deadline_seconds,
             require_current=require_current,
         )
-        return self._state(owner_id, connection_generation).index.vocabulary()
+        return state.index.vocabulary()
 
 
 _DEFAULT_INDEXER = OwnerMetadataIndexer()
