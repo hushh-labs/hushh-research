@@ -1629,4 +1629,15 @@ describe("requester terms and recovery transport", () => {
     fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], reviewRequest: notice }));
     expect((await DriveSharingService.delivery("vault", requestId, guard)).reviewRequest).toEqual(notice);
   });
+
+  it("reads partial coverage only from an explicit true", async () => {
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "completed", files: [], coveragePartial: true }));
+    expect((await DriveSharingService.delivery("vault", requestId, guard)).coveragePartial).toBe(true);
+    // Anything else reads as full coverage: the view never claims more.
+    for (const value of [false, "true", 1, null, undefined]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "completed", files: [], coveragePartial: value }));
+      const delivered = await DriveSharingService.delivery("vault", requestId, guard);
+      expect(delivered).not.toHaveProperty("coveragePartial");
+    }
+  });
 });
