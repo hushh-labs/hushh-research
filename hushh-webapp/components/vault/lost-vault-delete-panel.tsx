@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { User } from "firebase/auth";
+import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -210,17 +212,14 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
             {hasUsableProvider ? (
               <>
                 {providers.map((provider) => (
-                  <Button
+                  <AuthProviderButton
                     key={provider}
-                    variant="none"
-                    effect="fill"
-                    fullWidth
-                    className="min-h-11 rounded-full border border-[color:var(--app-accent-border)]"
+                    label={`Continue with ${providerName(provider)}`}
+                    icon={provider === "google.com" ? <GoogleIcon className="size-6" /> : <AppleIcon className="size-6" />}
+                    className="min-h-12 rounded-full border-[color:var(--app-accent-border)] bg-transparent dark:bg-transparent [backdrop-filter:none]"
                     disabled={busy || (provider === "apple.com" && Capacitor.isNativePlatform())}
                     onClick={() => void verifyProvider(provider)}
-                  >
-                    Continue with {providerName(provider)}
-                  </Button>
+                  />
                 ))}
               </>
             ) : (
