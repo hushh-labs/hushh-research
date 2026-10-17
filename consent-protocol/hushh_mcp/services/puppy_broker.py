@@ -60,6 +60,28 @@ class PuppyBrokerOffline(RuntimeError):
     """No live link for this owner and device."""
 
 
+class _InferenceResponseDeadline:
+    """Bound prefill, meaningful progress and total lifetime independently."""
+
+    def __init__(self) -> None:
+        self.started = time.monotonic()
+        self.next_frame = self.started + FIRST_FRAME_TIMEOUT_SECONDS
+
+    async def receive(self, queue: asyncio.Queue[dict[str, Any]]) -> dict[str, Any]:
+        now = time.monotonic()
+        remaining = min(REQUEST_DEADLINE_SECONDS - (now - self.started), self.next_frame - now)
+        if remaining <= 0:
+            raise asyncio.TimeoutError
+        async with asyncio.timeout(remaining):
+            response = await queue.get()
+        if any(
+            isinstance(response.get(field), str) and response[field]
+            for field in ("text", "reasoning")
+        ):
+            self.next_frame = time.monotonic() + INTER_FRAME_TIMEOUT_SECONDS
+        return response
+
+
 @dataclass
 class DeviceLink:
     key: tuple[str, str]
@@ -353,22 +375,13 @@ class PuppyBroker:
         link.last_work_monotonic = time.monotonic()
         link.pending[request_id] = queue
         link.busy_request_id = request_id
-        started = time.monotonic()
-        next_frame_deadline = started + FIRST_FRAME_TIMEOUT_SECONDS
+        deadline = _InferenceResponseDeadline()
         finished = False
         try:
             await link.send(frame)
             while True:
                 try:
-                    now = time.monotonic()
-                    remaining = min(
-                        REQUEST_DEADLINE_SECONDS - (now - started),
-                        next_frame_deadline - now,
-                    )
-                    if remaining <= 0:
-                        raise asyncio.TimeoutError
-                    async with asyncio.timeout(remaining):
-                        response = await queue.get()
+                    response = await deadline.receive(queue)
                 except asyncio.TimeoutError:
                     await _deliver_stop(link, request_id)
                     finished = True
@@ -380,11 +393,6 @@ class PuppyBroker:
                     return
                 await self._require_current(incarnation)
                 finished = str(response.get("type") or "") in _TERMINAL
-                if any(
-                    isinstance(response.get(field), str) and response[field]
-                    for field in ("text", "reasoning")
-                ):
-                    next_frame_deadline = time.monotonic() + INTER_FRAME_TIMEOUT_SECONDS
                 yield response
                 if finished:
                     return
