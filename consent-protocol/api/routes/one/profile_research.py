@@ -15,6 +15,7 @@ from hushh_mcp.services.magic_intelligence_completion import (
     MagicReviewNotCommitted,
     complete_magic_intelligence,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
 from hushh_mcp.services.profile_research_jobs import profile_research_jobs
 from hushh_mcp.services.profile_research_service import offer_profile_research
 
@@ -59,6 +60,8 @@ async def discovery_job_response(token: dict, *, start: bool):
     try:
         operation = profile_research_jobs.start if start else profile_research_jobs.status
         result = await operation(owner_id, owner_token)
+    except HTTPException:
+        raise
     except PermissionError:
         raise HTTPException(status_code=403, detail="Unlock your vault to continue.") from None
     except Exception:
@@ -78,17 +81,13 @@ async def discovery_job_response(token: dict, *, start: bool):
 
 @router.post("/profile-research/jobs")
 @limiter.limit("20/hour")
-async def profile_research_start(
-    request: Request, token: dict = Depends(require_vault_owner_chat_key)
-):
+async def profile_research_start(request: Request, token: dict = Depends(hub_content_chat_owner)):
     return await discovery_job_response(token, start=True)
 
 
 @router.get("/profile-research/jobs")
 @limiter.limit("30/minute")
-async def profile_research_status(
-    request: Request, token: dict = Depends(require_vault_owner_chat_key)
-):
+async def profile_research_status(request: Request, token: dict = Depends(hub_content_chat_owner)):
     return await discovery_job_response(token, start=False)
 
 
@@ -124,7 +123,7 @@ async def profile_review_complete(
 
 @router.post("/profile-research")
 @limiter.limit("3/hour")
-async def profile_research(request: Request, token: dict = Depends(require_vault_owner_chat_key)):
+async def profile_research(request: Request, token: dict = Depends(hub_content_chat_owner)):
     owner_id, owner_token = token.get("user_id"), token.get("token")
     if not owner_id or not owner_token:
         raise HTTPException(status_code=403, detail="Unlock your vault to continue.")

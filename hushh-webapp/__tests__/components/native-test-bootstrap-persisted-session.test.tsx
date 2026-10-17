@@ -6,16 +6,21 @@
  */
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const auth = vi.hoisted(() => ({
+  native: true,
   state: {
     loading: false,
     user: { uid: "owner-on-device" } as { uid: string } | null,
     setNativeUser: vi.fn(),
   },
 }));
+const reviewerConfig = vi.hoisted(() => ({ mode: undefined as "human_authenticated" | "operator_issued_token" | undefined, vaultPassphrase: null as string | null, expectedUserId: "reviewer-minted" as string | null }));
 const vault = vi.hoisted(() => ({ isVaultUnlocked: false, unlockVault: vi.fn() }));
 const services = vi.hoisted(() => ({
+  signInOperatorReviewer: vi.fn(async () => ({ user: { uid: "reviewer-minted" } })),
   signOut: vi.fn(async () => {
     auth.state.user = null;
   }),
@@ -25,7 +30,7 @@ const services = vi.hoisted(() => ({
   createAppReviewModeSession: vi.fn(async () => ({ token: "custom-token" })),
 }));
 
-vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => true } }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => auth.native } }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => auth.state }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
 vi.mock("@/lib/services/auth-service", () => ({
@@ -43,16 +48,18 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: { bootstrapState: vi.fn(async () => ({ hasVault: true })) },
 }));
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
+vi.mock("@/lib/testing/reviewer-operator-auth", () => ({ signInOperatorReviewer: services.signInOperatorReviewer }));
 vi.mock("@/lib/testing/local-reviewer-auth", () => ({ resolveLocalReviewerCredentials: () => null }));
 vi.mock("@/lib/testing/native-test", () => ({
   useNativeTestConfig: () => ({
     enabled: true,
     autoReviewerLogin: true,
+    reviewerAuthMode: reviewerConfig.mode,
     // The locked-vault rehearsal withholds vaultPassphrase (no auto-unlock)
     // but must still prove the reviewer credential to the backend mint.
-    vaultPassphrase: null,
+    vaultPassphrase: reviewerConfig.vaultPassphrase,
     reviewerSessionPassphrase: "mint-only-credential",
-    expectedUserId: "reviewer-minted",
+    expectedUserId: reviewerConfig.expectedUserId,
     expectedMarker: null,
     initialRoute: null,
     expectedRoute: null,
@@ -65,8 +72,16 @@ type Bridge = { enabled: boolean; bootstrapState?: string; bootstrapUserId?: str
 
 describe("NativeTestBootstrap with a session persisted on the device", () => {
   beforeEach(() => {
+    auth.native = true;
     (window as Window & { __HUSHH_NATIVE_TEST__?: Bridge }).__HUSHH_NATIVE_TEST__ = { enabled: true };
+    auth.state.loading = false;
     auth.state.user = { uid: "owner-on-device" };
+    reviewerConfig.mode = undefined;
+    reviewerConfig.expectedUserId = "reviewer-minted";
+    reviewerConfig.vaultPassphrase = null;
+    vault.isVaultUnlocked = false;
+    vault.unlockVault.mockClear();
+    services.signInOperatorReviewer.mockClear();
     services.signOut.mockClear();
     auth.state.setNativeUser.mockClear();
     services.createAppReviewModeSession.mockClear();
@@ -112,4 +127,126 @@ describe("NativeTestBootstrap with a session persisted on the device", () => {
     expect(services.signOut).not.toHaveBeenCalled();
     expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [null, "waiting_auth"],
+    [{ uid: "reviewer-minted" }, "authenticated"],
+    [{ uid: "other-owner" }, "uid_mismatch"],
+  ] as const)("observes human identity %s without mint, replacement or automatic unlock", async (user, stage) => {
+    reviewerConfig.mode = "human_authenticated";
+    reviewerConfig.vaultPassphrase = "synthetic-forbidden-automatic-credential";
+    auth.state.user = user;
+    render(<NativeTestBootstrap />);
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe(stage));
+    expect(services.signOut).not.toHaveBeenCalled();
+    expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
+    expect(services.signInWithCustomToken).not.toHaveBeenCalled();
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+  });
+
+  it("observes ordinary human vault unlock and fails closed when that identity is lost", async () => {
+    reviewerConfig.mode = "human_authenticated";
+    auth.state.user = { uid: "reviewer-minted" };
+    publishValidatedAuthSessionOwner("reviewer-minted");
+    vault.isVaultUnlocked = true;
+    const { rerender } = render(<NativeTestBootstrap />);
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    const observe = window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!;
+    const initial = observe();
+    expect(initial).toMatchObject({ ownerMatches: true, authReady: true, unlocked: true });
+    publishValidatedAuthSessionOwner("other-owner");
+    expect(observe().ownerMatches).toBe(false);
+    publishValidatedAuthSessionOwner("reviewer-minted");
+    expect(observe().authGeneration).not.toBe(initial.authGeneration);
+    advanceVaultSessionEpoch();
+    expect(observe().vaultEpoch).not.toBe(initial.vaultEpoch);
+    auth.state.user = null;
+    await act(async () => rerender(<NativeTestBootstrap />));
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("auth_error"));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().ownerMatches).toBe(false);
+    expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+    publishValidatedAuthSessionOwner(null);
+  });
+
+
+  it("invalidates human vault admission while authentication is being reverified", async () => {
+    reviewerConfig.mode = "human_authenticated";
+    auth.state.user = { uid: "reviewer-minted" };
+    publishValidatedAuthSessionOwner("reviewer-minted");
+    vault.isVaultUnlocked = true;
+    const { rerender } = render(<NativeTestBootstrap />);
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().authReady).toBe(true);
+    auth.state.loading = true;
+    await act(async () => rerender(<NativeTestBootstrap />));
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("waiting_auth"));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    expect(window.__HUSHH_NATIVE_TEST__!.reviewerSessionSnapshot!().authReady).toBe(false);
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+    publishValidatedAuthSessionOwner(null);
+  });
+
+  it("withdraws human vault admission when the same owner relocks", async () => {
+    reviewerConfig.mode = "human_authenticated";
+    auth.state.user = { uid: "reviewer-minted" };
+    vault.isVaultUnlocked = true;
+    const { rerender } = render(<NativeTestBootstrap />);
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    vault.isVaultUnlocked = false;
+    await act(async () => rerender(<NativeTestBootstrap />));
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("authenticated"));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("reviewer-minted");
+    expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
+    expect(services.signOut).not.toHaveBeenCalled();
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+  });
+
+  it("cannot admit an unlocked human vault without an expected owner", async () => {
+    reviewerConfig.mode = "human_authenticated";
+    reviewerConfig.expectedUserId = null;
+    auth.state.user = { uid: "reviewer-minted" };
+    vault.isVaultUnlocked = true;
+    render(<NativeTestBootstrap />);
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("uid_mismatch"));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [null, "auth_error", false],
+    [{ uid: "other-owner" }, "uid_mismatch", false],
+    [null, "auth_error", true],
+  ] as const)("retires a verified operator session on canonical identity loss %s (reverification %s)", async (nextUser, stage, reverify) => {
+    auth.native = false;
+    reviewerConfig.mode = "operator_issued_token";
+    auth.state.user = null;
+    const { rerender } = render(<NativeTestBootstrap />);
+    await waitFor(() => expect(services.signInOperatorReviewer).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(auth.state.setNativeUser).toHaveBeenCalledWith({ uid: "reviewer-minted" }));
+    auth.state.user = { uid: "reviewer-minted" };
+    vault.isVaultUnlocked = true;
+    await act(async () => rerender(<NativeTestBootstrap />));
+    await waitFor(() => expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("vault_unlocked"));
+    if (reverify) {
+      auth.state.loading = true;
+      await act(async () => rerender(<NativeTestBootstrap />));
+      expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("waiting_auth");
+      expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+      auth.state.loading = false;
+    }
+    auth.state.user = nextUser;
+    await act(async () => rerender(<NativeTestBootstrap />));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe(stage);
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId).toBe("");
+    auth.state.user = { uid: "reviewer-minted" };
+    await act(async () => rerender(<NativeTestBootstrap />));
+    expect(window.__HUSHH_NATIVE_TEST__?.bootstrapState).toBe("auth_error");
+    expect(services.signInOperatorReviewer).toHaveBeenCalledTimes(1);
+    expect(services.createAppReviewModeSession).not.toHaveBeenCalled();
+    expect(services.signOut).not.toHaveBeenCalled();
+    expect(vault.unlockVault).not.toHaveBeenCalled();
+  });
+
 });

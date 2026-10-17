@@ -960,13 +960,29 @@ test.describe("Circle roster row", () => {
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
-          await expect(share.locator("svg")).toHaveCSS("color", "rgb(0, 113, 227)");
+          const readAccent = () => sheet.evaluate((element) => {
+            const probe = document.createElement("span");
+            probe.style.color = "var(--app-accent-deep)";
+            element.append(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          });
+          const defaultAccent = await readAccent();
+          await expect(share.locator("svg")).toHaveCSS("color", defaultAccent);
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
-          await expect(cancel).toHaveCSS("height", "50px");
+          await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
             await expect(remove).toHaveCSS("justify-content", "normal");
           }
-          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
+          await expect(cancel).toHaveCSS("color", defaultAccent);
+          await page.evaluate(() => document.documentElement.dataset.accent = "gold");
+          const goldAccent = await readAccent();
+          expect(goldAccent).not.toBe(defaultAccent);
+          await expect(share.locator("svg")).toHaveCSS("color", goldAccent);
+          await expect(cancel).toHaveCSS("color", goldAccent);
+          await page.evaluate(() => delete document.documentElement.dataset.accent);
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
             const cancel = element.querySelector<HTMLButtonElement>('button:not([role="menuitem"])')!;

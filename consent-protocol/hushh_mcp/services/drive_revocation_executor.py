@@ -54,6 +54,7 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
             async with asyncio.timeout(75):
                 plan = self.store._plan(job)
                 row, credentials = await self.oauth.current_credential(
+                    cleanup=True,
                     user_id=user_id,
                     required_profile="live" if plan.get("source_kind") == "live" else "selected",
                 )

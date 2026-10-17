@@ -72,11 +72,51 @@ describe("GET /api/consent/events/[userId]", () => {
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
         }),
-        signal: req.signal,
+        signal: expect.any(AbortSignal),
       })
     );
 
     mockFetch.mockRestore();
+  });
+
+  it("closes the backend stream when the browser cancels", async () => {
+    const upstreamCancelled = vi.fn();
+    const streamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("event: heartbeat\ndata: {}\n\n"));
+      },
+      cancel: upstreamCancelled,
+    });
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(streamBody, { status: 200, headers: { "Content-Type": "text/event-stream" } })
+    );
+    const req = authenticatedGET("/api/consent/events/user_123", {});
+    const res = await eventsRoute.GET(req, {
+      params: Promise.resolve({ userId: "user_123" }),
+    });
+    const reader = res.body!.getReader();
+    expect((await reader.read()).done).toBe(false);
+    await reader.cancel();
+
+    expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(upstreamCancelled).toHaveBeenCalledOnce();
+  });
+
+  it("aborts the backend fetch when the incoming request ends", async () => {
+    const incomingAbort = new AbortController();
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new ReadableStream<Uint8Array>({}), { status: 200, headers: { "Content-Type": "text/event-stream" } })
+    );
+    const req = new NextRequest("http://localhost/api/consent/events/user_123", {
+      signal: incomingAbort.signal,
+      headers: { Authorization: "Bearer test-token" },
+    });
+    await eventsRoute.GET(req, {
+      params: Promise.resolve({ userId: "user_123" }),
+    });
+    incomingAbort.abort();
+
+    expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
   });
 
   // Next decodes params before the route sees them, so "..%2F..%2F..%2Fdebug"
@@ -162,8 +202,9 @@ describe("stream proxy security", () => {
     const request = authenticatedGET("/api/consent/events/owner", {});
     const response = await eventsRoute.GET(request, { params: Promise.resolve({ userId: "owner" }) });
     expect(upstream).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
-      signal: request.signal, redirect: "error", cache: "no-store",
+      signal: expect.any(AbortSignal), redirect: "error", cache: "no-store",
     }));
+    expect(upstream.mock.calls[0][1]?.signal?.aborted).toBe(true);
     expect(await response.text()).not.toContain("private upstream sentinel");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
@@ -218,7 +259,7 @@ describe("document Feed stream through the proxy", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("passes a busy backend's plain Retry-After on, and never marks the consent stream", async () => {
+  it("passes a busy backend's plain Retry-After on, and marks both bounded notification streams", async () => {
     const { GET } = await route();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("busy", {
       status: 503, headers: { "Retry-After": "60" },
@@ -236,6 +277,9 @@ describe("document Feed stream through the proxy", () => {
     });
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://backend.test/api/consent/events/owner");
-    expect(init.headers).not.toHaveProperty("X-Hussh-Stream-Via");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer test-token",
+      "X-Hussh-Stream-Via": "next-proxy",
+    });
   });
 });

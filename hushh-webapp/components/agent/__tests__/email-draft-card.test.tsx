@@ -440,11 +440,14 @@ describe("EmailDraftCard", () => {
   });
 
   it("saves a reviewed local composition to Gmail drafts without sending", async () => {
-    vi.mocked(EmailDeliveryService.saveGmailDraft).mockResolvedValue();
+    let completeSave!: () => void;
+    vi.mocked(EmailDeliveryService.saveGmailDraft).mockReturnValue(new Promise<void>(resolve => { completeSave = resolve; }));
+    const onSaveStateChange = vi.fn();
     const onDraftingChange = vi.fn();
     render(
       <EmailDraftCard
         initialInstruction="Write a note"
+        onSaveStateChange={onSaveStateChange}
         onDraftingChange={onDraftingChange}
         initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Hello", body: "Reviewed body" }}
         getAuth={getAuth}
@@ -454,12 +457,18 @@ describe("EmailDraftCard", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("one-email-draft-save-gmail"));
+    expect(onSaveStateChange).toHaveBeenLastCalledWith("saving", expect.any(String));
+    const attemptId = onSaveStateChange.mock.calls[0]![1];
     await waitFor(() => expect(EmailDeliveryService.saveGmailDraft).toHaveBeenCalledTimes(1));
     expect(EmailDeliveryService.saveGmailDraft).toHaveBeenCalledWith(expect.objectContaining({
       draft: expect.objectContaining({ to: "pat@example.com", body: "Reviewed body" }),
     }));
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
     expect(screen.getByTestId("one-email-draft-save-gmail")).toBeDisabled();
+    expect(onSaveStateChange).toHaveBeenCalledTimes(1);
+    completeSave();
+    await waitFor(() => expect(onSaveStateChange).toHaveBeenLastCalledWith("saved", attemptId));
+    expect(onSaveStateChange).toHaveBeenCalledTimes(2);
     expect(onDraftingChange).not.toHaveBeenCalledWith(true);
   });
 

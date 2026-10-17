@@ -1,5 +1,12 @@
 # Puppy One: the outbound rendezvous
 
+**Historical proposal — September 3, 2026.** This document reviews a hub-backed
+command queue, not the current dev inference relay. The bounded direct path uses
+an owner BYOC pod and sealed device frames; see the
+[canonical relay view](../architecture/views/deployment.md#dynamic-view-puppy-inference-through-the-owners-byoc-relay)
+and [current acceptance evidence](../quality/adk-orchestration-docs-audit.md).
+The unimplemented claims below apply to this proposal, not every Puppy capability.
+
 > **DO NOT BUILD FROM THIS DOCUMENT YET.** It has been through two adversarial
 > reviews. The first found seven high-severity defects and the design was
 > rewritten around them. The second, by two independent reviewers reading the

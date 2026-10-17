@@ -27,20 +27,22 @@ suite (`tests/fixtures/drive_packet_eval/adversarial/`) feeds adversarial model
 outputs to the runtime validators; an unexpected Ready-with-defect turns CI red.
 Cases with `known_gap` are tracked runtime work and run as strict expected failures
 (when the runtime closes a gap, its case passes and the strict marker fails CI until
-`known_gap` is removed from the generator). No gaps are open today: the runtime
-refuses one original selected twice and an undated or wrongly dated Ready
-month, and closes a packet whose sources name different accounts. The runtime
-also closes a Ready packet whose account record names someone other than the
-owner's name on file (`tests/services/test_drive_packet_owner_guard.py`).
-`run-batch` hands that name to the replay, from the live owner's identity on file
-or `--owner-name`, in memory only: it never enters a prompt, a batch file or a
-report, and the run prints only where it came from (`owner_check`). Fixture runs
-and this suite pass none, so they do not exercise that fence. The runtime also
-refuses a Ready period dated only by a due, print, transaction, event or snapshot
-date its facts give the same line, refuses Ready copy claiming complete coverage
-of months no dated period covers, and closes a Ready packet holding two originals
-of one statement (same issuer, type, account and period, own document date or,
-for undated files, creation day).
+`known_gap` is removed from the generator). Equal original-content checksums
+have a deterministic duplicate-membership guard. Account identity, date meaning
+and request-only wording remain authored canonical/checker assessments, with
+exact typed membership, period and citation validation. Scripted refusal cases
+pass; paired faulty Ready answers for account, date and execution claims still
+produce independent defects and a failing deploy gate. These synthetic cases do
+not establish live model accuracy or a universal deterministic semantic guard.
+The production worker supplies the owner’s name on file as comparison context
+to both authored assessments. The offline replay has no owner listing and does
+not measure that assessment.
+
+The replay also accepts `--owner-name` or the live owner's identity on file
+as comparison context in memory for both authored assessments. Names are not
+written to batch files or reports; only their origin is reported. File creation
+timestamps remain host-side metadata and do not date document coverage.
+
 
 ## Operator runbook (real Drive, read-only)
 

@@ -18,7 +18,7 @@ description: Use when changing repo-scoped Codex custom agents, subagent concurr
 
 Owned repo surfaces:
 
-1. `.codex/agents`
+1. `agents`
 2. `.claude/agents`
 3. `.codex/config.toml`
 4. `.codex/skills/agent-orchestration-governance`
@@ -63,7 +63,7 @@ Non-owned surfaces:
 2. Keep the fleet at the curated sweet spot: broad read-only evidence lanes, not one agent per skill.
 3. Preserve the repo-wide delegation checkpoint and truth-first handoff shape in `AGENTS.md` and `delegation-contract.md`.
 4. Keep custom-agent TOML files thin: role, sandbox, nicknames, root craft/bacterial-architecture inheritance hook, concise instructions, and skill routing.
-5. Treat the TOML files under `.codex/agents` as the only authored fleet. Files under `.claude/agents` are generated from them by `sync_claude_agents.py --write`; never hand-edit a mirror.
+5. Treat the TOML files under `agents` as the only authored fleet. Files under `.claude/agents` are generated from them by `sync_claude_agents.py --write`; never hand-edit a mirror.
 6. Keep wave-1 agents read-only and leave branch switching, writes, approval, merge, deploy, secrets, and final decisions to the parent/governor.
 7. Keep global limits bounded at `max_threads = 6` and `max_depth = 1` unless a later review proves otherwise.
 8. Route product-direction, founder-language, One/Kai/Nav, PKM, voice/action, and PR north-star lanes through the Founder Wiki North-Star Probe when material; repo/wiki divergence is `current_state_vs_north_star_drift`.

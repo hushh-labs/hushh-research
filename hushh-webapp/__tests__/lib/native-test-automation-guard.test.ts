@@ -85,16 +85,17 @@ describe("native test automation guards", () => {
     expect(shouldDisableExternalTelemetryForAutomation(undefined, "localhost")).toBe(true);
   });
 
-  it("keeps the visible vault challenge on the passphrase surface before a reviewer passphrase is injected", () => {
+  it("keeps the visible vault challenge on the passphrase surface without auto-login or a credential", () => {
+    vi.stubGlobal("navigator", { webdriver: false });
     window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,
-      autoReviewerLogin: true,
-      expectedUserId: "reviewer-uid",
+      autoReviewerLogin: false,
     };
 
     expect(isNativeUiTestSession()).toBe(true);
     expect(preferPassphraseUnlockForAutomation()).toBe(true);
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(true);
+    expect(isNativeTestVaultBootstrapManaged()).toBe(false);
   });
 
   it("allows Playwright automation to prefer passphrase without native bridge", () => {

@@ -77,7 +77,11 @@ test.beforeAll(async () => {
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "@/lib/services/auth-service",
+          // Private connector routing imports the same boundaries relatively.
+          "./api-service",
+          "./auth-service",
           "@/lib/cache/cache-sync-service",
+          "@/lib/connections/custom-connector-configuration",
           "next/link",
         ].map((find) => ({
           find,
@@ -223,6 +227,7 @@ for (const width of [320, 390, 768, 1440])
     );
     await page.goto("http://localhost/document-request-fixture");
     await page.addScriptTag({ content: script });
+    expect(errors).toEqual([]);
     await awaitProductFont(page);
     const draft = page.getByRole("textbox", { name: "Chat draft" });
     await draft.fill("Keep this chat draft");
@@ -1155,9 +1160,6 @@ for (const width of [320, 390, 1440]) {
     const submissions: Record<string, unknown>[] = [];
     await page.route("http://localhost/request-scope-fixture", (route) =>
       route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
-    );
-    await page.route("**/api/one/answer-requests/availability", (route) =>
-      route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
     );
     await page.route("**/api/one/answer-requests", (route) => {
       expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");

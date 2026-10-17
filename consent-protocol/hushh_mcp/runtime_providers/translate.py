@@ -12,11 +12,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from jsonschema import SchemaError
+from jsonschema.validators import validator_for
+
+from hushh_mcp.runtime_providers.json_schema import normalize_json_schema
+
 
 @dataclass(frozen=True)
 class NeutralMessage:
     role: str  # "user" | "assistant" | "tool"
     text: str = ""
+    # Tool metadata is deliberately optional so existing provider adapters and
+    # persisted conversation shapes remain source compatible.  The fields are
+    # populated from genai function_call/function_response parts and survive a
+    # relay hop without turning the provider into a second router.
     tool_call_id: str = ""
     tool_name: str = ""
     tool_arguments: dict[str, Any] | None = None
@@ -28,6 +37,11 @@ class NeutralTool:
     name: str
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
+    # The same parameters as standard JSON Schema (lowercase types, camelCase
+    # keywords), or None. Read only by OpenAI-wire adapters: ADK declares One's
+    # tools through ``parameters_json_schema``, which ``parameters`` above never
+    # sees, and a genai ``Schema`` dump carries types the OpenAI API refuses.
+    json_schema: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -37,16 +51,23 @@ class NeutralRequest:
     temperature: float | None = None
     max_output_tokens: int | None = None
     tools: tuple[NeutralTool, ...] = field(default_factory=tuple)
-
+    # Structured output, tool choice, sampling and thinking knobs. Each one is
+    # optional so every existing adapter keeps its shape; an adapter that cannot
+    # honour a set field refuses before dispatch rather than dropping it, because
+    # a silently ignored schema or tool choice produces an answer that looks
+    # right and is not the one the agent asked for.
     response_schema: dict[str, Any] | None = None
     response_mime_type: str | None = None
-    tool_choice: str | None = None
+    tool_choice: str | None = None  # "auto" | "any" | "none"
     allowed_function_names: tuple[str, ...] = field(default_factory=tuple)
     top_p: float | None = None
     stop_sequences: tuple[str, ...] = field(default_factory=tuple)
     seed: int | None = None
     thinking_budget: int | None = None
     include_thoughts: bool | None = None
+    # Gemini's thinking level (LOW / MEDIUM / HIGH), lowercased. OpenAI-wire
+    # adapters map it to their reasoning effort; others ignore it.
+    thinking_level: str | None = None
 
     def requires_tool_calling(self) -> bool:
         return bool(self.tools) or bool(self.allowed_function_names)
@@ -56,6 +77,7 @@ class NeutralRequest:
         return self.response_schema is not None or mime == "application/json"
 
     def required_capabilities(self) -> tuple[str, ...]:
+        """Capability names (Puppy One harness vocabulary) this request needs."""
         needed: list[str] = []
         if self.requires_tool_calling():
             needed.append("tool_calling")
@@ -79,20 +101,79 @@ def _neutral_role(genai_role: str | None) -> str:
 
 
 def _schema_dict(value: Any) -> dict[str, Any] | None:
+    """One JSON-schema shape for a genai ``Schema``, a pydantic model or a dict."""
     if value is None:
         return None
+    dumped: object
     if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(exclude_none=True)
-        return dumped if isinstance(dumped, dict) else None
-    if hasattr(value, "to_json_dict"):
+        dumped = value
+    elif isinstance(value, type):
+        # ADK forwards an agent's ``output_schema`` as the pydantic CLASS. Its
+        # ``model_dump`` is an instance method, so calling it raised TypeError
+        # before dispatch and every schema-constrained gene failed on a
+        # non-Gemini transport. A class describes its schema; it has no values.
+        describe = getattr(value, "model_json_schema", None)
+        dumped = describe() if callable(describe) else None
+    elif hasattr(value, "model_dump"):
+        dumped = value.model_dump(mode="json", exclude_none=True, by_alias=True)
+    elif hasattr(value, "to_json_dict"):
         dumped = value.to_json_dict()
-        return dumped if isinstance(dumped, dict) else None
-    return None
+    else:
+        raise ValueError("Structured schema cannot be materialized")
+    if not isinstance(dumped, dict):
+        raise ValueError("Structured schema must be an object")
+    normalized = normalize_json_schema(dumped)
+    if not isinstance(normalized, dict):
+        raise ValueError("Structured schema must remain an object")
+    try:
+        validator_for(normalized).check_schema(normalized)
+    except SchemaError as exc:
+        raise ValueError("Structured schema is invalid") from exc
+    return normalized
+
+
+def _json_schema(declaration: Any) -> dict[str, Any] | None:
+    """A declaration's parameters as standard JSON Schema, or None when it has none."""
+    declared = getattr(declaration, "parameters_json_schema", None)
+    if isinstance(declared, dict):
+        return declared
+    try:
+        converted = getattr(getattr(declaration, "parameters", None), "json_schema", None)
+        dump = getattr(converted, "model_dump", None)
+        if not callable(dump):
+            return None
+        dumped = dump(mode="json", exclude_none=True, by_alias=True)
+    except Exception:  # noqa: BLE001 - no convertible schema leaves the field unset
+        return None
+    return dumped if isinstance(dumped, dict) else None
+
+
+def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
+    tools_attr = getattr(config, "tools", None) or []
+    neutral: list[NeutralTool] = []
+    for tool in tools_attr:
+        declarations = getattr(tool, "function_declarations", None) or []
+        for decl in declarations:
+            name = str(getattr(decl, "name", "") or "").strip()
+            if not name:
+                continue
+            description = str(getattr(decl, "description", "") or "")
+            params_dict = _schema_dict(getattr(decl, "parameters", None))
+            if params_dict is None:
+                params_dict = {"type": "object", "properties": {}}
+            neutral.append(
+                NeutralTool(
+                    name=name,
+                    description=description,
+                    parameters=params_dict,
+                    json_schema=_json_schema(decl),
+                )
+            )
+    return tuple(neutral)
 
 
 def _tool_choice_from_config(config: Any) -> tuple[str | None, tuple[str, ...]]:
+    """``tool_config.function_calling_config`` -> (mode, allowed function names)."""
     tool_config = getattr(config, "tool_config", None)
     calling = getattr(tool_config, "function_calling_config", None)
     if calling is None:
@@ -117,30 +198,13 @@ def _thinking_from_config(config: Any) -> tuple[int | None, bool | None]:
     )
 
 
-def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
-    tools_attr = getattr(config, "tools", None) or []
-    neutral: list[NeutralTool] = []
-    for tool in tools_attr:
-        declarations = getattr(tool, "function_declarations", None) or []
-        for decl in declarations:
-            name = str(getattr(decl, "name", "") or "").strip()
-            if not name:
-                continue
-            description = str(getattr(decl, "description", "") or "")
-            parameters = getattr(decl, "parameters", None)
-            params_dict: dict[str, Any]
-            if parameters is None:
-                params_dict = {"type": "object", "properties": {}}
-            elif isinstance(parameters, dict):
-                params_dict = parameters
-            elif hasattr(parameters, "model_dump"):
-                params_dict = parameters.model_dump(exclude_none=True)
-            elif hasattr(parameters, "to_json_dict"):
-                params_dict = parameters.to_json_dict()
-            else:
-                params_dict = {"type": "object", "properties": {}}
-            neutral.append(NeutralTool(name=name, description=description, parameters=params_dict))
-    return tuple(neutral)
+def _thinking_level_from_config(config: Any) -> str | None:
+    """``thinking_level`` as a lowercase word (``ThinkingLevel.LOW`` -> ``low``)."""
+    level = getattr(getattr(config, "thinking_config", None), "thinking_level", None)
+    if level is None:
+        return None
+    text = str(getattr(level, "value", level) or "").strip().lower()
+    return text if text and text != "thinking_level_unspecified" else None
 
 
 def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
@@ -150,7 +214,10 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
         text_chunks: list[str] = []
         for part in getattr(content, "parts", None) or []:
             text = getattr(part, "text", None)
-            if isinstance(text, str) and text:
+            # A model's private thought (a Gemini summary kept in history by its
+            # signature) is never answer text: merged in, it reached another provider
+            # as something the assistant said.
+            if isinstance(text, str) and text and getattr(part, "thought", None) is not True:
                 text_chunks.append(text)
             call = getattr(part, "function_call", None)
             if call is not None:
@@ -170,12 +237,13 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
             response = getattr(part, "function_response", None)
             if response is not None:
                 name = str(getattr(response, "name", "") or "").strip()
+                result = getattr(response, "response", None)
                 messages.append(
                     NeutralMessage(
                         role="tool",
                         tool_call_id=str(getattr(response, "id", "") or ""),
                         tool_name=name,
-                        tool_result=getattr(response, "response", None),
+                        tool_result=result,
                     )
                 )
         text = "\n".join(text_chunks)
@@ -206,15 +274,14 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
         ),
         tool_choice=tool_choice,
         allowed_function_names=allowed_function_names,
-        top_p=(
-            float(top_p)
-            if isinstance(top_p, (int, float)) and not isinstance(top_p, bool)
-            else None
-        ),
+        top_p=float(top_p)
+        if isinstance(top_p, (int, float)) and not isinstance(top_p, bool)
+        else None,
         stop_sequences=tuple(
             str(stop) for stop in stop_sequences if isinstance(stop, str) and stop
         ),
         seed=int(seed) if isinstance(seed, int) and not isinstance(seed, bool) else None,
         thinking_budget=thinking_budget,
         include_thoughts=include_thoughts,
+        thinking_level=_thinking_level_from_config(config),
     )

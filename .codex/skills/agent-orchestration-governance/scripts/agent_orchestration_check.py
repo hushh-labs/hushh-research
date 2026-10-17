@@ -17,7 +17,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
 CONFIG_RELATIVE_PATH = Path(".codex/config.toml")
-AGENTS_RELATIVE_PATH = Path(".codex/agents")
+AGENTS_RELATIVE_PATH = Path("agents")
 SKILLS_RELATIVE_PATH = Path(".codex/skills")
 WORKFLOWS_RELATIVE_PATH = Path(".codex/workflows")
 DELEGATION_ROUTER_RELATIVE_PATH = Path(
@@ -41,6 +41,7 @@ SKILL_CONTRACT_RELATIVE_PATH = Path(
 )
 
 EXPECTED_AGENTS = {
+    "local_model_judge",
     "analytics_observability_architect",
     "governor",
     "reviewer",
@@ -53,12 +54,15 @@ EXPECTED_AGENTS = {
     "product_docs_architect",
     "security_consent_auditor",
     "voice_systems_architect",
-    # Added deliberately, not incidentally. The on-device tier needs a grader
-    # for small-model output, and the strong model in that loop is a Claude
-    # Code session rather than an API call. This gate exists to keep the fleet
-    # bounded, so expanding it is a governance decision recorded here rather
-    # than a check bypassed elsewhere.
-    "local_model_judge",
+    # Wave 2 -- the per-domain principal lanes for the Private Agent platform,
+    # added alongside the north star. Same contract as wave 1: read-only,
+    # advisory-only, thin TOML with shared craft left in AGENTS.md.
+    "chief_systems_architect",
+    "ai_platform_engineer",
+    "cloud_platform_engineer",
+    "site_reliability_engineer",
+    "validation_simulation_engineer",
+    "documentation_architect",
 }
 REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 READ_ONLY_BASELINE = EXPECTED_AGENTS
@@ -339,7 +343,14 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
                     errors.append(f"{path}: invalid nickname '{nickname}'")
 
 
+def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
+    for host in (".codex", ".claude"):
+        for path in sorted((root / host / "agents").glob("*.toml")):
+            errors.append(f"{path}: authored agents belong in agents/; host mirrors must be generated")
+
+
 def validate_agents(root: Path, errors: list[str]) -> None:
+    validate_platform_agent_sources(root, errors)
     agents_dir = root / AGENTS_RELATIVE_PATH
     if not agents_dir.exists():
         errors.append(f"missing agents directory: {agents_dir}")
@@ -432,6 +443,17 @@ def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> N
 
 def run_self_test() -> list[str]:
     failures: list[str] = []
+    import tempfile
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for host in (".codex", ".claude"):
+            directory = root / host / "agents"
+            directory.mkdir(parents=True)
+            (directory / "duplicate.toml").write_text('name = "duplicate"\n')
+        errors: list[str] = []
+        validate_platform_agent_sources(root, errors)
+        if len(errors) != 2:
+            failures.append("authored host-agent duplicates must be rejected")
     agent_markers = [PRINCIPAL_CRAFT_RULE, BACTERIAL_ARCHITECTURE_RULE]
     complete_agent = "; ".join(agent_markers)
     if missing_markers(complete_agent, agent_markers):

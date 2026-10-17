@@ -47,14 +47,14 @@ class Service:
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = Service()
     current = AsyncMock(return_value={"user_id": "owner"})
     monkeypatch.setattr(routes, "DriveContentCompilationService", lambda: service)
     monkeypatch.setattr(routes, "connector_feature_enabled", lambda *_: True)
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     monkeypatch.setattr(routes, "_current_live_generation", AsyncMock(return_value=7))
     return TestClient(app), app, service, current
 

@@ -28,6 +28,7 @@ import { isCardPanLengthValid, normalizePan, validateCardForRegion, type CardBra
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { WalletService, type WalletNetworkContext, type WalletNetworkResult, type WalletCardInput } from "@/lib/services/wallet-service";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { formatCardNumberInput, formatCardExpiryInput } from "@/lib/wallet/wallet-card-presentation";
 
@@ -55,6 +56,7 @@ const ERROR_COPY: Record<string, string> = {
 export interface SecureCardAddFormProps {
   onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
+  backRoute?: string;
   getNetworkContext?: () => WalletNetworkContext | null;
   compact?: boolean;
   showIntroduction?: boolean;
@@ -73,9 +75,14 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
+  useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
+    if (!active || !onCancel) return false;
+    if (!saving.current) onCancel();
+    return true;
+  });
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
   const [securityCode, setSecurityCode] = useState("");
@@ -249,7 +256,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={(draft) => {
+  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={(draft) => {
         setScanReading(draft);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(formatCardExpiryInput(draft.fields.expiry));

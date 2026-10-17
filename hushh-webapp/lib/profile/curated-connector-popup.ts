@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
 
 // The in-session sign-in contract for operator-curated MCP connectors (Notion,
@@ -128,6 +128,7 @@ export function navigateCuratedOAuthPopup(
   ) {
     throw new Error("Authorization could not start. Try again.");
   }
+  assertOAuthReturnOrigin(authorizeUrl);
   // Only a redacted correlation marker crosses the popup boundary. Never copy
   // the opener's owner token, drafts, provider credentials or signed state.
   // Write it from the opener so it survives a provider's opener-policy reset.

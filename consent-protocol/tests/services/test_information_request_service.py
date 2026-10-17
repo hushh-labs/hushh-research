@@ -52,6 +52,8 @@ async def test_submission_receipt_requires_owner_bound_creation_key(monkeypatch)
 
 
 class _Profiles:
+    registry_handle = None
+
     def resolve_scope_refs(self, **_kwargs):
         return {"user_id": "subject"}, [
             {
@@ -60,6 +62,7 @@ class _Profiles:
                 "label": "Legal name",
                 "description": "Name used on official records",
                 "sensitivity": "sensitive",
+                "registry_handle": self.registry_handle,
             }
         ]
 
@@ -272,8 +275,10 @@ async def _granted_service() -> tuple[_Service, str, str]:
 
 
 @pytest.mark.asyncio
-async def test_create_uses_person_specific_principal_and_is_idempotent() -> None:
+@pytest.mark.parametrize("registry_handle", [None, "s_registry_owned_legal_name"])
+async def test_create_uses_person_specific_principal_and_is_idempotent(registry_handle) -> None:
     service = _Service()
+    service._profiles.registry_handle = registry_handle
     create = dict(
         requester_user_id="viewer",
         person_ref="11111111-1111-4111-8111-111111111111",
@@ -294,8 +299,8 @@ async def test_create_uses_person_specific_principal_and_is_idempotent() -> None
     assert metadata["requester_actor_type"] == "person"
     assert metadata["requester_image_url"] == "https://example.test/viewer.png"
     assert metadata["developer_app_id"] == "agent_one"
-    assert metadata["scope_handle"] == scope_handle_for_machine_scope(
-        "subject", "attr.identity.legal_name"
+    assert metadata["scope_handle"] == (
+        registry_handle or scope_handle_for_machine_scope("subject", "attr.identity.legal_name")
     )
     assert metadata["expiry_hours"] == 168
     assert metadata["scope_contract_version"] == 2
@@ -1039,3 +1044,21 @@ async def test_export_read_notify_is_not_pushed_to_the_owner(monkeypatch) -> Non
     await consent_listener._handle_notify(json.dumps({**base, "action": "CONSENT_GRANTED"}))
     assert dispatch.await_count == 1
     assert developer_queue.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_model_permission_comes_only_from_current_grant_and_ends_on_revocation():
+    from hushh_mcp.consent.model_processing import owner_model_processing
+
+    service, bundle_id, request_id = await _granted_service()
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is False
+    grant = service.consent.events[request_id]
+    grant["metadata"]["model_processing"] = owner_model_processing(True)
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is True
+    await service.consent.insert_event(
+        **{**grant, "action": "REVOKED", "issued_at": int(time.time() * 1000) + 1}
+    )
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is False

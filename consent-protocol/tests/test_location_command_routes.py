@@ -11,6 +11,48 @@ from api.routes.one.retired_voice import router as retired_router
 from hushh_mcp.operons.location.plan import LocationPlanV1
 
 
+async def test_private_assessment_is_a_proposal_not_execution_authority(monkeypatch):
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    revision, _ = routes._catalog()
+    context = {"context_revision": "hub-derived"}
+    body = {
+        "request_id": str(uuid4()),
+        "context": {},
+        "semantic": {
+            "capability_revision": revision,
+            "assessment": {"steps": [{"action_id": "location.open_now", "slots": {}}]},
+        },
+    }
+    monkeypatch.setattr(routes, "pod_mode", lambda: False)
+    payload = routes.ProposalRequest.model_validate(body)
+    plan = await routes._proposal_plan(
+        payload, context, "location.plan.v1", token={"user_id": "owner"}, observed=[]
+    )
+    assert plan.context_revision == "hub-derived"
+    assert plan.capability_revision == revision
+    body["semantic"]["assessment"]["confirmation_receipt"] = "forged"
+    with pytest.raises(ValidationError):
+        routes.ProposalRequest.model_validate(body)
+    payload.semantic.capability_revision = "old-pod-image"
+    with pytest.raises(HTTPException) as error:
+        await routes._proposal_plan(
+            payload, context, "location.plan.v1", token={"user_id": "owner"}, observed=[]
+        )
+    assert error.value.detail == {"code": "COMMAND_CAPABILITY_MISMATCH"}
+    with pytest.raises(HTTPException) as error:
+        await routes._proposal_plan(
+            routes.ProposalRequest(request_id=uuid4(), query="private", context={}),
+            context,
+            "location.plan.v1",
+            token={"user_id": "owner"},
+            observed=[],
+        )
+    assert error.value.detail == {"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("failure", "status", "reason"),

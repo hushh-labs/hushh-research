@@ -3,7 +3,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ state: vi.fn(), recipients: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke, recipients: mocks.recipients }, CardAccessUnavailableError: class extends Error {} }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { listCardShareReceipts: mocks.receipts } }));
-vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: () => {} }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/components/profile/profile-pane-icons", () => ({ ProfilePaneAccountIcon: () => <span data-testid="person-icon" />, ProfilePaneInviteIcon: () => <span />, ProfilePaneSecurityIcon: () => <span /> }));
 vi.mock("@/components/profile/settings-ui", () => ({
@@ -13,6 +12,8 @@ vi.mock("@/components/profile/settings-ui", () => ({
  SettingsRow: ({ title, description, icon: Icon, trailing, onClick }: any) => <div><button onClick={onClick}>{Icon ? <Icon /> : null}{title}</button>{description}{trailing}</div>,
 }));
 import { WalletSavedCardSharing } from "@/components/wallet/wallet-saved-card-sharing";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { registerBackLayer, unwindBackLayer } from "@/lib/navigation/back-layers";
 const context = { userId: "owner", getIdToken: async () => "token", vaultOwnerToken: "consent", isCurrent: () => true };
 const getContext = () => context;
 const card = { cardId: "card", nickname: "Card", brand: "visa" as const, last4: "4242", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US", createdAt: "" };
@@ -22,6 +23,7 @@ beforeEach(() => {
  vi.resetAllMocks();
  vi.stubGlobal("IntersectionObserver", class { constructor(callback: IntersectionObserverCallback) { intersect = callback; } observe = mocks.observe; disconnect = mocks.disconnect; });
  mocks.state.mockResolvedValue({ eligible: true, grants: [grant("1")], nextCursor: "1", hasMore: true });
+ mocks.receipts.mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllGlobals());
 it("limits recipients across searches while allowing deselection", async () => {
@@ -42,15 +44,49 @@ it("limits recipients across searches while allowing deselection", async () => {
  fireEvent.click(extra);
  expect(screen.getByText(/20 of 20 connections selected/)).toBeVisible();
 });
-it("shows one-person icons and sharing dates without the sent-copies section", async () => {
+it("shows one-person icons and sharing dates while omitting an empty sent-copy disclosure", async () => {
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
  await screen.findByText("Person 1");
  expect(screen.getByTestId("person-icon")).toBeInTheDocument();
  const time = document.querySelector("time");
  expect(time).toHaveAttribute("datetime", "2026-10-12T10:00:00Z");
  expect(time).toHaveTextContent("Shared");
- expect(screen.queryByRole("region", { name: "Previously sent copies" })).toBeNull();
- expect(mocks.receipts).not.toHaveBeenCalled();
+ expect(screen.queryByRole("button", { name: "Previously sent copies" })).toBeNull();
+ expect(mocks.receipts).toHaveBeenCalledExactlyOnceWith({ ...context, cardId: "card" });
+});
+it("preserves receipt-only copy inspection and clears it when the vault retires", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [], nextCursor: null });
+ mocks.receipts.mockResolvedValue([{ messageId: "copy", conversationId: "conversation", recipientPersonRef: "person", recipientName: "Copy recipient", sentAt: "2026-10-12T10:00:00Z" }]);
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
+ const disclosure = await screen.findByRole("button", { name: "Previously sent copies" });
+ expect(screen.queryByText("Copy recipient")).toBeNull();
+ fireEvent.click(disclosure);
+ expect(await screen.findByText("Copy recipient")).toBeVisible();
+ expect(screen.getByText(/Sent copy · cannot be recalled/)).toBeVisible();
+ expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
+ const parentBack = vi.fn(() => true);
+ const releaseParent = registerBackLayer({ pathname: "/one/wallet", depth: 1, back: parentBack });
+ try {
+  act(() => expect(unwindBackLayer("/one/wallet")).toBe(true));
+  expect(screen.queryByText("Copy recipient")).toBeNull();
+  expect(parentBack).not.toHaveBeenCalled();
+  act(() => expect(unwindBackLayer("/one/wallet")).toBe(true));
+  expect(parentBack).toHaveBeenCalledOnce();
+ } finally { releaseParent(); }
+ fireEvent.click(disclosure);
+ await screen.findByText("Copy recipient");
+ act(() => advanceVaultSessionEpoch());
+ expect(screen.queryByText("Copy recipient")).toBeNull();
+ expect(screen.queryByRole("button", { name: "Previously sent copies" })).toBeNull();
+});
+it("discards a delayed sent-copy result after card retirement", async () => {
+ let finish!: (value: unknown) => void;
+ mocks.receipts.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const view = render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ view.rerender(<WalletSavedCardSharing card={{ ...card, cardId: "other" }} getContext={getContext} disabled={false} />);
+ await act(async () => finish([{ messageId: "retired", recipientName: "Retired copy", sentAt: "2026-10-12T10:00:00Z" }]));
+ expect(screen.queryByRole("button", { name: "Previously sent copies" })).toBeNull();
 });
 it("appends the next page on scroll and suppresses duplicate rows", async () => {
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);

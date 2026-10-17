@@ -17,13 +17,14 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.kyc_reply_authorization import issue_kyc_reply_authorization
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
     get_personal_gmail_information_request_service,
 )
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
+from hushh_mcp.services.owner_placement_guard import hub_content_inline, hub_content_owner
 
 router = APIRouter(prefix="/api/one/email/information-requests", tags=["Email Agent"])
 logger = logging.getLogger(__name__)
@@ -261,7 +262,7 @@ async def get_monitoring_preference(
 async def set_monitoring_preference(
     payload: MonitoringPreferenceRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     if payload.user_id != user_id:
@@ -292,7 +293,7 @@ async def list_information_requests(
     offset: int = 0,
     view: Literal["active", "activity"] = "active",
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -313,7 +314,7 @@ async def list_information_requests(
 async def scan_information_requests(
     payload: ScanRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -345,7 +346,7 @@ async def scan_information_requests_stream(
     request: Request,
     payload: ScanRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> StreamingResponse:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     return StreamingResponse(
@@ -364,7 +365,7 @@ async def scan_information_requests_stream(
 async def refresh_information_request_candidates(
     workflow_id: str,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     """Refresh metadata-only exact PKM candidates for a still-active request."""
 
@@ -386,7 +387,7 @@ async def get_information_request_source_preview(
     workflow_id: str,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, str]:
     """Fetch the selected KYC email only for the current vault owner to view."""
 
@@ -406,7 +407,7 @@ async def prepare_information_request_reply(
     workflow_id: str,
     payload: PrepareReplyRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -429,7 +430,7 @@ async def issue_information_request_pkm_reply_authorization(
     workflow_id: str,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     """Mint the capability for the owner's typed reply to one open request.
 
@@ -464,7 +465,7 @@ async def send_information_request_reply(
     workflow_id: str,
     payload: SendReplyRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -487,7 +488,7 @@ async def send_information_request_reply(
 async def ignore_information_request(
     workflow_id: str,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -500,6 +501,7 @@ async def ignore_information_request(
 
 
 @router.post("/scan-enabled")
+@hub_content_inline("gmail_monitor")
 async def scan_enabled_information_request_monitors(
     payload: EnabledScanRequest,
     request: Request,

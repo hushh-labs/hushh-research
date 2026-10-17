@@ -1,7 +1,9 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
+import { measureTabSelection } from "./fixtures/tab-motion";
 import os from "node:os";
 import path from "node:path";
+import type { WalletCardPayload } from "../lib/services/wallet-card-service";
 import { createEncryptedCardFile } from "../lib/wallet/wallet-card-file";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 import {
@@ -128,7 +130,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -242,10 +244,8 @@ async function open(
   });
   const fixture = shell ? shellMarkup() : '<div id="root"></div>';
   const html = `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="${origin}/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`;
-  if (secure) {
-    await page.route(`${origin}/`, route => route.fulfill({ body: html, contentType: "text/html" }));
-    await page.goto(`${origin}/`);
-  } else await page.setContent(html);
+  await page.route(`${origin}/`, route => route.fulfill({ body: html, contentType: "text/html" }));
+  await page.goto(`${origin}/`);
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
   if (reader) await page.addScriptTag({ content: "window.__encryptedCardReader = true;" });
@@ -262,43 +262,17 @@ async function mount(page: Page, enter = true) {
 for (const width of [390, 1024]) {
   test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    // Measure the authored spring on every animation frame. Shared runners can
-    // otherwise delay both paint and observation past the unchanged 400ms limit.
-    await page.clock.install();
+    if (width === 1024) await page.clock.install();
     const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
     await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
     await mount(page, false);
     await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+    if (width === 1024) await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     const add = page.getByRole("tab", { name: "Add", exact: true });
-    await add.evaluate((tab) => {
-      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
-      const viewport = panel.closest('[data-swipe-views-root="true"]')!;
-      const state = window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> };
-      state.__walletTabMotion = new Promise((resolve) => {
-        tab.addEventListener("click", () => {
-          const started = performance.now();
-          const frames: { time: number; offset: number }[] = [];
-          const sample = () => {
-            const time = performance.now() - started;
-            frames.push({ time, offset: panel.getBoundingClientRect().x - viewport.getBoundingClientRect().x });
-            if (time < 800) requestAnimationFrame(sample);
-            else resolve(frames);
-          };
-          requestAnimationFrame(sample);
-        }, { once: true });
-      });
-    });
-    await add.click();
-    await page.clock.runFor(816);
-    const frames = await page.evaluate(() => (window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> }).__walletTabMotion);
-    const rendering = await add.evaluate(tab => {
-      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
-      const viewport = panel.closest('[data-swipe-views-root="true"]')!;
-      return { selected: tab.getAttribute("aria-selected"), visibility: document.visibilityState,
-        viewportWidth: viewport.getBoundingClientRect().width,
-        transform: getComputedStyle(panel.parentElement!).transform };
-    });
+    // Bound delayed startup on the animation clock; keep ordinary mobile motion
+    // on real time. Both cases observe the shipping spring and DOM geometry.
+    const { frames, rendering } = await measureTabSelection(add, width === 1024 ? 150 : 0,
+      width === 1024 ? () => page.clock.runFor(816) : undefined);
     const diagnostics = JSON.stringify({ ...rendering, frameCount: frames.length,
       maxFrameGap: Math.max(...frames.map((frame, index) => frame.time - (frames[index - 1]?.time ?? 0))),
       first: frames.slice(0, 3), last: frames.slice(-3) });
@@ -306,7 +280,7 @@ for (const width of [390, 1024]) {
     expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
     expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
     expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
-    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `motion must include intermediate positions: ${diagnostics}`).toBe(true);
+    expect(frames.some(frame => frame.offset > 3 && frame.offset < rendering.viewportWidth - 3), `tab selection must animate rather than jump: ${diagnostics}`).toBe(true);
     expect(errors).toEqual([]);
   });
 }
@@ -493,6 +467,15 @@ test("Wallet Add scrolls in the page and swipes back to Cards without a tall bla
   await mount(page);
   await expect(page.getByTestId("wallet-add-layer-agent-one-profile")).toBeInViewport();
   const scroll = page.locator('[data-app-scroll-root="true"]');
+  await awaitWalletCardsSettled(page);
+  await expect.poll(() => page.evaluate(async () => {
+    const cards = document.querySelector("#top-shell-wallet-panel-cards")!;
+    const pager = document.querySelector('[data-swipe-views-root="true"]')!;
+    const baseline = [cards.scrollHeight, pager.clientHeight];
+    for (let i = 0; i < 3; i += 1) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    return Math.abs(pager.clientHeight - cards.scrollHeight) <= 1 &&
+      cards.scrollHeight === baseline[0] && pager.clientHeight === baseline[1];
+  })).toBe(true);
   const cardsOverflow = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
@@ -544,6 +527,17 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
   });
 }
 
+async function assertWalletNavigationInViewport(page: Page) {
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toBeInViewport({ ratio: 1 });
+}
+
+async function awaitWalletCardsSettled(page: Page) {
+  await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate((element) =>
+    element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length,
+  )).toBe(0);
+}
+
 // PR #7574 removed the visual thumbnail dock and duplicate section title.
 // Exercise the card faces and detail controls that people can actually see.
 async function expectScreenReaderSwitcher(page: Page) {
@@ -556,6 +550,8 @@ for (const width of [320, 390, 1024]) {
   test(`card faces and detail controls navigate without selector chrome at ${width}px`, async ({ page }, testInfo) => {
     const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
     await mount(page);
+    await awaitWalletCardsSettled(page);
+    await assertWalletNavigationInViewport(page);
     await expectScreenReaderSwitcher(page);
     const browser = page.getByTestId("wallet-card-browser");
     await expect(browser).toHaveAttribute("data-mode", "all");
@@ -572,6 +568,11 @@ for (const width of [320, 390, 1024]) {
     const next = detail.getByRole("button", { name: "Next card", exact: true });
     await next.scrollIntoViewIfNeeded();
     await expect(next).toBeInViewport();
+    await next.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(next).toBeFocused();
+    await expect(next).not.toHaveCSS("box-shadow", "none");
     await next.click();
     await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
     await expect(page.getByTestId("wallet-demo-activity")).toHaveCount(0);
@@ -815,9 +816,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(page.getByTestId("wallet-add-stack").locator("li:not([inert])")).toHaveCount(4);
   await page.evaluate(() => window.__walletRemount!());
-  const next = page.getByRole("button", { name: "Continue", exact: true });
-  await expect(next).toBeVisible();
-  await next.click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
   await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
@@ -881,7 +881,7 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByText("Loading shared cards...")).toHaveCount(0);
     await page.getByRole("tab", { name: "Cards", exact: true }).click();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("history-loaded:")).length)).toBe(2);
     const received = sharing.getByRole("region", { name: "Received card history", exact: true });
     await expect(received.getByText("Example Sender", { exact: true })).toBeVisible();
@@ -890,8 +890,8 @@ for (const width of [320, 390, 1440]) {
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toHaveCSS("font-size", "13px");
     await expect(received.getByRole("heading", { name: "Cards shared with you", exact: true })).toHaveCSS("font-size", "13px");
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
-    const profileFont = await history.getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
+    const profileFont = await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
     await expect(history.getByText(/15 minutes/)).toBeHidden();
     await expect(history.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true }).click();
@@ -929,11 +929,13 @@ for (const width of [320, 390, 1440]) {
     expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(width);
     await detail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(detail).toBeHidden();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    const historyRecipient = history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true })
+      .getByText("Sample recipient", { exact: true });
+    await expect(historyRecipient).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
     // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
-    const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
+    const recipientBounds = (await historyRecipient.boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });
@@ -961,11 +963,13 @@ for (const width of [320, 390, 1440]) {
     expect(await revocations()).toEqual([]);
     await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
     await expect(confirmation).toBeHidden();
+    await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
     await revoke.click();
     await expect(confirmation).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(confirmation).toBeHidden();
+    await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
     await revoke.click();
     await expect(confirmation).toBeVisible();
@@ -975,11 +979,17 @@ for (const width of [320, 390, 1440]) {
     await expect(detail.getByText("Revoked", { exact: true }).first()).toBeVisible();
     await expect(detail.getByText("Connection", { exact: true }).first()).toBeVisible();
     await expect(revoke).toHaveCount(0);
-    await detail.getByRole("button", { name: "Back to sharing history" }).click();
+    const back = detail.getByRole("button", { name: "Back to sharing history" });
+    await expect(back).toBeFocused();
+    await back.click();
     await expect(detail).toBeHidden();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true })).toBeFocused();
+    await expect(page.getByRole("tab", { name: "Sharing", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
+    // Terminal settle must remove fractional interpolation so the Sharing
+    // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
-    const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
+    const recipientBounds = (await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true }).boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1180,7 +1190,7 @@ for (const width of [320, 820, 1440]) {
     await open(page, width, "light", { cards: 3 }, { shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
-    for (const [tab, selector] of [["Cards", '[data-testid="wallet-card-browser"]'], ["Add", '[data-testid="secure-card-add-form"]'], ["Sharing", '[data-testid="wallet-sharing-content"] > section:first-child']] as const) {
+    for (const [tab, selector] of [["Cards", '[data-testid="wallet-card-browser"]'], ["Add", '[data-testid="secure-card-add-form"]'], ["Sharing", '[data-testid="wallet-sharing-content"] > section[aria-label="Card sharing history"]']] as const) {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       const panel = page.locator(selector);
       await expect(panel).toBeVisible();

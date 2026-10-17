@@ -50,11 +50,12 @@ final class HushhProxyClient {
     static func resolveBackendUrl(
         call: CAPPluginCall,
         plugin: CAPPlugin,
-        jsName: String
+        jsName: String,
+        allowCallOverride: Bool = true
     ) -> String {
         var candidates: [String?] = [
             // 1) Per-call override
-            call.getString("backendUrl"),
+            allowCallOverride ? call.getString("backendUrl") : nil,
             // 2) Plugin config: plugins.<jsName>.backendUrl
             plugin.bridge?.config.getPluginConfig(jsName).getString("backendUrl"),
             // 3) Shared plugin config(s): first configured wins

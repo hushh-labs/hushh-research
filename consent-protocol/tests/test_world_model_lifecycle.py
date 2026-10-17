@@ -14,6 +14,81 @@ from hushh_mcp.services import world_model_notifications as mod
 from hushh_mcp.services import world_model_source_review as sources
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["read", "dispatch"])
+@pytest.mark.parametrize("moves_private", [False, True])
+async def test_source_reviews_revalidate_placement_after_checkpoint_work(
+    monkeypatch, boundary, moves_private
+):
+    import time
+    from unittest.mock import Mock
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import owner_placement_guard as placement
+
+    mode = {"value": "shared"}
+    monkeypatch.setattr(placement, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        placement, "get_owner_hosting_mode", AsyncMock(side_effect=lambda _: mode["value"])
+    )
+    monkeypatch.setattr(sources, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        invitations, "verified_owner", AsyncMock(return_value={"full_name": "Alex"})
+    )
+    checkpoint = {
+        "job_id": str(uuid4()),
+        "status": "offered",
+        "allowed_use": "reviewable_fact",
+        "finished_at": time.time(),
+        "result": {"report": "synthetic"},
+    }
+
+    async def get(_):
+        if moves_private and boundary == "read":
+            mode["value"] = "byoc"
+        return checkpoint if boundary == "read" else None
+
+    async def write(*_):
+        if moves_private:
+            mode["value"] = "byoc"
+        return {"job_id": str(uuid4())}
+
+    monkeypatch.setattr(sources, "STORE", SimpleNamespace(get=AsyncMock(side_effect=get)))
+    monkeypatch.setattr(
+        sources, "scoped_store", lambda _: SimpleNamespace(write=AsyncMock(side_effect=write))
+    )
+    provider = Mock(side_effect=RuntimeError("synthetic dispatch reached"))
+    monkeypatch.setattr(factory, "build_managed_runtime_client", provider)
+    if boundary == "read":
+        if moves_private:
+            with pytest.raises(HTTPException) as failure:
+                await sources.read("owner", "token")
+            assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        else:
+            assert await sources.read("owner", "token") == checkpoint
+    else:
+        operation = sources.prepare(
+            "owner",
+            "token",
+            sources.SourceReviewInput(
+                name="Alex",
+                urls=["https://example.test/profile"],
+                purpose="owner",
+                permitted_public_sources=True,
+            ),
+        )
+        if moves_private:
+            with pytest.raises(HTTPException) as failure:
+                await operation
+            assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        else:
+            with pytest.raises(RuntimeError, match="synthetic dispatch reached"):
+                await operation
+    assert provider.call_count == int(boundary == "dispatch" and not moves_private)
+
+
 @asynccontextmanager
 async def value_scope(value):
     yield value

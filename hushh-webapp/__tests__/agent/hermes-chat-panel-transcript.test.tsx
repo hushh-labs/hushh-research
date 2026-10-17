@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -49,6 +50,11 @@ vi.mock("@/components/agent/puppy-resource-monitor", () => ({
   PuppyMachineSheet: () => null,
 }));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
+import { useEffect, useState } from "react";
+import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
+import { NativeDockPortProvider, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
+import type { DockEvent } from "@/lib/capacitor/native-dock";
 
 /**
  * What the connected panel promises, how it says it, and how it reads.
@@ -83,6 +89,7 @@ async function ask(text: string) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  mocks.abortRun.mockReset();
   mocks.runAgent.mockResolvedValue(undefined);
 });
 
@@ -92,6 +99,56 @@ afterEach(() => {
 });
 
 describe("HermesChatPanel empty state", () => {
+  it.each([{ active: false }, { composerDisabled: true }])("rejects a queued Enter when the composer is no longer eligible: %j", async props => {
+    const view = await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Unsent synthetic draft" } });
+    view.rerender(<HermesChatPanel {...props} />);
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Unsent synthetic draft");
+  });
+  it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
+    function CloudComposer({ active }: { active: boolean }) {
+      const [draft, setDraft] = useState("");
+      return <AgentDockPortal enabled={active} visible><AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface></AgentDockPortal>;
+    }
+    function Shell({ puppy }: { puppy: boolean }) {
+      return <AgentDockProvider>
+        <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+        <div hidden={!puppy}><HermesChatPanel active={puppy} sharedDock /></div>
+        <div hidden={puppy}><CloudComposer active={!puppy} /></div>
+      </AgentDockProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell puppy={false} />);
+    const seat = view.container.querySelector("[data-agent-dock-composer]");
+    fireEvent.change(screen.getByRole("textbox", { name: "Message One" }), { target: { value: "Cloud-only draft" } });
+    view.rerender(<Shell puppy />);
+    const puppy = await screen.findByRole("textbox", { name: "Message Puppy One" });
+    fireEvent.change(puppy, { target: { value: "Puppy-only draft" } });
+    expect(puppy.closest("[data-agent-dock-composer]")).toBe(seat);
+    expect(screen.queryByRole("textbox", { name: "Message One" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    view.rerender(<Shell puppy={false} />);
+    expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("Cloud-only draft");
+    expect(screen.queryByRole("textbox", { name: "Message Puppy One" })).toBeNull();
+    view.rerender(<Shell puppy />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toHaveValue("Puppy-only draft");
+    expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+  });
+  it("does not submit unfinished IME text; an ordinary Enter sends once", async () => {
+    await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Synthetic composition" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Synthetic composition");
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: false });
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("promises on-machine generation only while the turn is pinned to it", async () => {
     await mount();
     expect(
@@ -183,6 +240,23 @@ describe("HermesChatPanel transcript", () => {
     expect(screen.queryByText("First topic")).not.toBeInTheDocument();
   });
 
+  it("stops the local stream once without replacing partial text with an outage", async () => {
+    let reject: (error: Error) => void = () => {};
+    mocks.runAgent.mockImplementation((_params, handlers) => {
+      handlers.onTextMessageContentEvent({ event: { delta: "Partial answer" } });
+      return new Promise((_resolve, fail) => { reject = fail; });
+    });
+    mocks.abortRun.mockImplementation(() => reject(new Error("aborted")));
+    await mount();
+    await ask("Synthetic question");
+    fireEvent.click(await screen.findByRole("button", { name: "Stop", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop", exact: true })).toBeNull());
+    expect(mocks.abortRun).toHaveBeenCalledOnce();
+    expect(screen.getByText("Partial answer")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).not.toBeDisabled();
+  });
+
   it("aborts an in-flight request on actual unmount, not when hidden", async () => {
     mocks.runAgent.mockImplementation(() => new Promise(() => {}));
     const view = await mount();
@@ -239,6 +313,40 @@ describe("HermesChatPanel transcript", () => {
 });
 
 describe("HermesChatPanel secrets", () => {
+  it("routes the actual native Puppy port through the same secret guard and preserves its draft when hidden", async () => {
+    let port: NativeDockPort | undefined;
+    function Observe() {
+      const observed = useNativeDockPorts()?.get("text");
+      useEffect(() => { port = observed; }, [observed]);
+      return null;
+    }
+    function Shell({ active }: { active: boolean }) {
+      return <NativeDockPortProvider><AgentDockProvider><HermesChatPanel active={active} sharedDock /><Observe /></AgentDockProvider></NativeDockPortProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell active />);
+    await waitFor(() => expect(port?.projection.editable).toBe(true));
+    expect(port!.projection.editorLabel).toBe("Message Puppy");
+    const context = port!.projection.context;
+    const text = `my github token ${["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("")}`;
+    act(() => port!.onEdit?.(text));
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    const event = (): DockEvent => ({ documentId: "synthetic", ownerEpoch: "synthetic", revision: 1, updateSequence: 1,
+      sequence: 1, editRevision: 1, editorRevision: port!.projection.editorRevision, privacyGeneration: 0,
+      context, kind: "action", action: "send", text: port!.projection.text, selectionStart: 0, selectionEnd: 0 });
+    await act(async () => port!.onAction(event()));
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(port!.projection.text).toBe(text);
+    view.rerender(<Shell active={false} />);
+    expect(port).toBeUndefined();
+    view.rerender(<Shell active />);
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    expect(port!.projection.context).toBe(context);
+    act(() => port!.onEdit?.("Hello 世界\nA synthetic nonsecret request"));
+    await act(async () => port!.onAction(event()));
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("never sends a raw secret to Puppy, keeps the draft and says why (negative control)", async () => {
     await mount();
     const secret = ["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("");

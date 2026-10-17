@@ -15,8 +15,11 @@ const tsPluginFiles = [
   "lib/capacitor/session-privacy.ts",
   "lib/capacitor/native-navigation.ts",
   "lib/capacitor/native-chrome.ts",
+  "lib/capacitor/native-dock.ts",
+  "lib/capacitor/native-drawers.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
+  "lib/capacitor/google-connector-auth.ts",
   "lib/capacitor/plaid-link.ts",
   "lib/capacitor/card-scanner.ts",
 ];
@@ -42,14 +45,14 @@ const iosMicrophoneCapturePath = path.join(
   "ios/App/App/Plugins/OneVoiceMicrophoneCapture.swift",
 );
 
-const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
+const webOnlyPlugins = new Set();
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
 // Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
 const androidOnlyPlugins = new Set(["HushhCardCapture"]);
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhCardScanner"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -61,10 +64,13 @@ const ignoredTsMethodsByPlugin = new Map([
   // Listener registration is inherited from CAPPlugin / Plugin, not a custom
   // @objc or @PluginMethod operation on these streaming/event plugins.
   ["Kai", new Set(["addListener"])],
+  ["HushhLocation", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
   ["HushhSessionPrivacy", new Set(["addListener"])],
   ["HushhNativeNavigation", new Set(["addListener"])],
   ["HushhNativeChrome", new Set(["addListener"])],
+  ["HushhNativeDock", new Set(["addListener"])],
+  ["HushhNativeDrawers", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);
@@ -114,7 +120,7 @@ function extractInterfaceMethods(source, interfaceName) {
   if (closeIndex < 0) return null;
   const body = source.slice(openIndex + 1, closeIndex);
   return new Set(
-    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gm)].map(
+    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\??\s*\(/gm)].map(
       (methodMatch) => methodMatch[1]
     )
   );

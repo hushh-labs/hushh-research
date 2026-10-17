@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { nativeHistoryProjection } from "@/components/agent/native-history-presentation";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 
 const conversations: AgentChatConversation[] = [
@@ -35,6 +36,41 @@ function renderSidebar(extra: Partial<Parameters<typeof AgentHistorySidebar>[0]>
 }
 
 describe("AgentHistorySidebar", () => {
+  it("never retargets native actions when activity order or the agent surface changes", async () => {
+    const handles = new Map<string, string>();
+    const rename = vi.fn(), remove = vi.fn();
+    const second = { ...conversations[0], id: "conv_2", title: "Second public sample", last_message_at: new Date(Date.now() - 60_000).toISOString() };
+    const port = { owner: "synthetic-owner", vaultEpoch: 1, ready: true, open: true, surface: "one" as const,
+      conversations: [...conversations, second], selected: "conv_1", pending: null, loading: false,
+      create: vi.fn(), select: vi.fn(), rename, remove, setOpen: vi.fn() };
+    const first = nativeHistoryProjection(port, handles).sections.flatMap(section => section.rows).find(row => row.selected)!;
+    const reordered = nativeHistoryProjection({ ...port, conversations: [second, { ...conversations[0], last_message_at: new Date(Date.now() - 120_000).toISOString() }] }, handles);
+    expect(reordered.sections.flatMap(section => section.rows).find(row => row.selected)?.id).toBe(first.id);
+    const choice = { documentId: "public", ownerEpoch: "opaque", ownerGeneration: 1, revision: 1, family: "history" as const,
+      updateSequence: 1, privacyGeneration: 0, sequence: 1, interactionGeneration: 1, action: "row" as const };
+    await reordered.actions.rows.get(first.deleteActionId!)?.({ ...choice, rowId: first.deleteActionId });
+    expect(remove).toHaveBeenCalledWith("conv_1");
+    const puppy = nativeHistoryProjection({ ...port, surface: "puppy" }, handles);
+    expect(puppy.actions.rows.has(first.deleteActionId!)).toBe(false);
+  });
+  it("keeps native row handles opaque and delegates normalized edits to the existing owner", async () => {
+    const rename = vi.fn(), select = vi.fn(), remove = vi.fn(), create = vi.fn();
+    const { sections, actions } = nativeHistoryProjection({ owner: "synthetic-owner", vaultEpoch: 1, ready: true, open: true,
+      surface: "one", conversations, selected: "conv_1", pending: null, loading: false,
+      create, select, rename, remove, setOpen: vi.fn() });
+    expect(JSON.stringify(sections)).not.toContain("conv_1");
+    const row = sections.flatMap(section => section.rows).find(row => row.selected)!;
+    const choice = { documentId: "public", ownerEpoch: "opaque", ownerGeneration: 1, revision: 1, family: "history" as const,
+      updateSequence: 1, privacyGeneration: 0, sequence: 1, interactionGeneration: 1, action: "row" as const };
+    await actions.rows.get(row.id)?.({ ...choice, rowId: row.id });
+    await actions.rows.get(row.renameActionId!)?.({ ...choice, rowId: row.renameActionId, text: "  Public   title  " });
+    await actions.rows.get(row.deleteActionId!)?.({ ...choice, rowId: row.deleteActionId });
+    expect(select).toHaveBeenCalledWith("conv_1");
+    expect(rename).toHaveBeenCalledWith("conv_1", "Public title");
+    expect(remove).toHaveBeenCalledWith("conv_1");
+    await actions.rows.get(row.renameActionId!)?.({ ...choice, text: " " });
+    expect(rename).toHaveBeenCalledTimes(1);
+  });
   it.each([
     { mode: "mobile" as const, collapsed: false },
     { mode: "desktop" as const, collapsed: false },
@@ -129,13 +165,16 @@ describe("AgentHistorySidebar", () => {
       // focus (founder direction, 2026-09-29), and holds them while the menu is open.
       const age = within(today).getByText("19m");
       const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
-      // Keep both widths reserved so hover and focus do not bounce the row.
+      // Keep both widths reserved so hover, focus, and an open menu do not
+      // shift the title while the controls appear.
       for (const element of [age, actions.parentElement!]) {
-        expect(element.className).toContain("opacity-0");
-        expect(element.className).toContain("group-hover:opacity-100");
-        expect(element.className).toContain("group-focus-within:opacity-100");
-        expect(element.className).toContain("motion-reduce:transition-none");
+        expect(element).toHaveClass("opacity-0");
+        expect(element).toHaveClass("group-hover:opacity-100");
+        expect(element).toHaveClass("group-focus-within:opacity-100");
+        expect(element).toHaveClass("group-has-[[data-state=open]]:opacity-100");
+        expect(element).toHaveClass("motion-reduce:transition-none");
       }
+      expect(actions.parentElement).toHaveClass("w-8", "shrink-0");
     } finally {
       vi.useRealTimers();
     }
@@ -146,9 +185,11 @@ describe("AgentHistorySidebar", () => {
     renderSidebar({
       conversations: [{ ...conversations[0], last_message_at: seconds, updated_at: seconds }],
     });
-    expect(screen.getByText("5m").className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(screen.getByText("5m")).not.toHaveClass("opacity-0");
     const actions = screen.getByRole("button", { name: "Open actions for What needs a reply today?" });
+    expect(actions.parentElement).not.toHaveClass("opacity-0");
     expect(actions.parentElement!.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(actions).toHaveClass("h-11", "w-11");
   });
 
   it("keeps the row menu on the shared transient tier, above the phone drawer", async () => {
@@ -238,6 +279,13 @@ describe("AgentHistorySidebar", () => {
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();
+    const close = screen.getByRole("button", { name: "Close chat history" });
+    const heading = screen.getByRole("heading", { name: "Chats" });
+    expect(close.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(close).toHaveClass("rounded-full", "size-11");
+    const age = screen.getByText("now");
+    expect(age.tagName).toBe("TIME");
+    expect(age).toHaveAttribute("datetime", conversations[0].last_message_at);
     expect(screen.getByRole("searchbox", { name: "Search chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collapse chat history" })).not.toBeInTheDocument();
   });

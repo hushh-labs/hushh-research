@@ -3,6 +3,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), write: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: mocks.fetch } }));
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({
+  ownerContentIsPrivate: async () => false,
+}));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getCurrentUser: () => ({ uid: "owner" }) },
+}));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: {
   savePreparedDomain: mocks.write, saveMergedDomain: mocks.write,
 } }));

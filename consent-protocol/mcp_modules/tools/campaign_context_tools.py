@@ -12,6 +12,7 @@ from mcp.types import TextContent
 
 from .public_tools_v3 import (
     ToolResult,
+    _commercial_fields,
     _error,
     handle_check_consent_status,
     handle_get_encrypted_scoped_export,
@@ -78,6 +79,26 @@ def _select_scope(
     # With no semantic signal, preserve deterministic least-privilege behavior
     # by choosing the deepest available returned scope.
     return scored[0][3]
+
+
+def _lifecycle_state(status: str, lifecycle: dict[str, Any]) -> str:
+    state = {
+        "pending": "pending_approval",
+        "granted": "approved_ready",
+        "denied": "denied",
+        "expired": "expired",
+        "revoked": "revoked",
+        "cancelled": "cancelled",
+    }[status]
+    if status == "pending" and lifecycle.get("quote_ref"):
+        state = (
+            "scheduled_activation"
+            if lifecycle.get("access_state") == "armed"
+            else "awaiting_payment"
+            if lifecycle.get("payment_state") == "awaiting_payment"
+            else "pending_encrypted_preparation"
+        )
+    return state
 
 
 async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
@@ -165,7 +186,12 @@ async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
         min(90 if requested_poll_seconds is None else int(requested_poll_seconds), 90),
     )
     deadline = time.monotonic() + poll_seconds
-    while lifecycle.get("status") == "pending" and request_ref and time.monotonic() < deadline:
+    while (
+        lifecycle.get("status") == "pending"
+        and not lifecycle.get("quote_ref")
+        and request_ref
+        and time.monotonic() < deadline
+    ):
         interval = max(1, min(int(lifecycle.get("poll_after_seconds") or 5), 30))
         await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
         poll_attempts += 1
@@ -202,14 +228,7 @@ async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
             if export.get("export_revision") is not None:
                 export_revision = int(export["export_revision"])
 
-    state = {
-        "pending": "pending_approval",
-        "granted": "approved_ready",
-        "denied": "denied",
-        "expired": "expired",
-        "revoked": "revoked",
-        "cancelled": "cancelled",
-    }[status]
+    state = _lifecycle_state(status, lifecycle)
     payload = {
         "status": status,
         "state": state,
@@ -228,5 +247,7 @@ async def handle_prepare_campaign_context(args: dict[str, Any]) -> ToolResult:
         "approval_timeout_at": lifecycle.get("approval_timeout_at"),
         "poll_attempts": poll_attempts,
         "offer": requested.get("offer"),
+        **_commercial_fields(requested),
+        **_commercial_fields(lifecycle),
     }
     return _success(payload)

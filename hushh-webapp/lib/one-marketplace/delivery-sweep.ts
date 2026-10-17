@@ -47,7 +47,7 @@ export async function runMarketplaceDeliverySweep(
     role: "owner",
     status: "approved",
   });
-  const pending = approved.filter((request) => !request.latestEnvelopeId);
+  const pending = approved.filter((request) => !request.latestEnvelopeId && request.metadata?.commercial_required !== true);
 
   let delivered = 0;
   let skipped = 0;

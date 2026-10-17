@@ -1,6 +1,6 @@
 """Sealed Kai route authentication matrix tests.
 
-These tests focus on auth-gate behavior for protected Kai endpoints:
+These tests focus on auth-gate behavior for explicitly Shared fixture owners:
 - missing token -> 401
 - invalid token -> 401
 - user mismatch (where applicable) -> 403
@@ -30,10 +30,16 @@ def client() -> TestClient:
 @pytest.fixture(autouse=True)
 def active_fixture_vault_owner_grants(monkeypatch):
     """Route-matrix tokens are issued locally; model their DB grant as active."""
+    from hushh_mcp.services import owner_placement_guard
     from hushh_mcp.services.account_deletion_lifecycle_service import (
         AccountDeletionLifecycleService,
     )
     from hushh_mcp.services.consent_db import ConsentDBService
+
+    async def selected_fixture_placement(user_id: str) -> str:
+        return "shared" if user_id in {"user_a", "user_b"} else "unplaced"
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", selected_fixture_placement)
 
     async def _active(
         self,

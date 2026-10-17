@@ -48,6 +48,8 @@ vi.mock("@/lib/one-location/use-current-location", () => ({
 }));
 
 import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
+import { NearbyFilterBar } from "@/components/ria/nearby/nearby-filters";
+import { DEFAULT_NEARBY_FILTERS } from "@/lib/services/nws-nearby-service";
 
 function record(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -198,6 +200,21 @@ function shortlistedProspectsSection() {
 }
 
 describe("Around you", () => {
+  it("keeps the selected confidence keyboard-accessible when refreshed results omit that grade", () => {
+    const onChange = vi.fn();
+    render(<NearbyFilterBar filters={{ ...DEFAULT_NEARBY_FILTERS, minimumConfidenceGrade: "A" }}
+      onChange={onChange} laneCounts={{ BUILDER: 0, CAPITAL: 0, KNOWLEDGE: 0, CIVIC: 0, CONNECTOR: 0, GENERAL: 0 }} tags={[]}
+      grades={new Set(["B"])} />);
+    fireEvent.click(screen.getByRole("button", { name: "More filters" }));
+    const confidence = screen.getByRole("radiogroup", { name: "Minimum confidence" });
+    const selected = within(confidence).getByRole("radio", { name: "A" });
+    expect(selected).toBeChecked();
+    expect(selected).toHaveAttribute("tabindex", "0");
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(selected, { key: "ArrowRight" });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minimumConfidenceGrade: "B" }));
+  });
+
   it("retains results when GPS changes within the same discovery area", async () => {
     locationState.snapshot = { latitude: 47.6811, longitude: -122.2011 };
     const { rerender } = render(<NearbyAroundYou />);
@@ -571,14 +588,14 @@ describe("filters only offer what exists", () => {
 
     // The reviewed release grades every record B. Offering A would return an
     // empty screen — the same dead-option trap the empty lane chips had.
-    expect(screen.getByRole("tab", { name: /^B$/ })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /^A$/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /^C$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^B$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^A$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^C$/ })).not.toBeInTheDocument();
 
     // The lane chip remains an action while the canonical confidence selector
-    // exposes its own "All" option with tab semantics.
+    // exposes its own "All" option with radio semantics.
     expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(1);
-    expect(screen.getByRole("tab", { name: /^All$/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^All$/ })).toBeInTheDocument();
   });
 });
 

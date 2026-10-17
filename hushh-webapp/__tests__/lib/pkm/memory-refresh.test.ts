@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getStaleFirst = vi.fn();
 const saveMergedDomain = vi.hoisted(() => vi.fn());
@@ -44,6 +44,7 @@ import {
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const USER = "owner-1";
+afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; });
 
 const domainSnapshot = (
   contentRevision: number,
@@ -275,6 +276,19 @@ describe("persisted source-linked Profile memory.md", () => {
     ...readParams(), domains: ["identity", "one_living_sources", "one_memory"], force,
   });
 
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)("renders current sources without projection or scope writes during %s review", async reviewerMutationPolicy => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    const state = sources(), original = structuredClone(state);
+    mountSources(state);
+    const view = await refreshSources();
+    expect(view.status).toBe("current");
+    expect(view.document?.markdown).toContain("Complete eligible fact");
+    expect(getStaleFirst).toHaveBeenCalled();
+    expect(saveMergedDomain).not.toHaveBeenCalled();
+    expect(retrieveApprovedMemoryScopes).not.toHaveBeenCalled();
+    expect(state).toEqual(original);
+  });
+
   it("uses existing PKM projection authority, preserves full sources and Soul, and retains exact source revisions", async () => {
     const state = sources();
     const originalSoul = structuredClone(state.soul);
@@ -441,6 +455,19 @@ describe("persisted source-linked Profile memory.md", () => {
     expect((await refreshSources()).status).toBe("stale");
     expect((state.living._private as Record<string, unknown>).memory_document).toBeUndefined();
     expect(peekMemoryView(USER).document).toBeNull();
+  });
+
+  it("refuses an already prepared background projection when reviewer policy changes before dispatch", async () => {
+    const state = sources();
+    mountSources(state);
+    saveMergedDomain.mockImplementationOnce(async params => {
+      window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+      await expect(params.beforeEffect()).rejects.toThrow("Memory sources changed");
+      return { success: false };
+    });
+    expect((await refreshSources()).status).toBe("stale");
+    expect((state.living._private as Record<string, unknown>).memory_document).toBeUndefined();
+    expect(retrieveApprovedMemoryScopes).not.toHaveBeenCalled();
   });
 
   it("cancels a changed source immediately before dispatch, then allows a fresh rebuild", async () => {

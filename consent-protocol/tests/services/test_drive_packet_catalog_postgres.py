@@ -4,13 +4,16 @@
 import asyncio
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+from hushh_mcp.services import owner_placement_guard
 from hushh_mcp.services.drive_packet_catalog_service import DrivePacketCatalogService
 from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose, VerifiedGoogleRecipient
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
@@ -30,6 +33,34 @@ from tests.services.test_drive_reusable_packets_postgres import (
     reusable,
     sharing,
 )
+
+
+@pytest.mark.parametrize(
+    "mode,code",
+    [("byoc", "AGENT_PRIVATE_RUNTIME_REQUIRED"), ("unknown", "AGENT_HOSTING_UNAVAILABLE")],
+)
+async def test_private_packet_catalog_refuses_owner_plaintext_before_store_read(
+    monkeypatch, mode, code
+):
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value=mode)
+    )
+    packets = SimpleNamespace(list_packets=AsyncMock(return_value={"packets": []}))
+    service = DrivePacketCatalogService(
+        sharing=SimpleNamespace(), packets=packets, require_owner=AsyncMock()
+    )
+    with pytest.raises(HTTPException) as failure:
+        await service.list_packets(user_id="private-owner")
+    assert failure.value.detail["code"] == code
+    packets.list_packets.assert_not_awaited()
+    # Cross-owner listing authority remains in the existing relationship/listing store.
+    assert await service.list_packets(user_id="buyer", owner_user_id="private-owner") == {
+        "packets": []
+    }
+    packets.list_packets.assert_awaited_once_with(
+        user_id="buyer", owner_user_id="private-owner", cursor=None, owner_contents=True
+    )
 
 
 @pytest.fixture

@@ -51,13 +51,13 @@ class McpOAuthConnection:
         self._registered_issuer = registered_issuer
         self._active = True
         self._task: asyncio.Task[OAuthVaultResult] | None = None
-        self._redirect = asyncio.get_running_loop().create_future()
+        self._redirect: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._storage = EphemeralMcpOAuthStorage(is_current=lambda: self._active)
         self._callback = McpOAuthCallback(owner_id=owner_id, is_current=lambda: self._active)
         self._provider = ConnectOnlyMcpOAuthProvider(
             endpoint,
             OAuthClientMetadata(
-                redirect_uris=cast("list[AnyUrl]", [redirect_uri]),
+                redirect_uris=[AnyUrl(redirect_uri)],
                 client_name="Hussh One",
                 token_endpoint_auth_method="none",  # noqa: S106 - public OAuth client
             ),
@@ -94,7 +94,7 @@ class McpOAuthConnection:
                             await session.initialize()
                 if not self._active:
                     raise McpOAuthConnectError()
-                return await self._provider.take_result()
+                return cast(OAuthVaultResult, await self._provider.take_result())
         except asyncio.CancelledError:
             raise
         except Exception:

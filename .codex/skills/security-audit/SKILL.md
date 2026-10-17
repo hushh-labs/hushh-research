@@ -55,6 +55,7 @@ Non-owned surfaces:
 5. `consent-protocol/docs/reference/consent-protocol.md`
 6. `.codex/skills/security-audit/references/anti-rationalization.md`
 7. `consent-protocol/docs/reference/personal-knowledge-model.md`
+8. `consent-protocol/docs/reference/private-browser-runtime.md`
 
 ## Workflow
 
@@ -62,6 +63,9 @@ Non-owned surfaces:
 2. For ordinary vault/PKM changes, preserve memory-only keys, encrypted persistence, manifest authority, revision safety, and cache invalidation.
 3. Keep trust-boundary docs aligned with code and verification changes.
 4. Route general backend runtime work back to `backend` when trust is not the primary concern.
+5. For Computer Use, follow `consent-protocol/docs/reference/private-browser-runtime.md`: selected non-secret exports, manual login, encrypted opt-in sessions and generation-fenced Forget. No Secrets export, automatic credential injection or record-only cross-custody transfer is qualified by this pilot.
+6. For Shared Files, follow `docs/reference/operations/private-files-library.md`: keep library keys in the unlocked browser, record storage incarnation before its first write, and retain erasure fences until the existing inventory has a qualified provider-absence receipt. A storage name or its present retention setting cannot establish historical cleanup. Shared upload session URIs are provider bearer credentials: encrypt their durable receipts through existing credential custody, bind them to the exact owner/library/operation/bucket, and require provider-terminal evidence before releasing a write fence. Never give Shared compute the browser library key.
+7. For account/cloud erasure, read `docs/reference/operations/account-deletion-rollout.md` and the provider's canonical lifecycle contract. Prove the installed schema accepts the actual producer receipt before irreversible work; rollback must serialize with active admissions. Resource ownership, writer drain, absence and retained-provider outcomes require separate evidence. Key destruction or an accepted DELETE cannot establish complete cleanup.
 
 ## Handoff Rules
 

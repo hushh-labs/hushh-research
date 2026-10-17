@@ -22,7 +22,7 @@
         "readOnlyHint": true,
         "title": "Search user scopes"
       },
-      "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns only scope strings and pagination state.",
+      "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns scope strings, exact-scope tariff metadata and pagination state, never the information itself.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
@@ -95,6 +95,42 @@
             "maxLength": 64,
             "title": "Next-page cursor",
             "type": "string"
+          },
+          "scope_base_duration_seconds": {
+            "description": "Tariff base durations aligned with scope_values; zero means no tariff.",
+            "items": {
+              "description": "Tariff base duration in seconds as a decimal integer string.",
+              "maxLength": 12,
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Scope base duration seconds",
+            "type": "array"
+          },
+          "scope_price_cents": {
+            "description": "Exact-scope base prices aligned with scope_values; zero means free or unset pricing.",
+            "items": {
+              "description": "Base USD price in cents as a decimal integer string.",
+              "maxLength": 6,
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Scope price cents",
+            "type": "array"
+          },
+          "scope_tariff_revisions": {
+            "description": "Tariff revisions aligned with scope_values; zero means no tariff.",
+            "items": {
+              "description": "Persisted tariff revision as a decimal integer string.",
+              "maxLength": 12,
+              "pattern": "^[0-9]+$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Scope tariff revisions",
+            "type": "array"
           },
           "scope_values": {
             "description": "Available scope strings. Use one unchanged in request-consent.",
@@ -257,6 +293,18 @@
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
         "properties": {
+          "access_state": {
+            "description": "Usable-access state; retrieval is allowed only for an active approved grant.",
+            "maxLength": 32,
+            "title": "Access state",
+            "type": "string"
+          },
+          "activates_at": {
+            "description": "Fixed activation time in Unix epoch milliseconds, or zero before preparation.",
+            "minimum": 0,
+            "title": "Activates at",
+            "type": "integer"
+          },
           "approval_required": {
             "description": "True when the person must still review the consent request.",
             "title": "Approval required",
@@ -267,6 +315,20 @@
             "minimum": 0,
             "title": "Approval timeout time",
             "type": "integer"
+          },
+          "consent_state": {
+            "description": "Owner approval state, distinct from payment and usable access.",
+            "maxLength": 32,
+            "title": "Consent state",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Purchase currency. Paid scope access currently uses USD.",
+            "enum": [
+              "usd"
+            ],
+            "title": "Currency",
+            "type": "string"
           },
           "expires_at": {
             "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
@@ -289,6 +351,12 @@
             "description": "Opaque approved-grant reference, or an empty string while pending.",
             "maxLength": 64,
             "title": "Consent grant reference",
+            "type": "string"
+          },
+          "human_action_url": {
+            "description": "Hussh app link for the authenticated app owner to review and confirm the exact quote. Opening it does not spend funds.",
+            "maxLength": 2048,
+            "title": "Human action url",
             "type": "string"
           },
           "offer_amount": {
@@ -315,11 +383,35 @@
             "title": "Offer summary",
             "type": "string"
           },
+          "paid_required": {
+            "description": "True when this request requires owner-approved terms and subsequent human purchase confirmation.",
+            "title": "Paid required",
+            "type": "boolean"
+          },
+          "payment_state": {
+            "description": "Funding/reservation state. MCP credentials do not authorize purchases.",
+            "maxLength": 32,
+            "title": "Payment state",
+            "type": "string"
+          },
           "poll_after_seconds": {
             "description": "Minimum delay before another status check, or zero when terminal.",
             "minimum": 0,
             "title": "Polling delay seconds",
             "type": "integer"
+          },
+          "price_cents": {
+            "description": "Quoted gross USD purchase price in cents, from one cent through 1000 USD.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Price cents",
+            "type": "integer"
+          },
+          "quote_ref": {
+            "description": "Immutable server-owned quote reference; it never authorizes spending.",
+            "maxLength": 64,
+            "title": "Quote ref",
+            "type": "string"
           },
           "request_ref": {
             "description": "Opaque pending-request reference, or an empty string after approval.",
@@ -349,6 +441,25 @@
             "description": "Consent lifecycle state.",
             "title": "Lifecycle status",
             "type": "string"
+          },
+          "tariff_base_duration_seconds": {
+            "description": "Base duration used to prorate the owner's tariff after exact approval.",
+            "minimum": 0,
+            "title": "Tariff base duration seconds",
+            "type": "integer"
+          },
+          "tariff_price_cents": {
+            "description": "Owner's base tariff in USD cents before approval. This is an estimate, not an accepted quote.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Tariff price cents",
+            "type": "integer"
+          },
+          "tariff_revision": {
+            "description": "Owner tariff revision at request intake; accepted quote freezes the approved revision.",
+            "minimum": 0,
+            "title": "Tariff revision",
+            "type": "integer"
           }
         },
         "required": [
@@ -382,7 +493,7 @@
         "readOnlyHint": false,
         "title": "Request consent"
       },
-      "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before encrypted retrieval is available.",
+      "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before retrieval or decryption. A trusted connector should securely retain its private export key outside model context so authorized realtime export revisions remain decryptable.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
@@ -508,16 +619,42 @@
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
         "properties": {
+          "access_state": {
+            "description": "Usable-access state; retrieval is allowed only for an active approved grant.",
+            "maxLength": 32,
+            "title": "Access state",
+            "type": "string"
+          },
+          "activates_at": {
+            "description": "Fixed activation time in Unix epoch milliseconds, or zero before preparation.",
+            "minimum": 0,
+            "title": "Activates at",
+            "type": "integer"
+          },
           "approval_timeout_at": {
             "description": "Unix epoch milliseconds when approval polling should stop, or zero when unavailable.",
             "minimum": 0,
             "title": "Approval timeout time",
             "type": "integer"
           },
+          "consent_state": {
+            "description": "Owner approval state, distinct from payment and usable access.",
+            "maxLength": 32,
+            "title": "Consent state",
+            "type": "string"
+          },
           "coverage_kind": {
             "description": "Coverage relationship between requested and granted scope, or an empty string when pending.",
             "maxLength": 64,
             "title": "Scope coverage kind",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Purchase currency. Paid scope access currently uses USD.",
+            "enum": [
+              "usd"
+            ],
+            "title": "Currency",
             "type": "string"
           },
           "expires_at": {
@@ -530,6 +667,12 @@
             "description": "Opaque approved-grant reference, or an empty string while pending.",
             "maxLength": 64,
             "title": "Consent grant reference",
+            "type": "string"
+          },
+          "human_action_url": {
+            "description": "Hussh app link for the authenticated app owner to review and confirm the exact quote. Opening it does not spend funds.",
+            "maxLength": 2048,
+            "title": "Human action url",
             "type": "string"
           },
           "offer_amount": {
@@ -556,11 +699,35 @@
             "title": "Offer summary",
             "type": "string"
           },
+          "paid_required": {
+            "description": "True when this request requires owner-approved terms and subsequent human purchase confirmation.",
+            "title": "Paid required",
+            "type": "boolean"
+          },
+          "payment_state": {
+            "description": "Funding/reservation state. MCP credentials do not authorize purchases.",
+            "maxLength": 32,
+            "title": "Payment state",
+            "type": "string"
+          },
           "poll_after_seconds": {
             "description": "Minimum delay before polling check-consent-status, or zero when terminal.",
             "minimum": 0,
             "title": "Polling delay seconds",
             "type": "integer"
+          },
+          "price_cents": {
+            "description": "Quoted gross USD purchase price in cents, from one cent through 1000 USD.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Price cents",
+            "type": "integer"
+          },
+          "quote_ref": {
+            "description": "Immutable server-owned quote reference; it never authorizes spending.",
+            "maxLength": 64,
+            "title": "Quote ref",
+            "type": "string"
           },
           "request_ref": {
             "description": "Opaque pending-request reference, or an empty string after approval.",
@@ -584,6 +751,25 @@
             "description": "Consent lifecycle state, for example pending or granted.",
             "title": "Lifecycle status",
             "type": "string"
+          },
+          "tariff_base_duration_seconds": {
+            "description": "Base duration used to prorate the owner's tariff after exact approval.",
+            "minimum": 0,
+            "title": "Tariff base duration seconds",
+            "type": "integer"
+          },
+          "tariff_price_cents": {
+            "description": "Owner's base tariff in USD cents before approval. This is an estimate, not an accepted quote.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Tariff price cents",
+            "type": "integer"
+          },
+          "tariff_revision": {
+            "description": "Owner tariff revision at request intake; accepted quote freezes the approved revision.",
+            "minimum": 0,
+            "title": "Tariff revision",
+            "type": "integer"
           }
         },
         "required": [
@@ -614,7 +800,7 @@
         "readOnlyHint": true,
         "title": "Check consent status"
       },
-      "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
+      "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state. Retrieval and connector-side decryption are allowed only when status is granted and grant_ref is present.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
@@ -638,11 +824,37 @@
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
         "properties": {
+          "access_state": {
+            "description": "Usable-access state; retrieval is allowed only for an active approved grant.",
+            "maxLength": 32,
+            "title": "Access state",
+            "type": "string"
+          },
+          "activates_at": {
+            "description": "Fixed activation time in Unix epoch milliseconds, or zero before preparation.",
+            "minimum": 0,
+            "title": "Activates at",
+            "type": "integer"
+          },
           "approval_timeout_at": {
             "description": "Unix epoch milliseconds when polling should stop, or zero when unavailable.",
             "minimum": 0,
             "title": "Approval timeout time",
             "type": "integer"
+          },
+          "consent_state": {
+            "description": "Owner approval state, distinct from payment and usable access.",
+            "maxLength": 32,
+            "title": "Consent state",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Purchase currency. Paid scope access currently uses USD.",
+            "enum": [
+              "usd"
+            ],
+            "title": "Currency",
+            "type": "string"
           },
           "expires_at": {
             "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
@@ -656,16 +868,65 @@
             "title": "Consent grant reference",
             "type": "string"
           },
+          "human_action_url": {
+            "description": "Hussh app link for the authenticated app owner to review and confirm the exact quote. Opening it does not spend funds.",
+            "maxLength": 2048,
+            "title": "Human action url",
+            "type": "string"
+          },
+          "paid_required": {
+            "description": "True when this request requires owner-approved terms and subsequent human purchase confirmation.",
+            "title": "Paid required",
+            "type": "boolean"
+          },
+          "payment_state": {
+            "description": "Funding/reservation state. MCP credentials do not authorize purchases.",
+            "maxLength": 32,
+            "title": "Payment state",
+            "type": "string"
+          },
           "poll_after_seconds": {
             "description": "Minimum delay before another status check, or zero when terminal.",
             "minimum": 0,
             "title": "Polling delay seconds",
             "type": "integer"
           },
+          "price_cents": {
+            "description": "Quoted gross USD purchase price in cents, from one cent through 1000 USD.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Price cents",
+            "type": "integer"
+          },
+          "quote_ref": {
+            "description": "Immutable server-owned quote reference; it never authorizes spending.",
+            "maxLength": 64,
+            "title": "Quote ref",
+            "type": "string"
+          },
           "status": {
             "description": "Current consent lifecycle state.",
             "title": "Lifecycle status",
             "type": "string"
+          },
+          "tariff_base_duration_seconds": {
+            "description": "Base duration used to prorate the owner's tariff after exact approval.",
+            "minimum": 0,
+            "title": "Tariff base duration seconds",
+            "type": "integer"
+          },
+          "tariff_price_cents": {
+            "description": "Owner's base tariff in USD cents before approval. This is an estimate, not an accepted quote.",
+            "maximum": 100000,
+            "minimum": 0,
+            "title": "Tariff price cents",
+            "type": "integer"
+          },
+          "tariff_revision": {
+            "description": "Owner tariff revision at request intake; accepted quote freezes the approved revision.",
+            "minimum": 0,
+            "title": "Tariff revision",
+            "type": "integer"
           }
         },
         "required": [
@@ -688,7 +949,7 @@
         "readOnlyHint": true,
         "title": "Get encrypted scoped export"
       },
-      "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
+      "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Paid exports always remain encrypted for trusted connector decryption outside model context. Legacy free local stdio exports may be decrypted in the trusted process. Use the documented envelope-v2 method with the securely retained recipient private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "A flat, capability-safe field set.",
@@ -733,7 +994,7 @@
             "type": "string"
           },
           "delivery": {
-            "description": "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context.",
+            "description": "Paid exports and hosted connectors receive encrypted_inline. Legacy free local stdio exports may receive decrypted_local. Decrypt paid exports outside every language-model context.",
             "title": "Delivery mode",
             "type": "string"
           },
@@ -768,9 +1029,9 @@
             "type": "string"
           },
           "information_json": {
-            "description": "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
+            "description": "Reserved for legacy free exports in a trusted local stdio connector. Paid and hosted responses always return an empty string.",
             "maxLength": 120000,
-            "title": "Locally decrypted information JSON",
+            "title": "Legacy free local information JSON",
             "type": "string"
           },
           "payload_iv": {

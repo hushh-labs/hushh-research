@@ -54,6 +54,10 @@ test.beforeAll(async () => {
           "@/lib/services/auth-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
+          "./api-service",
+          "@/lib/services/auth-service",
+          "./auth-service",
+          "./agent-chat-client",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
@@ -109,9 +113,9 @@ test.beforeAll(async () => {
 
 async function mount(
   page: Page,
-  options: { width?: number; theme?: "light" | "dark"; at?: string } = {},
+  options: { width?: number; theme?: "light" | "dark"; at?: string; regions?: { top: number; bottom: number; fullWindow?: boolean } } = {},
 ) {
-  const { width = 393, theme = "light", at = "/" } = options;
+  const { width = 393, theme = "light", at = "/", regions } = options;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -127,7 +131,7 @@ async function mount(
   await page.route(/^http:\/\/localhost\/(?!api\/|icons\/)/, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""} ${regions ? "native-reserved-chrome" : ""} ${regions?.fullWindow ? "native-full-window-overlays" : ""}" ${regions ? `style="--native-overlay-top:${regions.fullWindow ? 0 : regions.top}px;--native-overlay-bottom:${regions.fullWindow ? 0 : regions.bottom}px"` : ""} ${regions?.fullWindow ? "data-native-full-window-covered" : ""}><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: theme });
@@ -140,10 +144,119 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
+test("Profile chrome and Preferences keep their grid while the panel follows a pull", async ({ page }) => {
+  await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  const preferences = pane(page).locator("[data-profile-appearance-preferences]");
+  await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  await expect(preferences.getByRole("radiogroup", { name: "Theme", exact: true })).toBeVisible();
+  const controlEdges = await preferences.evaluate(node => {
+    const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
+    const accent = node.querySelector('select[aria-label="App accent color"]')!.getBoundingClientRect();
+    return { appearance: appearance.right, accent: accent.right };
+  });
+  expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
+  const measured = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
+    const body = frame.querySelector<HTMLElement>('[data-profile-pane-scroll-root]')!;
+    const title = frame.querySelector("h2")!;
+    const controls = frame.querySelector("[data-profile-appearance-preferences]")!;
+    const settledRight = frame.getBoundingClientRect().right;
+    const before = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const dispatch = (type: string, x: number, time: number) => {
+      const point = { identifier: 1, clientX: x, clientY: 320 };
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, { touches: { value: [point] }, changedTouches: { value: [point] }, timeStamp: { value: time } });
+      body.dispatchEvent(event);
+    };
+    dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
+    const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    dispatch("touchcancel", 170, 240);
+    return { before, after, settledRight, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-appearance-preferences]').length };
+  });
+  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(50, 0);
+  expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(50, 0);
+  expect(measured.after[2]! - measured.before[2]!).toBeCloseTo(50, 0);
+  expect(measured.after[1]! - measured.after[2]!).toBeCloseTo(measured.before[1]! - measured.before[2]!, 0);
+  expect(measured.hasDuplicatedAppearance).toBe(1);
+  await expect(pane(page)).toBeVisible(); // Cancellation never commits dismissal.
+  // Observe settlement cleanup, where removing animation suppression used to
+  // replay the entire opening slide. A settled screenshot cannot catch it.
+  const afterCancellation = await pane(page).evaluate(async (frame, settledRight) => {
+    let worstSettledOffset = 0;
+    const started = performance.now();
+    while (performance.now() - started < 550) {
+      await new Promise(requestAnimationFrame);
+      if (!frame.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
+        Math.abs(frame.getBoundingClientRect().right - settledRight));
+    }
+    return { worstSettledOffset, inlineTransform: frame.style.transform };
+  }, measured.settledRight);
+  expect(afterCancellation.inlineTransform).toBe("");
+  expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
+  await preferences.getByRole("button", { name: "AI connection", exact: false }).click({ timeout: 5_000 });
+  await expect.poll(() => query(page).get("profile_detail")).toBe("gemini");
+  await page.getByRole("button", { name: "Back in Profile", exact: true }).click();
+  await expect.poll(() => query(page).get("profile_detail")).toBeNull();
+  await expect(preferences).toBeVisible();
+});
+
+test("Accent stays coherent through repeated selection and Profile close/reopen", async ({ page }) => {
+  // Ten full open/menu/selection/close cycles, not one 30s interaction.
+  test.setTimeout(60_000);
+  const errors = await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const trigger = page.getByRole("combobox", { name: "App accent color" });
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    const accent = cycle % 2 === 0 ? "Molten Gold" : "iOS Blue";
+    const value = cycle % 2 === 0 ? "gold" : "blue";
+    await trigger.selectOption(value);
+    await expect(trigger).toHaveValue(value);
+    await expect(trigger).toContainText(accent);
+    if (accent === "Molten Gold") await expect(page.locator("html")).toHaveAttribute("data-accent", "gold");
+    else await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.+/);
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(page).not.toHaveURL(/profile_pane=1/);
+    await page.getByTestId("open-profile").click();
+    await expect(pane(page)).toBeVisible();
+    const root = pane(page).locator('[data-profile-stack-screen="root"][data-profile-stack-active="true"]');
+    await expect(root).toBeVisible();
+    await root.getByRole("button", { name: "Appearance & preferences", exact: true }).click();
+    await expect(trigger).toHaveValue(value);
+  }
+  expect(errors).toEqual([]);
+});
+
 function query(page: Page) {
   return new URL(page.url()).searchParams;
 }
 
+for (const order of ["notice-first", "profile-first"] as const) {
+  test(`Payments remains clickable with a ${order} release notice`, async ({ page }) => {
+    const errors = await mount(page, { at: "/one" });
+    const notice = page.getByRole("dialog", { name: "Synthetic release notice", exact: true });
+    const events = order === "notice-first"
+      ? ["fixture-release-notice", "fixture-open-payouts"]
+      : ["fixture-open-payouts", "fixture-release-notice"];
+    await page.evaluate((event) => window.dispatchEvent(new Event(event)), events[0]);
+    await expect(order === "notice-first" ? notice : pane(page)).toBeVisible();
+    await page.evaluate((event) => window.dispatchEvent(new Event(event)), events[1]);
+    await expect(pane(page)).toBeVisible();
+    await expect(notice).not.toBeVisible();
+    const close = page.getByRole("button", { name: "Close Profile", exact: true });
+    await expect.poll(() => close.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    await close.click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(page).not.toHaveURL(/profile_pane=1/);
+    await expect(notice).toBeVisible();
+    await notice.getByRole("button", { name: "Got it", exact: true }).click();
+    await expect(notice).not.toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
 for (const width of [390, 1280])
   for (const theme of ["light", "dark"] as const)
     test(`Profile keeps the opaque theme canvas at ${width}px in ${theme}`, async ({ page }, info) => {
@@ -170,17 +283,44 @@ for (const width of [390, 1280])
     });
 
 test("Profile root and nested screens share one gutter", async ({ page }) => {
-  for (const [width, rightInset] of [[320, 12], [393, 12], [768, 18]] as const) {
-    await mount(page, { width, at: "/one?profile_pane=1" });
+  for (const options of [{ width: 320 }, { width: 393 }, { width: 768 },
+    { width: 393, regions: { top: 120, bottom: 280 } },
+    { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
+    const { width, regions } = options;
+    const fullWindow = regions?.fullWindow || !regions && width < 640;
+    const rightInset = fullWindow ? 0 : width < 640 ? 12 : 18;
+    await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
-    // The floating Profile pane keeps a 12–18px viewport gutter; it is not
-    // an edge-to-edge drawer. Keep an independent expected inset so removing
-    // the product gutter still fails this assertion.
+    // Phones are edge-to-edge unless a bounded native reservation is active;
+    // desktop and bounded native panes retain their independent outer gutter.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0.5);
+    if (regions) {
+      const html = page.locator("html");
+      await expect(html).toHaveClass(/native-reserved-chrome/);
+      if (regions.fullWindow) await expect(html).toHaveClass(/native-full-window-overlays/);
+      else await expect(html).not.toHaveClass(/native-full-window-overlays/);
+      expect(await html.evaluate(node => [
+        (node as HTMLElement).style.getPropertyValue("--native-overlay-top"),
+        (node as HTMLElement).style.getPropertyValue("--native-overlay-bottom"),
+      ])).toEqual(regions.fullWindow ? ["0px", "0px"] : ["120px", "280px"]);
+      // Full-window native overlays use the entire phone viewport; bounded
+      // presentations keep their own gutter rather than native reservations.
+      const expected = regions.fullWindow
+        ? { top: 0, height: 852, bottom: 852 }
+        : { top: 16, height: 820, bottom: 836 };
+      await expect.poll(async () => {
+        const box = await pane(page).boundingBox();
+        return box ? Math.max(
+          Math.abs(box.y - expected.top),
+          Math.abs(box.height - expected.height),
+          Math.abs(box.y + box.height - expected.bottom),
+        ) : Number.POSITIVE_INFINITY;
+      }).toBeLessThanOrEqual(0.5);
+    }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();
       return { left: box.left, right: box.right };
@@ -200,6 +340,35 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     expect(Math.abs(legal!.x + legal!.width - root.right)).toBeLessThanOrEqual(0.5);
   }
 });
+
+for (const width of [320, 390, 768, 1440])
+  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mount(page, { width });
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Keep this draft and conversation");
+    const original = await draft.elementHandle();
+    const receipt = page.getByRole("region", { name: "Mail read details" });
+    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
+    // The receipt names the connector and what the person will do there.
+    const button = receipt.getByRole("button", { name: "Review Gmail access" });
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await button.click();
+    await expect(paneTitle(page)).toHaveText("Gmail");
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(button).toBeFocused();
+    await expect(draft).toHaveValue("Keep this draft and conversation");
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
+  });
 
 test("Legal opens in place in the Profile pane and Back returns to Profile", async ({ page }) => {
   const errors = await mount(page, { at: "/one" });
@@ -360,10 +529,11 @@ for (const width of [320, 393, 1440]) {
 // Review renders for the founder, written only when LEGAL_RENDER_DIR is set.
 test.describe("review renders", () => {
   test.skip(!process.env.LEGAL_RENDER_DIR, "set LEGAL_RENDER_DIR to write review renders");
-  for (const [width, theme] of [[393, "light"], [393, "dark"], [1440, "light"]] as const) {
+  for (const [width, theme] of [[393, "light"], [393, "dark"], [820, "light"], [1440, "light"]] as const) {
     test(`pane renders at ${width}px ${theme}`, async ({ page }) => {
       const dir = process.env.LEGAL_RENDER_DIR!;
       for (const [name, at] of [
+        ["pane-preferences", "/one?profile_pane=1&profile_panel=preferences"],
         ["pane-legal-terms", "/one?profile_pane=1&profile_panel=legal&profile_detail=terms"],
         ["pane-legal-section", "/one?profile_pane=1&profile_panel=legal"],
         ["pane-connectors", "/?profile_pane=1&profile_panel=connectors"],

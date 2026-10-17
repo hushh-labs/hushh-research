@@ -137,6 +137,34 @@ class TestAccountDeleteErrorDetail:
         }
         assert self._SENTINEL not in resp.text
 
+    def test_bounded_files_cleanup_preserves_pending_without_deleting_identity(self):
+        with (
+            patch.object(
+                account_module.AccountService,
+                "delete_account",
+                new_callable=AsyncMock,
+                return_value={
+                    "success": False,
+                    "account_deleted": False,
+                    "error_code": "FILES_ERASURE_IN_PROGRESS",
+                    "message": self._SENTINEL,
+                },
+            ) as delete,
+            patch.object(
+                account_module, "_delete_firebase_auth_user", new_callable=AsyncMock
+            ) as firebase,
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 409
+        assert resp.json() == {
+            "detail": "Files cleanup is still in progress. Account not deleted. Try again to continue.",
+            "code": "FILES_ERASURE_IN_PROGRESS",
+        }
+        assert self._SENTINEL not in resp.text
+        delete.assert_awaited_once_with("test-uid", target="both")
+        firebase.assert_not_awaited()
+
     def test_successful_deletion_returns_200(self):
         """A successful deletion must return 200 (not 422 or 500)."""
         with patch.object(

@@ -52,7 +52,7 @@
 .accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
 .accountButton { position: static; }
 .backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
-.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible { outline: 3px solid #0071e3; outline-offset: 3px; }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
 .surface {
   display: flex;
   flex-direction: column;
@@ -114,14 +114,14 @@
   margin: 14px 0 17px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
   font-size: 13px !important; font-weight: 400; line-height: 20px !important; letter-spacing: -.005em;
 }
-.learnMore { display: inline; padding: 0; border: 0; background: none; color: #0071e3; font: inherit; font-weight: 500; }
+.learnMore { display: inline; padding: 0; border: 0; background: none; color: var(--app-accent); font: inherit; font-weight: 500; }
 .learnMore:hover { text-decoration: underline; text-underline-offset: 3px; }
 .primaryAction,
 .phoneForm :global([data-figma-phone-primary]),
 .phoneForm :global([data-figma-otp-primary]) {
   width: 100% !important; max-width: none !important; height: 52px !important; min-height: 52px !important;
   padding: 11px 18px !important; border: 0 !important; border-radius: 999px !important;
-  background: #0071e3 !important; color: #fff !important; font-family: var(--font-app-body) !important;
+  background: var(--app-accent) !important; color: #fff !important; font-family: var(--font-app-body) !important;
   font-size: 17px !important; font-weight: 600 !important; line-height: 24px !important;
   letter-spacing: -.01em !important; box-shadow: none !important;
 }
@@ -137,7 +137,7 @@
   font-size: 14px !important; line-height: 21px !important; text-align: center; text-wrap: pretty;
 }
 .phoneForm :global([data-figma-otp-intro] > span) { color: var(--phone-text) !important; font-weight: 600; white-space: nowrap; }
-.phoneForm :global([data-figma-otp-intro] button) { color: #0071e3 !important; font: inherit; font-weight: 500; }
+.phoneForm :global([data-figma-otp-intro] button) { color: var(--app-accent) !important; font: inherit; font-weight: 500; }
 .phoneForm :global([data-figma-otp-field]) { margin-bottom: 18px; gap: 0 !important; }
 .phoneForm :global([data-figma-otp-field] > div) { height: 58px; }
 .phoneForm :global([data-otp-cells]) { height: 58px; gap: 7px !important; }
@@ -146,11 +146,11 @@
   border-radius: 14px !important; background: var(--phone-field) !important; box-shadow: none !important;
   color: var(--phone-text) !important; font-family: var(--font-app-body); font-size: 22px; font-weight: 600;
 }
-.phoneForm :global([data-figma-otp-field]:focus-within [data-otp-cells] > [data-current="true"]) { border: 2px solid #0071e3 !important; box-shadow: 0 0 0 3px #0071e328 !important; }
+.phoneForm :global([data-figma-otp-field]:focus-within [data-otp-cells] > [data-current="true"]) { border: 2px solid var(--app-accent) !important; box-shadow: 0 0 0 3px var(--app-accent)28 !important; }
 .phoneForm :global([data-figma-otp-field][data-invalid="true"] [data-otp-cells] > div) { border-color: var(--destructive) !important; }
 .phoneForm :global(#phone-flow-code) { font-size: 22px; scroll-margin-block: 80px; }
 .phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
-.phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: #0071e3 !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
+.phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: var(--app-accent) !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
 .recaptcha { display: none; }
 @media (max-width: 355px) {
   .surface { padding-inline: 18px; }

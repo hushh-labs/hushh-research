@@ -533,23 +533,17 @@ SELECT
   seed.quality_score,
   seed.curation_reason
 FROM investor_seed seed
+-- Admit only untouched bootstrap defaults. Public profile/source/filing fields
+-- belong to subsequent SEC refreshes or curation and are never replaced here.
 ON CONFLICT (cik) DO UPDATE SET
-  name = EXCLUDED.name,
-  name_normalized = EXCLUDED.name_normalized,
-  firm = EXCLUDED.firm,
-  title = EXCLUDED.title,
-  investor_type = EXCLUDED.investor_type,
-  location_hint = EXCLUDED.location_hint,
-  business_address = EXCLUDED.business_address,
-  investment_style = EXCLUDED.investment_style,
-  biography = EXCLUDED.biography,
-  data_sources = EXCLUDED.data_sources,
-  source_urls = EXCLUDED.source_urls,
-  evidence = EXCLUDED.evidence,
-  last_13f_date = EXCLUDED.last_13f_date,
   marketplace_eligible = EXCLUDED.marketplace_eligible,
   curation_tier = EXCLUDED.curation_tier,
   admission_status = EXCLUDED.admission_status,
   quality_score = EXCLUDED.quality_score,
   curation_reason = EXCLUDED.curation_reason,
-  updated_at = NOW();
+  updated_at = NOW()
+WHERE investor_profiles.marketplace_eligible = FALSE
+  AND investor_profiles.curation_tier = 'unreviewed'
+  AND investor_profiles.admission_status = 'pending_review'
+  AND investor_profiles.quality_score = 0
+  AND investor_profiles.curation_reason IS NULL;

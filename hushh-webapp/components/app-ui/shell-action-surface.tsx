@@ -54,6 +54,8 @@ interface ShellActionSurfaceProps
    * ripple takes the label colour and stays visible on that fill.
    */
   rippleEffect?: "glass" | "fill";
+  /** Animated artwork supplies its own feedback and must not paint a halo. */
+  ripple?: boolean;
   badge?: React.ReactNode;
   badgeClassName?: string;
   contentClassName?: string;
@@ -76,6 +78,7 @@ export const ShellActionSurface = React.forwardRef<
     children,
     type = "button",
     rippleEffect = "glass",
+    ripple = true,
     ...props
   },
   ref
@@ -103,12 +106,12 @@ export const ShellActionSurface = React.forwardRef<
         >
           {children}
         </span>
-        <MaterialRipple
+        {ripple ? <MaterialRipple
           variant="blue"
           effect={rippleEffect}
           disabled={props.disabled}
           className={cn("z-10", rippleClassName)}
-        />
+        /> : null}
       </button>
       {badge ? (
         <span

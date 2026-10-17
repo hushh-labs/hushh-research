@@ -14,6 +14,7 @@ describe("recursive Profile pane contracts", () => {
     const pane = read("components/app-ui/profile-pane.tsx");
     const route = read("app/profile/profile-workspace-page.tsx");
     const workspace = read("components/profile/profile-workspace-page.tsx");
+    const menu = read("components/profile/profile-menu-model.ts");
 
     expect(pane).toContain(
       'import { ProfilePage } from "@/components/profile/profile-workspace-page"',
@@ -27,7 +28,7 @@ describe("recursive Profile pane contracts", () => {
     expect(route).toContain("components/profile/profile-workspace-page");
     expect(route).not.toContain("PageSectionSwitcher");
     expect(workspace).toContain(
-      'type ProfilePagePresentation = "route" | "pane"',
+      'type ProfilePagePresentation = "route" | "pane" | "native-page"',
     );
     for (const label of [
       "Memory",
@@ -37,8 +38,10 @@ describe("recursive Profile pane contracts", () => {
       "Invite friends",
       "Help & feedback",
     ]) {
-      expect(workspace).toContain(label);
+      expect(workspace + menu).toContain(label);
     }
+    expect(workspace).toContain("profileMenuGroups(canShowPkmAgentLab)");
+    expect(workspace).toContain("title={entry.label}");
   });
 
   it("keeps recursive motion mounted, reduced-motion safe, and scroll-position aware", () => {
@@ -82,12 +85,11 @@ describe("recursive Profile pane contracts", () => {
 
   it("preserves the revamped Profile type and semantic capability icons", () => {
     const pane = read("components/app-ui/profile-pane.tsx");
-    const workspace = read("components/profile/profile-workspace-page.tsx");
     const css = read("app/globals.css");
 
     expect(pane).toContain("font-[family-name:var(--font-app-display)]");
     expect(pane).toContain("font-[family-name:var(--font-app-body)]");
-    expect(workspace).toContain("InviteFriendsProfileIcon");
+    expect(read("components/profile/profile-menu-model.ts")).toContain("InviteFriendsProfileIcon");
     expect(css).toContain(':not([data-icon-tone="capability"]):not(');
     expect(css).toContain(
       '.profile-home-content [data-icon-tone="capability"] svg',

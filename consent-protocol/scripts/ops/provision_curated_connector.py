@@ -169,40 +169,12 @@ async def _get_json(url: str) -> dict[str, Any]:
 async def discover_registration_endpoint(manifest: RegistrationContract) -> str:
     """Read the provider's authorization-server metadata and check it still agrees
     with the reviewed manifest before anything is sent to it."""
-    origin = _origin(manifest.mcp_endpoint)
-    metadata = await _get_json(f"{origin}/.well-known/oauth-authorization-server")
-    problems: list[str] = []
-    if metadata.get("issuer") != origin:
-        problems.append(f"issuer {metadata.get('issuer')!r} is not {origin!r}")
-    if metadata.get("authorization_endpoint") != manifest.authorize_url:
-        problems.append("authorization_endpoint differs from the manifest")
-    if metadata.get("token_endpoint") != manifest.token_url:
-        problems.append("token_endpoint differs from the manifest")
-    if "S256" not in _metadata_tokens(metadata.get("code_challenge_methods_supported")):
-        problems.append("S256 PKCE is not advertised")
-    methods = _metadata_tokens(metadata.get("token_endpoint_auth_methods_supported"))
-    if manifest.token_endpoint_auth not in methods:
-        problems.append(f"token auth method {manifest.token_endpoint_auth!r} is not advertised")
-    endpoint = str(metadata.get("registration_endpoint") or "").strip()
-    if not endpoint:
-        problems.append("no registration_endpoint (register the app in the provider dashboard)")
-    else:
-        try:
-            validate_mcp_endpoint(endpoint)
-        except UnsafeMcpEndpoint:
-            problems.append("registration_endpoint is not a public HTTPS endpoint")
-        else:
-            # Attio's authorization server lives on app.attio.com while its
-            # protected MCP resource and metadata live on mcp.attio.com. A
-            # same-origin rule would reject that legitimate layout; accepting
-            # any cross-origin endpoint would instead turn live metadata into
-            # an unreviewed registration target. Exact manifest equality is
-            # the reviewed binding for both layouts.
-            if endpoint != manifest.registration_url:
-                problems.append("registration_endpoint differs from the manifest")
-    if problems:
-        raise ProvisionError("Metadata check failed: " + "; ".join(problems) + ".")
-    return endpoint
+    from scripts.ops.curated_connector_discovery import DiscoveryError, registration_endpoint
+
+    try:
+        return await registration_endpoint(manifest, get_json=_get_json)
+    except DiscoveryError as error:
+        raise ProvisionError(str(error)) from None
 
 
 def _local_development_redirect(value: Any) -> str:

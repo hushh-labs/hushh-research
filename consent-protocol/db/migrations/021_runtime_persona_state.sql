@@ -23,9 +23,7 @@ SELECT
   NOW()
 FROM vault_keys vk
 LEFT JOIN actor_profiles ap ON ap.user_id = vk.user_id
-ON CONFLICT (user_id) DO UPDATE
-SET
-  last_active_persona = EXCLUDED.last_active_persona,
-  updated_at = NOW();
+-- Seed missing fallback state; an existing row belongs to the runtime.
+ON CONFLICT (user_id) DO NOTHING;
 
 COMMIT;

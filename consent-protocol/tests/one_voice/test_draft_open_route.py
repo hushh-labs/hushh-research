@@ -55,13 +55,18 @@ class DraftReads:
 
 @pytest.fixture
 def app(monkeypatch):
+    from unittest.mock import AsyncMock
+
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from api.middleware import require_vault_owner_token
     from api.routes.one import voice
     from hushh_mcp.one_voice.tools.base import EntityContext
+    from hushh_mcp.services import owner_placement_guard as guard
 
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv(ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV, "true")
     monkeypatch.delenv(ONE_VOICE_MAIL_READS_ENABLED_ENV, raising=False)
     entities = EntityContext()

@@ -615,7 +615,7 @@ describe("ConsentCenterPage requestId deep links", () => {
   });
 
   // Localhost run 4 (R5): no owner surface could approve part of a request.
-  it("allows only the chosen items of a request and declines the rest", async () => {
+  it.each([false, true])("allows only chosen items; model permission requires review of that subset (%s)", async (approveModel) => {
     const member = (id: string, label: string, scope: string) => ({
       id, request_id: id, kind: "incoming_request", status: "pending", action: "REQUESTED",
       allowed_next_action: "review_request", scope, scope_description: label,
@@ -634,9 +634,14 @@ describe("ConsentCenterPage requestId deep links", () => {
     }));
     render(<ConsentCenterPage />);
     const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(screen.getByTestId("consent-bundle-choice")).getAllByRole("checkbox")).toHaveLength(2);
+    const modelPermission = within(dialog).getByRole("checkbox", { name: /selected model/i });
+    fireEvent.click(modelPermission);
+    expect(modelPermission).toBeChecked();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Financial events" }));
+    expect(modelPermission).not.toBeChecked();
+    if (approveModel) fireEvent.click(modelPermission);
     expect(screen.getByText("Access · 1 of 2 items")).toBeTruthy();
     expect(screen.getByTestId("consent-bundle-choice-summary"))
       .toHaveTextContent("Only Food preferences will be shared. Financial events won't be.");
@@ -646,7 +651,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     const [allow, decline, options] = mocks.handleDecideBundle.mock.calls[0]!;
     expect(allow.map((consent: { id: string }) => consent.id)).toEqual(["request-food"]);
     expect(decline).toEqual(["request-events"]);
-    expect(options).toMatchObject({ bundleId: "bundle-mixed" });
+    expect(options).toMatchObject({ bundleId: "bundle-mixed", modelProcessingAllowed: approveModel });
     // Negative control: a partial choice never becomes a whole Allow or a whole decline.
     expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
     expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
@@ -746,14 +751,15 @@ describe("ConsentCenterPage requestId deep links", () => {
   // recipient reported being shown the Drive "Document request / Google Drive"
   // review instead, so both roles are proven here from the row they tap.
   it.each([
-    ["owner", "incoming_request", "awaiting_owner"],
-    ["requester", "outgoing_request", "approved"],
+    ["owner", "incoming_request", "awaiting_owner", true],
+    ["requester", "outgoing_request", "approved", true],
+    ["owner", "incoming_request", "awaiting_owner", false],
   ] as const)(
     "opens a %s's Request scope row in its own card and keeps the lane in the URL",
-    async (role, kind, status) => {
+    async (role, kind, status, hasPrefix) => {
       const id = "22222222-2222-4222-8222-222222222222";
       const entry = {
-        id: `answer_request:${id}`,
+        id: hasPrefix ? `answer_request:${id}` : id,
         // The bare uuid the generic consent path also uses. Selecting the row
         // by this instead of `id` dropped the lane, and the request fell
         // through to the generic approve/deny path, which grants the scopes
@@ -967,6 +973,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           id: "fixed-24",
           durationHours: 24,
         }),
+        { modelProcessingAllowed: false },
       );
     });
   });
@@ -1009,6 +1016,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           id: "agent-task",
           durationHours: undefined,
         }),
+        { modelProcessingAllowed: false },
       );
     });
   });
@@ -1905,7 +1913,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       id, request_id: `req_${id}`, kind: "active_grant", status: "active", action: "CONSENT_GRANTED",
       counterpart_type: "person", counterpart_id: "user-kushal", counterpart_label: "Kushal Trivedi",
       counterpart_email: "kushal@example.com", scope, scope_description: label,
-      issued_at: "2026-09-28T23:20:00.000Z", expires_at: "2026-10-05T23:20:00.000Z",
+      issued_at: "2026-09-28T23:20:00.000Z", expires_at: "2027-10-05T23:20:00.000Z",
       bundle_id: "bundle-dinner", bundle_labels: ["Food preferences", "Dietary constraints"],
       bundle_label: "Food preferences and Dietary constraints",
       metadata: { bundle_id: "bundle-dinner", request_source: "one_person_profile" },
@@ -2038,7 +2046,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           scope: "attr.food.preferences.*",
           scope_description: "Food preferences",
           issued_at: "2026-09-28T23:20:00.000Z",
-          expires_at: "2026-10-05T23:20:00.000Z",
+          expires_at: "2027-10-05T23:20:00.000Z",
         },
       ],
     });
@@ -2150,6 +2158,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
     expect(mocks.handleApprove).toHaveBeenCalledWith(
       expect.objectContaining({ id: "req_food", durationHours: 168 }),
+      { modelProcessingAllowed: false },
     );
 
     // The shared hook reports the confirmed approval.

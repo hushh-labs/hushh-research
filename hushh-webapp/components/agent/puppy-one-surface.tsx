@@ -1,12 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { CHAT_WELCOME_COPY_CLASSNAME } from "@/components/agent/chat-message-styles";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
+import { isLocalHost } from "@/lib/hermes/local-host";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
 
 /**
  * Puppy One as a mode of the Agent Chat workspace.
@@ -27,6 +31,8 @@ import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 export function PuppyOneSurface({
   className,
   active = true,
+  sharedDock = false,
+  composerDisabled = false,
   conversations,
   activeConversationId,
   onCreateConversation,
@@ -44,8 +50,23 @@ export function PuppyOneSurface({
    * transcript under a header that says "One".
    */
   active?: boolean;
+  sharedDock?: boolean;
+  composerDisabled?: boolean;
 }) {
   const link = usePuppyLink();
+  // A deployed frontend's loopback is its Cloud Run container, never the
+  // owner's Mac. Resolve after hydration so server and client render agree.
+  const [localBridge, setLocalBridge] = useState<boolean | null>(null);
+  useEffect(() => setLocalBridge(isLocalHost()), []);
+  // On a deployed origin the readings control shares the chat's header row,
+  // so the chat opens on one quiet line instead of two stacked strips.
+  const sheet = <PuppyMachineSheet ribbon active={active && !composerDisabled} />;
+  const panel = (activePanel: boolean, panelClassName?: string) =>
+    localBridge === null ? null : localBridge ? (
+      <HermesChatPanel active={activePanel} sharedDock={sharedDock} composerDisabled={composerDisabled || !activePanel} accessory={sheet} className={panelClassName} />
+    ) : (
+      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} composerDisabled={composerDisabled || !activePanel} />
+    );
   return (
     <div
       className={cn(
@@ -55,10 +76,12 @@ export function PuppyOneSurface({
         // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
         // underneath the navigation. The fallback covers a mount outside the
         // workspace, where the variable is not defined.
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-5 sm:px-6",
+        "flex min-h-0 flex-1 flex-col overflow-hidden pt-0",
+        localBridge ? "px-4 sm:px-6" : "px-3 sm:px-5",
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
+      inert={!active || composerDisabled}
       data-agent-surface="puppy"
     >
       {/* The measure lives on an INNER wrapper, because One puts its gutters
@@ -66,7 +89,8 @@ export function PuppyOneSurface({
           outer div would leave Puppy narrower than One at the same
           viewport. The wrapper repeats the flex chain on purpose: an inert
           wrapper here would let the chat panel's flex-1 basis collapse. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3">
+      <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-3",
+        localBridge ? "max-w-3xl" : "max-w-[var(--app-bottom-shell-max-width)]")}>
         {/* Said once, and only to someone with no machine yet. The workspace
             header cannot carry it (its subtitle is hidden below sm, and the
             unlinked empty state below names an install without ever saying
@@ -74,26 +98,42 @@ export function PuppyOneSurface({
             header, so the claim still appears exactly once per screen. */}
         {link?.state === "unlinked" ? (
           <p className={cn("shrink-0", CHAT_WELCOME_COPY_CLASSNAME)}>
-            A personal supercomputer you own. Pin a model to this machine and
-            answers never leave it.
+            A local model on your trusted machine. Requests and replies travel
+            through your private pod.
           </p>
         ) : null}
-        <PuppyMachineSheet className="shrink-0" active={active} />
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {conversations === undefined ? <HermesChatPanel active={active} /> : (
+          {/* Remote Puppy retains its own admitted-pod composer. Suppress the
+              shared cloud launcher; local Hermes may claim the retained dock. */}
+          <AgentDockPortal
+            enabled={sharedDock && active && (localBridge !== true || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
+            visible={false} suppressed
+          >{null}</AgentDockPortal>
+          {conversations === undefined ? panel(active) : (
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
                   <Button onClick={onCreateConversation}>Start a Puppy chat</Button>
                 </div>
               ) : null}
-              {conversations.map((conversation) => (
+              {conversations.map((conversation) => localBridge === null ? null : localBridge ? (
                 <HermesChatPanel
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
+                  sharedDock={sharedDock}
+                  composerDisabled={composerDisabled || !active || activeConversationId !== conversation.id}
+                  accessory={activeConversationId === conversation.id ? sheet : undefined}
+                  className={cn(activeConversationId !== conversation.id && "hidden")}
+                />
+              ) : (
+                <PrivatePuppyInferencePanel
+                  key={conversation.id}
+                  conversationId={conversation.id}
+                  composerDisabled={composerDisabled || !active || activeConversationId !== conversation.id}
+                  accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

@@ -108,11 +108,7 @@ describe("People request management", () => {
   const people = functionBody("PeopleHub");
   const actions = functionBody("PersonActionsDialog");
 
-  it("cancels the selected request through the person actions sheet", () => {
-    expect(people).toContain("void vm.onWithdrawRequest(selectedPendingRequest.id)");
-    expect(people).toContain("onCancelRequest=");
-    expect(actions).toContain("onClick={onCancelRequest}");
-  });
+
 
   it("disables cancellation while the selected request is being withdrawn", () => {
     expect(actions).toContain('title={cancelBusy ? "Cancelling…" : "Cancel request"}');

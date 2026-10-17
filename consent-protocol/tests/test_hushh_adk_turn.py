@@ -12,7 +12,11 @@ from google.genai import types
 from pydantic import BaseModel, PrivateAttr
 
 from hushh_mcp.hushh_adk.context import HushhContext
-from hushh_mcp.hushh_adk.events import AdkEventCleanupError, bounded_adk_events
+from hushh_mcp.hushh_adk.events import (
+    AdkEventCleanupError,
+    AdkEventTimeoutError,
+    bounded_adk_events,
+)
 from hushh_mcp.hushh_adk.tools import hushh_tool
 from hushh_mcp.hushh_adk.turn import (
     SpecialistAdkCallLimitError,
@@ -296,7 +300,7 @@ async def test_bounded_source_closes_on_timeouts_and_cancellation(phase):
         with pytest.raises(asyncio.CancelledError):
             await task
     else:
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(AdkEventTimeoutError):
             await consume()
     assert closed.is_set()
 
@@ -502,7 +506,7 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
     if not track_progress:
         with pytest.raises(SpecialistAdkTurnError) as failure:
             await pending
-        assert isinstance(failure.value.__cause__, TimeoutError)
+        assert isinstance(failure.value.__cause__, AdkEventTimeoutError)
         return
     result = await pending
     assert result.final_text == "child answer"

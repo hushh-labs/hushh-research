@@ -341,7 +341,9 @@ class LocationChatService:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._location_service = location_service
         self._scope_tokens = dict(scope_tokens or {})
-        self._use_adk = model_call is None
+        # Default shared turns use ADK; an injected pod model remains authoritative
+        # even when a legacy callback is supplied for compatibility/auth probes.
+        self._use_adk = model is not None or model_call is None
         self._adk_model = model
 
         if model_call is not None:

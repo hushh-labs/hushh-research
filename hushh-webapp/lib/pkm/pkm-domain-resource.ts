@@ -300,7 +300,7 @@ export class PkmDomainResourceService {
         segmentSignature: segmentSignature(params.segmentIds),
       });
       if (params.backgroundRefresh !== false) {
-        void this.refresh(params);
+        void this.refresh(params).catch(() => undefined);
       }
       return cached.data;
     }
@@ -328,7 +328,7 @@ export class PkmDomainResourceService {
           return secure;
         }
         if (params.backgroundRefresh !== false) {
-          void this.refresh(params);
+          void this.refresh(params).catch(() => undefined);
         }
         return secure;
       }

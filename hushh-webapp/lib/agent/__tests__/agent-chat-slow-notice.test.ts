@@ -200,6 +200,30 @@ describe("the slow-reply notice", () => {
     stopped.notice.signal({ kind: "backend_strain", strain: "busy" }); // late event from the stopped stream
     expect(stopped.shown.map((view) => view.state)).toEqual(["slow"]);
   });
+
+  it("says the agent is waking while it starts, holds through the quiet, and clears when it answers", () => {
+    const h = harness();
+    h.notice.begin();
+    h.notice.signal({ kind: "waking" });
+    expect(h.visible?.title).toBe("Waking your agent… Your message will send shortly.");
+    // A cold start is silent for 30 to 40 s: neither "slow" nor "still connecting" replaces it.
+    vi.advanceTimersByTime(2 * CONNECTION_QUIET_MS);
+    expect(h.shown.map((view) => view.state)).toEqual(["waking"]);
+    // The agent's first bytes: it is awake. Past the slow threshold with nothing
+    // visible yet, the honest word is "slow"; otherwise the notice just goes.
+    h.notice.signal({ kind: "bytes" });
+    expect(h.notice.visibleState).toBe("slow");
+
+    const quick = harness();
+    quick.notice.begin();
+    quick.notice.signal({ kind: "waking" });
+    quick.notice.signal({ kind: "bytes" });
+    expect(quick.notice.visibleState).toBeNull();
+    // Real strain still outranks waking.
+    quick.notice.signal({ kind: "waking" });
+    quick.notice.signal({ kind: "backend_strain", strain: "unavailable" });
+    expect(quick.notice.visibleState).toBe("unavailable");
+  });
 });
 
 describe("the notice as a sonner toast", () => {

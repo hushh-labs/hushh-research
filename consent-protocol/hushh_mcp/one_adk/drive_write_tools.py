@@ -21,7 +21,7 @@ from typing import Any, Literal, cast
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.consent.audit_logger import get_audit_logger
-from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.runtime_settings import get_core_security_settings, pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
@@ -61,12 +61,20 @@ def _transport() -> GoogleDriveRestTransport:
     return GoogleDriveRestTransport()
 
 
+def _writer(owner: str) -> GoogleDriveRestTransport:
+    from hushh_mcp.services.pod_drive import transport_for
+
+    return transport_for(owner, _transport)
+
+
 async def _owner(tool_context: ToolContext) -> str | None:
-    """The same typed-Chat owner authority as every Workspace read, rechecked per call."""
+    """The same typed-Chat owner authority as every Workspace read, rechecked per call.
+
+    In an owner-cloud agent the person's own Drive login is the rollout: no staged flag."""
     from hushh_mcp.one_adk.workspace_mcp_tools import _owner as workspace_owner
 
     owner = await workspace_owner(tool_context, "drive")
-    if owner is None or not connector_feature_enabled("google_drive_live", owner):
+    if owner is None or not (pod_mode() or connector_feature_enabled("google_drive_live", owner)):
         return None
     return owner
 
@@ -155,7 +163,7 @@ async def _direct_write(
         },
     )
     try:
-        result = await _transport().write_tool(
+        result = await _writer(owner).write_tool(
             user_id=owner, tool_name=tool_name, arguments=arguments
         )
     except (DriveWriteError, DriveOAuthError) as error:
@@ -316,6 +324,25 @@ async def _connection_generation(owner: str) -> int:
     return int(row["connection_generation"])
 
 
+async def _ledger_review(owner: str, conversation: str, action: str, exact: dict) -> Any:
+    review = DriveWriteReview.build(
+        owner_id=owner,
+        conversation_id=conversation,
+        action=action,
+        arguments=exact,
+        connection_generation=await _connection_generation(owner),
+    )
+    return await ActionDirectiveStore().issue(
+        **review.identity,
+        channel="adk_chat",
+        action_contract=review.terms.action_contract,
+        slots=review.terms.slots,
+        resource_binding=review.terms.resource_binding,
+        trusted_activation_required=True,
+        ttl_seconds=300,
+    )
+
+
 async def _propose(
     tool_context: ToolContext, action: Literal["share", "trash"], arguments: dict[str, Any]
 ) -> dict[str, Any]:
@@ -327,24 +354,13 @@ async def _propose(
         exact = normalized_arguments(action, arguments)
         # What the owner reviews is the file as Drive names it now, never a
         # model-typed title. This read changes nothing.
-        facts = await _transport().read_tool(
+        facts = await _writer(owner).read_tool(
             user_id=owner, tool_name="get_file_metadata", arguments={"fileId": exact["fileId"]}
         )
-        review = DriveWriteReview.build(
-            owner_id=owner,
-            conversation_id=conversation,
-            action=action,
-            arguments=exact,
-            connection_generation=await _connection_generation(owner),
-        )
-        issued = await ActionDirectiveStore().issue(
-            **review.identity,
-            channel="adk_chat",
-            action_contract=review.terms.action_contract,
-            slots=review.terms.slots,
-            resource_binding=review.terms.resource_binding,
-            trusted_activation_required=True,
-            ttl_seconds=300,
+        from hushh_mcp.services.pod_drive import pod_review
+
+        issued = await (pod_review if pod_mode() else _ledger_review)(
+            owner, conversation, action, exact
         )
     except ActionDirectiveAuthorityError:
         return {"status": "unavailable", "message": "Drive review could not be prepared right now."}

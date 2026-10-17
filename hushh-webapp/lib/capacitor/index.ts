@@ -12,7 +12,7 @@
  * For web/cloud deployment, use the existing API routes instead.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import type {
   // Consent types
@@ -345,6 +345,7 @@ export interface HushhConsentPlugin {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }>;
@@ -709,6 +710,14 @@ export interface HushhSettingsData {
 }
 
 export interface HushhSettingsPlugin {
+  getFeedbackCapabilities(): Promise<{ interactionFeedback: boolean }>;
+  interactionFeedback(options: {
+    documentId: string;
+    privacyGeneration: number;
+    intentId: string;
+    kind: "light" | "selection";
+    issuedAtMs: number;
+  }): Promise<{ accepted: boolean }>;
   getSettings(): Promise<HushhSettingsData>;
   updateSettings(
     options: Partial<HushhSettingsData>,
@@ -753,13 +762,9 @@ export interface HushhDatabasePlugin {
   close(): Promise<{ success: boolean }>;
 }
 
-export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
-  "HushhDatabase",
-  {
-    web: () =>
-      import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  },
-);
+// Database persistence is owned by the shared vault service. Keep the web
+// adapter contract available for legacy unit fixtures, but do not register a
+// Capacitor plugin until iOS and Android implementations exist.
 
 // ==================== HushhAgentPlugin ====================
 // Local agent runtime
@@ -807,9 +812,9 @@ export interface HushhAgentPlugin {
   }>;
 }
 
-export const HushhAgent = registerPlugin<HushhAgentPlugin>("HushhAgent", {
-  web: () => import("./plugins/agent-web").then((m) => new m.HushhAgentWeb()),
-});
+// The local intent runtime is a shared TypeScript service, not a native
+// Capacitor plugin. Registration here would advertise an iOS/Android contract
+// with no corresponding native implementation.
 
 // ==================== HushhSyncPlugin ====================
 // Handles local-cloud data synchronization
@@ -945,6 +950,10 @@ export type BackgroundShareSession = {
 };
 
 export interface HushhLocationPlugin {
+  addListener(
+    eventName: "backgroundShareStopped",
+    listenerFunc: () => void,
+  ): Promise<PluginListenerHandle>;
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
   /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */

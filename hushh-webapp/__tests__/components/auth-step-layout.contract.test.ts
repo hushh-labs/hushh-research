@@ -121,7 +121,7 @@ describe("AuthStep committed provider settlement", () => {
     await act(async () => { finish(result); await Promise.resolve(); });
     if (owner === "same") {
       expect(settlement.begin).toHaveBeenCalledExactlyOnceWith(user);
-      expect(settlement.legal).toHaveBeenCalledExactlyOnceWith(user);
+      expect(settlement.legal).toHaveBeenCalledExactlyOnceWith(user, true);
       expect(settlement.contacts).toHaveBeenCalledExactlyOnceWith(result, "google", expect.any(String), true);
       expect(settlement.complete).toHaveBeenCalledExactlyOnceWith(7);
     } else {
@@ -177,7 +177,7 @@ describe("AuthStep layout contract", () => {
     );
 
     expect(source).toContain(
-      "const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;",
+      "const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;",
     );
     expect(source).not.toContain("isLocalReviewerSurface");
   });

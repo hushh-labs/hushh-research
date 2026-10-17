@@ -346,15 +346,17 @@ describe("receipt merchant logo", () => {
     expect(screen.queryByText("Unknown merchant")).toBeNull();
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
-  it("uses the generic receipt icon when the provider is unconfigured", () => {
+  it.each([undefined, ""])("keeps merchant domains private when the logo provider is unconfigured (%s)", (providerUrlTemplate) => {
+    vi.stubEnv("NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE", undefined);
     const { container } = render(
       <ReceiptMerchantLogo
         merchantName="Myntra"
         logoDomain="myntra.com"
-        providerUrlTemplate=""
+        providerUrlTemplate={providerUrlTemplate}
       />,
     );
 
@@ -447,6 +449,7 @@ describe("receipt merchant logo", () => {
   });
 
   it("keeps the Plaid row as one detail trigger and visits only its reviewed homepage at the bottom", async () => {
+    vi.stubEnv("NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE", "https://logos.example.test/{domain}.ico");
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const item: ReceiptListItem = {
       id: 12, source_id: "plaid-source", merchant_name: "Plaid", merchant_domain: "plaid.com",

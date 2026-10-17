@@ -38,6 +38,8 @@ The monorepo structure is modular and contributor-friendly:
 
 ```mermaid
 flowchart TD
+  accTitle: Hussh private agent ecosystem
+  accDescr: Hussh platform, One, and specialist relationship.
   one["One<br/>Top Private Agent & Relationship Layer"]
   kai["Kai<br/>Finance Specialist"]
   nav["Nav<br/>Privacy & Consent Guardian"]
@@ -68,6 +70,8 @@ flowchart TD
 
 ```mermaid
 flowchart TB
+  accTitle: Repository visual map
+  accDescr: Repository entrypoints and documentation paths.
   subgraph layers["Seven-Layer Platform Stack"]
     l7["7. Channels: Kai, RIA, MCP, Developer API"]
     l6["6. Experience: Web, iOS, Android, Voice, Search"]
@@ -139,18 +143,14 @@ All repository operations flow through the canonical `./bin/hushh` CLI:
 ## Platform Roadmap & Evolution
 
 ```mermaid
-timeline
-  title Hussh Platform Evolution
-  section Phase 1: Trust Core
-    Client-side Vault (BYOK) : PCHP Capability Tokens : Zero-Knowledge Backend
-    FastAPI & Python 3.13 : Google ADK & A2A : MCP Developer Surface
-  section Phase 2: Private Agents
-    One Voice Conversational Surface : Kai Financial Intelligence : One Location & Wallet Pass
-    Consent Center & Granular Scopes : RIA & Investor Workflows
-  section Phase 3: Enterprise Relays
-    MuleSoft Omni Gateway & Salesforce : DocuSign & Agreement Execution : PKM Slice Marketplace
-  section Phase 4: On-Device & Hardware
-    BYOA & Local MLX Inference : Local Agent Adapters : Ambient Wearable Contracts (Meta Glasses)
+flowchart LR
+  accTitle: Platform evolution
+  accDescr: Current trust core, partial private agent path, and planned lanes.
+  trust["Trust core<br/>current: vault, consent, API and MCP"]
+  agent["Private-agent path<br/>partial: One Voice, Kai, dev pod"]
+  enterprise["Enterprise relays<br/>planned: partner workflows"]
+  edge["Owner hardware<br/>future: local model and wearables"]
+  trust --> agent --> enterprise --> edge
 ```
 
 ### 🟢 Phase 1: Trust Infrastructure & Protocol (Shipped / Current)
@@ -158,7 +158,7 @@ timeline
 - **Capability Tokens (PCHP):** `VAULT_OWNER` & PCHP scoped consent handshake for agents and APIs.
 - **Protocol Foundation:** FastAPI + Python 3.13 backend, Google ADK runtime, A2A delegation, and MCP developer surface.
 
-### 🟢 Phase 2: Private Agents & Specialist Roster (Shipped / Active)
+### Phase 2: Private Agents & Specialist Roster (Active / Partial)
 - **One Voice:** Direct conversational voice surface for private actions and intent execution.
 - **Kai Financial Specialist:** Real-time market intelligence, portfolio analytics, and receipts-backed decisions.
 - **One Location & Wallet:** Consented location sharing and Apple Wallet Pass integration.
@@ -191,7 +191,7 @@ timeline
 - [Getting Started Guide](docs/guides/getting-started.md)
 - [Environment Model](docs/guides/environment-model.md)
 - [Project Context Map](docs/project_context_map.md)
-- [Architecture Reference](docs/reference/architecture/architecture.md)
+- [Architecture Index and Founder/CTO Diagram Guide](docs/reference/architecture/README.md)
 - [Brand & Compatibility Contract](docs/reference/operations/brand-and-compatibility-contract.md)
 - [Founder Language Matrix](docs/reference/architecture/founder-language-matrix.md)
 - [Vision & Thesis](docs/vision/README.md)

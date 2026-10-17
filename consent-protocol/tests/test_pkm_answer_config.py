@@ -174,18 +174,13 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
     cloudbuild_text = (root / "deploy/backend.cloudbuild.yaml").read_text()
     cloudbuild = yaml.safe_load(cloudbuild_text)
+    runtime_text = cloudbuild_text + (root / "scripts/deploy/backend-deploy.sh").read_text()
     for flag, repo_var in (
         ("COMPOSER_ENABLED", "COMPOSER_UAT_ENABLED"),
         ("LIVE_PROVIDER_REVIEWED", "LIVE_PROVIDER_UAT_REVIEWED"),
     ):
         assert f"_PKM_ANSWER_{flag}=${{{{ vars.PKM_ANSWER_{repo_var} || 'false' }}}}" in workflow
-        assert (
-            f"PKM_ANSWER_{flag}"
-            in cloudbuild_text.split("for n in PKM_ANSWER_REQUESTS_ENABLED", 1)[1].split("; do", 1)[
-                0
-            ]
-        )
-        assert 'v="_${n}"' in cloudbuild_text and 'add_env "${n}" "${!v}"' in cloudbuild_text
+        assert f'append_optional_env "PKM_ANSWER_{flag}" "${{_PKM_ANSWER_{flag}}}"' in runtime_text
         assert cloudbuild["substitutions"][f"_PKM_ANSWER_{flag}"] == "false"
     for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
         mapped = (root / f".github/workflows/deploy-{environment}.yml").read_text()
@@ -199,5 +194,5 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
                     f"_{name}_SECRET=${{{{ vars.{name}_{suffix}_SECRET || '{default}' }}}}"
                     in mapped
                 )
-                assert f'add_secret "${{_{name}_SECRET}}" "{name}"' in cloudbuild_text
+                assert f'append_optional_secret "${{_{name}_SECRET}}" "{name}"' in runtime_text
                 assert cloudbuild["substitutions"][f"_{name}_SECRET"] == ""

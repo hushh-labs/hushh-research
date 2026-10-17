@@ -16,13 +16,20 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.connect_payout_binding import resolve_document_binding
 from hushh_mcp.services.payout_account_status_cache import (
     StatusReadInvalidated,
     account_status_cache,
     invalidate_payout_account_status,
+)
+from hushh_mcp.services.pkm_consumer_payout_profile import (
+    create_consumer_account,
+    create_hosted_link,
+    hosted_return_urls,
 )
 from hushh_mcp.services.pkm_packet_order_service import (
     TABLE as ORDERS,
@@ -449,13 +456,13 @@ class PkmPayoutService:
         return adopted
 
     # --- owner -------------------------------------------------------------
-
     async def onboarding_link(
         self,
         *,
         user_id: str,
         surface: Literal["marketplace", "documents", "answers"] = "marketplace",
         purpose: Literal["onboarding", "verify"] = "onboarding",
+        attempt_id: str | None = None,
     ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link.
 
@@ -465,29 +472,26 @@ class PkmPayoutService:
         """
         if purpose not in {"onboarding", "verify"}:
             raise ValueError("invalid onboarding purpose")
+        if attempt_id is not None:
+            if surface not in {"documents", "answers"}:
+                raise ValueError("invalid correlated payout surface")
+            attempt_id = str(UUID(attempt_id))
         invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
-        account = await self._account(user_id)
+        account = await resolve_document_binding(self, user_id)
         remote: dict[str, Any] | None = None
         if account is None and purpose == "verify":
             raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
         if account is None:
             try:
-                created = _stripe_dict(
-                    await asyncio.to_thread(
-                        self.stripe_api.Account.create,
-                        api_key=key,
-                        idempotency_key=f"pkm-payout-account:{stripe_environment()}:{self.account_mode}:{user_id}",
-                        type="express",
-                        country="US",
-                        capabilities={"transfers": {"requested": True}},
-                        metadata={
-                            "hussh_user_ref": "pkm_owner",
-                            "hussh_environment": stripe_environment(),
-                        },
-                    )
+                created = await create_consumer_account(
+                    stripe_api=self.stripe_api,
+                    api_key=key,
+                    mode=self.account_mode,
+                    owner=user_id,
+                    database=self.db,
                 )
             except Exception as exc:
                 _log_provider_error("account_create", exc)
@@ -515,16 +519,15 @@ class PkmPayoutService:
                     )
                 )
             except Exception:
-                # A concurrent request may have inserted the same owner's mapping.
-                # Stripe's owner-scoped idempotency key also keeps creation single.
-                account = await self._account(user_id)
+                # Recheck a concurrent winner without changing the creation intent.
+                account = await resolve_document_binding(self, user_id)
                 if account is None:
                     raise PacketOrderError(
                         "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                     ) from None
                 account_id = account["stripe_account_id"]
             else:
-                # Check the new account from its create response; a re-read only adds latency.
+                # The preparation adapter returns freshly verified current account facts.
                 remote = created
         else:
             account_id = account["stripe_account_id"]
@@ -537,28 +540,22 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
-            surface, "payouts"
-        )
-        # Express accounts take only onboarding links; verification widens what
-        # the same link collects instead of using an account_update link.
-        collection = (
-            {"collection_options": {"fields": "eventually_due", "future_requirements": "include"}}
-            if purpose == "verify"
-            else {}
-        )
+        urls = hosted_return_urls(origin, return_path, surface, attempt_id)
+        return_url, refresh_url = urls["return_url"], urls["refresh_url"]
         try:
-            link = _stripe_dict(
-                await asyncio.to_thread(
-                    self.stripe_api.AccountLink.create,
-                    api_key=key,
-                    account=account_id,
-                    type="account_onboarding",
-                    refresh_url=f"{origin}{return_path}?{query_key}=refresh",
-                    return_url=f"{origin}{return_path}?{query_key}=done",
-                    **collection,
-                )
+            link = await create_hosted_link(
+                stripe_api=self.stripe_api,
+                api_key=key,
+                account=account_id,
+                refresh_url=refresh_url,
+                return_url=return_url,
+                mode=self.account_mode,
+                owner=user_id,
+                purpose=purpose,
+                attempt_id=attempt_id,
             )
+        except PacketOrderError:
+            raise
         except Exception as exc:
             _log_provider_error("account_link", exc)
             raise PacketOrderError(
@@ -569,7 +566,10 @@ class PkmPayoutService:
                 "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
             )
         invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
-        return {"url": link["url"]}
+        return {
+            "url": link["url"],
+            **({"return_url": return_url, "attempt_id": attempt_id} if attempt_id else {}),
+        }
 
     async def _retrieve_account(self, account_id: str, *, key: str) -> dict[str, Any]:
         try:

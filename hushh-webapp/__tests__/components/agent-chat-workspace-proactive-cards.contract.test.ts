@@ -26,7 +26,7 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
-  it("saves KYC-confirmed chat facts through the same Soul queue, not a structured identity writer", () => {
+  it("stages owner-confirmed KYC facts in Soul without a second identity writer", () => {
     const capture = source.slice(source.indexOf("const captureEligiblePkmFactsInBackground ="), source.indexOf("const runAgentTurn = async ("));
     expect(capture).toContain("prepareNaturalLanguagePkm({");
     expect(capture).toContain("stageMarkdownMemoryFacts({");
@@ -46,12 +46,39 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
   });
 
-  it("refreshes recent Drive sharing only while chat history is open", () => {
+  it("refreshes recent Drive sharing during history or explicitly opened native activity", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
-    expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
-    expect(source).toContain("open={isHistoryDrawerOpen}");
-    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    expect(sidebar).toContain("driveActivity={!isPuppySurface && !customNativePresentationEnabled()");
+    expect(sidebar).toContain('active={isHistoryDrawerOpen && drawerMode === "chats"}');
+    const start = source.indexOf("{customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing");
+    expect(start).toBeGreaterThan(-1);
+    const nativeActivity = source.slice(start, start + 1000);
+    expect(nativeActivity).toContain("active={isHistoryDrawerOpen || driveActivityPageOpen}");
+    expect(nativeActivity).toContain("open: driveActivityPageOpen");
+    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === user?.uid &&");
+    expect(source).toContain("driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface");
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
+  });
+
+  it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
+    // The starter grid renders through the shared suggestion list; the rail's
+    // accessibility and touch-target guarantees live there.
+    expect(source).toContain("function AgentPromptSuggestions(");
+    const suggestions = source.slice(
+      source.indexOf("function AgentPromptSuggestions("),
+      source.indexOf("function AgentPromptSuggestions(") + 1800,
+    );
+    expect(suggestions).toContain('label="Suggestions" testId="agent-chat-suggestions"');
+    expect(suggestions).toContain("disabled={disabled}");
+    const list = readFileSync(join(process.cwd(), "components/agent/agent-follow-up-suggestions.tsx"), "utf8");
+    expect(list).toContain("data-testid={testId}");
+    expect(list).toContain("aria-label={label}");
+    expect(list).toContain('type="button"');
+    expect(list).toContain("disabled={disabled}");
+    expect(list).toContain("!min-h-11");
+    expect(suggestions).toContain("onSelect={onPromptSelect}");
+    expect(list).toContain("onClick={() => onSelect(suggestion)}");
+    expect(source).toContain("setInput(prompt)");
   });
 
   it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {
@@ -69,7 +96,9 @@ describe("Agent One chat workspace wiring contract", () => {
     // Only an explicitly armed name answer is kept from the model; everything
     // else typed in the composer is an ordinary turn.
     const submit = source.slice(
-      source.indexOf("const submitComposerText = async () => {"),
+      // Both the DOM form and native committed snapshot use this guarded
+      // entrypoint. Its optional input must not invalidate onboarding coverage.
+      source.indexOf("const submitComposerText = async ("),
       source.indexOf("const handleSubmit = async"),
     );
     expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");
@@ -92,9 +121,13 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).toContain("openHistoryConnectors();");
+    const historyConnectors = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const handleHistoryDrawerOpenChange ="));
+    expect(historyConnectors).toContain('setDrawerMode("connections")');
+    expect(historyConnectors).toContain("setIsHistoryDrawerOpen(true)");
+    expect(source).toContain("<HistoryConnectorsPage");
     expect(source).not.toContain("connectionsAvailable");
-    // The catalog is Connectors in the Profile pane, opened over the chat.
+    // History owns its connector presentation; inline chat cards retain Profile.
     expect(source).toContain("profileConnectorsLocation(");
   });
 

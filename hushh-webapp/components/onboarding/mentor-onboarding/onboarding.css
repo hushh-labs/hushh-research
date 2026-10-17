@@ -1,8 +1,8 @@
 /* V7.2 — same V7.1 layout and artwork, with a compact Skip-left / Next-right footer. */
 .ao-onboarding {
-  --ao-ink: #1d1d1f; --ao-muted: #65656b; --ao-blue: #0071e3;
+  --ao-ink: #1d1d1f; --ao-muted: #65656b; --ao-blue: var(--app-accent-deep);
   --ao-pink: #f7b5d5; --ao-yellow: #ffdd6b; --ao-coral: #ff715d; --ao-iris: #b8cfff;
-  --ao-action-bg: #0071e3;
+  --ao-action-bg: var(--app-accent-deep);
   /* Native shells publish effective insets when WebView env() remains zero. */
   --ao-safe-top: max(env(safe-area-inset-top, 0px), var(--app-safe-area-top-effective, 0px));
   --ao-safe-right: max(env(safe-area-inset-right, 0px), var(--app-safe-area-right-effective, 0px));
@@ -81,8 +81,8 @@
 .ao-person-letter { display: grid; place-items: center; width: 8.5cqw; height: 8.5cqw; background: #ffe6df; color: #913e2d; border-radius: 50%; font-size: 3.8cqw; font-weight: 600; flex: none; }
 .ao-chat-bubble div > span { display: block; font-size: 2.8cqw; line-height: 1.3; color: #737078; margin-bottom: 1cqw; }
 .ao-chat-bubble strong { display: block; font-size: 3.35cqw; line-height: 1.2; font-weight: 400; letter-spacing: -.03em; }
-.ao-voice-note { position: absolute; left: 27cqw; top: 27cqw; width: 64cqw; height: 15cqw; z-index: 4; border-radius: 4cqw 4cqw 1.4cqw 4cqw; display: flex; gap: 2.6cqw; align-items: center; padding: 3cqw; color: #fff; background: #0071e3; --ao-r: 5deg; transform: rotate(var(--ao-r)); }
-.ao-voice-note__play { width: 7.8cqw; height: 7.8cqw; background: #fff; color: #0071e3; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; }
+.ao-voice-note { position: absolute; left: 27cqw; top: 27cqw; width: 64cqw; height: 15cqw; z-index: 4; border-radius: 4cqw 4cqw 1.4cqw 4cqw; display: flex; gap: 2.6cqw; align-items: center; padding: 3cqw; color: #fff; background: var(--app-accent-deep); --ao-r: 5deg; transform: rotate(var(--ao-r)); }
+.ao-voice-note__play { width: 7.8cqw; height: 7.8cqw; background: #fff; color: var(--app-accent-deep); border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; }
 .ao-voice-note__play svg { width: 4.2cqw; height: 4.2cqw; margin-left: .5cqw; }
 .ao-voice-time { font-size: 2.9cqw; font-weight: 400; }
 .ao-location-card { position: absolute; left: 48cqw; top: 48cqw; width: 44cqw; z-index: 2; background: #fff; padding: 1.2cqw; border-radius: 5cqw; border: 1px solid #e2e7e4; box-shadow: 0 2cqw 4cqw #252a2608; --ao-r: 7deg; transform: rotate(var(--ao-r)); }
@@ -136,11 +136,11 @@
 .ao-progress .is-current { width: 20px; background: #202025; }
 /* Keep the reading/progress width; do not stretch the primary action to fill it. */
 .ao-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-width: 0; }
-.ao-primary { display: inline-flex; align-items: center; justify-content: center; gap: 12px; position: relative; flex: 0 1 auto; width: max-content; min-width: 116px; max-width: 100%; min-height: 44px; padding: 10px 20px; border: none; border-radius: 999px; background: var(--ao-action-bg); color: #fff; font-size: 1rem; font-weight: 650; letter-spacing: -.018em; line-height: 1.375; overflow-wrap: anywhere; transition: opacity 150ms, transform 150ms; }
+.ao-primary { overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 12px; position: relative; flex: 0 1 auto; width: max-content; min-width: 116px; max-width: 100%; min-height: 44px; padding: 10px 20px; border: none; border-radius: 999px; background: var(--ao-action-bg); color: #fff; font-size: 1rem; font-weight: 650; letter-spacing: -.018em; line-height: 1.375; overflow-wrap: anywhere; transition: opacity 150ms, transform 150ms; }
 .ao-primary > span { min-width: 0; }
 .ao-primary > svg { position: static; width: 18px; height: 18px; flex-shrink: 0; }
 .ao-primary:hover { opacity: .92; }.ao-primary:active { transform: scale(.985); }.ao-primary:disabled { opacity: .6; }
-.ao-skip { display: inline-flex; align-items: center; justify-content: flex-start; position: static; flex: 0 0 auto; width: auto; min-width: 44px; min-height: 44px; margin: 0; padding: 10px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ao-muted); font-size: .875rem; line-height: 1.5; font-weight: 400; }
+.ao-skip { overflow: hidden; display: inline-flex; align-items: center; justify-content: flex-start; position: relative; flex: 0 0 auto; width: auto; min-width: 44px; min-height: 44px; margin: 0; padding: 10px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ao-muted); font-size: .875rem; line-height: 1.5; font-weight: 400; }
 .ao-skip:hover { color: var(--ao-ink); }.ao-skip:disabled { opacity: .6; }
 .ao-error { margin: 10px 0 0; color: #a42835; font-size: .875rem; line-height: 1.4; text-align: center; }
 .ao-invitation { max-width: 400px; margin: 14px auto 0; overflow-wrap: anywhere; }

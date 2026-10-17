@@ -285,6 +285,11 @@ export function getBootSurfaceState(): BootState {
   return state;
 }
 
+/** The route tree, rather than an authentication observer, owns this receipt. */
+export function hasBootRouteCommitted(): boolean {
+  return routeCommitted;
+}
+
 function getServerBootSurfaceState(): BootState {
   return LAUNCH_BOOT_STATE;
 }

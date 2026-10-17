@@ -20,6 +20,8 @@ class SpecialistRuntime:
     owner_user_id: str
     require_access: Callable[[], Awaitable[None]]
     service_for: Callable[[str], Awaitable[Any]]
+    session_owner_id: str | None = None
+    admit_owner: Callable[[str, str], Awaitable[int]] | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,11 @@ _RUNTIME: ContextVar[SpecialistRuntime | None] = ContextVar("specialist_runtime"
 
 def specialist_runtime_bound() -> bool:
     return _RUNTIME.get() is not None
+
+
+def bound_specialist_runtime() -> SpecialistRuntime | None:
+    """Ingress-bound dependencies, never supplied by model or session state."""
+    return _RUNTIME.get()
 
 
 @contextmanager
@@ -54,6 +61,11 @@ def register_specialist(
     service_handler: SpecialistServiceHandler | None = None,
 ) -> None:
     _REGISTRY[agent_id] = _Registration(handler, service_handler)
+
+
+def unregister_specialist(agent_id: str) -> None:
+    """Remove an optional specialist from the ambient registry."""
+    _REGISTRY.pop(agent_id, None)
 
 
 def is_wired_specialist(agent_id: str) -> bool:

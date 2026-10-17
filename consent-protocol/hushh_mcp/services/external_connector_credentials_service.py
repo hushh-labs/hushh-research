@@ -21,8 +21,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from fastapi import HTTPException
 
 from db.db_client import get_db
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 class ExternalConnectorCredentialError(RuntimeError):
@@ -188,6 +190,7 @@ class ExternalConnectorCredentialsService:
         connector_id = _clean(connector_id)
         if not user_id or not connector_id:
             raise ExternalConnectorCredentialError("user_id and connector_id are required")
+        await admit_hub_content(user_id, "connector_credential_write")
         envelope = self.encrypt_secret(json.dumps(secret), aad=_aad(user_id, connector_id))
         now = _now()
         await self._execute(
@@ -242,6 +245,7 @@ class ExternalConnectorCredentialsService:
 
         user_id = _clean(user_id)
         connector_id = _clean(connector_id)
+        await admit_hub_content(user_id, "connector_credential_read")
         rows = await self._execute(
             """SELECT credential_ciphertext, credential_iv, status, envelope_version,
                       credential_version, connection_generation, credential_expires_at
@@ -252,6 +256,7 @@ class ExternalConnectorCredentialsService:
         row = rows[0] if rows else None
         if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
             return None
+        await admit_hub_content(user_id, "connector_credential_open")
         return self.open_credential(user_id=user_id, connector_id=connector_id, row=row)
 
     async def status(self, *, user_id: str, connector_id: str) -> dict[str, Any]:
@@ -268,46 +273,34 @@ class ExternalConnectorCredentialsService:
         row = rows[0] if rows else None
         if not row:
             return {"connectorId": connector_id, "status": "not_connected"}
-        return self._public_status(user_id=user_id, connector_id=connector_id, row=row)
+        return self._public_status(
+            user_id=user_id,
+            connector_id=connector_id,
+            row=row,
+            include_private=await self._status_content_allowed(user_id),
+        )
+
+    async def _status_content_allowed(self, user_id: str) -> bool:
+        try:
+            await admit_hub_content(user_id, "connector_status_content")
+        except HTTPException:
+            # Status/revocation remain control-plane operations even when placement
+            # is unreadable. Never open credentials or return a private account label.
+            return False
+        return True
 
     def _public_status(
-        self, *, user_id: str, connector_id: str, row: dict[str, Any]
+        self, *, user_id: str, connector_id: str, row: dict[str, Any], include_private: bool = True
     ) -> dict[str, Any]:
-        status = row["status"]
-        label = row.get("connected_account_label")
-        profile = None
-        if row.get("envelope_version") == 2 and status in {
-            "connected",
-            "verifying",
-            "needs_reauth",
-        }:
-            try:
-                credential = self.open_credential(
-                    user_id=user_id, connector_id=connector_id, row=row
-                )
-                label = credential.get("accountLabel")
-                if connector_id == "google_drive":
-                    profile = credential.get("profile", "selected")
-                    if profile not in {"selected", "live"}:
-                        profile = None
-            except ExternalConnectorCredentialError:
-                status, label = "needs_reauth", None
-        connected_at = row.get("connected_at")
-        if isinstance(connected_at, datetime):
-            connected_at = connected_at.isoformat()
-        return {
-            "connectorId": connector_id,
-            "status": status,
-            "accountLabel": str(label)[:254] if label else None,
-            "connectedAt": connected_at,
-            "validationState": row.get("validation_state", "unverified"),
-            "profile": profile,
-            "revocationOutcome": row.get("revocation_outcome", "not_attempted"),
-            "lastErrorCode": row.get("last_error_code")
-            if row.get("last_error_code")
-            in {"grant_rejected", "policy_drift", "provider_unavailable", "insufficient_scope"}
-            else None,
-        }
+        from hushh_mcp.services.external_connector_status import public_status
+
+        return public_status(
+            open_credential=self.open_credential,
+            user_id=user_id,
+            connector_id=connector_id,
+            row=row,
+            include_private=include_private,
+        )
 
     async def list_statuses(self, *, user_id: str) -> list[dict[str, Any]]:
         user_id = _clean(user_id)
@@ -319,8 +312,14 @@ class ExternalConnectorCredentialsService:
                WHERE user_id = :user_id""",
             {"user_id": user_id},
         )
+        include_private = await self._status_content_allowed(user_id)
         return [
-            self._public_status(user_id=user_id, connector_id=row["connector_id"], row=row)
+            self._public_status(
+                user_id=user_id,
+                connector_id=row["connector_id"],
+                row=row,
+                include_private=include_private,
+            )
             for row in rows
         ]
 

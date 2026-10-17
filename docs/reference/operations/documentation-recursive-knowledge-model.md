@@ -72,17 +72,11 @@ For every recursive pass:
 
 ## Current Recursive Findings
 
-The previously identified long-guide candidates already have phase-specific
-children in the current tree:
-
-- `docs/guides/mobile.md`
-- `docs/guides/one-location-uat-test-plan.md`
-
-Their child material lives under `docs/guides/mobile/` and
-`docs/guides/one-location-uat/`. Keep the parent guides as entrypoints; this
-revision does not recommend another split. Reassess only if the current inventory
-shows a distinct owner, lifecycle, or recurring workflow that the existing
-children do not cover.
+As checked on 2026-09-23, `docs/guides/mobile.md` and
+`docs/guides/one-location-uat-test-plan.md` are entrypoints with child pages in
+`docs/guides/mobile/` and `docs/guides/one-location-uat/`. Keep their links and
+ownership current; use the inventory commands below to identify any new split
+candidate.
 
 ## Verification
 

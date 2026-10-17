@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const googlePlacement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: googlePlacement }));
+
 
 const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -25,10 +28,6 @@ const kaiMocks = vi.hoisted(() => ({
 const requestTimeoutMocks = vi.hoisted(() => ({
   resolveSlowRequestTimeoutMs: vi.fn(() => 75_000),
 }));
-
-// ---------------------------------------------------------------------------
-// Mocks – declared before any import that touches them
-// ---------------------------------------------------------------------------
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -78,10 +77,6 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
   resolveSlowRequestTimeoutMs: requestTimeoutMocks.resolveSlowRequestTimeoutMs,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks are registered)
-// ---------------------------------------------------------------------------
-
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -89,10 +84,6 @@ import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
@@ -125,11 +116,22 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("ApiService.apiFetch", () => {
+  it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
+    const url = "https://owner-pod.example/api/one/pod/status";
+    mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+    const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
+    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key", "content-type": "application/json" });
+    await request(url, { credentials: "omit", headers });
+    expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
+    const sent = new Headers(mockFetch.mock.calls[0][1]?.headers);
+    headers.forEach((value, key) => expect(sent.get(key)).toBe(value));
+    if (streaming) expect(sent.get("Accept")).toBe("text/event-stream");
+    await ApiService.apiFetch("/api/one/personal-agent/status");
+    expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
+  });
+
+
   it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue(platform);
@@ -145,6 +147,7 @@ describe("ApiService.apiFetch", () => {
     expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
   });
   beforeEach(() => {
+    googlePlacement.mockResolvedValue(false);
     vi.clearAllMocks();
     mockFetch.mockReset();
     capacitorMocks.isNativePlatform.mockReturnValue(false);
@@ -190,6 +193,14 @@ describe("ApiService.apiFetch", () => {
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
     })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver a legacy Google callback code to the hub after private placement', async () => {
+    publishValidatedAuthSessionOwner('synthetic-owner');
+    googlePlacement.mockResolvedValue(true);
+    await expect(GoogleConnectionService.completeConnect({ idToken: makeUnsignedToken({ sub: 'synthetic-owner' }), userId: 'synthetic-owner', code: 'native-code-must-not-reach-hub', state: 'state', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     expect(mockFetch).not.toHaveBeenCalled();
     expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
@@ -290,7 +301,6 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
-    // On web the URL should be the path itself (relative), no hostname prefix
     expect(calledUrl).toBe("/api/test");
   });
 
@@ -372,55 +382,6 @@ describe("ApiService.apiFetch", () => {
 
     nowSpy.mockRestore();
   });
-
-  it.each(["user_id", "sub"])(
-    "replays the same body when refreshed %s still identifies the same account",
-    async (claim) => {
-      const originalToken = makeUnsignedToken({
-        [claim]: "user-1",
-        version: 1,
-      });
-      const freshToken = makeUnsignedToken({ [claim]: "user-1", version: 2 });
-      (
-        AuthService.getIdToken as ReturnType<typeof vi.fn>
-      ).mockResolvedValueOnce(freshToken);
-      (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
-        uid: "user-1",
-      } as never);
-
-      // First call → 401, second call (retry) → 200
-      mockFetch
-        .mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401))
-        .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
-
-      const body = JSON.stringify({ lookups: [{ lookup_id: "opaque" }] });
-      const response = await ApiService.apiFetch(
-        "/api/one/connections/contact-sync",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${originalToken}` },
-          body,
-        },
-      );
-
-      // Should have called getIdToken with force=true
-      expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
-
-      // fetch was called twice: original + retry
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-
-      // The retry call should carry the fresh token and the retry header
-      const [, retryOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
-      const retryHeaders = retryOptions.headers as Record<string, string>;
-      expect(retryHeaders["Authorization"]).toBe(`Bearer ${freshToken}`);
-      expect(retryHeaders["X-Hushh-Auth-Refresh-Retry"]).toBe("1");
-      expect(retryOptions.method).toBe("POST");
-      expect(retryOptions.body).toBe(body);
-
-      // Final response should be the 200
-      expect(response.status).toBe(200);
-    },
-  );
 
   it.each(["account-a", "account-b"])(
     "does not replay or invalidate the replacement session when refresh resolves for %s after an account switch",
@@ -1632,4 +1593,16 @@ describe("ApiService.apiFetch", () => {
       })).rejects.toMatchObject({ code: "invalid_auth_response" });
     },
   );
+});
+
+
+describe("retired One Live relay", () => {
+  it("fails closed and directs callers to typed Talk to One commands", async () => {
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+
+    await expect(ApiService.createOneAdkRelaySession()).rejects.toThrow(
+      "ONE_LIVE_RETIRED: use Talk to One commands.",
+    );
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
 });

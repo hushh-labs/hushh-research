@@ -47,6 +47,8 @@ OBLIGATIONS = "drive_request_payment_obligations"
 LIVE_TABLES = ("drive_share_requests", ORDERS, OBLIGATIONS)
 ACCEPTED_CENTS = (100, 2000, 50000)
 REJECTED_CENTS = (50, 150, 50100)
+
+
 INSERTS = {
     ORDERS: """INSERT INTO drive_request_payment_orders
       (request_id,user_id,requester_user_id,amount_cents)
@@ -247,3 +249,19 @@ async def test_rollback_refuses_while_an_owner_priced_payment_is_retained(sharin
         fixed = f"{table}_amount_cents_check"
         assert _rejected_by(sharing, table, 2000, request_id) == fixed
         assert _rejected_by(sharing, table, 1000, request_id) is None
+
+
+def test_payment_migration_replay_guards_existing_triggers():
+    migration = (MIGRATIONS / "262_drive_request_payments.sql").read_text()
+    for trigger, table in (
+        ("drive_request_payment_obligation_mirror", "drive_request_payment_orders"),
+        ("drive_request_payment_erasure", "drive_share_requests"),
+    ):
+        guard = f"tgname='{trigger}'\n      AND tgrelid='{table}'::regclass"
+        assert guard in migration
+        assert migration.index(guard) < migration.index(f"CREATE TRIGGER {trigger}")
+    assert "SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(" in migration
+    assert "IF installed IS DISTINCT FROM ARRAY[" not in migration
+    assert migration.index("IF NOT COALESCE(installed @> ARRAY[") < migration.index(
+        "ALTER TABLE drive_share_events DROP CONSTRAINT"
+    )

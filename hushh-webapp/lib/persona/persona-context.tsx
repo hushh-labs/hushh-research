@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -29,7 +30,7 @@ import {
   type PersonaState,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { isOneSetupSurfaceRoute, ROUTES } from "@/lib/navigation/routes";
 
 export type RiaCapability = "disabled" | "setup" | "switch";
 
@@ -227,6 +228,8 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     [authLoading, isAuthenticated, user],
   );
 
+  const chromeSuppressed = useSessionChromeSuppressed();
+
   // A tab switch does not change who the person is. Once the context holds
   // a persona and the cache entry is still fresh, a navigation leaves it
   // alone; refreshing on every pathname change flipped `refreshing` twice
@@ -236,6 +239,9 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const personaStateRef = useRef<PersonaState | null>(null);
   personaStateRef.current = personaState;
   useEffect(() => {
+    if (isOneSetupSurfaceRoute(pathname) || chromeSuppressed) {
+      return undefined;
+    }
     const run = () => {
       if (
         !authLoading &&
@@ -253,7 +259,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
     run();
     return undefined;
-  }, [pathname, refresh, authLoading, isAuthenticated, user]);
+  }, [pathname, refresh, chromeSuppressed, authLoading, isAuthenticated, user]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;

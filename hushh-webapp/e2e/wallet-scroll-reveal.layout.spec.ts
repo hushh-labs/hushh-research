@@ -254,6 +254,11 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
     return boxes[2] - boxes[1];
   }).toBeLessThan(35);
   await expect(page.getByText("Swipe left to see card controls")).toBeVisible();
+  await expect.poll(async () => {
+    const face = await layers.first().locator('[data-agent-card]').boundingBox();
+    const chrome = await page.locator("[data-bottom-chrome]").boundingBox();
+    return Boolean(face && chrome && face.y + face.height <= chrome.y);
+  }).toBe(true);
   await page.screenshot({ path: test.info().outputPath("wallet-lower-stack.png") });
   await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(el => Math.abs(el.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height))).toBeLessThan(1);
   // Let the initial short-window positioning finish before simulating user scroll.
@@ -326,9 +331,13 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(page.getByRole("tab", { name:"Cards", exact:true })).toHaveAttribute("aria-selected","true");
   await card.getByRole("button", { name:"Back to card", exact:true }).click();
   await expect(card.locator('[data-controls-open="false"]')).toBeVisible();
-  // Focus can scroll the card into a new position in WebKit. Hit its current
-  // surface rather than replaying coordinates from before the close action.
-  await card.locator('[data-controls-open]').hover({ position: { x: box.width / 2, y: 80 } });
+  // Clicking the revealed action may scroll its card. Wait for settlement and
+  // use the current face rather than the pre-swipe viewport coordinates.
+  await card.scrollIntoViewIfNeeded();
+  await expect.poll(() => card.evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length)).toBe(0);
+  const returned = await card.locator('[data-controls-open="false"]').boundingBox();
+  if (!returned) throw new Error("Returned card bounds missing");
+  await page.mouse.move(returned.x + returned.width / 2, returned.y + returned.height / 2);
   await page.mouse.wheel(170, 0);
   await expect(card.locator('[data-controls-open="true"]')).toBeVisible();
   await page.mouse.wheel(-220, 0);
@@ -342,6 +351,7 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
   expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
   await page.getByRole("button", { name:"Back", exact:true }).click();
+  await expect(stack).toBeInViewport();
   await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
 });
 

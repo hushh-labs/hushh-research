@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { Brain } from "@/components/icons";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import type { AppAccent } from "@/lib/theme/accent";
 import styles from "./profile-appearance-preferences.module.css";
@@ -118,8 +118,8 @@ export function ProfileAppearancePreferences({
         </div>
 
         <button type="button" className={`${styles.row} ${styles.action}`} onClick={onGeminiClick}>
-          <span className={styles.icon}><GeminiLogo /></span>
-          <RowCopy title="Gemini" description="Choose managed or BYOK." />
+          <span className={styles.icon}><Brain /></span>
+          <RowCopy title="AI connection" description="Cloud connection or your own key." />
           <span className={`${styles.trailing} ${styles.chevron}`}><ChevronIcon /></span>
         </button>
 

@@ -7,6 +7,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 const state = vi.hoisted(() => ({
   uid: "owner-a",
   token: "vault-a",
@@ -141,6 +143,10 @@ describe("Connectors owner and mutation fences", () => {
     state.uid = "owner-a";
     state.token = "vault-a";
     state.native = false;
+    vi.spyOn(AuthService, "getCurrentUser").mockImplementation(
+      () => ({ uid: state.uid, getIdToken: async () => "firebase" }) as ReturnType<typeof AuthService.getCurrentUser>,
+    );
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" });
     state.overview.mockResolvedValue(overview());
     state.documents.mockResolvedValue([]);
     state.remove.mockResolvedValue(undefined);
@@ -267,7 +273,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -295,7 +301,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -350,12 +356,15 @@ describe("Connectors owner and mutation fences", () => {
     );
     const p = props();
     const view = render(<ConnectorsPanel {...p} />);
+    // Placement must admit owner A before its pending result can be retired.
+    await waitFor(() => expect(state.overview).toHaveBeenCalledExactlyOnceWith("vault-a"));
     state.uid = "owner-b";
     state.token = "vault-b";
     state.overview.mockResolvedValue(overview("new-owner@example.invalid"));
     view.rerender(<ConnectorsPanel {...p} />);
     await openDriveDetail();
     await screen.findByText(/new-owner@example\.invalid/);
+    expect(state.overview).toHaveBeenNthCalledWith(2, "vault-b");
     await act(async () => {
       stale(overview("old-owner@example.invalid"));
     });
@@ -448,7 +457,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     let resolveBridge!: (value: unknown) => void;
@@ -618,7 +627,7 @@ describe("Connectors owner and mutation fences", () => {
     state.native = true;
     state.nativePickerStart.mockResolvedValue({
       attemptId: "picker_1234567890123",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     state.nativePicker.mockResolvedValue({
@@ -690,7 +699,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     state.nativeDrive.mockResolvedValue({

@@ -167,7 +167,7 @@ def answer_engine(connector_postgres_url):  # noqa: F811
 
 
 @pytest.fixture(autouse=True)
-def clean(answer_engine, monkeypatch):
+def clean(answer_engine, monkeypatch, shared_hub_owner):
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM consent_audit")

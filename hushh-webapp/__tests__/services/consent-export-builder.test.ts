@@ -65,6 +65,22 @@ describe("buildConsentExportForScope", () => {
     pkmMocks.resolveSegmentIdsForPaths.mockReturnValue(["seat_preferences"]);
   });
 
+  it.each(["one_memory", "one_living_sources", "one_todos"])("refuses private-agent branch %s before loading a stale exposed manifest", async domain => {
+    pkmMocks.getDomainManifest.mockResolvedValue({ ...manifest, domain, externalizable_paths: ["markdown.text"] });
+    await expect(buildConsentExportForScope({ userId: "user_1", scope: `attr.${domain}.markdown`, vaultKey: "vault-key", vaultOwnerToken: "vault-owner" })).rejects.toBeInstanceOf(ConsentExportNoDataError);
+    expect(pkmMocks.getDomainManifest).not.toHaveBeenCalled();
+    expect(pkmMocks.loadDomainData).not.toHaveBeenCalled();
+  });
+
+  it("excludes private-agent memory from a root export while retaining approved ordinary information", async () => {
+    pkmMocks.getEncryptedData.mockResolvedValue(null);
+    pkmMocks.loadFullBlob.mockResolvedValue({ one_memory: { markdown: "must stay private" }, " OnE_LiViNg_SoUrCeS ": { records: "must stay private" }, " WaLLeT ": { secrets: { pan: "must stay private" } }, travel: { seat: "aisle" } });
+    const built = await buildConsentExportForScope({ userId: "user_1", scope: "pkm.read", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" });
+    expect(built.payload).toMatchObject({ travel: { seat: "aisle" } });
+    expect(built.payload).not.toHaveProperty("one_memory");
+    expect(built.payload.__export_metadata).toMatchObject({ available_domains: ["travel"] });
+  });
+
   it("exports broad domain scopes without forcing the root segment", async () => {
     const built = await buildConsentExportForScope({
       userId: "user_1",

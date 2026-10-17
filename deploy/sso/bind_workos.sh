@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bind WorkOS enterprise SSO into the backend deploy. Sourced by
-# deploy/backend.cloudbuild.yaml after add_secret and add_env are defined.
+# scripts/deploy/backend-deploy.sh after its optional binding helpers are defined.
 #
-# The three secrets are optional by construction: add_secret skips any that do not
+# The three secrets are optional by construction: append_optional_secret skips any that do not
 # exist in the deploy project, and the routes answer 404 until WORKOS_SSO_ENABLED
 # is true. Secret name == environment variable name, so nothing else is wired.
 # Secret values are never read into this shell.
@@ -11,12 +11,12 @@
 # origins) because Cloud Build allows at most 100 env entries per step and this step is at the
 # limit; a 101st entry rejects every backend deploy at submission.
 IFS='|' read -r _WORKOS_SSO_ENABLED _WORKOS_REDIRECT_URI _WORKOS_REDIRECT_ORIGINS <<< "${_WORKOS_CONFIG:-||}"
-add_secret WORKOS_API_KEY WORKOS_API_KEY
-add_secret WORKOS_CLIENT_ID WORKOS_CLIENT_ID
-add_secret WORKOS_WEBHOOK_SECRET WORKOS_WEBHOOK_SECRET
-add_env WORKOS_SSO_ENABLED "${_WORKOS_SSO_ENABLED:-}"
-add_env WORKOS_REDIRECT_URI "${_WORKOS_REDIRECT_URI:-}"
-add_env WORKOS_REDIRECT_ORIGINS "${_WORKOS_REDIRECT_ORIGINS:-}"
+append_optional_secret WORKOS_API_KEY WORKOS_API_KEY
+append_optional_secret WORKOS_CLIENT_ID WORKOS_CLIENT_ID
+append_optional_secret WORKOS_WEBHOOK_SECRET WORKOS_WEBHOOK_SECRET
+append_optional_env WORKOS_SSO_ENABLED "${_WORKOS_SSO_ENABLED:-}"
+append_optional_env WORKOS_REDIRECT_URI "${_WORKOS_REDIRECT_URI:-}"
+append_optional_env WORKOS_REDIRECT_ORIGINS "${_WORKOS_REDIRECT_ORIGINS:-}"
 
 # Fail closed: with SSO switched on, a missing secret would deploy a sign-in that silently does not
 # work (the secrets are otherwise optional and skipped when absent).

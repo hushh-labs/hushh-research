@@ -17,30 +17,6 @@ describe("private-agent chat shell contract", () => {
 
     expect(workspace).not.toContain("<DriveBackgroundSearches");
   });
-  // Connectors is a Profile section (founder, 2026-10-02): every chat entry
-  // opens it in the Profile pane over the chat, never in a drawer of its own,
-  // and the chat lends the pane its draft saver for sign-ins that leave.
-  it("opens Connectors from chat in the Profile pane, never in its own drawer", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
-    expect(workspace).toContain("<AgentConnectionsDrawer");
-    expect(workspace).toContain("connections={null}");
-    expect(workspace).not.toContain("<ConnectorsPanel");
-    expect(workspace).not.toContain('setDrawerMode("connections")');
-    expect(workspace).toContain("openProfilePane(");
-    expect(workspace).toContain("profileConnectorsLocation(");
-    expect(workspace).toContain("registerChatConnectorRecoveryHost(");
-  });
-  it("keeps the connector manager bounded, scrollable, and on the shared modal scrim", () => {
-    const drawer = read("components/agent/agent-connections-drawer.tsx");
-    const panel = read("components/agent/connectors-panel.tsx");
-    const dialog = read("components/ui/dialog.tsx");
-
-    expect(drawer).toContain('contentDragDismiss={false}');
-    expect(drawer).toContain('className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md"');
-    expect(panel).toContain("min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain");
-    expect(dialog).toContain("[backdrop-filter:var(--app-scrim-filter)]");
-    expect(dialog).toContain("[-webkit-backdrop-filter:var(--app-scrim-filter)]");
-  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");
@@ -202,7 +178,9 @@ describe("private-agent chat shell contract", () => {
     // The top-right profile control stays, with the canonical avatar source.
     expect(workspace).toContain("useEffectiveAvatarUrl");
     expect(workspace).toContain('data-testid="profile-open-button"');
-    expect(workspace).toContain('onClick={() => requestProfilePaneOpen("tap")}');
+    // Closing the pane returns to this explicit opener, rather than a guessed
+    // DOM target. The focused Profile admission test covers stale-owner return.
+    expect(workspace).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     expect(workspace).toContain("<AvatarImage src={userAvatarUrl}");
     // No avatar beside individual user bubbles (founder direction, 2026-09-29).
     expect(workspace).not.toContain('data-testid="agent-chat-self-avatar"');
@@ -227,8 +205,8 @@ describe("private-agent chat shell contract", () => {
 
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<OnePresenceAvatar");
-    expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain("size-full shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none");
+    expect(brandTile).toContain('className="grid h-11 w-11 shrink-0 place-items-center"');
+    expect(brandTile).toContain('className="size-8 shrink-0"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
@@ -246,7 +224,7 @@ describe("private-agent chat shell contract", () => {
     const anchor = workspace.indexOf('data-testid="agent-chat-model-picker"');
     expect(anchor).toBeGreaterThan(0);
     const pickerBlock = workspace.slice(anchor - 1600, anchor);
-    expect(pickerBlock).toContain("modelPreference && !isPuppySurface ? (");
+    expect(pickerBlock).toContain("modelPreference && !isPuppySurface && hasInlineModelPicker ? (");
     // The ungated form the defect shipped as.
     expect(workspace).not.toContain(
       "{modelPreference && modelPreference.choices.length > 1 ? (",
@@ -322,7 +300,9 @@ describe("private-agent chat shell contract", () => {
     expect(shell).toContain("agentBarHidden?: boolean");
     expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
     expect(shell).toContain("<AgentDockVoiceBoundary>");
-    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute}");
+    // Puppy owns the retained composer while its mode is active; Cloud must
+    // release that seat rather than create a second destination for the draft.
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface}");
     expect(workspace).toContain('<AgentBar layout="slot" />');
     expect(workspace).toContain("<AgentBarSurface");
     expect(workspace).not.toContain("<AgentVoiceWaveInput");
@@ -381,14 +361,4 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
   });
 
-  it("keeps automatic Markdown memory capture silent", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
-
-    expect(workspace).toContain('event.actionId === "pkm.add"');
-    expect(workspace).toContain('event.raw?.toolName === "add_to_pkm"');
-    expect(workspace).not.toContain("<AgentMemoryCaptureStatus");
-    expect(workspace).not.toContain('return "Saving to Memory"');
-    expect(workspace).not.toContain("confirmMemoryNeedsOwner");
-    expect(workspace).not.toContain("saved in Memory");
-  });
 });

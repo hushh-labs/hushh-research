@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), keyHeaders: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: mocks.apiFetch },
 }));
 vi.mock("@/lib/vault/one-chat-key", () => ({
-  oneChatKeyHeaders: async () => ({ "X-Hussh-Chat-Key": "fixture" }),
+  oneChatKeyHeaders: mocks.keyHeaders,
 }));
 import { ProfileResearchService } from "@/lib/services/profile-research-service";
 
@@ -31,6 +31,7 @@ const json = (body: unknown, status = 200) =>
   });
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.keyHeaders.mockResolvedValue({ "X-Hussh-Chat-Key": "fixture" });
   vi.useFakeTimers();
   vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
 });
@@ -283,3 +284,46 @@ describe("background profile discovery", () => {
     expect(mocks.apiFetch).toHaveBeenCalledOnce();
   });
 });
+
+
+import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
+import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
+it.each(["current", "owner", "vault", "unmount"])(
+  "invitation dispatch requires the current %s session after key derivation",
+  async (change) => {
+    publishValidatedAuthSessionOwner("invitation-owner");
+    const controller = new AbortController();
+    const capture = createAgentPkmCaptureGuard({
+      userId: "invitation-owner", signal: controller.signal, isEnabled: () => true,
+    });
+    let finish!: (headers: Record<string, string>) => void;
+    mocks.keyHeaders.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mocks.apiFetch.mockResolvedValue(json({ claimed: true, sharing_granted: false, research_started: false }));
+    const claim = WorldModelInvitationsService.claim({
+      vaultKey: "fixture", vaultOwnerToken: "fixture-token",
+      isCurrent: capture.isCurrent, signal: controller.signal,
+    }, "a".repeat(43));
+    const outcome = change === "current"
+      ? expect(claim).resolves.toEqual({ claimed: true, sharing_granted: false, research_started: false })
+      : expect(claim).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.keyHeaders).toHaveBeenCalledOnce();
+    expect(mocks.apiFetch).not.toHaveBeenCalled();
+    if (change === "owner") publishValidatedAuthSessionOwner("another-owner");
+    if (change === "vault") advanceVaultSessionEpoch();
+    if (change === "unmount") controller.abort();
+    finish({ "X-Hussh-Chat-Key": "fixture" });
+    await outcome;
+    if (change === "current") {
+      expect(mocks.apiFetch).toHaveBeenCalledOnce();
+      const [path, options] = mocks.apiFetch.mock.calls[0];
+      expect(path).toBe("/api/one/world-model/claims");
+      expect(options.method).toBe("POST");
+      expect(JSON.parse(options.body)).toEqual({ token: "a".repeat(43), consent: true, research_consent: false });
+      expect(options.headers.Authorization).toBe("Bearer fixture-token");
+      expect(options.isEffectCurrent()).toBe(true);
+    } else expect(mocks.apiFetch).not.toHaveBeenCalled();
+  },
+);

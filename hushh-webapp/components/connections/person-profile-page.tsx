@@ -1,4 +1,5 @@
 "use client";
+import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -386,11 +387,21 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
       if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
     };
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      // Pending-count hydration is bookkeeping, not a change to this person's
+      // requestable information. Do not discard an in-progress request for it.
+      // Explicit mutations, reconciliation requests and unknown legacy events
+      // still invalidate the catalog before another request can be submitted.
+      if (!detail?.action && detail?.reconcile !== true
+        && ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"].includes(String(detail?.source || ""))) return;
+      refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     window.addEventListener(FCM_MESSAGE_EVENT, onPush);
     return () => {
       unsubscribe();
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
   }, [resolvedPersonRef, user]);
@@ -1014,6 +1025,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
+                  grantedIds: grantedScopeRefs,
                   onToggleMany: (ids, select) =>
                     setSelectedScopeRefs((current) => toggleRequestScopes(
                       allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
@@ -1053,19 +1065,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                       );
                       return (
                         <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
-                            {createdAt ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
-                              </p>
-                            ) : null}
-                          </div>
+                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
                           <div className="flex shrink-0 flex-wrap items-center gap-2">
                             <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
+                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
+                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
+                            ))}
                             {!details ? (
                               <Button
                                 type="button"

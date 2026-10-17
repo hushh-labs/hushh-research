@@ -626,6 +626,10 @@ async def _verify_backend_direct_authorization(
     safe to hand back to the model on refusal, never the raw validation
     error.
     """
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        return False, "", "This action requires confirmation in the owner app."
     session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not session_user_id:
         return False, "", "The user is not signed in."
@@ -2636,16 +2640,27 @@ def _reason_suggestion(fields: str, question: str, ignore_words: tuple[str, ...]
 
 
 async def _already_pending(
-    user_id: str, person_ref: str, matched: list[dict[str, Any]]
+    user_id: str,
+    person_ref: str,
+    matched: list[dict[str, Any]],
+    *,
+    read_port: Any = None,
 ) -> dict[str, Any] | None:
     """The newest request to this person still waiting on any of ``matched``."""
     try:
-        waiting = await InformationRequestService().pending_for_scope_refs(
-            requester_user_id=user_id,
-            person_ref=person_ref,
-            scope_refs=[str(item.get("scopeRef") or "") for item in matched],
-        )
+        if read_port is not None:
+            waiting = await asyncio.to_thread(
+                read_port.pending, person_ref, [str(item.get("scopeRef") or "") for item in matched]
+            )
+        else:
+            waiting = await InformationRequestService().pending_for_scope_refs(
+                requester_user_id=user_id,
+                person_ref=person_ref,
+                scope_refs=[str(item.get("scopeRef") or "") for item in matched],
+            )
     except Exception:  # noqa: BLE001 - a failed check must not block a new request
+        if read_port is not None:
+            raise
         logger.warning("one.proposal_pending_check_unavailable")
         return None
     return waiting[0] if waiting else None
@@ -2994,7 +3009,10 @@ async def propose_information_request(
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     try:
-        connections_service = ConnectionsService()
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        private_discovery = private_information_discovery(user_id)
+        connections_service = private_discovery or ConnectionsService()
         person_ref, display_name = await asyncio.to_thread(
             _resolve_person_for_information,
             connections_service,
@@ -3003,8 +3021,13 @@ async def propose_information_request(
             tool_context,
             selection_handle,
         )
-        profile = await PersonProfileService().get_requestable_catalog(
-            viewer_user_id=user_id, public_person_ref=person_ref
+        profile = (
+            await asyncio.to_thread(private_discovery.catalog, person_ref)
+            if private_discovery
+            else await PersonProfileService().get_requestable_catalog(
+                viewer_user_id=user_id,
+                public_person_ref=person_ref,
+            )
         )
         if profile.get("personRef") != person_ref:
             return {
@@ -3075,7 +3098,7 @@ async def propose_information_request(
         # A5 (localhost run 4): asked again while the same request waits on
         # the same person, One said "tap Send" on a fresh card. What is
         # already waiting is reported as waiting, with its living card.
-        waiting = await _already_pending(user_id, person_ref, matched)
+        waiting = await _already_pending(user_id, person_ref, matched, read_port=private_discovery)
         if waiting is not None:
             pending_refs = set(waiting["scopeRefs"])
             if all(str(item.get("scopeRef")) in pending_refs for item in matched):
@@ -3120,8 +3143,11 @@ async def propose_information_request(
                 },
                 "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
             }
-        connector = await get_client_connector_service().get(user_id=user_id)
-        connector_ready = bool((connector or {}).get("configured"))
+        if private_discovery:
+            connector_ready = profile["connectorReady"]
+        else:
+            connector = await get_client_connector_service().get(user_id=user_id)
+            connector_ready = bool((connector or {}).get("configured"))
         proposal_id = uuid.uuid4().hex
         proposals = dict(tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {})
         proposals[proposal_id] = {

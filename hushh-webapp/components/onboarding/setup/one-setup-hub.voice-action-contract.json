@@ -20,9 +20,53 @@
   },
   "actions": [
     {
+      "action_id": "setup.open_cloud",
+      "label": "Set up your private agent",
+      "meaning": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
+      "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/cloud"
+      },
+      "control_ids": [
+        "one_setup_tile_cloud"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
       "action_id": "setup.open_connections",
       "label": "Choose your AI",
-      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "meaning": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "aliases": [
         "choose my ai",
         "set up AI access",
@@ -46,8 +90,10 @@
           "one_setup_hub",
           "one_setup"
         ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Navigate to the standalone AI access setup page for the compatibility entry; the normal setup journey configures AI within /one/setup/cloud."
+        ]
       },
       "guard_ids": [
         "auth_signed_in"
@@ -59,9 +105,7 @@
         "path": "route",
         "target": "/one/setup/connections"
       },
-      "control_ids": [
-        "one_setup_tile_connections"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": []
     },

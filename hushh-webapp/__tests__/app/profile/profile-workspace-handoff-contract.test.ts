@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { profileMenuGroups } from "@/components/profile/profile-menu-model";
+
+const paymentsSource = readFileSync(join(process.cwd(), "components/consent/payments-and-earnings.tsx"), "utf8");
 
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
@@ -48,9 +51,6 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
     );
-    expect(profilePageSource).toContain(
-      '<SettingsGroup title="Your settings" separatorInset>',
-    );
     expect(profilePageSource).not.toContain("myDataRootBadge");
     expect(profilePageSource).not.toContain("accessRootBadge");
     expect(profilePageSource).not.toContain("Data loaded partially");
@@ -74,20 +74,29 @@ describe("profile workspace duplication contract", () => {
   it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
     const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
-    expect(home).toMatch(/title="Payouts"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("payouts"\)\}/);
-    expect(home).toMatch(/title="Request pricing"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("request-pricing"\)\}/);
+    expect(profileMenuGroups(true).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "payouts", label: "Payments and earnings", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts" }),
+      expect.objectContaining({ id: "request-pricing", label: "Request pricing", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing" }),
+    ]));
+    const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";
+    expect(actions).toContain('payouts: () => openVaultBackedPanel("payouts")');
+    expect(actions).toContain('"request-pricing": () => openVaultBackedPanel("request-pricing")');
+    expect(home).toContain("onClick={() => { void menuActions[entry.id](); }}");
     expect(memory).not.toContain("DocumentRequestPricingCard");
     expect(memory).not.toContain("DocumentPayoutAccountCard");
     expect(memory).not.toContain("DocumentBankPayoutStatusCard");
     expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<DocumentHashcoinPayouts />");
+    expect(profilePageSource).toContain("<PaymentsAndEarnings key={user?.uid} />");
     // One bank control on Payouts: the bank rows in "Your money", the only
     // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
-    expect(payoutsPanel).toContain("<DocumentHashcoinPayouts />");
+    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={user?.uid} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
+    expect(paymentsSource).toContain("<ScopeCommerceAccountPanel />");
+    expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);
+    expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount \/><\/section> : null/);
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
     expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />");
     expect(returnHandlingBankControls()).toEqual(["components/consent/document-hashcoins.tsx"]);
@@ -116,9 +125,10 @@ describe("profile workspace duplication contract", () => {
   it("opens Personal World Model inside the Profile pane, never redirecting to its route", () => {
     // proxy.ts presents /one/profile/world-model as the pane, so the pane must
     // render the model itself; leaving for the route loops back here.
-    const row = profilePageSource.split('voiceControlId="profile_world_model"')[1]?.split("/>")[0] ?? "";
-    expect(row).toContain('openVaultBackedPanel("world-model")');
-    expect(row).not.toContain("router.push");
+    expect(profileMenuGroups(false).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "world-model", voiceControlId: "profile_world_model" }),
+    ]));
+    expect(profilePageSource).toContain('"world-model": () => openVaultBackedPanel("world-model")');
     const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain("embedded");
@@ -143,9 +153,9 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
     expect(profilePageSource).not.toContain("const openVaultSettingsRow");
-    expect(profilePageSource).toContain('voiceControlId="profile_security"');
+    expect(profilePageSource).toContain('entry.id === "security" ? "profile_security"');
     expect(profilePageSource).toContain(
-      'voiceActionId="route.profile_security_panel"',
+      'entry.id === "security" ? "route.profile_security_panel"',
     );
     expect(profilePageSource).not.toContain(
       'voiceActionId="route.profile_security"',

@@ -231,8 +231,10 @@ async def test_device_list_remains_available_when_rollout_is_disabled(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("already_revoked", [False, True])
 async def test_device_revocation_remains_available_when_rollout_is_disabled(
     monkeypatch: pytest.MonkeyPatch,
+    already_revoked: bool,
 ) -> None:
     async def _run_in_threadpool(function, **kwargs):
         return function(**kwargs)
@@ -249,12 +251,31 @@ async def test_device_revocation_remains_available_when_rollout_is_disabled(
         _ConsentLedger,
     )
 
+    if already_revoked:
+        monkeypatch.setattr(
+            _FakeTrustedDeviceService, "revoke_device", lambda self, **kwargs: False
+        )
+        monkeypatch.setattr(
+            _FakeTrustedDeviceService,
+            "device_status",
+            lambda self, **kwargs: {"status": "revoked"},
+            raising=False,
+        )
+
+    class _Registry:
+        async def get(self, user_id):
+            assert user_id == "user-1"
+            return {"backend_metadata": {"bindings": {"tdv_recoverable": {"version": 7}}}}
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        _Registry,
+    )
     result = await account.revoke_trusted_device(
         "tdv_recoverable",
         firebase_uid="user-1",
     )
-
-    assert result == {"success": True, "device_id": "tdv_recoverable"}
+    assert result == {"success": True, "device_id": "tdv_recoverable", "podBindingVersion": 7}
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import {
@@ -86,6 +86,8 @@ vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
     ONE_WELCOME: "/one/welcome",
     ONE_SETUP: "/one/setup",
     ONE_SETUP_FINANCE: "/one/setup/finance",
+    ONE_SETUP_CLOUD: "/one/setup/cloud",
+    ONE_SETUP_CONNECTIONS: "/one/setup/connections",
     ONE_HOME: "/one",
     PROFILE: "/one/profile",
     PROFILE_WORLD_MODEL: "/one/profile/world-model",
@@ -103,11 +105,6 @@ vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
   isOneSetupRoute: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
     "/one/setup",
-  isOneSetupSurfaceRoute: (pathname: string) =>
-    pathname === "/one/setup" ||
-    pathname === "/one/setup/connections" ||
-    pathname === "/one/setup/finance" ||
-    pathname === "/one/setup/location",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -149,6 +146,13 @@ function incompleteSetupState() {
 }
 
 describe("OnboardingJourneyGuard", () => {
+  // A failing test used to leak its fake timers into the next one, so a single
+  // defect reported as three and the real one was the hardest to find. Cleanup
+  // that depends on the test reaching its last line is not cleanup.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.unstubAllEnvs();
     push.mockReset();
@@ -291,7 +295,8 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalledWith("/");
   });
 
-  it.each(["/one/setup", "/one/setup/connections"])("prioritizes pending Finance when completion ejects %s before its child finishes", async (setupRoute) => {
+  it("prioritizes pending Finance when completion ejects the setup hub", async () => {
+    const setupRoute = "/one/setup";
     pathnameValue = setupRoute;
     const destination = "/circle/join?code=23456789ABCD";
     window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent(destination));
@@ -306,8 +311,7 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalledWith(destination);
   });
 
-  it("ejects a dismissed user who reaches a setup surface", async () => {
-    // Post-onboarding, any setup arrival is ejected — the root flow is one-time.
+  it("admits a completed owner revisiting the setup hub", async () => {
     pathnameValue = "/one/setup";
     isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
     clearSetupIntent();
@@ -318,10 +322,8 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/");
-    });
-    expect(screen.queryByText("hub")).toBeNull();
+    await waitFor(() => expect(screen.getByText("hub")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("admits a completed capability deep link for its coordinator handoff", async () => {
@@ -341,7 +343,7 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("ejects a stale deliberate setup intent after onboarding resolves", async () => {
+  it("keeps the setup hub browsable with a stale setup intent", async () => {
     pathnameValue = "/one/setup";
     isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
     markSetupIntent();
@@ -352,10 +354,8 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/");
-    });
-    expect(screen.queryByText("hub")).toBeNull();
+    await waitFor(() => expect(screen.getByText("hub")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("admits unfinished Finance setup after root onboarding resolves", async () => {
@@ -377,9 +377,55 @@ describe("OnboardingJourneyGuard", () => {
     expect(bootstrapStateMock).not.toHaveBeenCalled();
   });
 
+  it.each(["/one/setup/cloud", "/one/setup/cloud/azure/return"])("admits the cloud continuation after root onboarding resolves: %s", async (setupRoute) => {
+    // A setup-complete owner whose private agent is still reserved must be able to
+    // reach /one/setup/cloud to provision their pod. Ejecting them to home was the
+    // 0-to-1 blocker; the cloud step is a bounded post-root entry, exactly like
+    // Finance, and must be admitted rather than sent home.
+    pathnameValue = setupRoute;
+    window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent("/circle/join?code=23456789ABCD"));
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>cloud setup</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("cloud setup")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
+  it("admits the AI-access step after root onboarding resolves", async () => {
+    // The AI-access step is the cloud step's required pair (SETUP_NAVIGATION_ROUTES):
+    // after provisioning, a resolved owner must still be able to choose how the agent
+    // reaches a model, so it is admitted rather than ejected too.
+    pathnameValue = "/one/setup/connections";
+    window.history.replaceState(null, "", pathnameValue);
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>ai access</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("ai access")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
   it("admits a setup surface during first onboarding (not dismissed)", async () => {
     pathnameValue = "/one/setup";
-    isPersistentSetupResolvedMock.mockReturnValue(false); // not dismissed
+    window.history.replaceState(null, "", pathnameValue + "?return_to=" + encodeURIComponent("/circle/join?code=23456789ABCD"));
+    isPersistentSetupResolvedMock.mockReturnValue(false); // return_to cannot complete setup
     getCachedBootstrapStateMock.mockReturnValue(null);
 
     render(
@@ -491,10 +537,16 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
+    // `advanceTimersByTimeAsync`, not the sync form. The guard now wraps its
+    // bootstrap read in `withAdmissionTimeout` so a hang becomes a visible error
+    // rather than a forever spinner, which puts an extra microtask hop between
+    // the rejection and the retry timer being scheduled. The sync form advanced
+    // the clock BEFORE that timer existed, so the retry never fired and the test
+    // reported the guard as broken. The async form flushes microtasks between
+    // timer steps, so it does not have to be re-tuned every time the number of
+    // async layers changes.
     await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(300);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(screen.getByText("one home")).toBeTruthy();
@@ -519,10 +571,16 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
+    // `advanceTimersByTimeAsync`, not the sync form. The guard now wraps its
+    // bootstrap read in `withAdmissionTimeout` so a hang becomes a visible error
+    // rather than a forever spinner, which puts an extra microtask hop between
+    // the rejection and the retry timer being scheduled. The sync form advanced
+    // the clock BEFORE that timer existed, so the retry never fired and the test
+    // reported the guard as broken. The async form flushes microtasks between
+    // timer steps, so it does not have to be re-tuned every time the number of
+    // async layers changes.
     await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(300);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
@@ -532,6 +590,43 @@ describe("OnboardingJourneyGuard", () => {
     fireEvent.click(screen.getByText("Try again"));
     view.unmount();
     vi.useRealTimers();
+  });
+
+  it.each([false, true])("bounds a hanging bootstrap without changing setup admission (resolved=%s)", async (setupResolved) => {
+    isPersistentSetupResolvedMock.mockReturnValue(setupResolved);
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    const complete: Array<(value: { setupCompleted: boolean }) => void> = [];
+    bootstrapStateMock.mockImplementation(
+      () => new Promise((resolve) => complete.push(resolve)),
+    );
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>private home</div>
+      </OnboardingJourneyGuard>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(145_000);
+    });
+    const assertAdmission = () => {
+      if (setupResolved) {
+        expect(screen.getByText("private home")).toBeTruthy();
+        expect(screen.queryByText("Reconnect to continue securely")).toBeNull();
+      } else {
+        expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+        expect(screen.getByText("Try again")).toBeTruthy();
+        expect(screen.queryByText("private home")).toBeNull();
+      }
+    };
+    assertAdmission();
+    await act(async () => {
+      complete.forEach((resolve) => resolve({ setupCompleted: true }));
+    });
+    assertAdmission();
+    expect(replace).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it("preserves a query-bearing route in one idempotent setup redirect", async () => {

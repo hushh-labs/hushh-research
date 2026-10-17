@@ -120,6 +120,8 @@ export type InformationRequestBundle = {
   items: Array<{
     requestId: string;
     scopeRef: string;
+    modelProcessingAllowed?: boolean;
+    accessReady?: boolean;
     label: string;
     sensitivity: string | null;
     status:

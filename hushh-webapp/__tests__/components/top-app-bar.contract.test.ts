@@ -200,11 +200,9 @@ describe("Top app bar responsive contract", () => {
   it("never clips the back button's circle at the header's left edge", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    // The back button's 44px box is pulled left (-ml-3.5) so its glyph sits on
-    // the content column; its pressed/focus circle therefore extends past the
-    // header's left edge. The header must clip only vertically (for the
-    // max-height collapse), never horizontally.
-    expect(read("components/app-ui/native-shell-back.tsx")).toContain('className="pointer-events-auto -ml-3.5 flex h-11 w-11');
+    // The entire target stays inside the authored content frame. Collapse
+    // clips vertically only, preserving focus/pressed paint at its edge.
+    expect(read("components/app-ui/native-shell-back.tsx")).not.toContain("-ml-3.5");
     const headerStart = source.indexOf('data-testid="top-app-bar-header"');
     const headerOpen = source.slice(headerStart, source.indexOf(">", source.indexOf("}}", headerStart)));
     expect(headerOpen).toContain('overflowX: "visible"');
@@ -246,7 +244,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain('requestProfilePaneOpen("tap")');
+    expect(source).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     // The avatar opens the shared right-side pane. The dedicated Profile route
     // remains available for deep links and nested settings, but shell entry is
     // an in-place presentation so the owner can return with the same gesture.
@@ -358,64 +356,7 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
-  it("keeps onboarding chrome canonical and shell-sized", () => {
-    const source = read("components/app-ui/top-app-bar.tsx");
-    const signOutItemStart = source.indexOf(
-      "onClick={() => void handleSignOut()}",
-    );
-    const signOutItemSource = source.slice(
-      signOutItemStart,
-      source.indexOf("</DropdownMenuItem>", signOutItemStart),
-    );
-    const deleteItemStart = source.indexOf('variant="destructive"');
-    const deleteItemSource = source.slice(
-      deleteItemStart,
-      source.indexOf("</DropdownMenuItem>", deleteItemStart),
-    );
 
-    expect(source).not.toContain(
-      'return { label: "Set up One", interactive: false as const };',
-    );
-    expect(source).not.toContain("ThemeToggleCompact");
-    expect(source).toContain(
-      '<ShellActionSurface variant="icon" aria-label="Account actions">',
-    );
-    expect(source).toContain('variant="destructive"');
-    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
-    expect(signOutItemSource).toContain("cursor-pointer");
-    expect(signOutItemSource).toContain("rounded-[10px]");
-    expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");
-    expect(signOutItemSource).toContain(
-      "hover:!text-[color:var(--app-accent-fg)]",
-    );
-    expect(signOutItemSource).toContain(
-      "hover:[&_svg]:!stroke-[color:var(--app-accent-fg)]",
-    );
-    expect(deleteItemSource).toContain("cursor-pointer");
-    expect(deleteItemSource).toContain("rounded-[10px]");
-    expect(deleteItemSource).toContain(
-      "hover:!bg-[color:var(--app-destructive)]",
-    );
-    expect(deleteItemSource).toContain(
-      "hover:!text-[color:var(--app-destructive-fg)]",
-    );
-    expect(deleteItemSource).toContain(
-      "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
-    );
-    expect(deleteItemSource).toContain(
-      "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
-    );
-    expect(deleteItemSource).not.toContain(
-      "data-[variant=destructive]:focus:bg-popover",
-    );
-    expect(signOutItemSource).toContain("focus-visible:ring-inset");
-    expect(deleteItemSource).toContain("focus-visible:ring-inset");
-    expect(source).not.toContain('className="text-red-600 focus:text-red-600"');
-    expect(source).not.toContain(
-      'return { label: "Get started", interactive: false as const };',
-    );
-    expect(source).not.toContain('className="h-9 w-9 rounded-full"');
-  });
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");

@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   pathname: "/one/location",
@@ -42,16 +42,35 @@ describe("OneAuthGate", () => {
   beforeEach(() => {
     mocks.pathname = "/one/location";
   });
+  afterEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
+    vi.restoreAllMocks();
+  });
 
-  it("lets only the exact connector callback own Firebase completion without a popup vault", () => {
-    mocks.pathname = "/one/profile/connectors/oauth/return";
+  it.each(["/one/profile/account", "/one/profile/payouts"])("shows only an advisory popup return while an unmatched cold %s stays vault-gated", (path) => {
+    mocks.pathname = path;
+    window.history.replaceState({}, "", mocks.pathname + "?commerceReturn=1&commerceAttemptId=opaque_attempt_12345");
+    const cold = render(<OneAuthGate><div>private payment information</div></OneAuthGate>);
+    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
+    cold.unmount();
+    window.localStorage.setItem("one_commerce_popup_v1:opaque_attempt_12345", JSON.stringify({ attemptId: "opaque_attempt_12345", purpose: "onboarding", expiresAt: Date.now() + 60000 }));
+    vi.spyOn(window, "close").mockImplementation(() => undefined);
+    render(<OneAuthGate><div>private payment information</div></OneAuthGate>);
+    expect(screen.queryByText("private payment information")).toBeNull();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByText(/Return to your original One window/)).toBeTruthy();
+  });
+
+  it.each(["/one/profile/connectors/oauth/return", "/one/setup/cloud/azure/return"])("lets the exact %s callback own Firebase completion without a popup vault", (path) => {
+    mocks.pathname = path;
     render(<OneAuthGate><div>connector callback</div></OneAuthGate>);
     expect(screen.getByText("connector callback")).toBeTruthy();
     expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 
-  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra"])("retains hard authority for %s", pathname => {
+  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra", "/one/setup/cloud/azure/return/extra", "/one/profile/security/devices/authorize/extra", "/one/profile/security/devices"])("retains hard authority for %s", pathname => {
     mocks.pathname=pathname;
     render(<OneAuthGate><div>protected connection management</div></OneAuthGate>);
     expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
@@ -147,7 +166,7 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("calendar connection")).toBeTruthy();
   });
 
-  it("lets a signed-in user approve a trusted device without unlocking the browser vault", () => {
+  it("lets the exact device approval shell own sign-in and setup readiness", () => {
     mocks.pathname = "/one/profile/security/devices/authorize";
 
     render(
@@ -157,7 +176,7 @@ describe("OneAuthGate", () => {
     );
 
     expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
-    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
     expect(screen.getByText("trusted device approval")).toBeTruthy();
   });
 

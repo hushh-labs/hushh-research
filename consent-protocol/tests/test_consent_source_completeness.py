@@ -36,16 +36,25 @@ def test_location_failure_is_unavailable_only_for_strict_source_reads(strict):
 
 
 @pytest.mark.parametrize("strict", [False, True])
-async def test_answer_contributor_failure_is_unavailable_only_for_strict_source_reads(strict):
+@pytest.mark.parametrize("source", ["marketplace", "answer"])
+async def test_answer_contributor_failure_is_unavailable_only_for_strict_source_reads(
+    strict, source, caplog
+):
     service = ConsentCenterService.__new__(ConsentCenterService)
     service._require_complete = strict
-    service._marketplace_center = None
-    service._answer_center = Mock(collect=AsyncMock(side_effect=RuntimeError("offline")))
+    service._marketplace_center = service._answer_center = None
+    failure = RuntimeError("synthetic-protected-request-context")
+    setattr(service, f"_{source}_center", Mock(collect=AsyncMock(side_effect=failure)))
     if strict:
         with pytest.raises(RuntimeError):
-            await service._extra_buckets_async("owner")
+            await service._extra_buckets_async("synthetic-owner-identifier")
+        assert not caplog.records
     else:
-        assert not any((await service._extra_buckets_async("owner")).values())
+        assert not any((await service._extra_buckets_async("synthetic-owner-identifier")).values())
+        assert "RuntimeError" in caplog.text
+        assert source in caplog.text
+        assert str(failure) not in caplog.text
+        assert "synthetic-owner-identifier" not in caplog.text
 
 
 async def test_strict_previous_inventory_requests_uncapped_owner_history():
@@ -90,16 +99,37 @@ def test_strict_location_inventory_retains_circle_invites(status):
 
 async def test_strict_sent_inventory_includes_location_without_changing_default_ui():
     service = ConsentCenterService.__new__(ConsentCenterService)
+    service._read_only = True
     service._require_complete = True
     service._extra_buckets_async = AsyncMock(return_value={"outgoing_requests": []})
     row = {"id": "one_location_request:sent", "status": "approved"}
     service._location_buckets_async = AsyncMock(return_value={"outgoing_requests": [row]})
     service._paginate_with_drive = AsyncMock(return_value={"items": [row]})
-    await service.list_center("owner", actor="investor", surface="pending", request_view="sent")
+    result = await service.list_center(
+        "owner", actor="investor", surface="pending", request_view="sent"
+    )
+    assert result["source_read_verified"] is True
     assert service._paginate_with_drive.call_args.args[0] == [row]
     service._require_complete = False
-    await service.list_center("owner", actor="investor", surface="pending", request_view="sent")
+    result = await service.list_center(
+        "owner", actor="investor", surface="pending", request_view="sent"
+    )
+    assert "source_read_verified" not in result
     assert service._paginate_with_drive.call_args.args[0] == []
+
+
+@pytest.mark.parametrize("read_only,require_complete", [(True, False), (False, True)])
+async def test_read_inventory_hydration_does_not_bootstrap_identity(read_only, require_complete):
+    service = ConsentCenterService.__new__(ConsentCenterService)
+    service._read_only = read_only
+    service._require_complete = require_complete
+    service._identity = Mock(
+        get_many=AsyncMock(return_value={}),
+        ensure_many=AsyncMock(side_effect=AssertionError("inventory must not write identities")),
+    )
+    assert await service._hydrate_entry_identities([]) == []
+    service._identity.get_many.assert_awaited_once_with([])
+    service._identity.ensure_many.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

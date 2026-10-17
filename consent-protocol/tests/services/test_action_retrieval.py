@@ -307,6 +307,26 @@ def test_without_a_baked_model_the_first_search_still_loads_lazily(monkeypatch):
     client.embed_query.assert_called_once()
 
 
+@pytest.mark.parametrize("pod_mode", [False, True])
+def test_baked_model_load_has_the_actual_runtime_owner(monkeypatch, pod_mode):
+    """Only the hub schedules a warmup; a baked pod must load on first search."""
+    from unittest.mock import Mock
+
+    from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    monkeypatch.setenv(BAKED_MODEL_DIR_ENV, BAKED_MODEL_DIR)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1" if pod_mode else "0")
+    monkeypatch.setattr(ar.os.path, "isdir", lambda path: path == BAKED_MODEL_DIR)
+    client = Mock()
+    client.is_loaded = False
+    client.embed_query.side_effect = RuntimeError("semantic load attempted")
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+
+    ar.search_actions("share my location", load_action_gateway())
+
+    assert client.embed_query.call_count == (1 if pod_mode else 0)
+
+
 def test_concurrent_loads_build_the_model_once(monkeypatch):
     import sys
     import threading

@@ -16,11 +16,18 @@ from hushh_mcp.consent.connector_crypto_profiles import get_connector_crypto_pro
 from hushh_mcp.consent.export_envelope import ConsentExportEnvelopeSubmissionV2
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
+from mcp_modules.commercial_projection import (
+    commercial_fields as _commercial_fields,
+)
+from mcp_modules.commercial_projection import (
+    negotiation_fields as _negotiation_fields,
+)
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_api_headers
 from mcp_modules.transport_context import is_local_stdio_transport
 
 from .data_tools import _try_build_local_decrypted_response
+from .request_payload import consent_request_body
 
 ToolContent = TextContent
 ToolResult = tuple[list[ToolContent], dict[str, Any]]
@@ -50,6 +57,13 @@ _SAFE_BACKEND_CODES = {
     "SCOPE_NOT_DISCOVERED_FOR_USER",
     "SCOPE_RETIRED",
     "USER_NOT_FOUND",
+    "SCOPE_COMMERCE_DISABLED",
+    "SCOPE_COMMERCE_UNAVAILABLE",
+    "PAYER_DELEGATION_REQUIRED",
+    "REGISTERED_RECIPIENT_KEY_REQUIRED",
+    "PAID_ACCESS_NOT_ACTIVE",
+    "QUOTE_EXPIRED",
+    "QUOTE_BINDING_CHANGED",
 }
 
 INLINE_CIPHERTEXT_MAX_CHARS = 1_500_000
@@ -241,12 +255,20 @@ def _rank_scope_entries(entries: list[dict], *, query: str, domain: str) -> list
             if ratio < 0.35:
                 continue
             tier = 2
-        item = {
+        item: dict[str, Any] = {
             "scope": scope[:200],
             "domain": entry_domain[:64],
             "label": label[:120],
             "description": str(meta.get("description") or "Consent-controlled information.")[:280],
         }
+        tariff = entry.get("tariff")
+        if isinstance(tariff, dict):
+            item["tariff"] = {
+                "price_cents": max(0, min(int(tariff.get("price_cents") or 0), 100_000)),
+                "base_duration_seconds": max(0, int(tariff.get("base_duration_seconds") or 0)),
+                "revision": max(0, int(tariff.get("revision") or 0)),
+                "currency": "usd",
+            }
         scored.append((tier, -ratio, -len(scope), scope, item))
     scored.sort(key=lambda item: item[:4])
     return [item[4] for item in scored]
@@ -339,55 +361,13 @@ async def handle_request_consent(args: dict) -> ToolResult:
         )
 
     scope = str(args.get("scope") or "").strip()
-    connector_public_key = str(args.get("connector_public_key") or "").strip()
-    connector_key_id = str(args.get("connector_key_id") or "").strip()
-    connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
-    if (
-        scope.startswith("attr.")
-        and is_local_stdio_transport()
-        and not all((connector_public_key, connector_key_id, connector_wrapping_alg))
-    ):
-        keypair = get_or_create_local_connector_keypair()
-        connector_public_key = keypair.public_key_b64
-        connector_key_id = keypair.key_id
-        connector_wrapping_alg = keypair.wrapping_alg
-    body = {
-        "user_identifier": identifier,
-        "scope": scope,
-        "purpose": str(args.get("purpose") or "").strip(),
-        "expiry_hours": int(args.get("expiry_hours") or 24),
-        "approval_timeout_minutes": int(args.get("approval_timeout_minutes") or 1440),
-        "refresh_policy": str(args.get("refresh_policy") or "snapshot"),
-        **(
-            {"country_iso2": str(args.get("country_iso2")).strip()}
-            if args.get("country_iso2")
-            else {}
-        ),
-        **({"country": str(args.get("country")).strip()} if args.get("country") else {}),
-    }
-    offer = args.get("offer")
-    if not isinstance(offer, dict) and any(
-        args.get(key) is not None
-        for key in ("offer_amount", "offer_currency", "offer_summary", "settlement_ref")
-    ):
-        offer = {
-            "bid_amount": args.get("offer_amount"),
-            "currency": args.get("offer_currency") or "USD",
-            "offer_summary": args.get("offer_summary"),
-            "settlement_ref": args.get("settlement_ref"),
-        }
-    if isinstance(offer, dict):
-        body["offer"] = offer
-    if scope.startswith("attr.") and all(
-        (connector_public_key, connector_key_id, connector_wrapping_alg)
-    ):
-        body.update(
-            {
-                "connector_public_key": connector_public_key,
-                "connector_key_id": connector_key_id,
-                "connector_wrapping_alg": connector_wrapping_alg,
-            }
-        )
+    body = consent_request_body(
+        args,
+        identifier=identifier,
+        scope=scope,
+        local_stdio=is_local_stdio_transport(),
+        keypair_factory=get_or_create_local_connector_keypair,
+    )
     try:
         async with httpx.AsyncClient(timeout=BACKEND_REQUEST_TIMEOUT) as client:
             response = await client.post(
@@ -422,6 +402,8 @@ async def handle_request_consent(args: dict) -> ToolResult:
             next_action="Retry once; if it repeats, report the correlation reference.",
         )
     granted = state == "granted"
+    if data.get("quote_ref") and data.get("access_state") != "active":
+        granted = False
     payload: dict[str, Any] = {
         "status": "granted" if granted else "pending",
         "scope": scope,
@@ -435,6 +417,8 @@ async def handle_request_consent(args: dict) -> ToolResult:
         ),
     }
     payload["grant_ref" if granted else "request_ref"] = request_ref
+    payload.update(_commercial_fields(data))
+    payload.update(_negotiation_fields(data))
     return [TextContent(type="text", text=json.dumps(payload))], payload
 
 
@@ -475,18 +459,27 @@ async def handle_check_consent_status(args: dict) -> ToolResult:
             recoverable=True,
             next_action="Retry once; if it repeats, report the correlation reference.",
         )
+    if lifecycle == "granted" and data.get("quote_ref") and data.get("access_state") != "active":
+        lifecycle = "pending"
     payload = {
         "status": lifecycle,
         "expires_at": int(data["expires_at"]) if data.get("expires_at") is not None else None,
         "poll_after_seconds": (
-            int(data["poll_after_seconds"]) if data.get("poll_after_seconds") is not None else None
+            int(data["poll_after_seconds"])
+            if data.get("poll_after_seconds") is not None
+            else 5
+            if lifecycle == "pending"
+            else None
         ),
         "approval_timeout_at": (
             int(data["approval_timeout_at"])
             if data.get("approval_timeout_at") is not None
             else None
         ),
-        "grant_ref": str(data.get("grant_ref")) if data.get("grant_ref") else None,
+        "grant_ref": str(data.get("grant_ref"))
+        if data.get("grant_ref") and lifecycle == "granted"
+        else None,
+        **_commercial_fields(data),
     }
     return [TextContent(type="text", text=json.dumps(payload))], payload
 
@@ -533,7 +526,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
         "export_revision": max(1, int(data.get("export_revision") or 1)),
     }
 
-    if is_local_stdio_transport():
+    if is_local_stdio_transport() and data.get("commercial_required") is not True:
         decrypted, local_error = await _try_build_local_decrypted_response(
             {},
             export_payload=data,

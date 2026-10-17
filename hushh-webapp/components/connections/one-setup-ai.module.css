@@ -242,8 +242,8 @@
   width: 100%;
   min-height: 52px;
   border-radius: 999px;
-  background: #0071e3;
-  color: #fff;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
   font-family: var(--font-app-body);
   font-size: 16px;
   font-weight: 600;

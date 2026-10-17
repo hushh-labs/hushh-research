@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { CardRecipientKeyUnavailableError, prepareTemporaryCardShares } from "@/lib/services/wallet-card-share-service";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
-import { WalletService, type WalletCardSummary } from "@/lib/services/wallet-service";
+import { WalletService, type WalletCardSummary, type WalletCardShareReceipt } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./wallet-saved-card-sharing.module.css";
 
 // Present the existing API limit before the owner submits their selection.
@@ -41,6 +43,8 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
   const [recipientRevision, setRecipientRevision] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
+  const [copies, setCopies] = useState<{ cardId: string; current: () => boolean; receipts: WalletCardShareReceipt[] } | null>(null);
+  const [copiesOpen, setCopiesOpen] = useState(false);
   const moreRequest = useRef<AbortController | null>(null);
   const historyEnd = useRef<HTMLDivElement>(null);
   const generation = useRef(0);
@@ -52,6 +56,8 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     setOpen(false); setQuery(""); setSelected({}); setRecipients([]); setBusy(false);
   }, []);
   useBackLayer(ROUTES.ONE_WALLET, open ? 3 : 0, () => { close(); return true; });
+  const currentCopies = copies?.cardId === card.cardId && copies.current() ? copies.receipts : [];
+  useBackLayer(ROUTES.ONE_WALLET, copiesOpen && currentCopies.length ? 2 : 0, () => { setCopiesOpen(false); return true; });
   useEffect(() => { close(); setState(null); attempt.current = null; }, [card.cardId, getContext, close]);
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +72,27 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     }).catch(error => { if (!cancelled && context.isCurrent()) { setState(null); setStateFailed(true); setUnavailable(error instanceof CardAccessUnavailableError); } });
     return () => { cancelled = true; controller.abort(); moreRequest.current?.abort(); moreRequest.current = null; };
   }, [card.cardId, getContext, revision]);
+  useEffect(() => {
+    let cancelled = false;
+    let readRevision = 0;
+    const clear = () => { readRevision += 1; setCopies(null); setCopiesOpen(false); };
+    const load = () => {
+      clear();
+      const context = getContext(card.cardId);
+      if (!context) return;
+      const expected = readRevision;
+      void WalletService.listCardShareReceipts({ ...context, cardId: card.cardId }).then(receipts => {
+        if (!cancelled && expected === readRevision && context.isCurrent()) {
+          setCopies({ cardId: card.cardId, current: context.isCurrent, receipts });
+        }
+      }).catch(() => { /* Sent copies never establish current grant authority. */ });
+    };
+    const visibility = () => { if (document.visibilityState === "hidden") clear(); else load(); };
+    const retire = subscribeVaultSessionEpoch(clear);
+    document.addEventListener("visibilitychange", visibility);
+    load();
+    return () => { cancelled = true; retire(); document.removeEventListener("visibilitychange", visibility); };
+  }, [card.cardId, getContext]);
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -183,7 +210,16 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           {loadingMore ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}
         </Button>
       </div> : null}
+      {currentCopies.length ? <Accordion type="single" collapsible value={copiesOpen ? "copies" : ""} onValueChange={value => setCopiesOpen(value === "copies")}>
+        <AccordionItem value="copies"><AccordionTrigger>Previously sent copies</AccordionTrigger><AccordionContent>
+          <SettingsGroup title="Sent copies">
+            {[...currentCopies].reverse().map(receipt => <SettingsRow key={receipt.messageId} icon={ProfilePaneAccountIcon} iconTone="transparent"
+              title={receipt.recipientName} description="Sent copy · cannot be recalled" trailing={new Date(receipt.sentAt).toLocaleDateString()} />)}
+          </SettingsGroup>
+        </AccordionContent></AccordionItem>
+      </Accordion> : null}
       <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
+
         mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
         footer={<div className="mx-auto w-full max-w-[244px]"><Button size="prominent" className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button></div>}>
         <div className="space-y-4">

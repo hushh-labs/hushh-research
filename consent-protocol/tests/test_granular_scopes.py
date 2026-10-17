@@ -9,6 +9,7 @@ The new architecture uses:
 
 from hushh_mcp.constants import (
     ACTIVE_RESERVED_SCOPE_VALUES,
+    EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES,
     INTERNAL_ONLY_SCOPE_VALUES,
     RETIRED_SCOPE_VALUES,
     SCOPE_POLICY_VERSION,
@@ -32,7 +33,20 @@ class TestStaticScopes:
         """Test PKM operation scopes."""
         assert ConsentScope.PKM_READ.value == "pkm.read"
         assert ConsentScope.PKM_WRITE.value == "pkm.write"
-        assert INTERNAL_ONLY_SCOPE_VALUES == {"vault.owner", "pkm.read", "pkm.write"}
+        assert INTERNAL_ONLY_SCOPE_VALUES == {
+            "vault.owner",
+            "pkm.read",
+            "pkm.write",
+            "cap.agent.prompt.sync",
+        }
+
+    def test_prompt_sync_scope_is_internal_only(self):
+        """The prompt-sync capability must never be externally requestable."""
+        assert ConsentScope.CAP_AGENT_PROMPT_SYNC.value == "cap.agent.prompt.sync"
+        # Internal-only: not in the external set, and the classifier agrees.
+        assert "cap.agent.prompt.sync" in INTERNAL_ONLY_SCOPE_VALUES
+        assert not ConsentScope.is_external_requestable_scope("cap.agent.prompt.sync")
+        assert "cap.agent.prompt.sync" not in EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES
 
     def test_agent_scope_values(self):
         """Test One/Kai/Nav/KYC agent operation scopes."""

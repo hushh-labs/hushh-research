@@ -1,14 +1,11 @@
-"""Ready cannot rest on the model checker when a source names someone else.
+"""Owner comparison context preserves authored assessment and source authority.
 
-The wrong-account guard compares account holders across several sources; a
-single-document packet gives it nothing to compare, and that was the class both
-real-Drive judges flagged. The runtime now reads the Drive owner's name on file
-and closes a Ready packet whose account record names another person. Matching
-is conservative: an unknown owner name never counts as a match, and the packet
-closes as Incomplete with a plain reason instead. All documents and names below
-are synthetic.
+Synthetic assessments exercise prompt binding, response preservation and schema
+refusal; they do not prove live wrong-person detection. Store/worker cases retain
+owner isolation, read-only access and failure recovery.
 """
 
+import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -155,142 +152,29 @@ async def check(members, mode="complete_compact_summary", owner=OWNER):
     return result, checker
 
 
-async def test_single_document_naming_another_person_cannot_build_ready():
-    packet, interpreter = await build([statement(holder="Jane Example")])
-    assert packet.state == "incomplete"
-    assert packet.gaps == [DIFFERENT_PERSON]
-    # The host decides from the name on file; the model is not asked to guess again.
-    assert interpreter.await_count == 1
-    PacketProposal.model_validate(packet.model_dump())
-
-
-@pytest.mark.parametrize(
-    ("holder", "owner"),
-    [
-        ("Jane Example and Manish Example", OWNER),
-        ("MANISH EXAMPLE & JANE EXAMPLE", OWNER),
-        ("M. Example", OWNER),
-        ("Manish K. Example", OWNER),
-        ("Example, Manish", OWNER),
-        ("Mr Manish Example Jr", OWNER),
-        ("Manish Example", {"names": ["Manish Kumar Example"]}),
-        ("M K Example", {"names": ["Manish Kumar Example"]}),
-        ("Jose Example", {"names": ["José Example"]}),
-    ],
-    ids=[
-        "joint_account",
-        "joint_account_reordered",
-        "first_initial",
-        "middle_initial",
-        "surname_first",
-        "title_and_suffix",
-        "owner_middle_name_dropped",
-        "two_initials",
-        "accent_folded",
-    ],
-)
-async def test_listings_naming_the_owner_stay_ready(holder, owner):
-    packet, _ = await build([statement(holder=holder)], owner)
-    assert packet.state == "ready" and packet.gaps == []
-
-
-@pytest.mark.parametrize(
-    "members",
-    [
-        # A relative on the same account record: the surname is not the person.
-        [statement(holder="Kumar Example")],
-        [statement(holder="K. Example")],
-        # A relative named on a record without an account number.
-        [statement(holder="Jane Example", account=None, kind="Tax letter")],
-        # A business or trust the owner may be named on is not modelled by the
-        # facts contract, so it is not guessed Ready either.
-        [statement(holder="Example Family Trust")],
-        # Members that agree with each other, so the account-holder guard has
-        # nothing to report, but all name someone other than the owner.
-        [
-            statement("sep", holder="Jane Example"),
-            statement("oct", holder="JANE EXAMPLE", month=10),
-        ],
-    ],
-    ids=[
-        "shared_surname_different_first_name",
-        "shared_surname_initial",
-        "relative_without_account",
-        "trust_in_the_family_name",
-        "all_members_name_someone_else",
-    ],
-)
-async def test_sources_naming_someone_else_cannot_build_ready(members):
-    packet, _ = await build(members)
-    assert packet.state == "incomplete"
-    assert packet.gaps == [DIFFERENT_PERSON]
-
-
-@pytest.mark.parametrize(
-    "members",
-    [
-        # Not an account record and not the owner's surname: a topic, not a person.
-        [statement(holder="Planning notes", account=None, kind="Meeting notes")],
-        # An account record that names nobody is left to the model checker.
-        [statement(holder=None)],
-    ],
-    ids=["topic_subject", "holder_unknown"],
-)
-async def test_sources_naming_nobody_stay_ready(members):
-    packet, _ = await build(members)
-    assert packet.state == "ready" and packet.gaps == []
-
-
-@pytest.mark.parametrize(
-    "owner",
-    [{"names": []}, {"names": ["Manish"]}, {"names": [" "]}, {}],
-    ids=["no_name_on_file", "one_word_name", "blank_name", "no_listing"],
-)
-async def test_unconfirmed_owner_fails_closed(owner):
-    # The record names the owner exactly, but nothing on file can confirm it.
-    packet, _ = await build([statement(holder="Manish Example")], owner)
-    assert packet.state == "incomplete"
-    assert packet.gaps == [OWNER_UNCONFIRMED]
-
-
-async def test_unconfirmed_owner_leaves_records_naming_nobody_alone():
-    packet, _ = await build([statement(holder=None)], {"names": []})
-    assert packet.state == "ready" and packet.gaps == []
-
-
-async def test_callers_without_an_owner_listing_are_not_checked():
-    # The offline eval replay has no owner on file; the production worker
-    # always supplies a listing, so only it fails closed on a missing name.
-    packet, _ = await build([statement(holder="Jane Example")], None)
-    assert packet.state == "ready"
-
-
-@pytest.mark.parametrize("mode", ["complete_compact_summary", "member_batch"])
-async def test_checker_cannot_certify_a_document_naming_another_person(mode):
-    result, checker = await check([statement(holder="Jane Example")], mode)
-    assert result.state == "incomplete"
-    assert result.correct_subject_and_account is False
-    assert DIFFERENT_PERSON in result.issues
-    assert checker.await_count == 1
-
-
-async def test_checker_cannot_certify_an_unconfirmed_owner():
-    result, _ = await check([statement(holder="Manish Example")], owner={"names": []})
-    assert result.state == "incomplete"
-    assert OWNER_UNCONFIRMED in result.issues
-
-
-async def test_checker_keeps_the_owner_named_ready():
-    result, _ = await check([statement(holder="Jane Example and Manish Example")])
-    assert result.state == "ready" and result.issues == []
-
-
-async def test_wrong_person_document_never_ends_ready():
-    # Mirrors the eval guard case: a builder and a checker that both say Ready
-    # over another person's statement. Finalize needs both answers Ready.
+@pytest.mark.parametrize("owner", [OWNER, {"names": []}, None])
+async def test_builder_supplies_owner_context_without_rewriting_the_assessment(owner):
     members = [statement(holder="Jane Example")]
-    packet, _ = await build(members)
-    assert packet.state != "ready"
+    packet, interpreter = await build(members, owner)
+    assert packet.model_dump() == PacketProposal.model_validate(proposal(members)).model_dump()
+    prompt = json.loads(interpreter.await_args.kwargs["prompt"])
+    assert prompt["owner_identity"] == owner
+    assert interpreter.await_count == 1
+
+
+async def test_authored_wrong_person_assessment_remains_nonready():
+    members = [statement(holder="Jane Example")]
+    assessment = {**proposal(members), "state": "incomplete", "gaps": [DIFFERENT_PERSON]}
+    interpreter = AsyncMock(return_value=assessment)
+    packet = await construct_packet(
+        user_id="owner",
+        key="example-bank-statements-2026",
+        documents=members,
+        complete=True,
+        owner=OWNER,
+        interpret=interpreter,
+    )
+    assert packet.state == "incomplete" and packet.gaps == [DIFFERENT_PERSON]
     with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
         await verify_packet(
             user_id="owner",
@@ -299,6 +183,31 @@ async def test_wrong_person_document_never_ends_ready():
             complete=True,
             batch_scope=scope("complete_compact_summary", members),
             interpret=AsyncMock(return_value=verdict()),
+            owner=OWNER,
+        )
+
+
+@pytest.mark.parametrize("mode", ["complete_compact_summary", "member_batch"])
+async def test_checker_supplies_owner_context_without_overruling_a_valid_response(mode):
+    result, checker = await check([statement(holder="Jane Example")], mode)
+    assert result.model_dump() == verdict()
+    prompt = json.loads(checker.await_args.kwargs["prompt"])
+    assert prompt["owner_identity"] == OWNER
+    assert checker.await_count == 1
+
+
+async def test_checker_cannot_certify_ready_with_an_explicit_subject_mismatch():
+    members = [statement()]
+    invalid = {**verdict(), "correct_subject_and_account": False}
+    checker = AsyncMock(return_value=invalid)
+    with pytest.raises(EvidenceValidationError, match="model_schema_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal(members),
+            documents=members,
+            complete=True,
+            batch_scope=scope("member_batch", members),
+            interpret=checker,
             owner=OWNER,
         )
 
@@ -355,6 +264,7 @@ def worker(store, **fakes):
         packet_store=store,
         policy=lambda: "policy-1",
         wake=AsyncMock(),
+        placement_resolver=AsyncMock(return_value="shared"),
         **fakes,
     )
 
@@ -437,8 +347,8 @@ async def read_owner(connection, user_id="owner"):
 
 
 async def test_store_reads_no_name_where_the_identity_cache_is_absent():
-    # The packet job must not stall on a schema without the cache; an empty
-    # listing confirms nobody, so account records still close as unconfirmed.
+    # Historical isolated schemas can lack the cache; supply explicit absence
+    # as assessment context rather than inventing an owner name.
     connection = IdentityCache()
     assert await read_owner(connection) == {"names": []}
     assert not any("FROM actor_identity_cache" in sql for sql in connection.statements)

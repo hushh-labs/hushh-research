@@ -25,6 +25,8 @@ export type VoiceTicket = {
 export type VoiceUnavailableReason =
   | "disabled"
   | "not_configured"
+  | "private_runtime_required"
+  | "hosting_unavailable"
   | "backend_origin_missing"
   | "auth_missing"
   | "unauthorized"
@@ -40,6 +42,8 @@ export type VoiceUnavailableReason =
 const REASON_MESSAGES: Record<VoiceUnavailableReason, string> = {
   disabled: "Voice is not available.",
   not_configured: "Voice is not configured.",
+  private_runtime_required: "Use your private agent connection for voice. Check Hosting and try again.",
+  hosting_unavailable: "Your agent hosting could not be verified. Check Hosting and try again.",
   backend_origin_missing: "Voice needs a backend origin to connect to.",
   auth_missing: "Sign in and unlock your vault to use voice.",
   unauthorized: "Voice could not verify your sign-in.",
@@ -108,6 +112,8 @@ function reasonForStatus(
   status: number,
   code: string | null,
 ): VoiceUnavailableReason {
+  if (code === "AGENT_PRIVATE_RUNTIME_REQUIRED") return "private_runtime_required";
+  if (code === "AGENT_HOSTING_UNAVAILABLE") return "hosting_unavailable";
   if (code === "ONE_VOICE_LIVE_DISABLED") return "disabled";
   if (code === "ONE_VOICE_NOT_CONFIGURED") return "not_configured";
   if (code === "CONVERSATION_ID_INVALID") return "invalid_conversation";

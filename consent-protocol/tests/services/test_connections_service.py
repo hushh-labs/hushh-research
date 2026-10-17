@@ -309,6 +309,7 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
         scope_entries_lookup=lambda _owner: [
             {
                 "scope": "attr.financial.holdings",
+                "registry_handle": "s_owner_holdings",
                 "label": "Holdings",
                 "domain": "financial",
                 "path": "holdings",
@@ -336,6 +337,11 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
 
     assert [entry["scope"] for entry in result["items"]] == ["attr.financial.holdings"]
     assert result["items"][0]["match_reason"] == "substring_match"
+    assert "registry_handle" not in result["items"][0]
+    assert (
+        svc.get_exact_requestable_scope_entries("user-a", "user-b")[0]["registry_handle"]
+        == "s_owner_holdings"
+    )
 
     svc._execute_one = lambda _sql, _params=None: None
     without_connection = svc.get_information_scope_catalog("user-a", "user-b")
@@ -346,6 +352,7 @@ def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_rev
     entries = [
         {
             "scope": f"attr.professional.field_{index}",
+            "registry_handle": f"s_owner_field_{index}",
             "label": f"Professional field {index}",
             "description": "Synthetic test metadata",
             "domain": "professional",
@@ -373,6 +380,13 @@ def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_rev
     assert {item["scope"] for page in pages for item in page["items"]} == {
         entry["scope"] for entry in entries
     }
+    entries[0]["registry_handle"] = "s_rotated_owner_field"
+    rotated = svc.get_information_scope_catalog(
+        "user-a", "user-b", catalog_revision=pages[0]["catalogRevision"]
+    )
+    assert rotated["paginationReset"] is True
+    assert rotated["catalogRevision"] != pages[0]["catalogRevision"]
+    assert all("registry_handle" not in item for item in rotated["items"])
     entries.pop()
     refreshed = svc.get_information_scope_catalog(
         "user-a",
@@ -1929,6 +1943,15 @@ def test_search_directory_fallback_matches_partial_contact_identifiers(query):
     assert [item["userId"] for item in out["items"]] == ["user-c"]
     assert out["items"][0]["maskedPhone"] == "55******02"
     assert "phoneNumber" not in out["items"][0]
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: _RecordingDB([[], [], []])):
+        phone = svc.search_directory("user-a", query="+1 555 010 0002")
+        prefix = svc.search_directory("user-a", query="kushaltrivedi54@", name_only=True)
+        partial_phone = svc.search_directory("user-a", query="555010", name_only=True)
+        name = svc.search_directory("user-a", query="Kushal")
+    assert [item["userId"] for item in phone["items"]] == ["user-c"]
+    assert [item["userId"] for item in name["items"]] == ["user-c"]
+    assert prefix["items"] == []
+    assert partial_phone["items"] == []
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():

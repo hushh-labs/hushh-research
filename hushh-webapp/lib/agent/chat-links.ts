@@ -20,10 +20,21 @@ function normalizeHref(href: string | null | undefined): string {
   return (href ?? "").replace(IGNORED_URL_CHARACTERS, "");
 }
 
+function targetsNativeHttpProxy(href: string): boolean {
+  try {
+    const path = decodeURIComponent(new URL(href, "https://chat.invalid").pathname);
+    // Normalize dot segments after decoding, including encoded path separators.
+    return new URL(`https://chat.invalid${path}`).pathname.startsWith("/_capacitor_http_interceptor_");
+  } catch {
+    return true;
+  }
+}
+
 export function classifyChatHref(href: string | null | undefined): ChatHrefKind {
   const url = normalizeHref(href);
   if (!url) return "unsafe";
   if (url.startsWith("#")) return "anchor";
+  if (targetsNativeHttpProxy(url)) return "unsafe";
   if (url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\")) return "internal";
   if (!ANY_SCHEME.test(url)) return "unsafe";
   if (!ALLOWED_SCHEME.test(url)) return "unsafe";

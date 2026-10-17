@@ -24,7 +24,9 @@ import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
  * must treat that as an unknown count, never as zero: zero is a meaningful
  * statement that there are no pending requests.
  */
-export function useConsentPendingSummaryCount(): number | null {
+export function useConsentPendingSummaryCount(
+  options?: { enabled?: boolean },
+): number | null {
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
@@ -63,7 +65,8 @@ export function useConsentPendingSummaryCount(): number | null {
   const summaryResource = useStaleResource({
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
-    enabled: Boolean(user?.uid) && rootChatReady && !foregroundChatActive,
+    // Hidden chrome and foreground chat both defer background summaries.
+    enabled: Boolean(user?.uid) && rootChatReady && !foregroundChatActive && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {

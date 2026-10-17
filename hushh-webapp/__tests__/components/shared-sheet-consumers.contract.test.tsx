@@ -52,7 +52,6 @@ const SHEET_CONSUMERS = [
   "components/profile/profile-avatar-editor.tsx",
   "components/app-ui/settings-ui.tsx",
   "components/agent/puppy-resource-monitor.tsx",
-  "components/agent/agent-connections-drawer.tsx",
 ] as const;
 
 describe("the shared bottom sheet stays shared", () => {
@@ -84,7 +83,6 @@ describe("the shared bottom sheet stays shared", () => {
     expect(optOuts).toEqual([
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
-      "components/agent/agent-connections-drawer.tsx",
     ]);
   });
 
@@ -367,6 +365,41 @@ describe("useSheetDragHandle", () => {
     fireEvent.pointerUp(rail, { clientY: 130, pointerId: 1, timeStamp: 5_000 });
 
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("cancellation and close/reopen cannot commit an older drag settlement", () => {
+    const close = vi.fn();
+    function Header() {
+      const drag = useSheetDragHandle();
+      return <div data-testid="race-grabber" {...drag}>rail</div>;
+    }
+    const content = (open: boolean) => <Sheet open={open} onOpenChange={close}>
+      <SheetContent side="bottom" showDragHandle={false} contentDragDismiss={false} aria-label="Race">
+        <Header />
+      </SheetContent>
+    </Sheet>;
+    vi.useFakeTimers();
+    const view = render(content(true));
+    const drag = (release: "pointerCancel" | "pointerUp") => {
+      const rail = screen.getByTestId("race-grabber");
+      fireEvent.pointerDown(rail, { clientY: 100, pointerId: 1, button: 0 });
+      fireEvent.pointerMove(rail, { clientY: 260, pointerId: 1 });
+      fireEvent[release](rail, { clientY: 260, pointerId: 1 });
+    };
+    try {
+      drag("pointerCancel");
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp");
+      view.rerender(content(false));
+      view.rerender(content(true));
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp"); // Negative control: an actual release still closes once.
+      vi.advanceTimersByTime(400);
+      expect(close).toHaveBeenCalledExactlyOnceWith(false);
+    } finally { view.unmount(); vi.useRealTimers(); }
+
   });
 
   it("drags only the sheet a gesture starts in, never the sheet beneath it", () => {

@@ -9,6 +9,7 @@ Usage:
     python db/migrate.py --release                 # Apply the production-safe base lane
     python db/migrate.py --release --release-environment uat
                                                  # Apply base + UAT overlay
+    python db/migrate.py --dev-extra               # Apply the dev-only parked lane (dev/local only)
     python db/migrate.py --full                    # Drop and recreate ALL tables (DESTRUCTIVE!)
     python db/migrate.py --clear consent_audit     # Clear specific table
     python db/migrate.py --status                  # Show table summary
@@ -22,7 +23,9 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 from dotenv import load_dotenv
@@ -36,7 +39,16 @@ load_dotenv()
 
 # Use same DB_* as runtime (db/connection.py)
 from db.connection import get_database_ssl, get_database_url  # noqa: E402
+from db.dev_migration_manifest import (  # noqa: E402
+    DEV_GCP_PROJECT_ID,
+    assert_dev_baseline_target,
+    deferred_release_migrations,
+    dev_extra_active,
+    load_dev_manifest,
+)
 from db.migration_authority import (  # noqa: E402
+    MigrationAuthorityError,
+    MigrationManifestEntryV2,
     MigrationMode,
     apply_manifest_entries,
     build_manifest_entries,
@@ -228,6 +240,38 @@ async def assert_uat_pool_attested(pool: asyncpg.Pool, release_environment: str)
     async with pool.acquire() as connection:
         await assert_connected_uat_database(connection)
     return environment
+
+
+# ============================================================================
+# DEV-ONLY PARKED MIGRATION LANE
+# ============================================================================
+# The 900-band migrations under db/migrations/parked/ are deliberately OUT of
+# release_migration_manifest.json AND out of db/migrations/ proper. Both
+# scripts/ops/verify_release_migration_contract.py and
+# scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with
+# Path.is_file(), so a subdirectory is invisible to their repo-head and
+# contract-version checks. Manifesting or relocating these files would push the
+# repo head from 131 to 904 and break the UAT/production schema contracts, so
+# this lane resolves them in place instead.
+DEV_MANIFEST_PATH = Path(__file__).resolve().parent / "dev_migration_manifest.json"
+PARKED_MIGRATIONS_DIR = MIGRATIONS_DIR / "parked"
+LEDGER_SCHEMA_PATH = Path(__file__).resolve().parent / "foundations" / "schema_migrations_v2.sql"
+
+
+def _load_dev_manifest(path: Path) -> tuple[str, ...]:
+    return load_dev_manifest(path, RELEASE_MIGRATION_FILES)
+
+
+def deferred_dev_release_migrations() -> tuple[str, ...]:
+    return deferred_release_migrations(
+        DEV_MANIFEST_PATH,
+        MIGRATIONS_DIR,
+        BASE_RELEASE_MIGRATION_FILES,
+        project_id=os.getenv("GCP_PROJECT_ID"),
+        target=os.getenv("DEV_TARGET"),
+        database=os.getenv("DB_NAME"),
+        expected_project=DEV_GCP_PROJECT_ID,
+    )
 
 
 # ============================================================================
@@ -1237,6 +1281,16 @@ async def run_release_migration(
     """Apply the selected canonical release lane; production is the safe default."""
     release_environment = assert_uat_release_target(release_environment)
     filenames = release_migration_files(release_environment)
+    if release_environment == "production":
+        deferred = deferred_dev_release_migrations()
+        if deferred:
+            if mode is MigrationMode.LEDGER:
+                raise RuntimeError(
+                    "Shared-dev ledger cutover refused while history cleanup is deferred"
+                )
+            print("Shared-dev history cleanup deferred: " + ", ".join(deferred))
+            if mode is MigrationMode.REPLAY:
+                filenames = tuple(name for name in filenames if name not in deferred)
     if release_environment == "uat":
         async with pool.acquire() as connection:
             await assert_connected_uat_database(connection)
@@ -1256,14 +1310,140 @@ async def run_release_migration(
     )
 
 
+async def _record_dev_migration(
+    conn: Any,
+    *,
+    entry: MigrationManifestEntryV2,
+    duration_ms: int,
+    deploy_sha: str,
+) -> None:
+    """Record one dev-lane migration in the shared schema_migrations ledger.
+
+    Same table and row shape the release lane uses, so a dev database has one
+    authoritative applied-migration record rather than two competing ones.
+    """
+    await conn.execute(
+        """
+        INSERT INTO schema_migrations (
+            migration_id, filename, checksum_sha256, status, applied_at,
+            duration_ms, deploy_sha, failure_class, baseline_through, updated_at
+        ) VALUES ($1, $2, $3, 'applied', NOW(), $4, NULLIF($5, ''), NULL, NULL, NOW())
+        ON CONFLICT (migration_id) DO UPDATE SET
+            filename = EXCLUDED.filename,
+            checksum_sha256 = EXCLUDED.checksum_sha256,
+            status = EXCLUDED.status,
+            applied_at = EXCLUDED.applied_at,
+            duration_ms = EXCLUDED.duration_ms,
+            deploy_sha = EXCLUDED.deploy_sha,
+            failure_class = NULL,
+            baseline_through = NULL,
+            updated_at = NOW()
+        """,
+        entry.migration_id,
+        entry.filename,
+        entry.checksum_sha256,
+        max(0, duration_ms),
+        deploy_sha,
+    )
+
+
+async def run_dev_extra_migration(
+    pool: asyncpg.Pool,
+    *,
+    mode: MigrationMode = MigrationMode.REPLAY,
+) -> tuple[str, ...]:
+    """Apply the dev-only parked migration set, tracked in schema_migrations.
+
+    Pending-only by construction: any entry already recorded as ``applied`` with
+    a matching checksum is skipped, so repeated dev deploys never re-run this
+    SQL. Execution always uses REPLAY semantics because the 900 band sits
+    deliberately outside the baselined release manifest — LEDGER mode would
+    demand a baseline covering these ids, and asserting the release manifest
+    checksum against them would fail. This lane supplies its own pending-only
+    accounting on top of that REPLAY execution.
+    """
+    filenames = _load_dev_manifest(DEV_MANIFEST_PATH)
+    entries = build_manifest_entries(PARKED_MIGRATIONS_DIR, filenames)
+    deploy_sha = str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip()
+
+    print(f"Running dev-extra migration set ({len(entries)} parked migrations)...")
+
+    applied: list[str] = []
+    async with pool.acquire() as conn:
+        await conn.execute(LEDGER_SCHEMA_PATH.read_text(encoding="utf-8"))
+        recorded = {
+            str(row["migration_id"]): dict(row)
+            for row in await conn.fetch(
+                """
+                SELECT migration_id, checksum_sha256, status
+                FROM schema_migrations
+                WHERE migration_id = ANY($1::TEXT[])
+                """,
+                [entry.migration_id for entry in entries],
+            )
+        }
+
+        pending: list[MigrationManifestEntryV2] = []
+        for entry in entries:
+            row = recorded.get(entry.migration_id)
+            if row is not None and str(row.get("status")) == "applied":
+                if str(row.get("checksum_sha256") or "") != entry.checksum_sha256:
+                    raise MigrationAuthorityError(
+                        f"Applied dev migration checksum changed: {entry.filename}"
+                    )
+                print(f"  -- skipping {entry.filename} (already applied)")
+                continue
+            pending.append(entry)
+
+        if mode is MigrationMode.OBSERVE:
+            for entry in pending:
+                print(f"  ?? pending {entry.filename} (observe mode; nothing executed)")
+            print(f"dev-extra migration set observed! pending={len(pending)}")
+            return ()
+
+        # One entry at a time so each ledger row carries a real duration and a
+        # partial failure still leaves the successful entries recorded.
+        for entry in pending:
+            started = time.perf_counter()
+            await apply_manifest_entries(
+                conn,
+                (entry,),
+                mode=MigrationMode.REPLAY,
+                deploy_sha=deploy_sha,
+            )
+            duration_ms = round((time.perf_counter() - started) * 1000)
+            await _record_dev_migration(
+                conn,
+                entry=entry,
+                duration_ms=duration_ms,
+                deploy_sha=deploy_sha,
+            )
+            applied.append(entry.filename)
+            print(f"  -> applied {entry.filename}")
+
+    skipped = len(entries) - len(applied)
+    print(f"dev-extra migration set complete! applied={len(applied)} skipped={skipped}")
+    return tuple(applied)
+
+
 async def establish_release_baseline(
     pool: asyncpg.Pool,
     evidence_path: Path,
     *,
     release_environment: str = "production",
 ) -> None:
-    """Record an explicit UAT/local baseline without replaying historical SQL."""
+    """Record an explicitly qualified baseline without replaying historical SQL."""
     release_environment = assert_uat_release_target(release_environment)
+    if (
+        assert_dev_baseline_target(
+            project_id=os.getenv("GCP_PROJECT_ID"),
+            target=os.getenv("DEV_TARGET"),
+            database=os.getenv("DB_NAME"),
+            expected_project=DEV_GCP_PROJECT_ID,
+        )
+        and deferred_dev_release_migrations()
+    ):
+        raise RuntimeError("Shared-dev baseline cannot cover unresolved release deferrals")
     evidence = load_preservation_evidence(evidence_path)
     entries = build_manifest_entries(MIGRATIONS_DIR, release_migration_files(release_environment))
     async with pool.acquire() as conn:
@@ -1433,6 +1613,7 @@ Examples:
   python db/migrate.py --release                 # Apply production base lane (safe default)
   python db/migrate.py --release --release-environment uat
                                                # Apply base plus UAT overlay
+  python db/migrate.py --dev-extra               # Apply the dev-only parked lane (dev/local only)
   python db/migrate.py --full                    # Full reset (WARNING: DESTRUCTIVE!)
   python db/migrate.py --status                  # Show table summary
         """,
@@ -1469,6 +1650,16 @@ Examples:
         help="Apply the full canonical release lane from release_migration_manifest.json",
     )
     parser.add_argument(
+        "--dev-extra",
+        action="store_true",
+        help=(
+            "Apply the dev-only parked migration set from dev_migration_manifest.json "
+            "(db/migrations/parked/). Applied automatically alongside --release/--init/"
+            "--full when GCP_PROJECT_ID is the dev project; this flag forces it for "
+            "manual/local runs. Never applies in UAT or production."
+        ),
+    )
+    parser.add_argument(
         "--release-environment",
         choices=RELEASE_ENVIRONMENTS,
         default="production",
@@ -1493,7 +1684,8 @@ Examples:
         type=Path,
         metavar="PRESERVATION_REPORT",
         help=(
-            "UAT/local only: record a release baseline from a fresh status=ok preservation "
+            "Qualified non-production targets only: record a release baseline from a fresh "
+            "status=ok preservation "
             "report without executing historical migrations."
         ),
     )
@@ -1521,6 +1713,7 @@ Examples:
             args.pkm,
             args.consent_evolution,
             args.release,
+            args.dev_extra,
             args.establish_baseline,
             args.full,
             args.clear,
@@ -1531,6 +1724,10 @@ Examples:
         return
 
     migration_mode = MigrationMode.parse(args.migration_mode)
+    try:
+        selected_dev_extra = dev_extra_active(explicit=args.dev_extra)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.establish_baseline and any(
         [
             args.init,
@@ -1540,6 +1737,7 @@ Examples:
             args.pkm,
             args.consent_evolution,
             args.release,
+            args.dev_extra,
             args.full,
             args.clear,
         ]
@@ -1614,6 +1812,10 @@ Examples:
                 mode=migration_mode,
                 release_environment=args.release_environment,
             )
+
+        # Shared dev retains its parked tail; preview validation ran before I/O.
+        if selected_dev_extra and (args.dev_extra or args.release or args.init or args.full):
+            await run_dev_extra_migration(pool, mode=migration_mode)
 
         if args.establish_baseline:
             await establish_release_baseline(

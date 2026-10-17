@@ -48,6 +48,7 @@ POLICIES = (
     "unexpected-errors-policy",
     "account-mail-failures-policy",
     "data-health-anomaly-policy",
+    "pod-fleet-5xx-policy",
     "sql-connections-warning-policy",
     "sql-connections-critical-policy",
     "db-pool-wait-policy",
@@ -63,6 +64,10 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--sql-instance", default="")
+    parser.add_argument("--commerce-only", action="store_true")
+    parser.add_argument("--include-commerce", action="store_true")
+    parser.add_argument("--console-only", action="store_true")
+    parser.add_argument("--dashboard-id", default="hushh-observability-managed")
     parser.add_argument(
         "--provider-only", action="store_true",
         help="Manage provider availability alerts/dashboard without SQL or log-metric changes",
@@ -83,21 +88,25 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         help="Reconcile One Voice metrics and the managed dashboard without alerts or channels",
     )
     args = parser.parse_args(argv)
-    if args.provider_only and (args.voice_only or args.sql_instance):
-        parser.error("--provider-only cannot be combined with --voice-only or --sql-instance")
+    if args.commerce_only and args.voice_only:
+        parser.error("--commerce-only and --voice-only select different provisioners")
+    if args.provider_only and (args.voice_only or args.sql_instance or args.commerce_only or args.include_commerce):
+        parser.error("--provider-only cannot be combined with application or commerce provisioners")
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
-    for key in ("sql_instance", "backend_service", "frontend_service"):
-        if key == "sql_instance" and args.provider_only:
+    for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
+        if key == "sql_instance" and (args.provider_only or (args.commerce_only and not args.sql_instance)):
             continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
-    args.email = list(dict.fromkeys(args.email or DEFAULT_EMAILS))
+    if args.console_only and args.email:
+        parser.error("--console-only cannot be combined with --email")
+    args.email = [] if args.console_only else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
     if not all(
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
-    if not args.provider_only:
+    if not args.provider_only and not args.commerce_only:
         try:
             _CAPACITY.sql_alert_thresholds(
                 json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
@@ -124,7 +133,7 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
-    thresholds = {} if args.provider_only else _CAPACITY.sql_alert_thresholds(
+    thresholds = {} if args.provider_only or args.commerce_only else _CAPACITY.sql_alert_thresholds(
         json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
     )
     substitutions = {
@@ -204,6 +213,14 @@ def reconcile_dashboard(args: argparse.Namespace) -> None:
     project = args.project
     template = "dashboard-provider.json.in" if args.provider_only else "dashboard-observability.json.in"
     desired_dashboard = render(ROOT / template, args)
+    if not args.provider_only:
+        desired_dashboard["name"] = f"projects/{project}/dashboards/{args.dashboard_id}"
+        desired_dashboard["gridLayout"]["widgets"] = [
+            widget for widget in desired_dashboard["gridLayout"]["widgets"]
+            if (widget.get("title", "").startswith("Scope Commerce:")
+                if args.commerce_only
+                else args.include_commerce or not widget.get("title", "").startswith("Scope Commerce:"))
+        ]
     dashboard_name = desired_dashboard["name"]
     current_dashboard = run(
         "gcloud",
@@ -271,7 +288,7 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    metric_names = () if args.provider_only else VOICE_METRICS if args.voice_only else METRICS
+    metric_names = () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
     for name in metric_names:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
@@ -356,7 +373,10 @@ def reconcile(args: argparse.Namespace) -> None:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         by_name.setdefault(policy["displayName"], []).append(policy)
-    for slug in PROVIDER_POLICIES if args.provider_only else POLICIES:
+    selected_policies = ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
+    if args.include_commerce and not args.commerce_only:
+        selected_policies += ("scope-commerce-policy",)
+    for slug in selected_policies:
         desired = render(ROOT / "alerts" / f"{slug}.json.in", args)
         current_matches = by_name.get(desired["displayName"], [])
         if len(current_matches) > 1:

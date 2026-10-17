@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
  */
 export function AgentQueuedStack({
   prompts,
+  deliveryUnconfirmed = false,
   editingId,
   editingText,
   onEditStart,
@@ -25,6 +26,7 @@ export function AgentQueuedStack({
   onRemove,
 }: {
   prompts: readonly QueuedAgentPrompt[];
+  deliveryUnconfirmed?: boolean;
   editingId: string | null;
   editingText: string;
   onEditStart: (prompt: QueuedAgentPrompt) => void;
@@ -48,7 +50,9 @@ export function AgentQueuedStack({
       >
         <span className="tabular-nums">{prompts.length} queued</span>
         <span className="min-w-0 truncate">
-          {joining ? "One reads these at its next step" : "Sends when this reply ends"}
+          {deliveryUnconfirmed
+            ? "Checking delivery before another message is sent"
+            : joining ? "One reads these at its next step" : "Sends when this reply ends"}
         </span>
       </header>
       <ol className="mt-1 flex flex-col gap-1">

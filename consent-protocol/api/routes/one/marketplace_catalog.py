@@ -25,6 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Path
 
 from api.middleware import require_vault_owner_token
+from api.routes.one.marketplace_listing_intake import ListingRequestBody, prepare_listing_intake
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.marketplace_catalog_service import MarketplaceCatalogService
 from hushh_mcp.services.marketplace_request_service import MarketplaceRequestService
@@ -73,6 +74,7 @@ async def list_available_listings(
 @router.post("/available/{listing_id}/request")
 async def request_available_listing(
     listing_id: str = Path(..., min_length=1, max_length=128),
+    body: ListingRequestBody | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     """File a real cross-account access request against a listing's true owner."""
@@ -86,6 +88,7 @@ async def request_available_listing(
     if owner_user_id == buyer_user_id:
         raise HTTPException(status_code=400, detail="You can't request access to your own slice")
 
+    intake = await prepare_listing_intake(listing_id, listing, owner_user_id, buyer_user_id, body)
     buyer_label = await _buyer_label(buyer_user_id)
     try:
         request = await _requests().create_request(
@@ -94,11 +97,17 @@ async def request_available_listing(
             buyer_label=buyer_label,
             slice_label=listing["sliceLabel"],
             domain=listing["domain"],
-            scope_handle=listing.get("scopeHandle"),
+            scope_handle=intake["scope_handle"],
             price_cents=int(listing.get("priceCents") or 0),
             currency=listing.get("currency") or "USD",
+            duration_days=intake["duration_days"],
+            message=body.purpose if body else None,
+            metadata=intake["metadata"],
+            request_id=intake["request_id"],
         )
         return {"request": request}
+    except ValueError as exc:
+        raise HTTPException(409, detail=str(exc)) from exc
     except Exception:
         logger.exception("marketplace.request_available_failed")
         raise HTTPException(status_code=500, detail="Could not file the request")

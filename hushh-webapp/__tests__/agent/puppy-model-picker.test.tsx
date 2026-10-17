@@ -92,6 +92,18 @@ afterEach(() => {
 });
 
 describe("PuppyModelPicker", () => {
+  it("releases its portal when the owning conversation becomes inactive", async () => {
+    mocks.fetchPuppyModelOptions.mockResolvedValue(options());
+    const onApplied = vi.fn();
+    const view = render(<PuppyModelPicker onApplied={onApplied} active />);
+    fireEvent.click(screen.getByTitle("Choose the model and reasoning effort"));
+    await screen.findByRole("dialog");
+    view.rerender(<PuppyModelPicker onApplied={onApplied} active={false} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    view.rerender(<PuppyModelPicker onApplied={onApplied} active />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onApplied).not.toHaveBeenCalled();
+  });
   it("shows the build type beside each model", async () => {
     open(options());
 

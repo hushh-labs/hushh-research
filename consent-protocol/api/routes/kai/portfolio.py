@@ -44,7 +44,6 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_vault_owner_token
 from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import PORTFOLIO_IMPORT_TIMEOUT_SECONDS, CanonicalSSEStream
 from api.routes.kai.import_run_manager import (
@@ -71,6 +70,7 @@ from hushh_mcp.kai_import import (
     build_token_counts_payload,
     evaluate_import_quality_gate_v2,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
@@ -2132,7 +2132,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 async def import_portfolio(
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> PortfolioImportResponse:
     """
     Import a brokerage statement and analyze the portfolio.
@@ -2235,7 +2235,7 @@ async def import_portfolio(
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
     user_id: str = Path(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> PortfolioSummaryResponse:
     """
     Get portfolio summary from PKM (without decrypting holdings).
@@ -2296,7 +2296,7 @@ async def get_dashboard_profile_picks(
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> DashboardProfilePicksResponse:
     """
     Build profile-based dashboard picks from real user context.
@@ -3350,7 +3350,7 @@ class _AlwaysConnectedImportStreamRequest:
 async def start_portfolio_import_run(
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         logger.warning("User ID mismatch: token=%s, request=%s", token_data["user_id"], user_id)
@@ -3402,7 +3402,7 @@ async def start_portfolio_import_run(
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
     user_id: str = Query(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3418,7 +3418,7 @@ async def stream_portfolio_import_run(
     run_id: str = Path(..., max_length=128),
     user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3464,7 +3464,7 @@ async def stream_portfolio_import_run(
 async def cancel_portfolio_import_run(
     run_id: str = Path(..., max_length=128),
     user_id: str = Query(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3488,7 +3488,7 @@ async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
     user_id: str = Form(..., max_length=128, description="User's ID"),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Backward-compatible import stream endpoint.
 

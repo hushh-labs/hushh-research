@@ -1,3 +1,6 @@
+import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { confirmPrivateGoogleAction, PrivateGoogleUnsupportedError } from './private-google-connections';
+import { AuthService } from './auth-service';
 import { ApiService } from "@/lib/services/api-service";
 
 /**
@@ -61,7 +64,7 @@ export type EmailSendStatus = {
 const PENDING_SEND_STORAGE_PREFIX = "one-email-pending-send-actions:v1:";
 const PENDING_SEND_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING_SEND_ACTIONS = 8;
-const ACTION_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/;
+const ACTION_ID_PATTERN = /^(?:[A-Za-z0-9-]{1,128}|gmod_[A-Za-z0-9_-]{16,64})$/;
 
 type PendingSendSurface = "chat" | "voice";
 type PendingSendAction = { actionId: string; createdAt: number; surface: PendingSendSurface };
@@ -244,13 +247,13 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Allow Gmail changes, then ask One to prepare this change again.";
   }
   if (code === "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE") {
-    return "That mailbox change expired or was already used. Ask One to prepare it again.";
+    return "That mailbox change is no longer available. Check Gmail before preparing another change.";
   }
   if (code === "GMAIL_MAILBOX_CONNECTION_CHANGED" || code === "GMAIL_MAILBOX_SOURCE_CHANGED") {
     return "Your mail changed since this review. Ask One to prepare the change again.";
   }
-  if (code === "GMAIL_MAILBOX_UNAVAILABLE") {
-    return "Gmail's response was interrupted. Check the mailbox before making this change again.";
+  if (code === "GMAIL_MAILBOX_UNAVAILABLE" || code === "GMAIL_MAILBOX_OUTCOME_UNKNOWN") {
+    return "Gmail may have applied some or all of this change. Check Gmail before preparing another change.";
   }
   if (code === "REPLY_SOURCE_CHANGED" || code === "REPLY_ACCOUNT_CHANGED") {
     return "The original email or your Mail connection changed. Ask One to prepare the reply again.";
@@ -300,11 +303,45 @@ async function readFailure(response: Response): Promise<EmailDeliveryError> {
   return new EmailDeliveryError(safeErrorMessage(code, response.status), response.status, code);
 }
 
+// A reviewed-draft fingerprint is held only in memory, never mail contents.
+const privateSends = new Map<string, { owner: string; draftHash: string; expiresAt: number }>();
+function privateEmailBody(draft: EmailDraft): Record<string, unknown> {
+  if (draft.driveFileId || draft.sourceWorkflowId) throw new PrivateGoogleUnsupportedError('Attachments and source-bound Gmail replies');
+  return { to: draft.to, cc: draft.cc, bcc: draft.bcc, subject: draft.subject, body: draft.body, html_body: draft.htmlBody ?? '' };
+}
+async function reviewedDraftHash(draft: EmailDraft): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(privateEmailBody(draft))));
+  return Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, '0')).join('');
+}
+async function preparePrivateEmail(draft: EmailDraft, action: 'save_draft' | 'send_email'): Promise<{ proposalId: string; expiresAt: string; owner: string }> {
+  const owner = AuthService.getCurrentUser()?.uid;
+  if (!owner) throw new Error('Sign in to connect your private agent.');
+  const body = privateEmailBody(draft);
+  const response = await ApiService.ownerPodRequest('actions/gmail/proposals', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, draft: body }),
+  });
+  if (!response.ok) throw await readFailure(response);
+  const value = asRecord(await response.json());
+  const preview = asRecord(value?.preview);
+  // Only plain address lists whose exact envelope was already displayed are
+  // supported here. Rich normalization requires a new explicit preview UI.
+  const addresses = (raw: string) => raw.trim() ? raw.split(',').map(item => item.trim().toLowerCase()) : [];
+  const exact = preview && ['to', 'cc', 'bcc'].every(field => JSON.stringify(preview[field]) === JSON.stringify(addresses(String(body[field])))) &&
+    preview.subject === draft.subject && preview.body === draft.body && (preview.html_body ?? '') === (draft.htmlBody ?? '');
+  const proposalId = stringValue(value, 'proposal_id');
+  const expiresAt = stringValue(value, 'expires_at');
+  if (AuthService.getCurrentUser()?.uid !== owner) throw new Error('Your signed-in account changed. Review again.');
+  if (value?.status !== 'confirmation_required' || value.action !== action || !/^gmod_[A-Za-z0-9_-]{16,64}$/.test(proposalId) || !exact || !(Date.parse(expiresAt) > Date.now()))
+    throw new EmailDeliveryError('The prepared message differs from your review. Use plain email addresses and review again.', 409, 'PRIVATE_EMAIL_REVIEW_REQUIRED');
+  return { proposalId, expiresAt, owner };
+}
+
 async function postJson<T>(
   path: string,
   auth: EmailDeliveryAuth,
   body: Record<string, unknown>,
 ): Promise<T> {
+  if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('This shared email operation');
   const response = await ApiService.apiFetch(path, {
     method: "POST",
     headers: emailHeaders(auth),
@@ -339,7 +376,21 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 export class EmailDeliveryService {
   /** Reconcile the same reviewed attempt after a lost response; this never sends. */
   static async sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
-    if (!ACTION_ID_PATTERN.test(input.actionId)) {
+    if (await ownerContentIsPrivate()) {
+      if (!/^gmod_[A-Za-z0-9_-]{16,64}$/.test(input.actionId)) {
+        throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
+      }
+      const response = await ApiService.ownerPodRequest(`actions/${encodeURIComponent(input.actionId)}/status`, { method: "GET" });
+      if (!response.ok) throw await readFailure(response);
+      const record = asRecord(await response.json().catch(() => null));
+      const state = stringValue(record, "state");
+      if (stringValue(record, "proposalId") !== input.actionId || record?.kind !== "gmail_mailbox" ||
+          !["prepared", "sent", "expired", "outcome_unknown"].includes(state)) {
+        throw new EmailDeliveryError("We could not confirm delivery. Check Sent Mail before trying again.", 502, "EMAIL_ACTION_OUTCOME_UNKNOWN");
+      }
+      return { actionId: input.actionId, state: state as EmailSendStatus["state"] };
+    }
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(input.actionId)) {
       throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
     }
     const response = await ApiService.apiFetch(
@@ -364,6 +415,12 @@ export class EmailDeliveryService {
   static async saveGmailDraft(input: EmailDeliveryAuth & {
     draft: EmailDraft;
   }): Promise<void> {
+    if (await ownerContentIsPrivate()) {
+      const prepared = await preparePrivateEmail(input.draft, 'save_draft');
+      const result = await confirmPrivateGoogleAction(prepared.proposalId, 'gmail_mailbox');
+      if (result.status !== 'saved' || result.action !== 'save_draft' || typeof result.draft_id !== 'string') throw new EmailDeliveryError('Check Gmail Drafts before trying again.', 502);
+      return;
+    }
     if (input.draft.driveFileId) {
       throw new EmailDeliveryError("Gmail draft attachments are not available yet.", 400);
     }
@@ -386,11 +443,21 @@ export class EmailDeliveryService {
   static async executeMailboxProposal(
     input: EmailDeliveryAuth & { proposalId: string },
   ): Promise<{ action: string; count: number }> {
-    const payload = asRecord(
-      await postJson<unknown>("/api/one/email/mailbox/execute", input, {
-        proposal_id: input.proposalId,
-      }),
-    );
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = await ownerContentIsPrivate()
+        ? await confirmPrivateGoogleAction(input.proposalId, 'gmail_mailbox')
+        : asRecord(await postJson<unknown>("/api/one/email/mailbox/execute", input, {
+            proposal_id: input.proposalId,
+          }));
+    } catch (error) {
+      if (error instanceof EmailDeliveryError && error.code) throw error;
+      throw new EmailDeliveryError(
+        safeErrorMessage("GMAIL_MAILBOX_OUTCOME_UNKNOWN", 502),
+        502,
+        "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+      );
+    }
     const count = payload?.count;
     const total = payload?.total;
     if (payload?.status === "partially_executed" || payload?.status === "outcome_unknown") {
@@ -406,9 +473,9 @@ export class EmailDeliveryService {
         "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
       );
     }
-    if (payload?.status !== "executed" || typeof count !== "number") {
+    if (payload?.status !== "executed" || typeof count !== "number" || !Number.isInteger(count) || count < 0 || !stringValue(payload, "action")) {
       throw new EmailDeliveryError(
-        "Gmail may have applied this change. Check Gmail before making it again.", 502,
+        safeErrorMessage("GMAIL_MAILBOX_OUTCOME_UNKNOWN", 502), 502, "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
       );
     }
     return { action: stringValue(payload, "action"), count };
@@ -426,6 +493,12 @@ export class EmailDeliveryService {
     draftRef?: string;
     revision?: number;
   }): Promise<PreparedEmailSend> {
+    if (await ownerContentIsPrivate()) {
+      const prepared = await preparePrivateEmail(input.draft, 'send_email');
+      for (const [id, held] of privateSends) if (held.expiresAt <= Date.now() || held.owner !== prepared.owner) privateSends.delete(id);
+      privateSends.set(prepared.proposalId, { owner: prepared.owner, draftHash: await reviewedDraftHash(input.draft), expiresAt: Date.parse(prepared.expiresAt) });
+      return { actionId: prepared.proposalId, expiresAt: prepared.expiresAt, driveAttachment: null, attachmentToken: null };
+    }
     const payload = await postJson<unknown>("/api/one/email/prepare", input, {
       to: input.draft.to,
       cc: input.draft.cc,
@@ -467,6 +540,14 @@ export class EmailDeliveryService {
     draftRef?: string;
     revision?: number;
   }): Promise<SentEmailResult> {
+    if (await ownerContentIsPrivate()) {
+      const held = privateSends.get(input.actionId);
+      if (!held || held.owner !== AuthService.getCurrentUser()?.uid || held.expiresAt <= Date.now() || input.attachmentToken || held.draftHash !== await reviewedDraftHash(input.draft)) throw new EmailDeliveryError('This message needs a new review before sending.', 409, 'PRIVATE_EMAIL_REVIEW_REQUIRED');
+      privateSends.delete(input.actionId);
+      const result = await confirmPrivateGoogleAction(input.actionId, 'gmail_mailbox');
+      if (result.status !== 'sent' || result.action !== 'send_email' || typeof result.message_id !== 'string') throw new EmailDeliveryError('Check Sent Mail before trying again.', 502, 'EMAIL_ACTION_OUTCOME_UNKNOWN');
+      return { actionId: input.actionId, messageId: result.message_id, threadId: null, outcomeUnknown: false };
+    }
     const payload = await postJson<unknown>("/api/one/email/send", input, {
       action_id: input.actionId,
       ...(input.senderToken ? { sender_token: input.senderToken } : {}),

@@ -857,6 +857,7 @@ def _shared_ids(run):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("shared_hub_owner")
 async def test_forty_thousand_file_drive_streams_batches_slice_by_slice(monkeypatch):
     run = await stream_request(monkeypatch)
     store, labels, events, slices = run["store"], run["labels"], run["events"], run["slices"]
@@ -946,6 +947,7 @@ async def test_forty_thousand_file_drive_streams_batches_slice_by_slice(monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("shared_hub_owner")
 async def test_incomplete_drive_search_is_surfaced_and_stops_automatic_batches(monkeypatch):
     run = await stream_request(monkeypatch, incomplete_page=15)
     store, events = run["store"], run["events"]

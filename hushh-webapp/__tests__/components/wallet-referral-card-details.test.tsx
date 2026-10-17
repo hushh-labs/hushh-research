@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { WalletReferralCardDetails } from "@/components/wallet/wallet-referral-card-details";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { copyWalletCardLink } from "@/components/wallet-card/wallet-card-share";
 import { createWalletCardImageFile } from "@/lib/wallet/wallet-card-image";
 import { shareFile } from "@/lib/share/share-file";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 
 vi.mock("@/components/wallet-card/wallet-card-share", () => ({
@@ -72,6 +73,34 @@ describe("Wallet referral card details", () => {
     expect(screen.queryByText("0")).toBeNull();
   });
 
+  it.each(["unmount", "owner", "callback"])("suppresses a retired revoke settlement after %s", async boundary => {
+    let finish!: () => void;
+    const revoke = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const toast = vi.spyOn(morphyToast, "success");
+    const view = render(<WalletReferralCardDetails summary={summary} shareToken={null} profile={profile} onRevoke={revoke} />);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke access", exact: true }));
+    if (boundary === "unmount") view.unmount();
+    else view.rerender(<WalletReferralCardDetails summary={summary} shareToken={null} profile={boundary === "owner" ? { ...profile, ownerId: "other-owner" } : profile} onRevoke={boundary === "callback" ? vi.fn() : revoke} />);
+    if (boundary !== "unmount") { expect(screen.queryByRole("alertdialog")).toBeNull(); expect(screen.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled(); }
+    await act(async () => { finish(); });
+    expect(toast).not.toHaveBeenCalled();
+  });
+  it("does not let a retired pass handoff clear a newer revoke", async () => {
+    let finishPass!: (result: { state: "opened"; url: string }) => void;
+    vi.spyOn(WalletCardService, "addToAppleWallet").mockImplementation(() => new Promise(resolve => { finishPass = resolve; }));
+    const view = render(<WalletReferralCardDetails summary={summary} shareToken="test-wallet-token" profile={profile} onRevoke={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add to Apple Wallet" }));
+    let finishRevoke!: () => void;
+    view.rerender(<WalletReferralCardDetails summary={summary} shareToken="test-wallet-token" profile={profile} onRevoke={() => new Promise(resolve => { finishRevoke = resolve; })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke access", exact: true });
+    fireEvent.click(confirm);
+    await act(async () => { finishPass({ state: "opened", url: "https://example.test/pass" }); });
+    expect(confirm).toBeDisabled();
+    await act(async () => { finishRevoke(); });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
   it("retains confirmed referral counts after a failed revoke", async () => {
     const revoke = vi.fn().mockRejectedValue(new Error("Storage unavailable"));
     render(<WalletReferralCardDetails summary={summary} shareToken={null} onRevoke={revoke} />);

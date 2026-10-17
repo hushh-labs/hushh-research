@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   decideWebHistoryBackCorrection,
+  isBackwardHistoryTraversal,
   dismissProfileConfirmationOnBack,
   useWebHistoryBack,
   type RouteLocation,
@@ -53,6 +54,13 @@ describe("confirmation above Profile", () => {
     expect(dismissProfileConfirmationOnBack({
       previous, previousHistoryState: paneState(1), revealedHistoryState: paneState(2), doc,
     })).toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
+    for (const revealedEntryIndex of [4, 5]) {
+      expect(dismissProfileConfirmationOnBack({
+        previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+        previousEntryIndex: 4, revealedEntryIndex, doc,
+      })).toBe(false);
+    }
     expect(cancel).not.toHaveBeenCalled();
     expect(dismissProfileConfirmationOnBack({
       previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
@@ -179,6 +187,23 @@ describe("decideWebHistoryBackCorrection (pure)", () => {
       ),
     ).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("leaves a retained Profile pane on either side to its own history owner", () => {
+    const navigate = vi.fn().mockReturnValue(true);
+    const pane = loc(ROUTES.ONE_FILES, "?profile_pane=1&profile_panel=hosting");
+    expect(decideWebHistoryBackCorrection(pane, loc(ROUTES.ONE_HOME), navigate)).toBeNull();
+    expect(decideWebHistoryBackCorrection(loc(ROUTES.ONE_LOCATION), pane, navigate)).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(decideWebHistoryBackCorrection(loc(ROUTES.ONE_FILES), loc(ROUTES.ONE_HOME), navigate)).not.toBeNull();
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it("corrects only known Back traversals, preserving Forward and unknown history", () => {
+    expect(isBackwardHistoryTraversal(2, 1)).toBe(true);
+    for (const pair of [[1, 2], [2, 2], [null, 1], [2, null], [-1, 0], [2.5, 1], [2, NaN]]) {
+      expect(isBackwardHistoryTraversal(pair[0], pair[1])).toBe(false);
+    }
   });
 });
 

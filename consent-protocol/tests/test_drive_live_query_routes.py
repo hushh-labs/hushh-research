@@ -20,7 +20,7 @@ OWNER_PROOF = "synthetic-owner"
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = SimpleNamespace(
@@ -43,7 +43,7 @@ def setup(monkeypatch):
     # The legacy file-sharing service must never serve a question route.
     monkeypatch.setattr(routes, "_service", lambda: pytest.fail("legacy service used"))
     current = AsyncMock(return_value={"user_id": "requester"})
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     return TestClient(app), app, service, current
 
 

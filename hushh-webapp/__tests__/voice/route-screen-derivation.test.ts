@@ -73,6 +73,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_account",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/one/profile/discovery")).toEqual({
+      screen: "profile_discovery",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/unknown")).toEqual({
       screen: "app",
       subview: null,

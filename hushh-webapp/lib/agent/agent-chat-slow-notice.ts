@@ -9,6 +9,9 @@
  * - `connecting`: no bytes at all for CONNECTION_QUIET_MS. The server writes a
  *   keep-alive ping every 15 s while a model or tool call is pending, so
  *   silence this long is the connection, not a slow answer.
+ * - `waking`: the person's own private agent is starting up after sleeping
+ *   (it scales to zero). The turn is sent once it answers, so the silence is
+ *   explained and the `connecting` notice never replaces it.
  * - `busy` / `unavailable`: the server said so, with its authored capacity,
  *   unavailable or restarting code, or the request was refused with 429 / 503.
  *
@@ -39,7 +42,7 @@ export const CONNECTION_QUIET_MS = 35_000;
 
 export const SLOW_NOTICE_TOAST_ID = "one-chat-slow-notice";
 
-export type SlowNoticeState = "slow" | "connecting" | "busy" | "unavailable";
+export type SlowNoticeState = "slow" | "waking" | "connecting" | "busy" | "unavailable";
 export type BackendStrain = "busy" | "unavailable";
 
 export type SlowNoticeView = {
@@ -52,6 +55,8 @@ export type AgentStreamHealthSignal =
   | { kind: "bytes" }
   /** The first visible work: a token, a tool or agent step, activity, a thought. */
   | { kind: "activity" }
+  /** The owner's private agent is starting up; the turn is sent once it answers. */
+  | { kind: "waking" }
   /** The server refused or ended the turn for capacity, availability or a restart. */
   | { kind: "backend_strain"; strain: BackendStrain };
 
@@ -75,6 +80,9 @@ export const SLOW_NOTICE_COPY: Record<SlowNoticeState, Omit<SlowNoticeView, "sta
   slow: {
     title: "One is taking longer than usual. Your message is safe.",
   },
+  waking: {
+    title: "Waking your agent… Your message will send shortly.",
+  },
   connecting: {
     title: "Still connecting to One. Your message is safe.",
   },
@@ -88,6 +96,7 @@ export const SLOW_NOTICE_COPY: Record<SlowNoticeState, Omit<SlowNoticeView, "sta
 
 const SEVERITY: Record<SlowNoticeState, number> = {
   slow: 1,
+  waking: 2,
   connecting: 2,
   busy: 3,
   unavailable: 3,
@@ -160,6 +169,10 @@ export class SlowTurnNotice {
       this.escalate(signal.strain);
       return;
     }
+    if (signal.kind === "waking") {
+      this.escalate("waking");
+      return;
+    }
     this.lastBytesAt = this.timers.now();
     if (signal.kind === "activity") {
       this.activitySeen = true;
@@ -167,8 +180,9 @@ export class SlowTurnNotice {
       this.hide();
       return;
     }
-    // Bytes are flowing again: the connection is back. Say what is still true.
-    if (this.shown === "connecting") {
+    // Bytes are flowing again: the connection is back (or the agent is awake).
+    // Say what is still true.
+    if (this.shown === "connecting" || this.shown === "waking") {
       if (!this.activitySeen && this.slowElapsed) this.replace("slow");
       else this.hide();
     }
@@ -224,6 +238,8 @@ export class SlowTurnNotice {
     if (severity <= this.dismissedSeverity) return;
     if (this.shown === state) return;
     if (this.shown !== null && severity < SEVERITY[this.shown]) return;
+    // A waking agent explains the quiet; "still connecting" would contradict it.
+    if (state === "connecting" && this.shown === "waking") return;
     this.shown = state;
     this.port.show(slowNoticeView(state));
   }

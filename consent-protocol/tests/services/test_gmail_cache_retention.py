@@ -376,6 +376,12 @@ def test_statement_timeout_rolls_back_slow_deletion(engine):
 
 @pytest.fixture
 def connected_gmail(engine, monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    async def selected_fixture_placement(user_id: str) -> str:
+        return "shared" if user_id in {"owner-a", "owner-b"} else "unplaced"
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", selected_fixture_placement)
     source = (ROOT / "consent-protocol/db/legacy/init_legacy_schema.sql").read_text()
     start = source.index("CREATE TABLE IF NOT EXISTS kai_gmail_connections (")
     end = source.index("\n);", start) + 4
@@ -394,8 +400,9 @@ def connected_gmail(engine, monkeypatch):
         )
     service = GmailReceiptsService()
     service._db = DatabaseClient(engine=engine)
-    # Only cryptography and the external provider are substituted. All authority
-    # reads and conditional writes execute the production SQL on PostgreSQL.
+    # Placement declares these two owners' explicit Shared selection; crypto and
+    # provider calls are substituted. Credential authority reads and conditional
+    # writes still execute production SQL on PostgreSQL.
     monkeypatch.setattr(service, "_decrypt_token", lambda ciphertext, *args: ciphertext)
     monkeypatch.setattr(
         service,

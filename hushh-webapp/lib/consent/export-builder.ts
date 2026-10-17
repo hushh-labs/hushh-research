@@ -6,7 +6,7 @@ import {
   isPrivatePkmExportScope,
   excludePrivatePkmDomains,
 } from "@/lib/consent/pkm-scope-policy";
-import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
+import { externalizableManifestLeaves } from "@/lib/consent/manifest-exposure";
 import type { PkmScopeRegistryEntry } from "@/lib/personal-knowledge-model/manifest";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -68,40 +68,7 @@ function resolveApprovedPaths(
   if (!parsed) {
     return [];
   }
-  const allowedLeafPaths = new Set(
-    (manifest?.paths || [])
-      .filter(
-        (entry) =>
-          entry.path_type === "leaf" &&
-          entry.exposure_eligibility !== false &&
-          typeof entry.json_path === "string",
-      )
-      .map((entry) => String(entry.json_path)),
-  );
-  const externalizablePaths = (manifest?.externalizable_paths || []).filter(
-    (path): path is string =>
-      typeof path === "string" &&
-      path.length > 0 &&
-      allowedLeafPaths.has(path) &&
-      !isInternalManifestPath(path) &&
-      !(manifest?.scope_registry || []).some((entry) => {
-        const projection = entry.summary_projection || {};
-        const roots =
-          typeof projection.top_level_scope_path === "string"
-            ? [projection.top_level_scope_path]
-            : entry.segment_ids || [];
-        const covers = roots.some(
-          (root) => path === root || path.startsWith(`${root}.`),
-        );
-        return (
-          covers &&
-          (entry.exposure_enabled === false ||
-            entry.visibility_posture === "private" ||
-            projection.consumer_visible === false ||
-            projection.internal_only === true)
-        );
-      }),
-  );
+  const externalizablePaths = manifest ? externalizableManifestLeaves(manifest) : [];
   if (!parsed.path) return externalizablePaths;
   return externalizablePaths.filter(
     (path) => path === parsed.path || path.startsWith(`${parsed.path}.`),

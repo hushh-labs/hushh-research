@@ -44,7 +44,7 @@ export function WorldModelClaimInvitation({
     preferences.research_provider === "vertex_google_search";
   const azureResearchOff = preferences?.enabled === false &&
     preferences.research_provider === "azure_openai_web_search";
-  const { busy, message, setMessage, guard, run } = useWorldModelOwnerAction({
+  const { busy, message, setMessage, guard, run, lifetime } = useWorldModelOwnerAction({
     ownerId,
     vaultKey,
     vaultOwnerToken,
@@ -162,8 +162,13 @@ export function WorldModelClaimInvitation({
                 onClick={() =>
                   void run(async () => {
                     const capture = guard();
+                    const actionSession = {
+                      ...session,
+                      isCurrent: capture.isCurrent,
+                      signal: lifetime.current.signal,
+                    };
                     const claimed = await WorldModelInvitationsService.claim(
-                      session,
+                      actionSession,
                       claimToken,
                       // Only a shown, checked box is a research request.
                       offerResearch && researchConsent,
@@ -197,8 +202,13 @@ export function WorldModelClaimInvitation({
                 onClick={() =>
                   void run(async () => {
                     const capture = guard();
+                    const actionSession = {
+                      ...session,
+                      isCurrent: capture.isCurrent,
+                      signal: lifetime.current.signal,
+                    };
                     await WorldModelInvitationsService.reject(
-                      session,
+                      actionSession,
                       claimToken,
                     );
                     await capture.assertCurrent();

@@ -15,8 +15,8 @@ import { WalletCardCrop } from "./wallet-card-crop";
 import styles from "./secure-card-add-form.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
-export function WalletCardScanner({ active, disabled, featured = false, showPhotoActions = true, onRead, onBusyChange }: {
-  active: boolean; disabled: boolean; featured?: boolean; showPhotoActions?: boolean;
+export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, onRead, onBusyChange }: {
+  active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean;
   onRead: (draft: CardScanDraft) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const camera = useRef<HTMLInputElement>(null), gallery = useRef<HTMLInputElement>(null);
@@ -36,7 +36,7 @@ export function WalletCardScanner({ active, disabled, featured = false, showPhot
     clearCaptureResources(); setPhoto(null); setLive(false); setBusy(false); busyCallback.current(false);
   };
   const pathname = usePathname();
-  useBackLayer(pathname, active && (photo || busy || live) ? 30 : 0, () => {
+  useBackLayer(backRoute ?? pathname, active && (photo || busy || live) ? 30 : 0, () => {
     if (!photoRef.current && !request.current && !live) return false;
     release(); setNotice(""); return true;
   });
@@ -106,7 +106,7 @@ export function WalletCardScanner({ active, disabled, featured = false, showPhot
         <Button type="button" variant="ghost" size="compact" onClick={release}>Cancel scan</Button>
       </div>
     </section>}
-    {busy ? <div className={styles.scanProgress} role="status"><Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />Reading on your device…</div> : null}
+    {busy ? <div className={styles.scanProgress} role="status"><Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />Reading on your device…{!photo && !live ? <Button type="button" variant="ghost" size="compact" onClick={release}>Cancel scan</Button> : null}</div> : null}
     {notice ? <p role="status" className={styles.scanHint}>{notice}</p> : null}
   </div>;
 }

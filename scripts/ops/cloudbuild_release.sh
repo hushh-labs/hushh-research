@@ -79,7 +79,7 @@ case "$TARGET_ENV" in
   production)
     GCP_PROJECT_ID="hushh-pda"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda:us-central1:hushh-vault-db"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda:us-central1:hushh-vault-db"
@@ -89,7 +89,7 @@ case "$TARGET_ENV" in
   uat)
     GCP_PROJECT_ID="hushh-pda-uat"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://uat.one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://uat.one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.uat.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda-uat:us-central1:hushh-uat-pg"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"
@@ -354,6 +354,11 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_DEPLOY_ENV=${TARGET_ENV}##_DEPLOY_SOURCE=${DEPLOY_SOURCE}"
   SUBS="${SUBS}##_DEPLOY_SHA=${DEPLOY_SHA}##_GITHUB_RUN_ID=${RUN_ID}"
 
+  # Preserve the managed-AI billing split in the fallback release path too.
+  if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" || "$TARGET_ENV" == "dev" ]]; then
+    SUBS="${SUBS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+  fi
+
   if [[ "$TARGET_ENV" == "production" ]]; then
     SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=4##_DB_SQLALCHEMY_MAX_OVERFLOW=0"
@@ -363,8 +368,8 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET"
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_ENABLED=true"
   else
-    # UAT runs a smaller pool and an app-review overlay; see deploy-uat.yml.
-    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=3"
+    # UAT: smaller SQLAlchemy pool, app-review overlay (deploy-uat.yml); asyncpg 4 = 3 LISTENs + 1.
+    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=0"
     SUBS="${SUBS}##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3"
     SUBS="${SUBS}##_APP_REVIEW_MODE=true"

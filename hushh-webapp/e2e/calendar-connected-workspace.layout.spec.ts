@@ -32,7 +32,8 @@ test.beforeAll(async () => {
     } }],
     resolve: { alias: [
       { find: "@/lib/vault/vault-context", replacement: boundary },
-      { find: "@/lib/services/api-service", replacement: boundary },
+      { find: /^(?:@\/lib\/services\/|\.\/)api-service$/, replacement: boundary },
+      { find: /^(?:@\/lib\/services\/|\.\/)auth-service$/, replacement: boundary },
       { find: "next/navigation", replacement: boundary },
       { find: "@", replacement: root },
     ] },
@@ -211,7 +212,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
   expect(page.url()).toBe(`https://calendar-fixture.test/calendar-connected-fixture${replay ? "?providerReplay=1" : locked ? "?locked=1" : ""}`);
   await expect(page).toHaveTitle("Connected Calendar QA");
   await awaitProductFont(page);
-  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toBeVisible();
   if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
   return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; } };
 }

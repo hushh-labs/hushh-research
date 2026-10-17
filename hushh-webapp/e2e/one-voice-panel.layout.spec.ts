@@ -156,9 +156,9 @@ function extractSource(): Source {
     dockClass: [
       // This fixture measures the active, non-embedded shared dock. Include
       // its conditional surface and dock geometry, not just the next literal.
-      required(dockSurface, /className=\{cn\(\s*!embedded && "([^"]+)"/,
+      required(dockSurface, /className=\{cn\(\s*!embedded && !nativeOwned && "([^"]+)"/,
         "non-embedded AgentBarSurface classes", AGENT_BAR_SURFACE_PATH)[1],
-      required(dockSurface, /className=\{cn\(\s*!embedded && "[^"]+",\s*"([^"]+)"/,
+      required(dockSurface, /className=\{cn\(\s*!embedded && !nativeOwned && "[^"]+",\s*"([^"]+)"/,
         "shared AgentBarSurface classes", AGENT_BAR_SURFACE_PATH)[1],
       required(dockSurface, /dock && "([^"]+)"/,
         "active AgentBarSurface dock classes", AGENT_BAR_SURFACE_PATH)[1],

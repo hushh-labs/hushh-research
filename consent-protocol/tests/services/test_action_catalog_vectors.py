@@ -211,18 +211,22 @@ def test_the_bake_imports_without_any_runtime_secret():
     assert completed.returncode == 0, completed.stderr[-2000:]
 
 
-def test_the_backend_image_bakes_after_the_model_and_source_and_before_dropping_root():
-    lines = [line.strip() for line in (BACKEND_ROOT / "Dockerfile").read_text().splitlines()]
+@pytest.mark.parametrize("recipe", ["Dockerfile", "Dockerfile.pod"])
+def test_the_backend_image_bakes_after_the_model_and_source_and_before_dropping_root(recipe):
+    lines = [line.strip() for line in (BACKEND_ROOT / recipe).read_text().splitlines()]
 
     def index_of(fragment: str) -> int:
         matches = [i for i, line in enumerate(lines) if fragment in line]
         assert len(matches) == 1, f"expected exactly one line containing {fragment!r}"
         return matches[0]
 
+    download = index_of("RUN python -m scripts.ops.bake_drive_embedding_model")
     model = index_of("COPY --from=builder /opt/hushh/models /opt/hushh/models")
     source = index_of("COPY . .")
     bake = index_of("python -m scripts.ops.bake_action_catalog_vectors")
     user = index_of("USER 10001")
-    assert model < source < bake < user
+    assert download < model < source < bake < user
+    assert lines[bake].startswith("RUN HF_HUB_OFFLINE=1 ")
+    assert any("HUSHH_DRIVE_EMBEDDING_MODEL_DIR=" + BAKED_MODEL_DIR in line for line in lines)
     # The runtime reads the file from the directory the image copies the model into.
     assert Path(BAKED_MODEL_DIR).parent == Path("/opt/hushh/models")

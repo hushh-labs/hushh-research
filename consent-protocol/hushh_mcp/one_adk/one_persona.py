@@ -19,9 +19,12 @@ matches the authored manifests rather than hand-maintained prose.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 
 from hushh_mcp.services.generated_contracts import generated_contract_path
+
+logger = logging.getLogger(__name__)
 
 # Curated from the canonical docs above. Durable identity and values, not
 # per-turn data. Kept tight so the static system-prompt prefix stays cacheable.
@@ -76,6 +79,15 @@ def _load_registry_agents() -> dict[str, dict]:
     try:
         payload = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        # One's persona grounding is built at MODULE level in agent_tree.py, so an
+        # empty catalogue here is baked into the process for its whole life -- every
+        # turn it ever serves runs without it. Worth a log line rather than a silent
+        # shrug, which is how it reached production unnoticed.
+        logger.error(
+            "one_persona_registry_unreadable path=%s "
+            "(the generated agent catalogue will be empty for this process)",
+            registry_path,
+        )
         return {}
     agents = payload.get("agents") if isinstance(payload, dict) else None
     if not isinstance(agents, list):

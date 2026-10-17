@@ -56,6 +56,8 @@ Non-owned surfaces:
 3. Keep UI stream mapping explicit: model/assistant token frames produce response text, app-owned tool/stage events produce progress rows, and optional provider thinking telemetry never drives control flow. Do not simulate tokens from progress placeholders.
 4. When changing Agent Chat, One Voice, or portfolio-import stream UI, update the shared stream primitive, the implementation guide, and focused component/parser tests together.
 5. Route broad quality-policy work to `quality-contracts` and broad backend routing to `backend`.
+6. Separate transport detachment from explicit Stop. For private pods, verify original key expiry, owner-bound preparation cancellation, encrypted settlement and update permits; reconnect through the existing history or operation owner without replaying effects. Process-local tasks do not prove durable completion or scale-to-zero recovery.
+7. Keep progress reconciliation bounded and visible-only. Background status reads must not keep sleeping owner compute awake. Private pod changes use `tests/test_pod_agui_lifetime.py` and the nearest chat/Files suites; Kai checks alone cannot qualify this boundary.
 
 ## Handoff Rules
 

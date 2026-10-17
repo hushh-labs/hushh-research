@@ -29,7 +29,7 @@ import {
 } from "@/lib/navigation/top-shell-back";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
-import { PROFILE_PANE_QUERY, profilePaneHistoryDepth } from "@/lib/navigation/profile-pane";
+import { resolveProfilePaneUrlState, profilePaneHistoryDepth } from "@/lib/navigation/profile-pane";
 import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 
 export type RouteLocation = { pathname: string; search: string };
@@ -73,8 +73,9 @@ function searchOf(href: string): string {
  * of a transition is Profile-Pane-governed, independent of isTrusted fidelity.
  */
 function isProfilePaneGoverned(location: RouteLocation): boolean {
+  if (resolveProfilePaneUrlState(location.search).open) return true;
+  if (location.pathname !== ROUTES.PROFILE) return false;
   const params = new URLSearchParams(location.search);
-  if (params.get(PROFILE_PANE_QUERY) === "1") return true;
   return location.pathname === ROUTES.PROFILE && Boolean(params.get("panel") || params.get("detail"));
 }
 
@@ -140,6 +141,22 @@ export function decideWebHistoryBackCorrection(
 }
 
 let lastSettled: RouteLocation | null = null;
+let lastSettledIndex: number | null = null;
+
+/** Unknown direction must never turn Forward into a route-parent action. */
+export function isBackwardHistoryTraversal(previous: number | null, revealed: number | null): boolean {
+  return previous !== null && revealed !== null &&
+    Number.isInteger(previous) && Number.isInteger(revealed) &&
+    previous >= 0 && revealed >= 0 && revealed < previous;
+}
+
+function navigationEntryIndex(): number | null {
+  const index = (window as Window & {
+    navigation?: { currentEntry?: { index?: number } | null };
+  }).navigation?.currentEntry?.index;
+  return typeof index === "number" && Number.isInteger(index) && index >= 0 ? index : null;
+}
+
 let lastSettledHistoryState: unknown = null;
 
 function isTopmostConfirmationOpen(doc: Document): boolean {
@@ -154,6 +171,7 @@ function recordCurrentBrowserHistory(): void {
   // Keep the confirmation's underlying entry until Back consumes the overlay.
   if (lastSettled && isProfilePaneGoverned(lastSettled) && isTopmostConfirmationOpen(document)) return;
   lastSettled = { pathname: window.location.pathname, search: window.location.search };
+  lastSettledIndex = navigationEntryIndex();
   lastSettledHistoryState = window.history.state;
 }
 
@@ -163,8 +181,12 @@ export function dismissProfileConfirmationOnBack(params: {
   previousHistoryState: unknown;
   revealedHistoryState: unknown;
   doc?: Document;
+  previousEntryIndex?: number | null;
+  revealedEntryIndex?: number | null;
 }): boolean {
   if (!params.previous || !isProfilePaneGoverned(params.previous)) return false;
+  if (params.previousEntryIndex != null && params.revealedEntryIndex != null &&
+      !isBackwardHistoryTraversal(params.previousEntryIndex, params.revealedEntryIndex)) return false;
   if (
     profilePaneHistoryDepth(params.previousHistoryState) <=
     profilePaneHistoryDepth(params.revealedHistoryState)
@@ -230,15 +252,19 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         return;
       }
       const previous = lastSettled;
+      const previousIndex = lastSettledIndex;
       const previousHistoryState = lastSettledHistoryState;
       const revealed: RouteLocation = {
         pathname: window.location.pathname,
         search: window.location.search,
       };
+      const revealedIndex = navigationEntryIndex();
       if (dismissProfileConfirmationOnBack({
         previous,
         previousHistoryState,
         revealedHistoryState: event.state,
+        previousEntryIndex: previousIndex,
+        revealedEntryIndex: revealedIndex,
       })) {
         // Run before Next observes the popped parent. Return to the original
         // entry so its pane metadata and any existing Forward history survive.
@@ -250,6 +276,10 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         );
         return;
       }
+      lastSettled = revealed;
+      lastSettledIndex = revealedIndex;
+      lastSettledHistoryState = event.state;
+      if (!isBackwardHistoryTraversal(previousIndex, revealedIndex)) return;
       const correction = decideWebHistoryBackCorrection(previous, revealed);
       // Permitted traversal (including Forward with a confirmation open)
       // establishes the next starting entry even while render snapshots freeze.

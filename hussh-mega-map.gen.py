@@ -4,6 +4,10 @@
 #   ③ END-TO-END FLOWS (swimlanes; lanes never cross => connections, no spaghetti)
 # Adds proper nouns: GCP · Google ADK · A2A · MuleSoft Anypoint · Salesforce FSC ·
 #   Apple Mac unified memory / Nvidia RTX Spark on-device · UCP · AP2 agent-economy.
+# Flow 13 is the per-user pod journey. Its step ORDER is the architecture, not a
+#   drawing choice: a pod is earned by a WORKING AI connection, never by a login.
+#   Provisioning on sign-in stands up billable compute behind an event that says
+#   nothing about whether the agent could ever think.
 # Colors standardized on the hushh-search-console Foundation palette (ink/gold) but
 #   kept CONTRASTIVE for legibility; gold = emphasis/navigation only (Foundation law).
 # Renders four SVGs next to this file: hussh-mega-map.{dark,light}.svg (internal,
@@ -69,7 +73,7 @@ LAYERS_ALL=[
  ]),
  ("INTELLIGENCE · AGENTS","AGENT","reason, debate, delegate & act inside scoped authority — never raw keys",[
    ("Hermes (Nous)","agent runtime","the runtime One runs on","one runtime, many surfaces","streaming loop + tools + MCP","powers One / Kai / Nav","appr",[1,9]),
-   ("Agent ONE","orchestrator agent","the top private agent","one mind that coordinates","Listen·Remember·Decide·Act","routes to specialists","appr",[1]),
+   ("Agent ONE","orchestrator agent","the top private agent, running in the owner's OWN pod","one mind that coordinates — on compute the person owns, not a shared tenant","Listen·Remember·Decide·Act · thinks on the owner's AI key, never a fleet identity","routes to specialists","appr",[1,13]),
    ("Nav","guardian agent","privacy / consent guardian","enforce scope, reserve, deletion","validates every request + bid","blocks over-broad asks","appr",[7,12]),
    ("Kai · Google ADK","finance specialist","shipped finance agent","real investing help","ADK runtime + tools","analyze one stock","ship",[4]),
    ("AlphaAgents → broker","execution engine","debate → DecisionCard → trade","reasoned calls, not hype","3-agent debate + Renaissance","Buy/Hold/Reduce","appr",[4]),
@@ -98,6 +102,8 @@ LAYERS_ALL=[
  ]),
  ("INFRASTRUCTURE","INFRA","the governed foundation everything above runs on",[
    ("GCP · Cloud Run + Vertex","cloud compute + LLM","serverless compute + Gemini","scales · governed deploys","UAT → prod parity","hosts API + MCP","ship",[]),
+   ("Private Agent One pod","per-user compute","one Cloud Run service per person","your agent runs on compute that is yours, not a shared tenant","internal ingress · no allUsers · zero-role SA · 500m/1Gi · warm tier keeps CPU between requests","one-pod-<HusshID>","appr",[13]),
+   ("Pod fleet control plane","fleet orchestrator","provision · heartbeat · reconcile","a pod nobody watches is a pod nobody can trust","pod beats → hub pulls its key · stalled rows retried · project sharded before the region cap","1000 pods/project/region → next project","appr",[13]),
    ("Cloud SQL / Postgres","database","relational data plane","durable workflow state","consent·audit·metadata","ciphertext rows","ship",[]),
    ("GCP Secret Manager","secret store","secret store","no keys in code","runtime refs · BYOK refs","model API keys","ship",[]),
    ("Firebase / FCM","auth + push","auth + push messaging","identity & notifications","tokens + messaging","consent push prompt","ship",[]),
@@ -146,6 +152,15 @@ FLOWS_ALL=[
    ("PAY","UCP catalog → cart"),("TRUST","Consent + biometric"),("PAY","AP2 Payment Mandate · SCA"),("PAY","Merchant settles — stays MoR")]),
  ("12","Consent reverse-auction","fut",[("EXT","Demand Agent · discover_user_domains"),("EXT","request_consent(scope, BID, offer)"),
    ("TRUST","Nav clears reserve price"),("TRUST","CRT = consent + PAID receipt"),("PAY","AP2 settles bid → user wallet"),("MEM","DAT releases scoped field")]),
+ # The ordering here IS the architecture: a pod is earned by a WORKING AI connection,
+ # never by a login. Provisioning on sign-in stands up billable compute behind an event
+ # that says nothing about whether the agent could ever think.
+ ("13","Your own private agent","appr",[("EXP","Choose your AI — managed or your own key"),
+   ("INGEST","Verify it with a real generation — no key, no pod"),
+   ("INFRA","Create one-pod-<HusshID> · zero-role SA · internal only"),
+   ("INFRA","Pod boots · first heartbeat says it is up"),
+   ("TRUST","Hub pulls the pod's public key · mints standing pkm.read"),
+   ("AGENT","Turn runs INSIDE the pod, on the owner's own key")]),
 ]
 
 GLOSS_ALL=[("Hussh","Human Secure Socket Host"),("PKM","Personal Knowledge Model — your encrypted memory"),
@@ -165,7 +180,13 @@ GLOSS_ALL=[("Hussh","Human Secure Socket Host"),("PKM","Personal Knowledge Model
 ("Salesforce FSC","Financial Services Cloud"),("MuleSoft Anypoint","enterprise integration / VPC proxy"),
 ("GCP · Vertex","Google Cloud + Gemini models"),("RTX Spark","Nvidia on-device compute"),
 ("Apple unified memory","Mac on-device shared-memory compute"),("X25519-AES-GCM","scoped-export encryption"),
-("FCM","Firebase Cloud Messaging push"),("Tri-flow","web / native / MCP parity")]
+("FCM","Firebase Cloud Messaging push"),("Tri-flow","web / native / MCP parity"),
+("Pod","one person's own Cloud Run service — their agent's home"),
+("HusshID","the opaque per-person identifier a pod is named for"),
+("Zero-role SA","the pod's identity holds NO project permissions"),
+("Internal ingress","unreachable from the internet; the hub is the only door"),
+("Standing pkm.read","the renewed least-privilege grant a pod turn runs on"),
+("Warm / economy tier","CPU held between requests, or scale-to-zero")]
 
 
 # vendor/proper-noun → generic, for the PUBLIC variant (longest-match first)
@@ -173,6 +194,7 @@ SANITIZE=[
  ("Salesforce FSC + MuleSoft Anypoint","Enterprise CRM + iPaaS"),("Salesforce FSC","Enterprise CRM"),
  ("MuleSoft Anypoint · narrow fields","iPaaS · narrow fields"),("MuleSoft Anypoint proxy","iPaaS proxy"),("MuleSoft Anypoint","iPaaS"),("MuleSoft","iPaaS"),("FSC + MuleSoft","CRM + iPaaS"),("FSC","CRM"),
  ("iPaaS proxy · narrow","iPaaS · narrow"),("iPaaS proxy proxy","iPaaS proxy"),
+ ("one Cloud Run service per person","one managed container per person"),("Cloud Run service","managed container"),("Cloud Run","managed containers"),
  ("GCP · Cloud Run + Vertex","Cloud compute + LLM"),("GCP · Vertex","Cloud + LLM"),("GCP Secret Manager","Secret store"),
  ("GCP·GitHub·CLI·MCP","cloud·source·CLI·MCP"),("GCP","cloud"),("Vertex","managed LLM"),("Gemini verify (FINRA/SEC)","verify (regulators)"),("Gemini","model"),
  ("Apple Mac / Nvidia RTX Spark","On-device compute"),("Nvidia RTX Spark","on-device GPU"),("RTX Spark","on-device GPU"),
@@ -352,7 +374,8 @@ def render(theme_name, public=False):
     # ============ ③ END-TO-END FLOWS ============
     T(AX0,y+40,"③  END-TO-END FLOWS",30,INK,"start","800","0.3")
     T(AX0+440,y+40,"— how it connects. Each story is ONE left → right sequence of real steps. Lanes never cross.",18,SUB,"start","400")
-    tl=[("EXP","Experience"),("CHAN","Channels"),("PAY","Commerce/Pay"),("AGENT","Agents"),("MEM","Memory"),("TRUST","Trust"),("INGEST","Services"),("EXT","External")]
+    tl=[("EXP","Experience"),("CHAN","Channels"),("PAY","Commerce/Pay"),("AGENT","Agents"),("MEM","Memory"),("TRUST","Trust"),("INGEST","Services"),("INFRA","Infrastructure"),("EXT","External")]
+    if public: tl=[t for t in tl if t[0]!="PAY"]
     txp=AX0
     for tg,lab in tl:
         box(txp,y+58,16,16,4,TAGC[tg],None,0); T(txp+22,y+71,lab,12.5,SUB,"start","500"); txp+=len(lab)*7.0+54

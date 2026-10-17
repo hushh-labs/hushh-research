@@ -6,19 +6,22 @@ import logging
 import os
 import re
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from firebase_admin import auth as firebase_auth
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
-from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
+from api.middleware import require_firebase_auth_read_only
+from api.routes.drive_sharing_owner import ContentOwner as ContentOwner
+from api.routes.drive_sharing_owner import Owner as Owner
+from api.routes.drive_sharing_owner import _content_owner as _content_owner
+from api.routes.drive_sharing_owner import _owner as _owner
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_content_compilation import (
@@ -90,28 +93,6 @@ router = APIRouter(
     tags=["drive-sharing"],
     route_class=PrivateSharingRoute,
 )
-
-
-@dataclass(frozen=True)
-class Owner:
-    user_id: str
-    token: str = field(repr=False)
-
-    async def require_current(self):
-        # No Request argument: bypass the request-local scope cache after I/O.
-        current = await require_vault_owner_token(
-            authorization=f"Bearer {self.token}", hushh_consent=None
-        )
-        if current.get("user_id") != self.user_id:
-            raise HTTPException(403, "Owner identity mismatch", headers=NO_STORE)
-
-
-async def _owner(response: Response, token: dict = Depends(require_vault_owner_token)):
-    response.headers.update(NO_STORE)
-    user_id = token.get("user_id")
-    if not isinstance(user_id, str) or not user_id:
-        raise HTTPException(401, "Owner authorization required", headers=NO_STORE)
-    return Owner(user_id, token["token"])
 
 
 async def _recipient(
@@ -620,7 +601,7 @@ async def lookup_client_request(client_request_id: UUID, owner: Owner = Depends(
 
 
 @router.get("/requests/{request_id}/review")
-async def owner_review(request_id: UUID, owner: Owner = Depends(_owner)):
+async def owner_review(request_id: UUID, owner: Owner = Depends(_content_owner)):
     review = await _call("review", owner=owner, request_id=str(request_id))
     if review.get("durableAvailable"):
         review.update(
@@ -647,7 +628,7 @@ def _request_bulk_service():
 
 @router.post("/requests/{request_id}/search")
 async def start_request_search(
-    request_id: UUID, body: RequestSearchStart, owner: Owner = Depends(_owner)
+    request_id: UUID, body: RequestSearchStart, owner: Owner = Depends(_content_owner)
 ):
     try:
         ZoneInfo(body.timeZone)
@@ -663,7 +644,7 @@ async def start_request_search(
 
 
 @router.get("/requests/{request_id}/search")
-async def request_search_status(request_id: UUID, owner: Owner = Depends(_owner)):
+async def request_search_status(request_id: UUID, owner: Owner = Depends(_content_owner)):
     return await _call(
         "search_status", owner=owner, factory=_request_bulk_service, request_id=str(request_id)
     )
@@ -673,7 +654,7 @@ async def request_search_status(request_id: UUID, owner: Owner = Depends(_owner)
 async def request_search_files(
     request_id: UUID,
     cursor: str | None = Query(default=None, max_length=2048),
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     return await _call(
         "search_files",
@@ -686,7 +667,7 @@ async def request_search_files(
 
 @router.post("/requests/{request_id}/bulk")
 async def prepare_request_bulk(
-    request_id: UUID, body: RequestBulkPrepare, owner: Owner = Depends(_owner)
+    request_id: UUID, body: RequestBulkPrepare, owner: Owner = Depends(_content_owner)
 ):
     return await _call(
         "prepare",
@@ -714,7 +695,9 @@ async def delivery_files(
 
 
 @router.post("/requests/{request_id}/prepare")
-async def prepare_request(request_id: UUID, body: StrictRequest, owner: Owner = Depends(_owner)):
+async def prepare_request(
+    request_id: UUID, body: StrictRequest, owner: Owner = Depends(_content_owner)
+):
     from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
 
     try:
@@ -823,7 +806,7 @@ async def _prepare_stream(
 
 @router.post("/requests/{request_id}/prepare/stream")
 async def prepare_request_stream(
-    request: Request, request_id: UUID, body: StrictRequest, owner: Owner = Depends(_owner)
+    request: Request, request_id: UUID, body: StrictRequest, owner: Owner = Depends(_content_owner)
 ):
     try:
         # Before the 200: a stale owner stays a real HTTP 401/403/423.
@@ -1064,7 +1047,7 @@ async def _compile_stream(
 async def compile_owner_notes_stream(
     request: Request,
     body: OwnerCompilationRequest,
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     await owner.require_current()
     if not connector_feature_enabled("google_drive_chat_reads", owner.user_id):
@@ -1087,7 +1070,7 @@ async def compile_owner_notes_stream(
 
 
 @router.post("/requests/{request_id}/approve", status_code=202)
-async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depends(_owner)):
+async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depends(_content_owner)):
     return await _call(
         "approve",
         owner=owner,
@@ -1166,7 +1149,9 @@ async def set_request_price(request_id: UUID, body: RequestPrice, owner: Owner =
 
 
 @router.post("/requests/{request_id}/review/refresh", status_code=202)
-async def refresh_review(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+async def refresh_review(
+    request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_content_owner)
+):
     return await _call(
         "retry_preparation", owner=owner, request_id=str(request_id), revision=body.revision
     )
@@ -1250,7 +1235,9 @@ async def query_status(request_id: UUID, owner: Owner = Depends(_owner)):
 
 
 @router.post("/queries/{request_id}/allow")
-async def allow_query(request_id: UUID, body: QueryAllowRequest, owner: Owner = Depends(_owner)):
+async def allow_query(
+    request_id: UUID, body: QueryAllowRequest, owner: Owner = Depends(_content_owner)
+):
     """A allows: the exact stored question runs once, live, under A's authority."""
     return await _call(
         "allow",
@@ -1265,7 +1252,7 @@ async def allow_query(request_id: UUID, body: QueryAllowRequest, owner: Owner = 
 
 @router.post("/queries/{request_id}/share", status_code=202)
 async def share_query_files(
-    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_content_owner)
 ):
     """A shares chosen files from an answered question with the asker, as Viewer."""
     return await _call(
@@ -1278,7 +1265,9 @@ async def share_query_files(
 
 
 @router.post("/owner-shares")
-async def prepare_owner_share(body: OwnerShareCreateRequest, owner: Owner = Depends(_owner)):
+async def prepare_owner_share(
+    body: OwnerShareCreateRequest, owner: Owner = Depends(_content_owner)
+):
     """A searches A's own Drive to share with a connection. Nothing is shared yet."""
     if body.audience == "trusted_circle":
         return await _call(
@@ -1305,7 +1294,7 @@ async def prepare_owner_share(body: OwnerShareCreateRequest, owner: Owner = Depe
 
 @router.post("/owner-shares/{request_id}/share", status_code=202)
 async def share_owner_files(
-    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_content_owner)
 ):
     """A shares chosen files from A's own search with the connection, as Viewer."""
     return await _call(
@@ -1324,7 +1313,7 @@ def _bulk_share_service():
 
 
 @router.post("/bulk")
-async def create_bulk_share(body: BulkShareCreateRequest, owner: Owner = Depends(_owner)):
+async def create_bulk_share(body: BulkShareCreateRequest, owner: Owner = Depends(_content_owner)):
     """Freeze one complete saved search for a separate exact-set owner review."""
     return await _call(
         "prepare",
@@ -1336,7 +1325,7 @@ async def create_bulk_share(body: BulkShareCreateRequest, owner: Owner = Depends
 
 
 @router.get("/bulk")
-async def list_bulk_shares(searchJobId: UUID | None = None, owner: Owner = Depends(_owner)):
+async def list_bulk_shares(searchJobId: UUID | None = None, owner: Owner = Depends(_content_owner)):
     return await _call(
         "list",
         owner=owner,
@@ -1367,7 +1356,7 @@ async def received_bulk_share_files(
 
 
 @router.get("/bulk/{share_id}")
-async def bulk_share_status(share_id: UUID, owner: Owner = Depends(_owner)):
+async def bulk_share_status(share_id: UUID, owner: Owner = Depends(_content_owner)):
     return await _call("review", owner=owner, factory=_bulk_share_service, share_id=str(share_id))
 
 
@@ -1375,7 +1364,7 @@ async def bulk_share_status(share_id: UUID, owner: Owner = Depends(_owner)):
 async def bulk_share_files(
     share_id: UUID,
     cursor: str | None = Query(default=None, max_length=2048),
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     return await _call(
         "files",
@@ -1390,7 +1379,7 @@ async def bulk_share_files(
 async def approve_bulk_share(
     share_id: UUID,
     body: BulkShareApprovalRequest,
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     return await _call(
         "approve",
@@ -1407,7 +1396,7 @@ async def approve_bulk_share(
 async def retry_bulk_share(
     share_id: UUID,
     body: BulkShareApprovalRequest,
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     return await _call(
         "retry",

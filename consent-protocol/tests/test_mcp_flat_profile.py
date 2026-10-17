@@ -230,6 +230,27 @@ def test_flat_projection_preserves_lifecycle_references_and_export_envelope() ->
     assert validate_flat_output("get_encrypted_scoped_export", local_export)
 
 
+def test_scope_tariffs_remain_aligned_after_projection() -> None:
+    projected = project_flat_result(
+        "search_user_scopes",
+        {
+            "status": "success",
+            "scopes": [
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "tariff": {"price_cents": 1, "base_duration_seconds": 86400, "revision": 3},
+                },
+                {"scope": "attr.travel.*"},
+            ],
+        },
+    )
+    assert projected["scope_values"] == ["attr.financial.portfolio.*", "attr.travel.*"]
+    assert projected["scope_price_cents"] == ["1", "0"]
+    assert projected["scope_base_duration_seconds"] == ["86400", "0"]
+    assert projected["scope_tariff_revisions"] == ["3", "0"]
+    assert validate_flat_output("search_user_scopes", projected)
+
+
 def test_execution_mode_is_explicit_principal_configuration() -> None:
     standard = DeveloperPrincipal(
         app_id="app_standard",
@@ -339,6 +360,9 @@ async def test_canonical_mcp_boundary_lists_five_tools_and_mirrors_projected_jso
         "scope_values": ["attr.financial.portfolio.*"],
         "next_cursor": "",
         "has_more": False,
+        "scope_price_cents": ["0"],
+        "scope_base_duration_seconds": ["0"],
+        "scope_tariff_revisions": ["0"],
     }
 
 

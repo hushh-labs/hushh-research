@@ -103,8 +103,11 @@ export class ChatKeyRefusalError extends Error {
   constructor(
     readonly code: ChatKeyRefusalCode,
     readonly recovery: ChatKeyRecovery,
+    readonly retrySafe = false,
   ) {
-    super(RECOVERY_COPY[recovery](code));
+    super(recovery === "unlock" && !retrySafe
+      ? "Unlock your vault to continue. Check the previous result before sending another request."
+      : RECOVERY_COPY[recovery](code));
     this.name = "ChatKeyRefusalError";
   }
 }
@@ -142,7 +145,7 @@ function currentOwnerId(): string {
  * `vaultEpoch` is the vault session the refused request started in: a late
  * refusal from an earlier session never locks the current one.
  */
-export function routeChatKeyRefusal(code: ChatKeyRefusalCode, vaultEpoch: number): ChatKeyRefusalError {
+export function routeChatKeyRefusal(code: ChatKeyRefusalCode, vaultEpoch: number, retrySafe = false): ChatKeyRefusalError {
   if (!isVaultSessionEpochCurrent(vaultEpoch)) return new ChatKeyRefusalError(code, "stale");
   const owner = currentOwnerId();
   if (!owner || forcedUnlockOwners.has(owner)) return new ChatKeyRefusalError(code, "exhausted");
@@ -152,7 +155,7 @@ export function routeChatKeyRefusal(code: ChatKeyRefusalCode, vaultEpoch: number
       detail: { reason: CHAT_KEY_LOCK_REQUESTED_REASON },
     }));
   }
-  return new ChatKeyRefusalError(code, "unlock");
+  return new ChatKeyRefusalError(code, "unlock", retrySafe);
 }
 
 /** The server accepted this owner's chat key; a later refusal may lock again. */

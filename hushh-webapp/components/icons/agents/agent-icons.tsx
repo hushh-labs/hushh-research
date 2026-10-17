@@ -24,6 +24,14 @@ import {
   type IconWeight,
 } from "@phosphor-icons/react";
 
+// Authored capability palette shared by the React glyphs and native Profile
+// projection. Brand accents remain a separate app-authoritative preference.
+export const PROFILE_ICON_COLORS = {
+  account: "#2563EB", preferences: "#8B5CF6", security: "#10B981",
+  devices: "#6366F1", connectors: "#00E5FF", invite: "#8B5CF6",
+  support: "#0284C7", developerTools: "#8B5CF6", signOut: "#EF4444",
+} as const;
+
 export type AgentIconProps = IconProps & {
   size?: number | string;
   weight?: IconWeight;
@@ -102,7 +110,7 @@ export function LocationAgentIcon({
 export function RiaAgentIcon({
   size = "1em",
   weight = "regular",
-  color = "#8B5CF6",
+  color = PROFILE_ICON_COLORS.invite,
   className,
   ...props
 }: AgentIconProps) {
@@ -267,7 +275,7 @@ export function MarketplaceAgentIcon({
 export function ConnectedSystemsAgentIcon({
   size = "1em",
   weight = "regular",
-  color = "#00E5FF",
+  color = PROFILE_ICON_COLORS.connectors,
   className,
   ...props
 }: AgentIconProps) {
@@ -306,7 +314,7 @@ export type AgentIconKey = keyof typeof AGENT_ICON_MAP;
 export function AccountProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#2563EB",
+  color = PROFILE_ICON_COLORS.account,
   className,
   ...props
 }: AgentIconProps) {
@@ -328,7 +336,7 @@ export function AccountProfileIcon({
 export function PreferencesProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#8B5CF6",
+  color = PROFILE_ICON_COLORS.preferences,
   className,
   ...props
 }: AgentIconProps) {
@@ -350,7 +358,7 @@ export function PreferencesProfileIcon({
 export function SecurityProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#10B981",
+  color = PROFILE_ICON_COLORS.security,
   className,
   ...props
 }: AgentIconProps) {
@@ -372,7 +380,7 @@ export function SecurityProfileIcon({
 export function DevicesProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#6366F1",
+  color = PROFILE_ICON_COLORS.devices,
   className,
   ...props
 }: AgentIconProps) {
@@ -394,7 +402,7 @@ export function DevicesProfileIcon({
 export function SupportProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#0284C7",
+  color = PROFILE_ICON_COLORS.support,
   className,
   ...props
 }: AgentIconProps) {
@@ -416,7 +424,7 @@ export function SupportProfileIcon({
 export function DeveloperToolsProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#8B5CF6",
+  color = PROFILE_ICON_COLORS.developerTools,
   className,
   ...props
 }: AgentIconProps) {
@@ -438,7 +446,7 @@ export function DeveloperToolsProfileIcon({
 export function SignOutProfileIcon({
   size = "1em",
   weight = "regular",
-  color = "#EF4444",
+  color = PROFILE_ICON_COLORS.signOut,
   className,
   ...props
 }: AgentIconProps) {

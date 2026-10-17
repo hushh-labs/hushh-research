@@ -2,8 +2,8 @@
 
 The five tools in this module are the one public Hussh Consent MCP surface.
 Every hosted client receives the same semantic tools and field shapes; the
-server only changes transport delivery where a trusted local stdio process can
-decrypt an export on the connector machine.
+server only permits legacy free exports to be decrypted by a trusted local stdio
+process on the connector machine. Paid exports remain encrypted in every transport.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 from hushh_mcp.consent.connector_crypto_profiles import (
     available_connector_wrapping_algorithms,
 )
+from mcp_modules.commercial_contract import commercial_output_fields, discovery_output_fields
 
 FLAT_PROFILE = "flat"
 LOCAL_INFORMATION_JSON_MAX_CHARS = 120_000
@@ -50,7 +51,7 @@ _FIELD_TITLES = {
     "grant_ref": "Consent grant reference",
     "granted_scope": "Granted scope",
     "has_more": "More results available",
-    "information_json": "Locally decrypted information JSON",
+    "information_json": "Legacy free local information JSON",
     "limit": "Result limit",
     "next_cursor": "Next-page cursor",
     "payload_iv": "Payload initialization vector",
@@ -148,7 +149,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "search_user_scopes",
                 "title": "Search user scopes",
-                "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns only scope strings and pagination state.",
+                "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns scope strings, exact-scope tariff metadata and pagination state, never the information itself.",
                 "inputSchema": _object(
                     {
                         "user_identifier": _IDENTIFIER_INPUT,
@@ -190,25 +191,7 @@ def get_flat_contract() -> dict[str, Any]:
                 ),
                 "outputSchema": _object(
                     {
-                        "status": _field(
-                            "string", "Result status. A successful call returns success."
-                        ),
-                        "scope_values": _field(
-                            "array",
-                            "Available scope strings. Use one unchanged in request-consent.",
-                            items=_field(
-                                "string", "One least-privilege scope value.", maxLength=200
-                            ),
-                            maxItems=50,
-                        ),
-                        "next_cursor": _field(
-                            "string",
-                            "Cursor for the next page, or an empty string when no next page exists.",
-                            maxLength=64,
-                        ),
-                        "has_more": _field(
-                            "boolean", "True when another page of scopes is available."
-                        ),
+                        **discovery_output_fields(_field),
                     },
                     ["status", "scope_values", "next_cursor", "has_more"],
                 ),
@@ -302,6 +285,7 @@ def get_flat_contract() -> dict[str, Any]:
                 "outputSchema": _object(
                     {
                         "status": _field("string", "Consent lifecycle state."),
+                        **commercial_output_fields(_field),
                         "selected_scope": _field(
                             "string",
                             "Least-privilege scope selected for this offer or context.",
@@ -462,6 +446,7 @@ def get_flat_contract() -> dict[str, Any]:
                         "status": _field(
                             "string", "Consent lifecycle state, for example pending or granted."
                         ),
+                        **commercial_output_fields(_field),
                         "scope": _field(
                             "string", "Scope evaluated by this request.", maxLength=200
                         ),
@@ -556,6 +541,7 @@ def get_flat_contract() -> dict[str, Any]:
                 "outputSchema": _object(
                     {
                         "status": _field("string", "Current consent lifecycle state."),
+                        **commercial_output_fields(_field),
                         "grant_ref": _field(
                             "string",
                             "Opaque approved-grant reference, or an empty string until granted.",
@@ -589,7 +575,7 @@ def get_flat_contract() -> dict[str, Any]:
             {
                 "name": "get_encrypted_scoped_export",
                 "title": "Get encrypted scoped export",
-                "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Local stdio decrypts in its trusted process; hosted connectors use the documented envelope-v2 method with their securely retained private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
+                "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Paid exports always remain encrypted for trusted connector decryption outside model context. Legacy free local stdio exports may be decrypted in the trusted process. Use the documented envelope-v2 method with the securely retained recipient private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
                 "inputSchema": _object(
                     {
                         "grant_ref": _field(
@@ -609,7 +595,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "delivery": _field(
                             "string",
-                            "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context.",
+                            "Paid exports and hosted connectors receive encrypted_inline. Legacy free local stdio exports may receive decrypted_local. Decrypt paid exports outside every language-model context.",
                         ),
                         "expected_scope": _field(
                             "string", "Scope requested for this export.", maxLength=200
@@ -680,7 +666,7 @@ def get_flat_contract() -> dict[str, Any]:
                         ),
                         "information_json": _field(
                             "string",
-                            "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
+                            "Reserved for legacy free exports in a trusted local stdio connector. Paid and hosted responses always return an empty string.",
                             maxLength=LOCAL_INFORMATION_JSON_MAX_CHARS,
                         ),
                     },

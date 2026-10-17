@@ -7,90 +7,48 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { isNative } from "@/lib/capacitor/platform";
 import {
   WarningIcon as AlertTriangle,
-  BriefcaseIcon as BriefcaseBusiness,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
-  UserCircleIcon as User,
 } from "@/components/icons";
 import {
-  AccentRowIcon,
   AccountProfileIcon,
-  AppearanceRowIcon,
   ConsentAgentIcon,
-  ConnectedSystemsAgentIcon,
   DeleteRowIcon,
-  DeveloperToolsProfileIcon,
-  DevicesProfileIcon,
-  DisconnectRowIcon,
   DiscoverableRowIcon,
   FingerprintProfileIcon,
+  FinanceAgentIcon,
   GmailAgentIcon,
   InboxRowIcon,
   LocationAgentIcon,
   MarketplaceAgentIcon,
-  MemoryAgentIcon,
-  PassphraseRowIcon,
   PhoneRowIcon,
-  PreferencesProfileIcon,
-  InviteFriendsProfileIcon,
   ResetRowIcon,
-  SecurityProfileIcon,
   SignOutProfileIcon,
-  SupportProfileIcon,
   SyncRowIcon,
   VaultRowIcon,
   VoiceRowIcon,
   WalletAgentIcon,
 } from "@/components/icons/agents";
-import {
-  ProfilePaneAccountIcon,
-  ProfilePaneAppearanceIcon,
-  ProfilePaneConnectorsIcon,
-  ProfilePaneDevicesIcon,
-  ProfilePaneHelpIcon,
-  ProfilePaneInviteIcon,
-  ProfilePaneSecurityIcon,
-  ProfilePaneSignOutIcon,
-  ProfilePaneWalletIcon,
-  ProfilePaneWorldModelIcon,
-} from "@/components/profile/profile-pane-icons";
-import {
-  ProfileInnerPeopleIcon,
-  ProfileInnerReviewIcon,
-} from "@/components/profile/profile-inner-icons";
-import {
-  ProfileSecondaryFingerprintIcon,
-  ProfileSecondaryInboxIcon,
-  ProfileSecondaryLocationIcon,
-  ProfileSecondaryPassphraseIcon,
-  ProfileSecondaryReceiptIcon,
-  ProfileSecondaryRefreshIcon,
-  ProfileSecondaryUnlinkIcon,
-  ProfileSecondaryVisibilityIcon,
-} from "@/components/profile/profile-secondary-icons";
-import {
-  ProfileAccountBankIcon,
-  ProfileAccountPriceIcon,
-  ProfileAccountDeleteIcon,
-  ProfileAccountMailIcon,
-  ProfileAccountNameIcon,
-  ProfileAccountPhoneIcon,
-  ProfileAccountProviderIcon,
-  ProfileAccountResetIcon,
-  ProfileAccountWalletIcon,
-} from "@/components/profile/profile-your-account-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
-import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { toast } from "sonner";
+import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { NativeProfilePresentation } from "./native-profile-menu";
+import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
+import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
+import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
+import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 
 import {
   SettingsGroup,
@@ -111,7 +69,6 @@ import {
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
-import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
@@ -120,17 +77,21 @@ import {
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { Brain } from "@/components/icons";
+import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
+import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import {
   buildProfileLegalStackEntries,
-  ProfileLegalRows,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { ThemeToggleLean } from "@/components/theme-toggle";
+import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -195,6 +156,7 @@ import {
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   popProfilePaneLocation,
   pushProfilePaneLocation,
@@ -210,14 +172,14 @@ import {
 } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { getProvider, ProviderIcon } from "@/components/profile/provider-identity";
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
-import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
+import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -293,21 +255,10 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import { useAccent, writeAccent, type AppAccent } from "@/lib/theme/accent";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
-
-const PROFILE_LABELS = {
-  account: "Your account",
-  preferences: "Appearance & preferences",
-  security: "Security & privacy",
-  referrals: "Invite friends",
-  support: "Help & feedback",
-  developerTools: "Developer tools",
-  accountAccess: "Account access",
-  setup: "Set up One",
-} as const;
 
 /**
  * Read once at module scope: `NEXT_PUBLIC_*` is inlined at build time, so this
@@ -494,46 +445,6 @@ function _formatProfileAccessBadge(params: {
   return `${params.activeGrantCount} active`;
 }
 
-function getProvider(user: ReturnType<typeof useAuth>["user"]) {
-  if (!user?.providerData || user.providerData.length === 0) {
-    return { name: "Unknown", id: "unknown" };
-  }
-
-  const providerId = user.providerData[0]?.providerId;
-  switch (providerId) {
-    case "google.com":
-      return { name: "Google", id: "google" };
-    case "apple.com":
-      return { name: "Apple", id: "apple" };
-    case "password":
-      return { name: "Mail/Password", id: "password" };
-    default:
-      return { name: providerId || "Unknown", id: providerId || "unknown" };
-  }
-}
-
-function ProviderIcon({
-  providerId,
-  email,
-}: {
-  providerId: string;
-  email: string | null | undefined;
-}) {
-  if (providerId === "google") {
-    if (shouldUseGoogleBrandMark(providerId, email)) {
-      return <GoogleIcon className="shrink-0" size={17} />;
-    }
-
-    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
-  }
-
-  if (providerId === "apple") {
-    return <AppleIcon className="shrink-0" size={17} />;
-  }
-
-  return <Icon icon={User} size="xs" className="shrink-0" />;
-}
-
 function readableMethod(method: VaultMethod | null): string {
   if (method === "generated_default_native_biometric")
     return "Device biometric";
@@ -543,40 +454,11 @@ function readableMethod(method: VaultMethod | null): string {
   return "Unknown";
 }
 
-function readableQuickMethod(method: VaultMethod | null): string {
-  if (method === "generated_default_native_biometric")
-    return "device biometric";
-  if (method === "generated_default_native_passkey_prf") return "passkey";
-  if (method === "generated_default_web_prf") return "passkey";
-  return "quick unlock";
-}
-
 function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
   return (
     method === "generated_default_web_prf" ||
     method === "generated_default_native_passkey_prf"
   );
-}
-
-const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
-const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium";
-const VAULT_INLINE_ACTIONS_CLASS =
-  "flex min-w-0 flex-wrap items-center gap-2 sm:justify-end";
-
-function vaultWrapperKey(
-  wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
-): string {
-  return `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
-}
-
-function formatPasskeyIdentifier(wrapper: VaultWrapper): string {
-  const raw = wrapper.passkeyCredentialId || wrapper.wrapperId || "";
-  if (!raw) return "Identifier unavailable";
-  const compact = raw.replace(/\s+/g, "");
-  if (compact.length <= 10) return `Identifier ${compact}`;
-  return `Identifier ending ${compact.slice(-6)}`;
 }
 
 function formatPasskeyLabel(wrapper: VaultWrapper): string {
@@ -587,8 +469,7 @@ function formatPasskeyLabel(wrapper: VaultWrapper): string {
 }
 
 function describePasskeyWrapper(wrapper: VaultWrapper): string {
-  const parts = [formatPasskeyLabel(wrapper), formatPasskeyIdentifier(wrapper)];
-  return parts.join(" / ");
+  return formatPasskeyLabel(wrapper);
 }
 
 function profileRouteRequiresUnlockedVault(
@@ -619,17 +500,23 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
 
-export type ProfilePagePresentation = "route" | "pane";
+export type ProfilePagePresentation = "route" | "pane" | "native-page";
 
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
+  nativeMenuOpen = false,
+  onNativeMenuClose,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
 }) {
-  const isPanePresentation = presentation === "pane";
+  const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
@@ -665,10 +552,14 @@ function ProfilePageContent({
     "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  useEffect(() => { setCloudCleanupRequired(false); }, [user?.uid]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
+  const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -732,15 +623,40 @@ function ProfilePageContent({
   const [primaryVaultWrapperId, setPrimaryVaultWrapperId] = useState<
     string | null
   >(null);
-  const [availableQuickMethod, setAvailableQuickMethod] =
-    useState<VaultMethod | null>(null);
-  const [availableQuickWrapperId, setAvailableQuickWrapperId] = useState<
-    string | null
-  >(null);
   const [effectiveVaultMethod, setEffectiveVaultMethod] =
     useState<VaultMethod | null>(null);
   const [loadingVaultMethod, setLoadingVaultMethod] = useState(false);
+  const [vaultMethodsNeedRefresh, setVaultMethodsNeedRefresh] = useState(false);
+  const [vaultMethodsOwner, setVaultMethodsOwner] = useState<string | null>(null);
+  const [localBiometricWrapperId, setLocalBiometricWrapperId] = useState<string | null>(null);
+  const vaultMethodRequestRef = useRef(0);
+  const vaultMethodMutationRef = useRef<{ epoch: number; toastId: string | number; controller: AbortController; committed: boolean } | null>(null);
+  const vaultMethodOwnerRef = useRef(user?.uid);
+  const vaultMethodSessionRef = useRef({ key: vaultKey, epoch: 0 });
+  useLayoutEffect(() => {
+    if (vaultMethodOwnerRef.current !== user?.uid || vaultMethodSessionRef.current.key !== vaultKey) {
+      vaultMethodRequestRef.current += 1;
+      vaultMethodSessionRef.current = { key: vaultKey, epoch: vaultMethodSessionRef.current.epoch + 1 };
+    }
+    vaultMethodOwnerRef.current = user?.uid;
+  }, [user?.uid, vaultKey]);
   const [switchingVaultMethod, setSwitchingVaultMethod] = useState(false);
+  useEffect(() => () => {
+    vaultMethodSessionRef.current.epoch += 1;
+    vaultMethodMutationRef.current?.controller.abort();
+  }, []);
+  useLayoutEffect(() => {
+    const pending = vaultMethodMutationRef.current;
+    if (pending && pending.epoch !== vaultMethodSessionRef.current.epoch) {
+      pending.controller.abort();
+      if (!pending.committed) toast.dismiss(pending.toastId);
+      vaultMethodMutationRef.current = null;
+      setSwitchingVaultMethod(false);
+    }
+    return () => {
+      if (vaultMethodMutationRef.current && !vaultMethodMutationRef.current.committed) toast.dismiss(vaultMethodMutationRef.current.toastId);
+    };
+  }, [user?.uid, vaultKey]);
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
   const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
     useState<VaultWrapper | null>(null);
@@ -799,6 +715,26 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  useEffect(() => {
+    if (activePanel !== "account" || activeDetail) {
+      setNativeAccountException(null); setEditingDisplayName(false);
+    }
+  }, [activePanel, activeDetail, user?.uid]);
+  useEffect(() => {
+    if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
+  }, [editingDisplayName, nativeAccountException]);
+  const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
+  const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
+    const title = typeof entry?.title === "string" ? entry.title : "Profile";
+    setNativeActiveHeading(previous => previous?.owner === nativeDetailOwner && previous.title === title
+      ? previous : { owner: nativeDetailOwner, title });
+  }, [nativeDetailOwner]);
+  const preferenceChrome = {
+    owner: user?.uid ?? null,
+    context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
+    eligible: nativeControlsEligible && !!user && !authLoading && activePanel === "preferences" && !activeDetail && (!isPanePresentation || isVaultUnlocked),
+  };
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -1175,20 +1111,24 @@ function ProfilePageContent({
   }, [authLoading, user?.uid]);
 
   async function refreshVaultMethodState(targetUserId: string) {
+    const request = ++vaultMethodRequestRef.current;
+    const isCurrent = () => request === vaultMethodRequestRef.current && vaultMethodOwnerRef.current === targetUserId;
     try {
       setLoadingVaultMethod(true);
-      const [capability, currentMethod, vaultState] = await Promise.all([
+      const [capability, vaultState, localWrapperId] = await Promise.all([
         VaultMethodService.getCapabilityMatrix(),
-        VaultMethodService.getCurrentMethod(targetUserId),
         VaultService.getVaultState(targetUserId),
+        VaultBootstrapService.getDeviceBiometricWrapperId(targetUserId),
       ]);
+      if (!isCurrent()) return false;
       const nextRecommendedMethod =
         capability.recommendedMethod !== "passphrase"
           ? capability.recommendedMethod
           : null;
       const quickWrapper =
         nextRecommendedMethod !== null
-          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod)
+          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod,
+              nextRecommendedMethod === "generated_default_native_biometric" ? { wrapperId: localWrapperId } : undefined)
           : null;
       const primaryPrefersQuickMethod =
         vaultState.primaryMethod === "generated_default_native_biometric" ||
@@ -1203,39 +1143,45 @@ function ProfilePageContent({
             : primaryWrapper.method;
 
       setCapabilityMatrix(capability);
-      setVaultMethod(currentMethod);
+      setVaultMethodsOwner(targetUserId);
+      setVaultMethod(vaultState.primaryMethod);
+      setLocalBiometricWrapperId(localWrapperId);
       setEnrolledVaultWrappers(vaultState.wrappers);
       setPrimaryVaultWrapperId(vaultState.primaryWrapperId ?? "default");
-      setAvailableQuickMethod(quickWrapper?.method ?? null);
-      setAvailableQuickWrapperId(quickWrapper?.wrapperId ?? null);
       setEffectiveVaultMethod(nextEffectiveMethod);
-    } catch (error) {
-      console.warn("[ProfilePage] Failed to resolve vault method:", error);
-      setVaultMethod(null);
-      setEnrolledVaultWrappers([]);
-      setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
-      setEffectiveVaultMethod(null);
+      setVaultMethodsNeedRefresh(false);
+      return true;
+    } catch {
+      if (!isCurrent()) return false;
+      console.warn("VAULT_METHOD_REFRESH_FAILED");
+      // A failed read is not an empty vault and cannot undo a confirmed write.
+      setVaultMethodsNeedRefresh(true);
+      return false;
     } finally {
-      setLoadingVaultMethod(false);
+      if (isCurrent()) setLoadingVaultMethod(false);
     }
   }
 
   useEffect(() => {
     if (authLoading || !user?.uid) return;
     if (hasVault !== true) {
+      vaultMethodRequestRef.current += 1;
       setVaultMethod(null);
       setEnrolledVaultWrappers([]);
       setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
       setEffectiveVaultMethod(null);
       return;
     }
 
     void refreshVaultMethodState(user.uid);
+    return () => { vaultMethodRequestRef.current += 1; };
   }, [authLoading, hasVault, user?.uid]);
+
+  useEffect(() => {
+    setPasskeyRemovalTarget(null);
+    setPassphraseDialogOpen(false);
+    setNewPassphrase(""); setConfirmPassphrase("");
+  }, [user?.uid, vaultAccess.canMutateSecureData]);
 
   useEffect(() => {
     if (!user) {
@@ -1583,6 +1529,7 @@ function ProfilePageContent({
   const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
     if (!user) return "auth_failed";
 
+    let needsCloudReview = false;
     setIsDeleting(true);
 
     // Resolve auth first so a vault-unlock requirement is handled as a guard
@@ -1650,6 +1597,8 @@ function ProfilePageContent({
       });
       return "deleted";
     } catch (error) {
+      needsCloudReview = azureAccountCleanupRequired(error);
+      if (needsCloudReview) setCloudCleanupRequired(true);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "Delete account error:",
         error,
@@ -1657,7 +1606,7 @@ function ProfilePageContent({
       return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
+      setShowDeleteConfirm(needsCloudReview);
     }
   };
 
@@ -2023,30 +1972,17 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent, signal) => {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
+        signal,
       });
 
-      setVaultMethod(result.method);
-      toast.success(
-        `Vault method updated to ${readableMethod(result.method)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to switch vault method:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your unlock preference.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) { setVaultMethod(result.method); setPrimaryVaultWrapperId(null); }
+    }, "Unlock method added.", "We couldn't add this unlock method. Your existing methods still work.");
   }
 
   async function setQuickMethodAsDefault(
@@ -2061,64 +1997,20 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent) => {
       await VaultService.setPrimaryVaultMethod(
         user.uid,
         targetMethod,
         wrapperId ?? "default",
         vaultOwnerToken ?? undefined,
       );
-      setVaultMethod(targetMethod);
-      toast.success(
-        `Primary unlock updated to ${readableMethod(targetMethod)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error(
-        "[ProfilePage] Failed to set quick unlock as default:",
-        error,
-      );
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function preferPassphraseUnlock() {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      await VaultService.setPrimaryVaultMethod(
-        user.uid,
-        "passphrase",
-        "default",
-        vaultOwnerToken ?? undefined,
-      );
-      setVaultMethod("passphrase");
-      toast.success("Primary unlock updated to password.");
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to prefer password unlock:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) {
+        setVaultMethod(targetMethod);
+        setPrimaryVaultWrapperId(wrapperId ?? "default");
+        setEffectiveVaultMethod(targetMethod === "generated_default_native_biometric" &&
+          (wrapperId ?? "default") !== localBiometricWrapperId ? "passphrase" : targetMethod);
+      }
+    }, "Default unlock updated.", "We couldn't change your default unlock.");
   }
 
   async function removePasskeyWrapper(wrapper: VaultWrapper) {
@@ -2135,8 +2027,7 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent) => {
       const result = await VaultMethodService.removeMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
@@ -2146,20 +2037,15 @@ function ProfilePageContent({
         fallbackPrimaryMethod: "passphrase",
         fallbackPrimaryWrapperId: "default",
       });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Passkey removed. Password unlock is still available.");
-      setPasskeyRemovalTarget(null);
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to remove passkey wrapper:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not remove this passkey.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) {
+        setVaultMethod(result.primaryMethod);
+        const removedPrimary = vaultMethod === wrapper.method && (primaryVaultWrapperId ?? "default") === (wrapper.wrapperId ?? "default");
+        if (removedPrimary) { setPrimaryVaultWrapperId("default"); setEffectiveVaultMethod("passphrase"); }
+        setEnrolledVaultWrappers((current) => current.filter((candidate) => candidate.method !== wrapper.method ||
+          (candidate.wrapperId ?? "default") !== (wrapper.wrapperId ?? "default")));
+        setPasskeyRemovalTarget(null);
+      }
+    }, "Passkey removed. Password unlock is still available.", "We couldn't remove this passkey.");
   }
 
   async function changePassphrase() {
@@ -2171,29 +2057,61 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
-      const result = await VaultMethodService.changePassphrase({
+    await runVaultMethodChange(async (isCurrent, signal, acknowledgeCommit) => {
+      await VaultMethodService.changePassphrase({
         userId: user.uid,
         currentVaultKey: vaultKey,
         newPassphrase,
         keepPrimaryMethod: true,
+        signal,
+        onCommitted: (result) => {
+          if (!isCurrent()) return;
+          setVaultMethod(result.primaryMethod);
+          setPassphraseDialogOpen(false);
+          setNewPassphrase(""); setConfirmPassphrase("");
+          // The service acknowledges before its intentional vault-rekey lock.
+          acknowledgeCommit();
+        },
       });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Password updated successfully.");
-      await refreshVaultMethodState(user.uid);
-      setPassphraseDialogOpen(false);
-      setNewPassphrase("");
-      setConfirmPassphrase("");
-    } catch (error) {
-      console.error("[ProfilePage] Failed to update password:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your password.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
+    }, "Password updated.", "We couldn't change your password.");
+  }
+
+  async function runVaultMethodChange(operation: (isCurrent: () => boolean, signal: AbortSignal, acknowledgeCommit: () => void) => Promise<void>, success: string, failure: string) {
+    if (!user?.uid || vaultMethodMutationRef.current || vaultMethodsNeedRefresh) return;
+    if (!vaultAccess.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+      toast.info("Unlock your vault to change methods.");
+      requestVaultUnlock("profile_data"); return;
+    }
+    const owner = user.uid;
+    const epoch = vaultMethodSessionRef.current.epoch;
+    const isCurrent = () => vaultMethodOwnerRef.current === owner && vaultMethodSessionRef.current.epoch === epoch;
+    const operationId = { epoch, toastId: toast.loading("Updating unlock methods…"), controller: new AbortController(), committed: false };
+    const acknowledgeCommit = () => {
+      if (!isCurrent() || operationId.committed) return;
+      operationId.committed = true;
+      toast.success(success, { id: operationId.toastId });
+    };
+    vaultMethodMutationRef.current = operationId;
+    setSwitchingVaultMethod(true);
+    try {
+      vaultMethodRequestRef.current += 1;
+      await operation(isCurrent, operationId.controller.signal, acknowledgeCommit);
+      if (operationId.committed) return;
+      if (!isCurrent()) return;
+      setVaultMethodsNeedRefresh(true);
+      const refreshed = await refreshVaultMethodState(owner);
+      if (isCurrent()) toast.success(refreshed ? success : `${success} Refresh methods to check the latest state.`, { id: operationId.toastId });
+    } catch {
+      if (operationId.committed) { console.warn("VAULT_METHOD_POST_COMMIT_FAILED"); return; }
+      console.warn("VAULT_METHOD_CHANGE_FAILED");
+      if (isCurrent()) toast.error(failure, { id: operationId.toastId });
+    }
+    finally {
+      if (vaultMethodMutationRef.current === operationId) {
+        vaultMethodMutationRef.current = null;
+        setSwitchingVaultMethod(false);
+      }
+      if (!isCurrent() && !operationId.committed) toast.dismiss(operationId.toastId);
     }
   }
 
@@ -2254,27 +2172,8 @@ function ProfilePageContent({
     capabilityMatrix.recommendedMethod !== "passphrase"
       ? capabilityMatrix.recommendedMethod
       : null;
-  const quickMethodReadyOnCurrentDevice =
-    vaultMethod === "passphrase" && availableQuickMethod
-      ? availableQuickMethod
-      : null;
   const enrolledPasskeyWrappers = enrolledVaultWrappers.filter((wrapper) =>
     isPasskeyVaultMethod(wrapper.method),
-  );
-  const passphraseWrapper = enrolledVaultWrappers.find(
-    (wrapper) => wrapper.method === "passphrase",
-  );
-  const activePrimaryWrapperId = primaryVaultWrapperId ?? "default";
-  const canSwitchDefaultToPassphrase = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod &&
-    vaultMethod !== "passphrase" &&
-    passphraseWrapper,
-  );
-  const canSwitchDefaultToQuick = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod === "passphrase" &&
-    quickMethodReadyOnCurrentDevice,
   );
   const canEditKaiPreferences = Boolean(
     user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
@@ -2323,7 +2222,7 @@ function ProfilePageContent({
     const profileHomeControls = [
       {
         id: "profile_payouts",
-        label: "Payouts",
+        label: "Payments and earnings",
         purpose:
           "opens payout setup, linked bank details, and transaction history.",
         actionId: "route.profile_payouts",
@@ -2421,7 +2320,12 @@ function ProfilePageContent({
       },
       {
         id: "profile_support",
-        label: PROFILE_LABELS.support,
+        label:
+          activePanel === "hosting"
+            ? "Hosting"
+            : activePanel === "software-updates"
+              ? "Software updates"
+              : PROFILE_LABELS.support,
         purpose: "opens support routing and compose flows.",
         actionId: "route.profile_support_panel",
         role: "card",
@@ -2470,7 +2374,7 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
-        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
+        : activePanel === "hosting" || activePanel === "software-updates" || activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2484,7 +2388,7 @@ function ProfilePageContent({
             : activePanel === "world-model"
               ? "Personal World Model"
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
                 : activePanel === "my-data"
@@ -2503,7 +2407,9 @@ function ProfilePageContent({
       : [
           PROFILE_LABELS.account,
           PROFILE_LABELS.preferences,
-          "Payouts",
+          "Hosting",
+          "Software updates",
+          "Payments and earnings",
           "Request pricing",
           "Memory",
           "Access & sharing",
@@ -2542,23 +2448,25 @@ function ProfilePageContent({
                   "Propose Salesforce CRM create",
                   "Propose Salesforce CRM update",
                 ]
-              : activePanel === "account"
-                ? [phoneNumber ? "Change phone number" : "Add phone number"]
-                : activePanel === "preferences"
-                  ? []
-                  : activePanel === "security"
-                    ? [
-                        vaultAccess.needsVaultCreation
-                          ? "Create your vault"
-                          : "Unlock vault",
-                        "Change password",
-                        "Delete account",
-                      ]
-                    : [
-                        "Open your account",
-                        "Open security & privacy",
-                        "Open help & feedback",
-                      ];
+            : activePanel === "account"
+              ? [phoneNumber ? "Change phone number" : "Add phone number"]
+              : activePanel === "preferences" ||
+                  activePanel === "hosting" ||
+                  activePanel === "software-updates"
+                ? []
+                : activePanel === "security"
+                  ? [
+                      vaultAccess.needsVaultCreation
+                        ? "Create your vault"
+                        : "Unlock vault",
+                      "Change password",
+                      "Delete account",
+                    ]
+                  : [
+                      "Open your account",
+                      "Open security & privacy",
+                      "Open help & feedback",
+                    ];
 
     return {
       surfaceDefinition: {
@@ -2576,19 +2484,23 @@ function ProfilePageContent({
             : activePanel === "world-model"
               ? "Personal World Model"
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
-                : activePanel === "my-data"
-                  ? "Memory"
-                  : activePanel === "connected-systems"
-                    ? "Connected Systems"
-                    : activePanel === "preferences"
-                      ? PROFILE_LABELS.preferences
-                      : activePanel === "security"
-                        ? PROFILE_LABELS.security
-                        : activePanel === "gmail"
-                          ? "Mail receipts"
+            : activePanel === "my-data"
+              ? "Memory"
+              : activePanel === "connected-systems"
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Mail receipts"
+                      : activePanel === "hosting"
+                        ? "Hosting"
+                        : activePanel === "software-updates"
+                          ? "Software updates"
                           : PROFILE_LABELS.support
           : "Profile",
         purpose:
@@ -2928,7 +2840,9 @@ function ProfilePageContent({
 
   const popProfileStack = () => {
     if (isPanePresentation) {
-      popProfilePaneLocation(pathname, searchParams);
+      if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
+        popProfilePaneLocation(pathname, searchParams);
+      }
       return;
     }
     if (activeDetail) {
@@ -3514,11 +3428,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryLocationIcon
-              : LocationAgentIcon
-          }
+          icon={LocationAgentIcon}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3528,7 +3438,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileInnerReviewIcon : ConsentAgentIcon}
+          icon={ConsentAgentIcon}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3538,9 +3448,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon
-          }
+          icon={DiscoverableRowIcon}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3558,11 +3466,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryVisibilityIcon
-              : MarketplaceAgentIcon
-          }
+          icon={MarketplaceAgentIcon}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3598,11 +3502,11 @@ function ProfilePageContent({
         isPanePresentation && accountStyles.paneAccountContent,
       )}
     >
+      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"}
+        onPresentationClose={() => setNativeAccountException(null)} /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon
-          }
+          icon={AccountProfileIcon}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3621,21 +3525,21 @@ function ProfilePageContent({
             )}
             data-testid="profile-account-display-name-editor"
           >
-            <DisplayNameEditor
+            {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
-            />
+            />}
           </div>
         ) : null}
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountPhoneIcon : PhoneRowIcon}
+          icon={PhoneRowIcon}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
@@ -3650,23 +3554,18 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountProviderIcon : undefined}
           iconTone="capability"
           leading={
-            isPanePresentation ? undefined : (
               <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
                 <ProviderIcon providerId={provider.id} email={user.email} />
               </span>
-            )
           }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={
-              isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon
-            }
+            icon={WalletAgentIcon}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3676,9 +3575,16 @@ function ProfilePageContent({
           />
         ) : null}
       </SettingsGroup>
+      <SettingsGroup title="Payments">
+        <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
+          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
+          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          chevron onClick={() => openVaultBackedPanel("payouts")} />
+      </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountResetIcon : ResetRowIcon}
+          icon={ResetRowIcon}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3687,7 +3593,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountDeleteIcon : DeleteRowIcon}
+          icon={DeleteRowIcon}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3701,9 +3607,10 @@ function ProfilePageContent({
     </div>
   );
 
+  const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
     <div className="profile-preferences-content space-y-4">
-      {isPanePresentation ? (
+      {isPanePresentation && (!isNative() || !nativeControlsEligible) ? (
         <ProfileAppearancePreferences
           accent={appAccent}
           onAccentChange={writeAccent}
@@ -3718,98 +3625,36 @@ function ProfilePageContent({
           }
         />
       ) : (
-        <SettingsGroup>
-          <SettingsRow
-            className="profile-preferences-control-row"
-            icon={AppearanceRowIcon}
-            iconTone="capability"
-            title="Appearance"
-            description="Light, dark, or system."
-            trailing={
-              <ThemeToggleLean
-                size="expanded"
-                className="h-12 w-full min-w-0 p-0.5 sm:w-full [&_button]:min-h-11 [&_span.text-xs]:inline"
-              />
-            }
-            stackTrailingOnMobile
-          />
-          <SettingsRow
-            className="profile-preferences-control-row"
-            icon={AccentRowIcon}
-            iconTone="capability"
-            title="Accent"
-            description="Choose the app accent."
-            trailing={
-              <Select
-                value={appAccent}
-                onValueChange={(value) => {
-                  writeAccent(value as AppAccent);
-                }}
-              >
-                <SelectTrigger
-                  className="h-11 w-full min-w-0"
-                  aria-label="App accent color"
-                >
-                  <SelectValue placeholder="iOS Blue" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="blue">
-                    <span className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: "var(--accent-preview-blue)",
-                        }}
-                      />
-                      iOS Blue
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="gold">
-                    <span className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: "var(--accent-preview-gold)",
-                        }}
-                      />
-                      Molten Gold
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            }
-            stackTrailingOnMobile
-          />
-          <SettingsRow
-            leading={<GeminiLogo className="h-8 w-8" />}
-            title="Gemini"
-            description="Choose managed or BYOK."
-            chevron
-            onClick={() =>
-              updateProfileView(
-                { panel: "preferences", detail: "gemini" },
-                "push",
-              )
-            }
-          />
-          <SettingsRow
-            icon={VoiceRowIcon}
-            iconTone="capability"
-            title="Voice"
-            description="What One's voice can do, and its safety controls."
-            chevron
-            onClick={() =>
-              updateProfileView(
-                { panel: "preferences", detail: "voice" },
-                "push",
-              )
-            }
-          />
-        </SettingsGroup>
+      <>
+      {appearanceControls}
+      <SettingsGroup>
+        <SettingsRow
+          leading={<Brain className="h-8 w-8" />}
+          title="AI connection"
+          description="Cloud connection or your own key."
+          chevron
+          onClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
+          }
+        />
+        <SettingsRow
+          icon={VoiceRowIcon}
+          iconTone="capability"
+          title="Voice"
+          description="What One's voice can do, and its safety controls."
+          chevron
+          onClick={() =>
+            updateProfileView({ panel: "preferences", detail: "voice" }, "push")
+          }
+        />
+      </SettingsGroup>
+      </>
       )}
       <CommunicationPreferencesSection
+        nativeScene={presentation === "native-page"}
         userId={user?.uid ?? null}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
@@ -3822,11 +3667,7 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfilePaneSecurityIcon
-              : FingerprintProfileIcon
-          }
+          icon={FingerprintProfileIcon}
           iconTone="capability"
           title="Vault methods"
           description="Password, passkey, and unlock method."
@@ -3906,7 +3747,8 @@ function ProfilePageContent({
               aria-labelledby="support-intent-label"
               aria-describedby="support-intent-description"
             >
-              <SegmentedTabs
+              <SegmentedControl
+                ariaLabel="Support request type"
                 value={supportKind}
                 onValueChange={(value) => {
                   const nextKind = normalizeSupportKind(value);
@@ -3919,7 +3761,8 @@ function ProfilePageContent({
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 w-full"
+                labelClassName="whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">
@@ -4018,7 +3861,7 @@ function ProfilePageContent({
     >
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -4033,7 +3876,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -4074,7 +3917,7 @@ function ProfilePageContent({
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+            icon={VaultRowIcon}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -4092,64 +3935,9 @@ function ProfilePageContent({
 
         {vaultAccess.hasVault && !loadingVaultMethod ? (
           <>
-            {vaultMethod ? (
-              <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
-                }
-                iconTone="capability"
-                title="Default unlock"
-                trailing={
-                  <div
-                    className={VAULT_INLINE_ACTIONS_CLASS}
-                    data-testid="vault-default-unlock-actions"
-                  >
-                    <Badge
-                      variant="secondary"
-                      className={VAULT_INLINE_BADGE_CLASS}
-                    >
-                      {readableMethod(vaultMethod)}
-                    </Badge>
-                    {canSwitchDefaultToPassphrase ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() => void preferPassphraseUnlock()}
-                      >
-                        Password
-                      </Button>
-                    ) : null}
-                    {canSwitchDefaultToQuick &&
-                    quickMethodReadyOnCurrentDevice ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() =>
-                          void setQuickMethodAsDefault(
-                            quickMethodReadyOnCurrentDevice,
-                            availableQuickWrapperId,
-                          )
-                        }
-                      >
-                        {readableQuickMethod(quickMethodReadyOnCurrentDevice)}
-                      </Button>
-                    ) : null}
-                  </div>
-                }
-                stackTrailingOnMobile
-              />
-            ) : null}
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
-                }
+                icon={VaultRowIcon}
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or password."
@@ -4158,111 +3946,18 @@ function ProfilePageContent({
               />
             ) : null}
 
-            {vaultAccess.canMutateSecureData && recommendedQuickMethod ? (
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfileSecondaryFingerprintIcon
-                    : FingerprintProfileIcon
-                }
-                iconTone="capability"
-                title={
-                  enrolledPasskeyWrappers.length > 0
-                    ? `Add another ${readableQuickMethod(recommendedQuickMethod)}`
-                    : `Add ${readableQuickMethod(recommendedQuickMethod)}`
-                }
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => void switchToQuickMethod(recommendedQuickMethod)}
-              />
-            ) : null}
+            <VaultMethodsPanel key={user?.uid}
+              wrappers={vaultMethodsOwner === user?.uid ? enrolledVaultWrappers : []}
+              primaryMethod={vaultMethodsOwner === user?.uid ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
+              biometricLabel={capabilityMatrix?.biometricLabel} localBiometricId={localBiometricWrapperId}
+              mutable={vaultAccess.canMutateSecureData} busy={switchingVaultMethod} needsRefresh={vaultMethodsNeedRefresh}
+              onSelect={(wrapper) => void setQuickMethodAsDefault(wrapper.method, wrapper.wrapperId)}
+              onRemove={setPasskeyRemovalTarget}
+              onAdd={vaultAccess.canMutateSecureData && recommendedQuickMethod ? () => void switchToQuickMethod(recommendedQuickMethod) : undefined}
+              addLabel={recommendedQuickMethod === "generated_default_native_biometric"
+                ? `Add ${capabilityMatrix?.biometricLabel || "biometrics"}` : enrolledPasskeyWrappers.length ? "Add another passkey" : "Add passkey"}
+              onChangePassphrase={() => setPassphraseDialogOpen(true)} onRefresh={() => { if (user?.uid) void refreshVaultMethodState(user.uid); }} />
 
-            {enrolledPasskeyWrappers.map((wrapper, index) => {
-              const wrapperId = wrapper.wrapperId ?? "default";
-              const isPrimary =
-                vaultMethod === wrapper.method &&
-                activePrimaryWrapperId === wrapperId;
-              return (
-                <SettingsRow
-                  key={vaultWrapperKey(wrapper)}
-                  icon={
-                    isPanePresentation
-                      ? ProfileSecondaryFingerprintIcon
-                      : FingerprintProfileIcon
-                  }
-                  iconTone="capability"
-                  title={
-                    enrolledPasskeyWrappers.length > 1
-                      ? `Passkey ${index + 1}`
-                      : "Passkey"
-                  }
-                  description={describePasskeyWrapper(wrapper)}
-                  trailing={
-                    vaultAccess.canMutateSecureData ? (
-                      <div className={VAULT_INLINE_ACTIONS_CLASS}>
-                        {isPrimary ? (
-                          <Badge
-                            variant="secondary"
-                            className={VAULT_INLINE_BADGE_CLASS}
-                          >
-                            Default
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            className={VAULT_INLINE_CONTROL_CLASS}
-                            disabled={switchingVaultMethod}
-                            onClick={() =>
-                              void setQuickMethodAsDefault(
-                                wrapper.method,
-                                wrapperId,
-                              )
-                            }
-                          >
-                            Set default
-                          </Button>
-                        )}
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className={`${VAULT_INLINE_CONTROL_CLASS} text-destructive hover:text-destructive`}
-                          disabled={switchingVaultMethod}
-                          onClick={() => setPasskeyRemovalTarget(wrapper)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ) : (
-                      <Badge
-                        variant="secondary"
-                        className={VAULT_INLINE_BADGE_CLASS}
-                      >
-                        {isPrimary ? "Default" : "Saved"}
-                      </Badge>
-                    )
-                  }
-                  stackTrailingOnMobile
-                />
-              );
-            })}
-
-            {vaultMethod ? (
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfileSecondaryPassphraseIcon
-                    : PassphraseRowIcon
-                }
-                iconTone="capability"
-                title="Change password"
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => setPassphraseDialogOpen(true)}
-              />
-            ) : null}
           </>
         ) : null}
       </SettingsGroup>
@@ -4278,7 +3973,7 @@ function ProfilePageContent({
     >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -4286,7 +3981,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryInboxIcon : InboxRowIcon}
+          icon={InboxRowIcon}
           iconTone="capability"
           title="Inbox"
           description={
@@ -4298,7 +3993,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4321,69 +4016,17 @@ function ProfilePageContent({
   );
 
   const gmailActionsContent = (
-    <SettingsGroup title="Actions">
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
-          iconTone="capability"
-          title="Sync now"
-          description="Fetch new receipt mail messages and refresh extracted records."
-          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-          chevron
-          onClick={() => void handleSyncGmailNow()}
-        />
-      ) : (
-        <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
-          iconTone="capability"
-          title={
-            gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Mail"
-              : "Connect Mail"
-          }
-          description="Review Mail data use, then authorize read-only receipt sync."
-          disabled={gmailActionsBusy || gmail.status?.configured === false}
-          chevron
-          onClick={() => router.push(ROUTES.GMAIL)}
-        />
-      )}
-
-      <SettingsRow
-        icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
-        iconTone="capability"
-        title="Refresh status"
-        description="Re-check your Mail connection, sync status, and inbox details."
-        disabled={gmailActionsBusy}
-        chevron
-        onClick={() => void gmail.refreshStatus({ force: true })}
-      />
-
-      <SettingsRow
-        icon={
-          isPanePresentation ? ProfileSecondaryReceiptIcon : MemoryAgentIcon
-        }
-        iconTone="capability"
-        title="Open receipts"
-        description="Review synced receipts, merchants, and extracted totals."
-        chevron
-        onClick={() => router.push(ROUTES.GMAIL)}
-      />
-
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={
-            isPanePresentation ? ProfileSecondaryUnlinkIcon : DisconnectRowIcon
-          }
-          iconTone="capability"
-          title="Disconnect Mail"
-          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
-          tone="destructive"
-          disabled={gmailActionsBusy}
-          chevron
-          onClick={() => void handleDisconnectGmail()}
-        />
-      ) : null}
-    </SettingsGroup>
+    <MailActionsGroup
+      connected={gmailPresentation.isConnected}
+      needsReauthentication={gmailPresentation.state === "needs_reauthentication"}
+      configured={gmail.status?.configured !== false}
+      busy={gmailActionsBusy}
+      onSync={() => void handleSyncGmailNow()}
+      onConnect={() => router.push(ROUTES.GMAIL)}
+      onRefresh={() => void gmail.refreshStatus({ force: true })}
+      onOpenReceipts={() => router.push(ROUTES.GMAIL)}
+      onDisconnect={() => void handleDisconnectGmail()}
+    />
   );
 
   const financialContextControls = (
@@ -4450,7 +4093,20 @@ function ProfilePageContent({
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (!routeBlockedByVault && activePanel === "account") {
+  if (
+    !routeBlockedByVault &&
+    (activePanel === "hosting" || activePanel === "software-updates")
+  ) {
+    profileStackEntries.push({
+      key: `panel:${activePanel}`,
+      title: activePanel === "hosting" ? "Hosting" : "Software updates",
+      description:
+        activePanel === "hosting"
+          ? "Where your private agent runs."
+          : "Your version and available updates.",
+      content: <AgentSettingsPanel kind={activePanel} userId={user.uid} />,
+    });
+  } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
@@ -4496,7 +4152,7 @@ function ProfilePageContent({
   } else if (!routeBlockedByVault && activePanel === "payouts") {
     profileStackEntries.push({
       key: "panel:payouts",
-      title: "Payouts",
+      title: "Payments and earnings",
       content: (
         <div
           className={cn(
@@ -4506,7 +4162,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <DocumentHashcoinPayouts />
+          <PaymentsAndEarnings key={user?.uid} />
         </div>
       ),
     });
@@ -4722,8 +4378,8 @@ function ProfilePageContent({
     } else if (activeDetail === "gemini") {
       profileStackEntries.push({
         key: "detail:gemini",
-        title: "Gemini",
-        description: "Gemini access.",
+        title: "AI connection",
+        description: "Choose your AI connection.",
         content: (
           <GeminiRuntimeSettingsCard
             userId={user.uid}
@@ -4771,9 +4427,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={
-                isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon
-              }
+              icon={SignOutProfileIcon}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4829,6 +4483,26 @@ function ProfilePageContent({
     });
   }
 
+  const menuGroups = profileMenuGroups(canShowPkmAgentLab);
+  const menuActions: ProfileMenuActions = {
+    hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
+    "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),
+    account: openAccountPanel,
+    payouts: () => openVaultBackedPanel("payouts"),
+    "request-pricing": () => openVaultBackedPanel("request-pricing"),
+    "my-data": () => openVaultBackedPanel("my-data"),
+    "world-model": () => openVaultBackedPanel("world-model"),
+    preferences: openPreferencesPanel,
+    security: openSecurityPanel,
+    devices: () => openVaultBackedPanel("security", "trusted-devices"),
+    connectors: () => openVaultBackedPanel("connectors"),
+    invite: () => router.push(ROUTES.ONE_REFERRALS),
+    support: () => updateProfileView({ panel: "support", detail: null }, "push"),
+    "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
+    privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),
+    terms: () => updateProfileView({ panel: "legal", detail: "terms" }, "push"),
+    "sign-out": handleSignOut,
+  };
   const profileRootContent = (
     <div
       className={cn(
@@ -4863,180 +4537,18 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset>
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneAccountIcon
-                    : AccountProfileIcon
-                }
-                iconTone="capability"
-                title={PROFILE_LABELS.account}
-                chevron
-                onClick={openAccountPanel}
-              />
-              <SettingsRow
-                icon={ProfileAccountBankIcon}
-                iconTone="capability"
-                title="Payouts"
-                chevron
-                voiceControlId="profile_payouts"
-                voiceActionId="route.profile_payouts"
-                voiceLabel="Payouts"
-                voicePurpose="Opens bank setup and transaction history."
-                onClick={() => openVaultBackedPanel("payouts")}
-              />
-              <SettingsRow
-                icon={ProfileAccountPriceIcon}
-                iconTone="capability"
-                title="Request pricing"
-                chevron
-                voiceControlId="profile_request_pricing"
-                voiceActionId="route.profile_request_pricing"
-                voiceLabel="Request pricing"
-                voicePurpose="Opens your default document request price."
-                onClick={() => openVaultBackedPanel("request-pricing")}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon
-                }
-                iconTone="capability"
-                title="Memory"
-                chevron
-                voiceControlId="profile_my_data"
-                voiceActionId="route.profile_my_data"
-                voiceLabel="Memory"
-                voicePurpose="Opens saved details and sharing."
-                onClick={() => openVaultBackedPanel("my-data")}
-              />
-              <SettingsRow
-                icon={ProfilePaneWorldModelIcon}
-                iconTone="capability"
-                title="Personal World Model"
-                chevron
-                voiceControlId="profile_world_model"
-                voiceActionId="route.profile_world_model"
-                voiceLabel="Personal World Model"
-                voicePurpose="Opens your Personal World Model."
-                onClick={() => openVaultBackedPanel("world-model")}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneAppearanceIcon
-                    : PreferencesProfileIcon
-                }
-                iconTone="capability"
-                title={PROFILE_LABELS.preferences}
-                chevron
-                onClick={openPreferencesPanel}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneSecurityIcon
-                    : SecurityProfileIcon
-                }
-                iconTone="capability"
-                title={PROFILE_LABELS.security}
-                chevron
-                voiceControlId="profile_security"
-                voiceActionId="route.profile_security_panel"
-                voiceLabel={PROFILE_LABELS.security}
-                voicePurpose="Opens vault, account access, and account deletion controls."
-                onClick={openSecurityPanel}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneDevicesIcon
-                    : DevicesProfileIcon
-                }
-                iconTone="capability"
-                title="Trusted devices"
-                chevron
-                onClick={() =>
-                  openVaultBackedPanel("security", "trusted-devices")
-                }
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneConnectorsIcon
-                    : ConnectedSystemsAgentIcon
-                }
-                iconTone="capability"
-                title="Connectors"
-                description="Google Workspace and finance connections"
-                chevron
-                onClick={() => openVaultBackedPanel("connectors")}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneInviteIcon
-                    : InviteFriendsProfileIcon
-                }
-                iconTone="capability"
-                title={PROFILE_LABELS.referrals}
-                chevron
-                voiceControlId="profile_referrals"
-                voiceActionId="route.profile_referrals_panel"
-                voiceLabel={PROFILE_LABELS.referrals}
-                voicePurpose="Opens your referral link and referral status."
-                onClick={() => router.push(ROUTES.ONE_REFERRALS)}
-              />
-              <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon
-                }
-                iconTone="capability"
-                title={PROFILE_LABELS.support}
-                chevron
-                onClick={() =>
-                  updateProfileView({ panel: "support", detail: null }, "push")
-                }
-              />
-              {canShowPkmAgentLab ? (
-                <SettingsRow
-                  icon={DeveloperToolsProfileIcon}
-                  iconTone="capability"
-                  title={PROFILE_LABELS.developerTools}
-                  trailing={<Badge variant="secondary">Local</Badge>}
-                  chevron
-                  onClick={() => router.push("/one/profile/pkm-agent-lab")}
-                />
-              ) : null}
-            </SettingsGroup>
-
-            <SettingsGroup title="Legal" separatorInset>
-              {/* Read in place: Profile never leaves the pane for /terms. */}
-              <ProfileLegalRows
-                paneIcons={isPanePresentation}
-                onOpen={(document) =>
-                  updateProfileView(
-                    { panel: "legal", detail: document },
-                    "push",
-                  )
-                }
-              />
-            </SettingsGroup>
-
-            <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
-              <SettingsRow
-                icon={
-                  isPanePresentation
-                    ? ProfilePaneSignOutIcon
-                    : SignOutProfileIcon
-                }
-                iconTone="capability"
-                title="Sign out"
-                tone="destructive"
-                chevron
-                onClick={() => void handleSignOut()}
-              />
-            </SettingsGroup>
+            {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
+              {group.entries.map(entry => <SettingsRow key={entry.id}
+                icon={entry.icon} iconTone="capability" title={entry.label} chevron
+                tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}
+                trailing={"localOnly" in entry ? <Badge variant="secondary">Local</Badge> : undefined}
+                testId={entry.id === "privacy" || entry.id === "terms" ? `profile-legal-${entry.id}-row` : undefined}
+                voiceControlId={"voiceControlId" in entry ? entry.voiceControlId : entry.id === "security" ? "profile_security" : entry.id === "invite" ? "profile_referrals" : undefined}
+                voiceActionId={"voiceActionId" in entry ? entry.voiceActionId : entry.id === "security" ? "route.profile_security_panel" : entry.id === "invite" ? "route.profile_referrals_panel" : undefined}
+                voiceLabel={"voiceActionId" in entry || entry.id === "security" || entry.id === "invite" ? entry.label : undefined}
+                voicePurpose={"voicePurpose" in entry ? entry.voicePurpose : entry.id === "security" ? "Opens vault, account access, and account deletion controls." : entry.id === "invite" ? "Opens your referral link and referral status." : undefined}
+                onClick={() => { void menuActions[entry.id](); }} />)}
+            </SettingsGroup>)}
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
@@ -5047,7 +4559,7 @@ function ProfilePageContent({
     return null;
   }
 
-  return (
+  const page = (
     <AppPageShell
       data-testid="profile-primary"
       as="div"
@@ -5076,6 +4588,7 @@ function ProfilePageContent({
           rootContent={profileRootContent}
           entries={profileStackEntries}
           resetScroll={!isPanePresentation}
+          onActiveEntryChange={presentation === "native-page" ? updateNativeActiveHeading : undefined}
         />
       </SettingsPresentationProvider>
 
@@ -5266,12 +4779,13 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
-            accountStyles.accountDialogCompact,
-            isPanePresentation && accountStyles.accountDialog,
-            isPanePresentation && accountStyles.dangerDialog,
+            cloudCleanupRequired && "max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain",
+            !cloudCleanupRequired && accountStyles.accountDialogCompact,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.accountDialog,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.dangerDialog,
           )}
           overlayClassName={
-            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+            !cloudCleanupRequired && isPanePresentation ? accountStyles.accountDialogOverlay : undefined
           }
         >
           <AlertDialogHeader>
@@ -5280,15 +4794,18 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {deleteDialogDescription}
+              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {cloudCleanupRequired && user ? <AccountCloudCleanup key={user.uid} userId={user.uid} token={vaultOwnerToken ?? null}
+            onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
+            onFinish={handleDeleteAccount} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
               disabled={isDeleting}
             >
-              Cancel
+              {cloudCleanupRequired ? "Close" : "Cancel"}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
@@ -5297,7 +4814,8 @@ function ProfilePageContent({
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
-              disabled={isDeleting}
+              disabled={isDeleting || cloudCleanupRequired}
+              hidden={cloudCleanupRequired}
             >
               {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
@@ -5348,20 +4866,72 @@ function ProfilePageContent({
       </AlertDialog>
     </AppPageShell>
   );
+  if (presentation !== "native-page") return page;
+  const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
+    { id: "account-identity", title: "Identity", rows: [
+      { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
+      { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: true, artworkId: "account-phone", trailing: phoneNumber ? "Change" : "Add", chevron: true },
+      { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
+      ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
+        detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
+    ] },
+    { id: "account-payments", title: "Payments", rows: [
+      { id: "account-payments-open", label: "Payments and earnings", enabled: true, artworkId: "account-wallet", chevron: true },
+    ] },
+    { id: "account-operations", title: "Account actions", rows: [
+      { id: "account-reset", label: "Reset account", detail: resetRowDescription, enabled: !isResetting, artworkId: "account-reset", chevron: true },
+      { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
+    ] },
+  ] };
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException &&
+      !showDeleteConfirm && !showResetConfirm && !showVaultUnlock,
+      page: nativeAccountPage, rows: new Map([
+        ["account-photo", () => setNativeAccountException("photo")],
+        ["account-name", () => setEditingDisplayName(true)],
+        ["account-phone", () => updateProfileView({ panel: "account", detail: "phone" }, "push")],
+        ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["account-payments-open", () => openVaultBackedPanel("payouts")],
+        ["account-reset", () => { void handleResetClick(); }],
+        ["account-delete", () => { void handleDeleteClick(); }],
+      ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
+        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+          onWebFallback={() => setNativeAccountException("name")}
+          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
+    menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+      name: user.displayName || "Your account", email: user.email, onClose: () => onNativeMenuClose?.(),
+      groups: menuGroups, actions: menuActions }}
+    page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
+      title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
+      owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
+      onClose: () => onNativeMenuClose?.(), onBack: () => popProfilePaneLocation(pathname, searchParams) }}>
+    {page}
+  </NativeProfilePresentation>;
 }
 
 export function ProfilePage({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
+  nativeMenuOpen = false,
+  onNativeMenuClose,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
 }) {
   return (
     <Suspense fallback={null}>
       <ProfilePageContent
         presentation={presentation}
         paneLocation={paneLocation}
+        nativeControlsEligible={nativeControlsEligible}
+        nativeMenuOpen={nativeMenuOpen}
+        onNativeMenuClose={onNativeMenuClose}
       />
     </Suspense>
   );

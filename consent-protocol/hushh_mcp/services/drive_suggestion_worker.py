@@ -6,6 +6,7 @@ from collections import Counter
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 def _agent_packages_enabled() -> bool:
@@ -106,6 +107,7 @@ class DriveSuggestionWorker:
                         counts["disabled"] += 1
                         continue
                     try:
+                        await admit_hub_content(request["user_id"], "drive_suggestion_worker")
                         status = await self.service.run_one(
                             user_id=request["user_id"], request_id=str(request["request_id"])
                         )

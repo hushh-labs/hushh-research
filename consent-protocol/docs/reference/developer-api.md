@@ -290,7 +290,7 @@ The response contains envelope metadata and ciphertext directly in the authentic
 }
 ```
 
-Hussh does not return plaintext user data to developer callers. The external connector receives ciphertext in the authenticated MCP/API response, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`. No `ResourceLink` follow-up is required.
+Hussh does not return plaintext user data to developer callers. The external connector receives ciphertext in the authenticated MCP/API response, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`. No `ResourceLink` follow-up is required. Paid requests require the developer app's active registered X25519 recipient key. The server-derived `commercial_required` field keeps paid exports encrypted even through local stdio; recipients decrypt paid information outside MCP model context. Legacy free local stdio sharing retains its existing bounded information response.
 
 Before either successful inline route returns ciphertext, Hussh durably records
 a state-neutral metadata-only `READ` event. If audit persistence is unavailable,

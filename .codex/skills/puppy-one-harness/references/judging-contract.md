@@ -3,8 +3,7 @@
 ## The rules
 
 Lifted from the shared PKM kernel the agent manifests actually carry, so the
-judge holds a model to the instruction it was given rather than to the judge's
-own taste.
+judge holds a model to the instruction it was given, not to the judge's taste.
 
 | Rule | Fails when |
 | --- | --- |
@@ -15,39 +14,65 @@ own taste.
 | `minimal-patch` | The patch carries more than the fact |
 | `faithful-summary` | The summary does not describe what is being saved |
 
-Grade only these. Not style, not verbosity, not a choice you would have made
-differently.
+Grade only these; not style, not verbosity, not a choice you would have made
+differently. Another suite declares another set, per *Improvised rules* below.
 
 ## Dates are a real failure mode
 
 When the owner says "this fall" or "last year", check the resolved value against
-the actual current date. This is not pedantry: a model resolved "this fall" to
+the actual current date. Not pedantry: a model resolved "this fall" to
 `fall 2024` on 2026-08-28, two years wrong, and that value was about to become
-true in the owner's memory with nothing downstream to question it. The structural
-benchmark scored that same output 100% valid.
+true in the owner's memory with nothing downstream to question it. The
+structural benchmark scored that same output 100% valid.
 
 ## Verdicts
 
-One JSON object per row in `verdicts.jsonl`:
+The grading lane is `sandbox_mode = "read-only"` and the fleet audit hard-fails
+one that is not, so the grader does not write. It emits one JSON object per
+row and the orchestrator replays the set through the same validated writer:
 
-```json
-{"id": "c004", "verdict": "wrong", "rule": "no-invention",
- "citation": "fall 2024", "note": "one sentence"}
 ```
+{"id":"<row id>","verdict":"correct|wrong|unsure","rule":"<rule>","citation":"<quote>"}
+uv run python scripts/ops/memory_judge.py --run-dir <run dir> replay --from <grader jsonl>
+```
+
+An earlier version told the grader to run `record` itself while the same lane
+was audited as read-only. Both cannot hold, and either resolution was silent:
+a shell the audit said was absent, or an unfollowable instruction. Read-only is
+the half kept, because a grader that cannot write also cannot edit the queue,
+the manifest, the verdicts, the ledger, the scoring module, or a seal.
+
+**What voids a run is a verdict line that did not pass the writer, not who
+typed the command.** `replay` is `record` in a loop: every row still faces the
+citation, rule, unknown-id and duplicate checks, and each accepted verdict
+still puts one line in `verdicts.jsonl` and one in `verdict-writes.jsonl`. A
+replayed run does not void; a line appended with a shell redirect still does.
+
+Two costs, stated rather than buried:
+
+- The grader loses the refusal at its own console. `replay` stops at the first
+  refused row and names it, and the orchestrator hands it back. Replaying the
+  corrected submission resumes rather than duplicating.
+- The orchestrator could alter a verdict in transit, and nothing prevents or
+  detects it. `grader-submission.jsonl` is written by the orchestrator from the
+  same rows it records, so an alteration appears identically in both and does
+  not evidence what the grader said. What it gives: a pre-write record
+  surviving a partly refused replay, a second submission beside the first, and
+  the path and SHA-256 of the file replayed. Changing an already-recorded
+  verdict stays refused by the duplicate check.
 
 - `verdict` is exactly `correct`, `wrong`, or `unsure`.
 - A `wrong` verdict **requires** a citation quoting the offending value verbatim
-  from that row's output. Ingest checks it and discards the verdict if the string
-  is not there, because an uncited failure is indistinguishable from a
-  hallucinated one.
+  from that row's output. Ingest discards an uncited one as indistinguishable
+  from a hallucinated one.
 - If you cannot quote it, use `unsure`. It counts against accuracy, so it is not
   a way to dodge a call you could actually make.
 - Grade every row. Ungraded rows void the run.
 
 ## Why the run can be void
 
-A void run publishes **no accuracy at all** — not a number with a caveat, because
-a number with a caveat gets quoted without the caveat.
+A void run publishes **no accuracy at all**, never a number with a caveat: the
+caveat is what gets dropped when the number is quoted.
 
 | Cause | Meaning |
 | --- | --- |
@@ -55,165 +80,141 @@ a number with a caveat gets quoted without the caveat.
 | A positive control was flagged | The grader over-flags. Its failures are noise nobody can act on. |
 | A row hash changed | The evidence was edited between issue and ingest. |
 | Rows ungraded | A partial pass would let the grader skip what it found hard. |
+| Verdicts discarded by a re-issue | The directory was issued again after it was graded. Re-issuing before grading is ordinary and scores; this is a second attempt. |
+| Verdicts appended past `record` | The extra lines never passed the citation, rule and duplicate checks, and the write ledger says so. This is what returning verdict JSONL for someone else to write produces. |
+| The attribution was edited | `suite`, `run_id`, `created_at` or `answerer_model` in the manifest is not the one the run was sealed with. The output of this harness is a number about a named model, so it is not published against an attribution the run was not issued under. |
 
 ## The controls
 
 **Negative controls** — four planted outputs, each breaking a rule the agent's
-instruction states in plain words. Deliberately **structurally valid**: a control
-the cheap benchmark would catch proves nothing about the judge. Passing one
-voids the run.
+instruction states in plain words, and deliberately **structurally valid**: a
+control the cheap benchmark would catch proves nothing. Passing one voids the run.
 
 **Positive controls** — two known-good outputs the judge must *not* flag.
-Without them the design has no false-positive rate at all: negative controls
-catch a rubber-stamper and nothing else, so a judge told to hunt for planted
-failures could flag every correct row, sail through, and have its noise read as
-diligence. Flagging one voids the run.
+Without them there is no false-positive rate: negative controls catch a
+rubber-stamper and nothing else, so a judge told to hunt for plants could flag
+every correct row and have its noise read as diligence. Flagging one voids the
+run. They are deliberately plain, because a positive control a careful judge
+could reasonably fault would punish good judgement.
 
-They are deliberately plain. A positive control a careful judge could reasonably
-fault would punish good judgement, which is the opposite of the point.
+Controls are shuffled by a seeded permutation and carry no marking. The seed is
+**minted at issue** and sealed, so the permutation differs per run and is
+reproducible from nothing the grader holds. Until 2026-09-10 it did not differ:
+`--seed` defaulted to a constant, so every run an operator issued drew the same
+permutation over the same corpus and one run seen was every later run named. An
+explicit `--seed` is a declared **replay**; its report says
+`blinding.positions_unpredictable: false` rather than claiming a blinding it
+does not have. The seed is in neither `run-manifest.json` nor the operator's
+receipt: replayed over the manifest's own row and control counts it names every
+planted position exactly, with nothing but a Python interpreter.
 
-All controls are shuffled by a seeded permutation, differ in position per run,
-carry no marking, and their answers live only in `run-manifest.json`, which the
-grader must not open.
+**What an unpredictable shuffle does not buy.** The rows and the corpus are
+literals in `memory_judge_controls`, identical in every run, so the threat
+model's second and third read rows below stand whatever the seed is. Say before
+grading if you have seen this corpus.
 
 ## Citing an omission
 
-A citation is checked against the output **or the utterance**. Output-only would
-be a bug that silently penalises correct judgement: an omission failure — the
-model dropped a fact the owner stated — has nothing to quote in the output by
-definition, since the complaint is that it is absent.
+A citation is checked against the output **or the utterance**. Output-only
+would silently penalise correct judgement: an omission failure has nothing to
+quote in the output by definition, since the complaint is that it is absent.
+Forcing those to `unsure`, which costs accuracy, would train a judge away from
+the one failure class that loses the owner's records. So an omission cites the
+utterance span that went unrecorded.
 
-Forcing those to `unsure`, which counts against accuracy, would train a judge
-away from reporting the one failure class that loses the owner's data. So an
-omission cites the utterance span that went unrecorded.
+## The threat model: what the grading sandbox stops, and what it does not
 
-## The threat model: the judge has god-mode
+The grading lane is `sandbox_mode = "read-only"` and `agent_fleet_audit.py`
+hard-fails one that is not, so the grader emits verdicts, the orchestrator
+replays them, and the grader cannot write. Everything below splits on that
+line, because the reads were never what a sandbox was going to fix.
 
-The judge lane holds `Bash`. Say this plainly rather than in a footnote, because
-every other control in this harness is enforced by code the judge can edit.
-
-A judge with a shell can:
+**Reads, which the sandbox does not stop, and nor does anything else here:**
 
 | Do this | Which defeats |
 | --- | --- |
-| Read `run-manifest.json` | The hidden controls — it names them |
-| Rewrite `review-queue.jsonl` | The evidence it is graded on |
-| Rewrite the manifest's `hashes` | The in-queue tamper check |
-| Append to `verdicts.jsonl` directly | The validating writer |
-| Revise a verdict it already gave | Its own record |
-| Edit `judge.py` | The rules, the controls, the void logic |
+| Read `run-manifest.json` | Nothing that locates a control today: it holds the rule vocabulary `record` enforces, the row count, how many rows are planted, and salted commitments. It held the shuffle **seed** until 2026-09-10, and that alone recomputed every planted position. `manifest_leaks_controls` voids a run whose manifest carries a field on `MANIFEST_FORBIDDEN_KEYS` (`seed`), and a test pins the whole key set |
+| Read `memory_judge_controls` in `pod_lifecycle_drill.py` | The blinding, completely: the six planted rows are literals there, matchable against the queue with no manifest and no seal |
+| **Grade this corpus a second time, or hear one run described** | The blinding, completely, and cheaper than every other row: it needs no command at all. The corpus and the planted rows are fixed literals, so knowing one run is knowing the true answer to every question and the wording of every plant. Minting the shuffle seed moved the positions and moved nothing else. The only fix is a corpus minted per run, which does not exist; the lane is told to declare prior exposure, and a declaration is not a control |
+| `ls ../.judge-seals/*.seal.json` | The seal's concealment. Each seal names the run it was issued for, so listing the default directory identifies it without deriving the name. The drill's receipt reports which of the two cases a run had in `seal_location_derivable_from_receipt` |
 
-**None of that is preventable at this layer.** Prevention needs a sandbox where
-the judge cannot write to the harness or the seal — a separate user, container
-or machine. That is an infrastructure change, not a code change.
-
-What IS available is making every one of those **detectable**, and voiding the
-run when one is found. That is the difference between "the judge can cheat
-invisibly" and "the judge can cheat and the result is discarded".
+**Writes, which the read-only lane cannot make and an operator still can:**
+rewriting `review-queue.jsonl` or the manifest's `hashes`, appending to
+`verdicts.jsonl` directly, revising a verdict already given, deleting both
+verdict ledgers and re-issuing, or editing the scoring module. For the grading
+lane these are now prevented rather than merely detected, which is the whole
+reason the sandbox is the half worth keeping. For anyone holding a shell they
+remain detectable and not preventable: the salted row hashes, the control and
+rule commitments, the source hashes and the re-issue counter all live in the
+seal, and any disagreement voids the run. Two stay only partly covered.
+Deleting both ledgers before re-issuing erases the `reissued_after_verdicts`
+void but not the trace, because the issue counter carries over from the run's
+live seal and every report prints `ordinal: 2`; erasing that too takes a second
+move against a seal `--judge-seal-dir` can put out of reach. And the source
+hashes are checked by the source they cover.
 
 ### The seal
 
-At issue time the harness seals four things, into a file that lives **outside
-the run directory** and whose path the grader is never given:
+At issue time the harness seals these, into a file **outside the run directory**
+whose name the grader is never given (see point 2 for what that is worth):
 
 1. **Every row's content**, salted, so altered evidence is caught even when the
    in-run hashes were updated to match.
-2. **A commitment to which rows are planted** — a salted hash, not a list, so
-   the seal is not itself the answer key it protects.
-3. **The harness source**, so a judge that rewrites the rules invalidates the
-   run instead of redefining it.
-4. **A hash chain over verdicts**, so revising an earlier verdict breaks every
-   one after it.
+2. **Which rows are planted, and the rule each breaks**, in clear, plus the
+   **shuffle seed and how it was drawn** (`seed_source`: minted at issue, or
+   supplied for a replay): scoring cannot check a control it cannot read. The
+   seed is minted per issue, so nothing outside the seal can predict where the
+   controls landed; `seed_source` is sealed beside it so a replay cannot be
+   relabelled as a blinded run. This is the answer key, protected by living
+   outside the run directory and not by being hidden: see the seal-listing row
+   above for what that is worth. The run directory keeps
+   `controls_commitment` only.
+3. **The harness source and the scoring module**, so a judge that rewrites the
+   rules, controls or void logic invalidates the run instead of redefining it.
+4. **The rule vocabulary and the issue counter**, so a widened rule list is
+   caught and a re-issue after grading voids instead of getting a second attempt
+   scored clean. The verdict chain is not sealed; it lives in `verdicts.jsonl`.
+5. **The attribution** (`suite`, `run_id`, `created_at`, `answerer_model`),
+   because the report publishes all four as fact and they live in the manifest,
+   which the grader may read and can edit. Editing them breaks no row hash and
+   no other commitment, so a forged set used to produce a clean report
+   crediting a different model with the number. `identity_altered` voids a
+   moved attribution, `identity_unsealed` one never committed to, and
+   `identity_verified` is on every report.
 
-A run with no seal is **void**, and that is the loudest finding rather than the
-quietest: an unsealed run is one where tampering is undetectable by construction.
-
-A seal found inside the run directory is also a violation. Inside, it is one more
-file the judge can regenerate, and mistaking it for protection is worse than
-having none.
+A run with no seal is **void**, the loudest finding rather than the quietest:
+tampering there is undetectable by construction. A seal inside the run
+directory is also a violation, being one more file the judge can regenerate.
 
 ### Improvised rules
 
-A `wrong` verdict may only cite one of the six defined rules. Inventing one
-produces a failure that looks fully compliant — cited, well-formed — while
-grading against a standard nobody agreed to. An unknown rule voids the run.
+A `wrong` verdict may only cite a rule the run declares in `run-manifest.json`
+(the six above here, another set for another suite); `record` rejects anything
+else at write time. Inventing one produces a failure that looks fully compliant,
+cited and well-formed, while grading against a standard nobody agreed to. An
+unknown rule voids the run.
 
 ## What still cannot be enforced
 
-Context separation. A session that wrote the queue remembers where it planted the
-controls, and no script can ask "are you the same context". So it is recorded as
-a discipline and stated in the report.
-
-When the same session does both, say so: the control pass is a wiring proof, not
-a clean measurement. Verdicts on the model's own output are still valid, because
-the grader did not author those.
-
-And the seal is not authentication. A judge that locates the seal file and its
-salt can forge a consistent one. This raises the cost of an undetected edit from
-zero to "find and rewrite a second file you were never told about"; it does not
-make it impossible.
+Context separation. A session that wrote the queue remembers where it planted
+the controls, and no script can ask "are you the same context", so it is a
+discipline, stated in the report. When the same session does both, say so: the
+control pass is a wiring proof, not a clean measurement. Verdicts on the
+model's own output stay valid, because the grader did not author those. Nor is
+the seal authentication: anyone who locates it and its salt forges a consistent
+one, which raises the cost of an undetected edit without removing it.
 
 ## Comparing runs
 
 The probe adapts to what a model supports, so two runs are comparable only when
-their capability profile matches. A model tested through tool calling and one
-tested through JSON mode were not asked the same question, and a delta between
-them is invented rather than measured. `compare_runs` refuses rather than
-producing a trend nobody can invalidate.
+their capability profile matches. One tested through tool calling and one
+through JSON mode were not asked the same question, so a delta is invented
+rather than measured; `compare_runs` refuses to produce it.
 
 ## The goal-progress suite
 
-Structural validity was standing in for goal achievement, and the founder
-called it: a valid action that does not advance the user's goal is still a
-miss. The `goal_progress` suite grades exactly that question, one action at a
-time, through this same queue discipline. The runner lives in the Hermes fork
-as `hermes_cli/hussh_one_routing/exam/goal_progress.py`.
-
-Rows are blinded across models: every model's actions go into one queue under
-one seed with identity stripped, because this suite exists precisely because a
-reputation disagreed with a number, and a judge who knows which rows are whose
-is measuring the reputation. The identity map is stored beside the seal,
-outside the run directory, and handing it to the grader defeats the blinding
-the way handing over the seal defeats the tamper check.
-
-Each row shows the frontier run's next action labelled as one known-good
-continuation and NOT ground truth. A different action can be on-path; the judge
-rules on progress toward the goal, never on imitation.
-
-### The five off-path rules
-
-A `wrong` verdict in this suite may cite only these, each with a verbatim
-citation:
-
-- `wrong-object` — the action operates on an artifact the request never named.
-  Cite the object.
-- `dead-end` — the action cannot yield what the request needs. Cite the
-  argument that makes it a dead end.
-- `redundant` — it repeats a step whose result is already in the context. Cite
-  the earlier result.
-- `destructive-detour` — it mutates state nothing asked to change. Cite the
-  verb.
-- `stalls` — it asks the user or does nothing when the context already holds
-  the answer. Cite the span that holds it.
-
-`on_path` needs no citation. `unsure` counts against the model, as everywhere
-in this contract.
-
-### Controls in this suite
-
-Negative controls are real requests wearing another case's action: structurally
-valid, off-path by construction, which is precisely the control the cheap
-benchmark cannot catch. One construction rule is load-bearing, learned from a
-voided run: the donor action must not equal the base row's reference
-continuation, or the control is on-path by construction while labelled
-must-catch and voids any judge diligent enough to notice. Positive controls are
-rows whose action equals the reference byte for byte; flagging one voids the
-run.
-
-### What this suite still does not prove
-
-On-path is progress, not arrival. A true goal-achievement probe needs a
-multi-turn rollout in a sandboxed worktree with a deterministic gate deciding
-success; until that exists, goal progress is the honest ceiling of what a
-single-action judgement can claim, and it is reported beside structural and
-agreement as a third number that is never added to either. The device's real daily jobs are graded under this same discipline; see `.codex/skills/puppy-one-harness/references/cron-quality-suite.md`.
+A second suite graded through this same queue discipline, with its own five
+off-path rules and its own control construction:
+`.codex/skills/puppy-one-harness/references/goal-progress-suite.md`. The
+device's real daily jobs are graded the same way; see
+`.codex/skills/puppy-one-harness/references/cron-quality-suite.md`.

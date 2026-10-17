@@ -17,6 +17,16 @@ from api.routes.kai import gmail
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 
+@pytest.fixture(autouse=True)
+def shared_owner_placement(monkeypatch):
+    """These route fixtures exercise Shared mail; private refusals live in the route-wall suite."""
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
+
 def test_captured_live_uat_scan_passes_actual_response_model():
     # Live UAT 200 supplied for this incident. Only its signed cursor is
     # replaced in the committed fixture; the raw capture stays in ignored tmp/.

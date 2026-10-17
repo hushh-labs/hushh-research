@@ -28,9 +28,14 @@ export interface HushhSessionPrivacyPlugin {
   }): Promise<NativeSessionPrivacyCompletion>;
 }
 
-const HushhSessionPrivacy = registerPlugin<HushhSessionPrivacyPlugin>(
-  "HushhSessionPrivacy",
-);
+// Registered on first use, not at import: the navigation shell imports this
+// module, and importing it must not touch the native bridge.
+let sessionPrivacyPlugin: HushhSessionPrivacyPlugin | undefined;
+function sessionPrivacy(): HushhSessionPrivacyPlugin {
+  return (sessionPrivacyPlugin ??= registerPlugin<HushhSessionPrivacyPlugin>(
+    "HushhSessionPrivacy",
+  ));
+}
 
 // Process-local metadata only. A reload creates a new JS runtime and ID; a
 // remounted AuthProvider in the old document must not satisfy Restart session.
@@ -47,6 +52,24 @@ const WEB_STATE: NativeSessionPrivacyState = Object.freeze({
   cause: "inactive",
   appIsActive: true,
 });
+
+// Nonsecret admission metadata, not session validation or credential state.
+let observedPrivacy: NativeSessionPrivacyState | undefined;
+let lifecycleEpoch = 0;
+const observationListeners = new Set<() => void>();
+export function subscribeNativePrivacyObservation(listener: () => void) {
+  observationListeners.add(listener);
+  return () => { observationListeners.delete(listener); };
+}
+function observePrivacy(state: NativeSessionPrivacyState) {
+  const changed = !observedPrivacy || observedPrivacy.generation !== state.generation || observedPrivacy.shielded !== state.shielded ||
+    observedPrivacy.appIsActive !== state.appIsActive || observedPrivacy.cause !== state.cause;
+  observedPrivacy = state;
+  if (changed) observationListeners.forEach(listener => listener());
+}
+export function nativePrivacyObservation() {
+  return { state: observedPrivacy, epoch: lifecycleEpoch };
+}
 
 function checkedState<T extends NativeSessionPrivacyState>(state: T): T {
   if (
@@ -65,8 +88,13 @@ export async function subscribeNativeSessionPrivacy(
   listener: (event: NativeSessionPrivacyEvent) => void,
 ): Promise<PluginListenerHandle> {
   if (!Capacitor.isNativePlatform()) return { remove: async () => undefined };
-  return HushhSessionPrivacy.addListener("privacyStateChanged", (event) => {
-    try { listener(checkedState(event)); } catch { /* getState catch-up owns recovery */ }
+  return sessionPrivacy().addListener("privacyStateChanged", (event) => {
+    try {
+      const state = checkedState(event);
+      lifecycleEpoch += 1;
+      observePrivacy(state);
+      listener(state);
+    } catch { /* getState catch-up owns recovery */ }
   });
 }
 
@@ -77,7 +105,10 @@ export async function subscribeNativeSessionPrivacy(
  */
 export async function getNativeSessionPrivacyState(): Promise<NativeSessionPrivacyState> {
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
-  return checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
+  const epoch = lifecycleEpoch;
+  const state = checkedState(await sessionPrivacy().getState({ documentId: privacyDocumentId() }));
+  if (epoch === lifecycleEpoch) observePrivacy(state);
+  return state;
 }
 
 /**
@@ -94,11 +125,19 @@ export async function completeNativeSessionPrivacyValidation(
   if (!Number.isSafeInteger(generation) || generation <= 0) {
     return { ...WEB_STATE, released: false };
   }
-  const result = checkedState(await HushhSessionPrivacy.completeSessionValidation({
+  const epoch = lifecycleEpoch;
+  const result = checkedState(await sessionPrivacy().completeSessionValidation({
     generation, documentId: privacyDocumentId(),
   }));
   if (typeof result.released !== "boolean") {
     throw new Error("Native session privacy completion is unavailable.");
+  }
+  // Both native hosts return the release state without requiring a listener
+  // event. Observe that authoritative result, but never replace a newer cycle.
+  // Advancing the epoch also fences reads started before this completion.
+  if (epoch === lifecycleEpoch) {
+    lifecycleEpoch += 1;
+    observePrivacy(result);
   }
   return result;
 }

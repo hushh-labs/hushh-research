@@ -18,6 +18,8 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
   BriefcaseBusiness,
   Code2,
@@ -25,21 +27,20 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Loader2,
-  LogOut,
   UserRound,
 } from "@/components/icons";
 import {
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
   CheckIcon as Check,
-  DotsThreeIcon as MoreHorizontal,
-  TrashIcon as Trash2,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
+  APP_MEASURE_STYLES,
 } from "@/components/app-ui/app-page-shell";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -50,40 +51,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import {
-  DELETE_ACCOUNT_DIALOG_DESCRIPTION,
-  DELETE_ACCOUNT_DIALOG_TITLE,
-  accountDeletionErrorMessage,
-  executeVerifiedAccountDeletion,
-  isHandledAccountDeletionOutcome,
-  resolveDeleteAccountAuth,
-} from "@/lib/flows/delete-account";
-import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
-import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { TopShellRouteModel } from "@/components/app-ui/top-shell-metrics";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
@@ -422,11 +405,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"
@@ -882,6 +872,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           scroll: false,
           source: "tap",
           transitionMode: action.transitionMode,
+          feedback: "light",
         });
       },
     });
@@ -968,11 +959,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     ],
   );
 
+  const nativeRegionRef = useRef<HTMLDivElement>(null);
+  useNativePresentationRegions(nativeRegionRef, !hideChrome);
   if (hideChrome) return null;
 
   return (
     <div
       data-app-top-bar
+      ref={nativeRegionRef}
       data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
@@ -1019,16 +1013,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             APP_SHELL_FRAME_CLASSNAME,
             "pointer-events-none relative flex w-full flex-col",
           )}
-          style={{ ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
+          style={topShellBreadcrumb?.width === "profile" ? APP_MEASURE_STYLES.reading : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
         >
           <div
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
-              // Clip only vertically: the max-height collapse needs it, but the
-              // back button sits in a -ml-3.5 box so its glyph lines up with the
-              // content column, which put its pressed/focus circle ~10px past a
-              // horizontal clip edge and sliced it. `clip` (unlike `hidden`)
+              // Clip only vertically for header collapse. `clip` (unlike `hidden`)
               // keeps the other axis visible without becoming a scroll
               // container; where `clip` is unsupported the overflow-hidden
               // class still applies.
@@ -1060,26 +1051,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                   style={{
-                    // Collapse the fixed side gutter to the back button's width
-                    // when a breadcrumb trail is showing, so the trail sits
-                    // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail
+                    // Breadcrumbs and One status sit beside the back control or logo.
+                    width: hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "auto"
                       : "var(--top-bar-side-w)",
-                    // The collapsed gutter otherwise leaves the back button's
-                    // focus ring / ripple flush against top-app-bar-header's
-                    // overflow-hidden edge, clipping it on the left in
-                    // browsers that round the centered 44px hit-box a
-                    // fraction of a pixel tighter than others.
-                    paddingLeft: hasBreadcrumbTrail ? "4px" : undefined,
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    // The arrow's glyph sits on the content column (16 px),
-                    // where the page title and every card below start; the
-                    // 44 px target reaches toward the screen edge. Centred in
-                    // its box it read 30 px in, while the avatar opposite
-                    // sits at 16 (Galaxy S24 Ultra, 2026-09-22).
+                    // Keep the entire target inside the authored reading frame.
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}
@@ -1121,18 +1100,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   )}
                 </div>
 
-                {/* Title sits in the normal flex flow. The right cluster remains
-                  intentionally compact; `flex-1 min-w-0` lets the title truncate
-                  before it can collide with the account action. */}
+                {/* Shrink the title/status before it can collide with account actions. */}
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions || hasBreadcrumbTrail
+                    showOnboardingActions || hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "justify-start"
                       : "justify-center",
                   )}
                 >
-                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : hasBreadcrumbTrail ? (
+                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
+                    <OneAgentPresence compact />
+                  ) : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
@@ -1254,7 +1233,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     )}
                   >
                     {!isAuthenticated ? null : showOnboardingActions ? (
-                      <OnboardingRouteActions />
+                      <OnboardingRouteActions key={user?.uid ?? "signed-out"} />
                     ) : (
                       <>
                         {showVaultUnlockAction ? (
@@ -1270,7 +1249,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="avatar"
                           aria-label="Open Profile"
-                          onClick={() => requestProfilePaneOpen("tap")}
+                          onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
                         >
                           <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (
@@ -1338,166 +1317,5 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         />
       ) : null}
     </div>
-  );
-}
-
-/* ── OnboardingRouteActions ────────────────────────────────────────── */
-function OnboardingRouteActions() {
-  const router = useRouter();
-  const { user, signOut } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  async function handleSignOut() {
-    try {
-      await signOut();
-      router.push(ROUTES.HOME);
-    } catch (error) {
-      console.error("[TopAppBar] Failed to sign out:", error);
-      toast.error("Couldn't sign out. Please retry.");
-    }
-  }
-
-  async function requestDeleteAccount() {
-    if (!user?.uid) return;
-
-    try {
-      const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
-        existingVaultOwnerToken: vaultOwnerToken ?? null,
-      });
-
-      if (resolution.kind === "needs_unlock") {
-        setVaultUnlockOpen(true);
-        return;
-      }
-    } catch (error) {
-      console.error("[TopAppBar] Failed to prepare account deletion:", error);
-      morphyToast.error("Failed to delete account. Please try again.");
-      return;
-    }
-
-    setDeleteConfirmOpen(true);
-  }
-
-  async function handleDeleteAccount() {
-    if (!user?.uid) return;
-
-    setIsDeleting(true);
-    try {
-      const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
-        existingVaultOwnerToken: vaultOwnerToken ?? null,
-      });
-
-      if (resolution.kind === "needs_unlock") {
-        setDeleteConfirmOpen(false);
-        setVaultUnlockOpen(true);
-        return;
-      }
-
-      await morphyToast
-        .promise(
-          executeVerifiedAccountDeletion({
-            userId: user.uid,
-            vaultOwnerToken: resolution.token,
-            sessionUser: user,
-            vaultKey,
-          }),
-          {
-            loading: "Deleting your account...",
-            success: "Account deleted.",
-            error: accountDeletionErrorMessage,
-            variant: "destructive",
-          },
-        )
-        .unwrap();
-
-      await signOut({
-        redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
-        expectedUserId: user.uid,
-        skipFcmCleanup: true,
-      });
-    } catch (error) {
-      (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
-        "[TopAppBar] Failed to delete account:",
-        error,
-      );
-    } finally {
-      setIsDeleting(false);
-      setDeleteConfirmOpen(false);
-    }
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <ShellActionSurface variant="icon" aria-label="Account actions">
-            <MoreHorizontal className="h-5 w-5 text-current" />
-          </ShellActionSurface>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="overflow-hidden rounded-[14px] p-1"
-        >
-          <DropdownMenuItem
-            onClick={() => void handleSignOut()}
-            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
-          >
-            <LogOut className="h-4 w-4 text-current" />
-            Sign out
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
-          >
-            <Trash2 className="h-4 w-4 text-current" />
-            Delete account
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={vaultUnlockOpen}
-          onOpenChange={setVaultUnlockOpen}
-          title="Unlock Vault to Delete Account"
-          description="Unlock your Vault to confirm account deletion. This permanent action removes your saved Vault information."
-          onSuccess={() => {
-            setVaultUnlockOpen(false);
-            window.setTimeout(() => void requestDeleteAccount(), 300);
-          }}
-        />
-      ) : null}
-
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{DELETE_ACCOUNT_DIALOG_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {DELETE_ACCOUNT_DIALOG_DESCRIPTION}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                if (!isDeleting) void handleDeleteAccount();
-              }}
-              variant="destructive"
-              disabled={isDeleting}
-            >
-              {isDeleting ? "Deleting..." : "Delete account"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   );
 }

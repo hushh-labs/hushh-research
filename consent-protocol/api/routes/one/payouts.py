@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.middleware import require_vault_owner_token
+from api.models.hosted_payouts import OnboardBody
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
@@ -90,11 +91,6 @@ def _query_error(code: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=422, detail={"code": code, "message": message}, headers=_NO_STORE
     )
-
-
-class OnboardBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    purpose: Literal["verify"] | None = None
 
 
 def _connect_event_rejected(route: str, status: int, code: str) -> None:
@@ -187,7 +183,10 @@ async def onboard_payout_account(
     )
     try:
         link: dict[str, Any] = await _document_service().onboarding_link(
-            user_id=token_data["user_id"], surface="documents", purpose=purpose
+            user_id=token_data["user_id"],
+            surface="documents",
+            purpose=purpose,
+            **({"attempt_id": str(body.attempt_id)} if body and body.attempt_id else {}),
         )
         return link
     except PacketOrderError as exc:

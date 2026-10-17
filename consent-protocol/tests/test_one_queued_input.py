@@ -28,6 +28,7 @@ from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.consent_continuation import STATE_CONSENT_CONTINUATION
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE, STATE_EXTERNAL_READ
 from hushh_mcp.one_adk.turn_completion import newest_turn_pending, newest_turn_settled
+from hushh_mcp.services import owner_placement_guard
 
 OWNER = "owner-queue"
 THREAD = "thread-queue"
@@ -321,7 +322,8 @@ async def test_failed_session_append_never_reports_unsaved_input_as_delivered():
         )
 
 
-def test_routes_bind_every_queue_operation_to_the_token_owner(monkeypatch):
+@pytest.fixture
+def queue_client(monkeypatch):
     from api.middleware import require_vault_owner_token
     from api.routes.one import agent_chat
 
@@ -332,6 +334,18 @@ def test_routes_bind_every_queue_operation_to_the_token_owner(monkeypatch):
     app.include_router(agent_chat.router)
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "intruder"}
     client = TestClient(app)
+
+    async def shared_owner(user_id: str) -> str:
+        assert user_id == "intruder"
+        return "shared"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_owner)
+    return client, registry
+
+
+def test_routes_bind_every_queue_operation_to_the_token_owner(queue_client):
+    client, registry = queue_client
 
     queued = client.post(
         f"/api/one/agent-chat/runs/{THREAD}/queue",
@@ -346,3 +360,25 @@ def test_routes_bind_every_queue_operation_to_the_token_owner(monkeypatch):
     # Malformed ids are refused before anything is recorded.
     bad = client.delete(f"/api/one/agent-chat/runs/{THREAD}/queue/x")
     assert bad.status_code == 400
+
+
+@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
+def test_non_shared_owner_cannot_enqueue_content(queue_client, monkeypatch, mode, status):
+    client, registry = queue_client
+
+    async def observed_owner(user_id: str) -> str:
+        assert user_id == "intruder"
+        return mode
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    response = client.post(
+        f"/api/one/agent-chat/runs/{THREAD}/queue",
+        json={"client_message_id": "client-msg-0001", "text": "synthetic refusal"},
+    )
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )
+    assert registry.status("intruder", THREAD, ["client-msg-0001"])[0].status == "unknown"
+    assert registry.drain(OWNER, THREAD, "run-a") == []
+    assert not registry.stop_requested(OWNER, THREAD, "run-a")

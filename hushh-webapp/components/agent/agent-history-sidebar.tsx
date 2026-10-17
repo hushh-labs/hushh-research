@@ -38,7 +38,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { SidePanelMotionBody } from "@/components/app-ui/side-panel-motion";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
@@ -56,6 +58,7 @@ type AgentHistorySidebarProps = {
   collapsed?: boolean;
   mode?: "desktop" | "mobile";
   hideCloseButton?: boolean;
+  closeControl?: ReactNode;
   /**
    * Which agent is on screen beside this list.
    *
@@ -86,7 +89,7 @@ type AgentHistorySidebarProps = {
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
 };
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ");
 }
 
@@ -95,7 +98,7 @@ function conversationLabel(conversation: AgentChatConversation): string {
   return title || "New chat";
 }
 
-function displayConversationLabel(conversation: AgentChatConversation): string {
+export function displayConversationLabel(conversation: AgentChatConversation): string {
   const label = conversationLabel(conversation)
     .replace(/\bpkm\b/giu, "personal details")
     .replace(/\s+/g, " ")
@@ -104,7 +107,7 @@ function displayConversationLabel(conversation: AgentChatConversation): string {
   return label ? `${label.slice(0, 1).toUpperCase()}${label.slice(1)}` : "New chat";
 }
 
-function conversationTimestamp(conversation: AgentChatConversation): number {
+export function conversationTimestamp(conversation: AgentChatConversation): number {
   // ADK session times are epoch seconds; `Date.parse` read them as NaN, so
   // every chat grouped as "Older" with no time beside it.
   const candidate =
@@ -115,7 +118,7 @@ function conversationTimestamp(conversation: AgentChatConversation): number {
   return parseChatTimestamp(candidate)?.getTime() ?? 0;
 }
 
-function formatRelativeTime(timestamp: number): string {
+export function formatRelativeTime(timestamp: number): string {
   if (!timestamp) return "";
   const now = Date.now();
   const diffMs = now - timestamp;
@@ -136,7 +139,7 @@ function formatRelativeTime(timestamp: number): string {
 
 type ConversationGroupKey = "today" | "yesterday" | "previous7" | "previous30" | "earlier";
 
-const GROUP_LABELS: Record<ConversationGroupKey, string> = {
+export const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   today: "Today",
   yesterday: "Yesterday",
   previous7: "Last 7 days",
@@ -144,7 +147,7 @@ const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   earlier: "Older",
 };
 
-const GROUP_ORDER: ConversationGroupKey[] = [
+export const GROUP_ORDER: ConversationGroupKey[] = [
   "today",
   "yesterday",
   "previous7",
@@ -152,7 +155,7 @@ const GROUP_ORDER: ConversationGroupKey[] = [
   "earlier",
 ];
 
-function conversationGroupKey(
+export function conversationGroupKey(
   timestamp: number,
   now: number,
 ): ConversationGroupKey {
@@ -185,6 +188,7 @@ export function AgentHistorySidebar({
   collapsed = false,
   mode = "desktop",
   hideCloseButton = false,
+  closeControl,
   surface = "one",
   onClose,
   onToggleCollapsed,
@@ -361,15 +365,15 @@ export function AgentHistorySidebar({
             </Button>
           </form>
         ) : (
-          // Title, time and the actions control sit on one line, as in the
-          // reference: the time stays put and the dots appear beside it.
+          // Age follows the title in its text flow, not a second trailing
+          // column. Only the action target reserves space at the row edge.
           <div className="relative flex min-w-0 items-center pr-1">
             <button
               type="button"
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
                 isMobileMode && "relative isolate overflow-hidden",
-                // Keep the touch target while allowing complete labels to wrap.
+                // Keep a compact baseline; hover and AX retain the full title.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
               )}
@@ -378,25 +382,27 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
+              <span className="flex min-w-0 items-baseline gap-2">
               <span data-agent-history-row-title
-                className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
+                className={cn("min-w-0 truncate leading-tight", isMobileMode ? "text-[13px]" : "text-[14px]")}>
                 {title}
               </span>
 
               {timeLabel ? (
-                <span
+                <time
                   data-agent-history-row-description
+                  dateTime={new Date(conversationTimestamp(conversation)).toISOString()}
                   className={cn(
-                    "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
-                    // Reserve the timestamp width even when visually hidden.
-                    // Inserting it only on hover made the title jump sideways.
+                    "shrink-0 whitespace-nowrap align-baseline text-[11px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
+                    // Opacity preserves inline geometry on hover and focus.
                     !isMobileMode &&
                       "opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-state=open]]:opacity-100",
                   )}
                 >
                   {timeLabel}
-                </span>
+                </time>
               ) : null}
+              </span>
               {isMobileMode ? <MaterialRipple variant="none" effect="fade" disabled={disabled || pending} disableHover className="z-10" /> : null}
             </button>
 
@@ -420,7 +426,7 @@ export function AgentHistorySidebar({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    className={cn("h-8 w-8 rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground", isMobileMode && "h-11 w-11")}
+                    className={cn("rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground", isMobileMode ? "h-11 w-11" : "h-8 w-8")}
                     disabled={disabled || pending}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}
@@ -522,8 +528,13 @@ export function AgentHistorySidebar({
         data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
-          <div data-agent-history-header className="relative flex shrink-0 flex-col border-b text-left">
-            <div className="flex min-w-0 items-center gap-2">
+          <div data-stationary-panel-chrome data-agent-history-header data-agent-history-header-layout="aligned" className="flex h-[var(--agent-chat-header-row-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)]">
+              {onClose && !hideCloseButton ? (
+                <span data-agent-history-close>{closeControl ?? <ShellActionSurface
+                  variant="icon" className="size-11" onClick={onClose}
+                  aria-label="Close chat history" title="Close chat history"
+                ><AnimatedMenuCrossIcon isOpen /></ShellActionSurface>}</span>
+              ) : null}
               <div className="flex min-w-0 items-center gap-2">
                 <h2 data-agent-history-title className="truncate text-[20px] font-semibold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
@@ -534,27 +545,12 @@ export function AgentHistorySidebar({
                   </span>
                 ) : null}
               </div>
-              {onClose && !hideCloseButton ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  // Match Profile's 44px close target and 16px glyph.
-                  data-agent-history-close
-                  className="absolute h-11 w-11 shrink-0 rounded-full border border-transparent bg-[color:var(--profile-pane-surface-soft)] text-muted-foreground hover:bg-[color:var(--profile-pane-surface-strong)] hover:text-foreground"
-                  onClick={onClose}
-                  aria-label="Close chat history"
-                  title="Close chats"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              ) : null}
-            </div>
-            {puppyFootnote ?? <p data-agent-history-description>Your conversations and connected apps.</p>}
           </div>
         ) : null}
+        <SidePanelMotionBody>
         {isMobileMode ? (
-          <div data-agent-history-controls className="pt-[15px] pb-1">
+          <div data-agent-history-controls className="px-4 pb-1">
+            {puppyFootnote}
             <Button
               type="button"
               variant="ghost"
@@ -777,6 +773,7 @@ export function AgentHistorySidebar({
             ) : null}
           </div>
         ) : null}
+        </SidePanelMotionBody>
       </aside>
 
       <AlertDialog

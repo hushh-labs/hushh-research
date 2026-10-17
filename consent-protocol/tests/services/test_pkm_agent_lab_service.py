@@ -227,17 +227,8 @@ def _find_entity_with_summary(value):
     return None
 
 
-def test_profile_review_strips_extra_structure_agent_fields() -> None:
-    """Magic Intelligence's client-side save gate (assertExactProfileSelection in
-    profile-research-review.ts) rejects any candidate_payload key outside
-    {summary, observations, kind, status, sources} and fails the whole save.
-    The generic structure agent is free to attach extra fields beside summary
-    (its own few-shot examples teach e.g. "role"); profile_review_v1 must
-    strip them server-side so a faithful save always survives the round trip,
-    regardless of what the model added. Regression for a live UAT failure.
-    """
-    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
-    preview = PKMAgentLabService._normalize_structure_preview(
+def _profile_review_preview(summary: str, metadata: dict, profile: str = "general") -> dict:
+    return PKMAgentLabService._normalize_structure_preview(
         message=f"Career details about me:\n- {summary}\n  Sources: hushh.ai (https://hushh.ai)",
         current_domains=["professional"],
         registry_choices=_registry_choices(),
@@ -255,8 +246,7 @@ def test_profile_review_strips_extra_structure_agent_fields() -> None:
                             "summary": summary,
                             "role": "AI Full Stack Engineer",
                             "company": "Hushh",
-                            "kind": "profile_fact",
-                            "status": "active",
+                            **metadata,
                         }
                     }
                 }
@@ -266,17 +256,38 @@ def test_profile_review_strips_extra_structure_agent_fields() -> None:
         },
         fallback_target_domain="professional",
         simulated_state=None,
-        memory_profile="profile_review_v1",
+        memory_profile=profile,
     )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"kind": "profile_fact", "status": "active"},
+        {
+            "sources": [{"title": "Unselected source", "url": "https://example.com/other"}],
+            "observations": ["A statement the owner did not select"],
+            "kind": "unselected_kind",
+            "status": "unselected_status",
+        },
+        {},
+    ],
+)
+def test_profile_review_strips_extra_structure_agent_fields(metadata: dict) -> None:
+    """Magic Intelligence's client-side save gate (assertExactProfileSelection in
+    profile-research-review.ts) rejects any candidate_payload key outside
+    {summary, observations, kind, status, sources} and fails the whole save.
+    The generic structure agent is free to attach extra fields beside summary
+    (its own few-shot examples teach e.g. "role"); profile_review_v1 must
+    strip only extra fields. Returned citations and semantic fields must reach
+    the client unchanged so its exact-selection guard can reject mismatches.
+    """
+    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
+    preview = _profile_review_preview(summary, metadata, "profile_review_v1")
 
     assert preview["write_mode"] != "do_not_save"
     entity = _find_entity_with_summary(preview["candidate_payload"])
-    assert entity == {
-        "summary": summary,
-        "observations": [summary],
-        "kind": "profile_fact",
-        "status": "active",
-    }
+    assert entity == {"summary": summary, **metadata}
 
 
 def test_profile_review_constraint_is_scoped_to_its_own_memory_profile() -> None:
@@ -284,30 +295,7 @@ def test_profile_review_constraint_is_scoped_to_its_own_memory_profile() -> None
     field survives untouched, proving the strip is specific to that profile
     and not a side effect of some other normalization step."""
     summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
-    preview = PKMAgentLabService._normalize_structure_preview(
-        message=f"Career details about me:\n- {summary}",
-        current_domains=["professional"],
-        registry_choices=_registry_choices(),
-        intent_frame={
-            "intent_class": "profile_fact",
-            "mutation_intent": "create",
-            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
-        },
-        merge_decision={"target_domain": "professional", "merge_mode": "create_entity"},
-        parsed_structure={
-            "candidate_payload": {
-                "career": {
-                    "entities": {
-                        "role_fact": {"summary": summary, "role": "AI Full Stack Engineer"}
-                    }
-                }
-            },
-            "structure_decision": {"target_domain": "professional"},
-            "write_mode": "can_save",
-        },
-        fallback_target_domain="professional",
-        simulated_state=None,
-    )
+    preview = _profile_review_preview(summary, {})
 
     entity = _find_entity_with_summary(preview["candidate_payload"])
     assert entity is not None
@@ -625,8 +613,10 @@ async def test_kyc_identity_profile_marks_explicit_aadhaar_as_restricted_and_con
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["", "SSN 123-45-6789. "])
 async def test_kyc_identity_profile_blocks_authentication_secrets_before_model_extraction(
     monkeypatch,
+    prefix,
 ) -> None:
     service = PKMAgentLabService()
     extraction = AsyncMock()
@@ -634,7 +624,7 @@ async def test_kyc_identity_profile_blocks_authentication_secrets_before_model_e
 
     result = await service.generate_structure_preview(
         user_id="owner",
-        message="My API key is sk_test_abcdefghij1234.",
+        message=prefix + "My API key is sk_test_abcdefghij1234.",
         current_domains=["identity"],
         memory_profile="kyc_identity_v1",
     )
@@ -3101,14 +3091,12 @@ async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(m
     assert kernel_text not in prompt
     assert instruction not in prompt
     assert "Never invent domains, paths" not in instruction + prompt
-    assert (
-        "New domain and path names may organize only information actually supplied" in instruction
-    )
-    assert "Proposing structure does not authorize a write" in instruction
+    assert "New domain and path names organize only owner-supplied information." in instruction
+    assert "Structure authorizes no write, correction, deletion or sharing." in instruction
     assert "Never create a changes branch" in instruction
     assert "merge_decision.target_entity_path" in instruction
     assert "do not create replacement plaintext" in instruction
-    assert "your question is where it goes, never whether" in instruction
+    assert "decide where, never whether, to save it." in instruction
     assert "Choose a place for everything the owner stated" in instruction
     assert "Export eligibility is not publication or consent" in instruction
     assert '"primary_json_path": "string"' in instruction

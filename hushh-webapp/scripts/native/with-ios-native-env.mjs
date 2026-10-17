@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseEnvFile } from "../testing/reviewer-test-identity.mjs";
+import { resolveNativeBuildEnvironment } from "./native-build-environment.mjs";
 import {
   NATIVE_RUNTIME_ATTESTATION_ENV,
   nativeRuntimeBuildAttestation,
@@ -13,8 +12,6 @@ import {
 } from "./native-runtime-contract.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const nativeRuntimeEnvPath = path.join(appRoot, ".env.native.ios.local");
-const allowedKeys = new Set(["APP_RUNTIME_PROFILE", "NEXT_DIST_DIR", "NODE_OPTIONS"]);
 const protectedNativeBuildKeys = new Set([
   "APP_RUNTIME_PROFILE",
   "NEXT_DIST_DIR",
@@ -24,22 +21,8 @@ const protectedNativeBuildKeys = new Set([
   NATIVE_RUNTIME_ATTESTATION_ENV,
 ]);
 
-function isAllowedNativeBuildKey(key) {
-  return allowedKeys.has(key) || key.startsWith("NEXT_PUBLIC_");
-}
-
-function loadNativeRuntimeEnv() {
-  if (!fs.existsSync(nativeRuntimeEnvPath)) return {};
-  return Object.fromEntries(
-    Object.entries(parseEnvFile(nativeRuntimeEnvPath)).filter(
-      ([key, value]) =>
-        isAllowedNativeBuildKey(key) && typeof value === "string" && value.trim(),
-    ),
-  );
-}
-
 export function resolveIosNativeEnv(baseEnv = process.env) {
-  return { ...baseEnv, ...loadNativeRuntimeEnv() };
+  return resolveNativeBuildEnvironment({ appRoot, env: baseEnv });
 }
 
 export function isNextBuildInvocation(command, args) {

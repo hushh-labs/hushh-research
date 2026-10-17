@@ -21,6 +21,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { ScopeCommerceHostedReturn } from "@/components/consent/scope-commerce-hosted-return";
 
 /**
  * OneAuthGate - conditionally applies the vault + phone + onboarding guards to
@@ -58,7 +59,6 @@ const AUTH_ONLY_ROUTE_PREFIXES = [
   // including disconnected onboarding. Schedule reads verify Firebase plus the
   // active Calendar OAuth grant; attendance mutations still require owner HCT.
   ROUTES.CALENDAR,
-  ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
 ] as const;
 
 function isAuthOnlyRoute(pathname: string): boolean {
@@ -113,14 +113,17 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
   // VaultLockGuard is unmounted while the gate is redirecting.
   const funnelObserver = <LocationFunnelObserver />;
 
-  // Only the exact OAuth return shell owns its Firebase readiness and safe
-  // failed-session UI. Do not gate it on a vault key absent in a new popup,
-  // or forward its code/state through a login/phone redirect. Completion is
-  // still server-checked against the original Vault-authorized attempt. The
-  // legacy full-page callback applies its own VaultLockGuard inside the page.
+  // These exact callback/approval shells own their Firebase readiness and safe
+  // failed-session UI. Do not forward their state through login redirects.
+  // Device approval remains authenticated by its API; its page verifies setup.
+  // Connector completion remains bound to the original authorized attempt.
   if (
     normalizeStaticExportPathname(pathname ?? "") ===
-    ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN
+      ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN ||
+    normalizeStaticExportPathname(pathname ?? "") ===
+      ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE ||
+    normalizeStaticExportPathname(pathname ?? "") ===
+      ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN
   ) {
     return <>{children}</>;
   }
@@ -148,7 +151,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return (
+  const guardedContent = (
     <>
       {funnelObserver}
       <VaultLockGuard>
@@ -157,4 +160,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
       </VaultLockGuard>
     </>
   );
+  return [ROUTES.PROFILE_ACCOUNT, ROUTES.PROFILE_PAYOUTS].some(route => route === normalizeStaticExportPathname(pathname ?? ""))
+    ? <ScopeCommerceHostedReturn fallback={guardedContent} />
+    : guardedContent;
 }

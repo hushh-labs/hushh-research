@@ -31,7 +31,9 @@ stylesheet and font the spec reads from disk. Its nightly backstop on main
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from functools import cache
 from pathlib import Path
 
@@ -113,7 +115,12 @@ GLOB_CHARS = set("*?[")
 IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']"""
 )
+EDITOR_TYPE_DECLARATION_RE = re.compile(
+    r"""\b(?:import\s+type\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)|export\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?))\s+from\s*["'][^"']+["']\s*;?"""
+)
 CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
+
+
 RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json")
 
 
@@ -133,6 +140,89 @@ class _Filter:
 
 def _load_workflow(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "first_error,first_code,second_code,expected_calls,expected_code",
+    [
+        ("", 0, 0, 1, 0),
+        ("collision", 74, 0, 2, 0),
+        ("collision-prefixed", 74, 0, 2, 0),
+        ("collision", 74, 74, 2, 74),
+        ("collision", 65, 0, 1, 65),
+        ("checksum", 74, 0, 1, 74),
+        ("foreign-cache", 74, 0, 1, 74),
+        ("collision-and-checksum", 74, 0, 1, 74),
+        ("collision-and-error", 74, 0, 1, 74),
+        ("collision-same-line-checksum", 74, 0, 1, 74),
+        ("collision-same-line-signature", 74, 0, 1, 74),
+        ("collision-same-line-error", 74, 0, 1, 74),
+    ],
+)
+def test_actual_ios_resolve_retries_only_the_bounded_artifact_collision(
+    tmp_path, first_error, first_code, second_code, expected_calls, expected_code
+):
+    stub = tmp_path / "xcodebuild"
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "root = pathlib.Path(os.environ['RUNNER_TEMP'])\n"
+        "calls = root / 'calls.jsonl'\n"
+        "attempt = len(calls.read_text().splitlines()) + 1 if calls.exists() else 1\n"
+        "with calls.open('a') as out: out.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "error = os.environ['RESOLVE_TEST_ERROR']\n"
+        "if attempt == 1 and error:\n"
+        "    cache = root if error != 'foreign-cache' else root / 'other'\n"
+        "    prefix = \"failed downloading 'https://example.com/framework.zip' \"\n"
+        "    prefix += \"which is required by binary target 'Framework': \"\n"
+        "    if error == 'collision-prefixed': prefix = 'error: ' + prefix\n"
+        "    if error != 'checksum':\n"
+        "        suffix = ': ' + error.rsplit('-', 1)[-1] if 'same-line' in error else ''\n"
+        "        if suffix == ': error': suffix += ': authorization refused'\n"
+        "        print(prefix + str(cache / 'spm-cache/artifacts/framework_zip') "
+        "+ ' already exists in file system' + suffix)\n"
+        "    if 'checksum' in error and 'same-line' not in error:\n"
+        "        print(\"checksum of downloaded artifact of binary target 'Framework' \""
+        " + 'does not match checksum specified by the manifest')\n"
+        "    if error == 'collision-and-error': print('error: authorization refused')\n"
+        "print('attempt-' + str(attempt))\n"
+        "sys.exit(int(os.environ['RESOLVE_TEST_FIRST' if attempt == 1 "
+        "else 'RESOLVE_TEST_SECOND']))\n"
+    )
+    stub.chmod(0o700)
+    step = next(
+        item
+        for item in _steps(_load_workflow(MONO_WORKFLOW_PATH), "ios-native-check")
+        if item.get("name") == "Resolve Swift package dependencies"
+    )
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail"],
+        input=step["run"],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "SPM_CACHE_HIT": "false",
+            "XCODE_PROJECT": "synthetic/App.xcodeproj",
+            "XCODE_SCHEME": "App",
+            "RESOLVE_TEST_ERROR": first_error,
+            "RESOLVE_TEST_FIRST": str(first_code),
+            "RESOLVE_TEST_SECOND": str(second_code),
+        },
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == expected_code, result.stdout + result.stderr
+    calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert len(calls) == expected_calls
+    assert all(call == calls[0] for call in calls)
+    assert calls[0][0] == "-resolvePackageDependencies"
+    for attempt in range(1, expected_calls + 1):
+        log = tmp_path / f"xcodebuild-package-resolution-{attempt}.log"
+        assert f"attempt-{attempt}" in log.read_text()
 
 
 def _steps(workflow: dict, job: str) -> list[dict]:
@@ -287,6 +377,7 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     # 'components/app-ui/native-*' is a single-star glob: it must cover the
     # helpers directly under app-ui and must not silently widen to subtrees.
     spec = _ios_spec()
+    assert spec.match_file("scripts/ci/resolve-ios-packages.sh")
     assert spec.match_file("hushh-webapp/components/app-ui/native-route-marker.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/other-component.tsx")
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
@@ -408,7 +499,9 @@ def _editor_lane_closure() -> frozenset[str]:
         seen.add(path)
         if path.suffix in CODE_SUFFIXES:
             text = path.read_text(encoding="utf-8")
-            found = [_resolve_import(path, specifier) for specifier in IMPORT_RE.findall(text)]
+            found = [
+                _resolve_import(path, specifier) for specifier in _editor_runtime_imports(text)
+            ]
             # Read, not imported: a joined path that names a webapp file. The
             # lockfile pins node_modules, and a directory is a base, not a read.
             for arguments in PATH_JOIN_RE.findall(text):
@@ -425,6 +518,29 @@ def _editor_lane_closure() -> frozenset[str]:
             continue
         pending.extend(found_path for found_path in found if found_path is not None)
     return frozenset(path.relative_to(ROOT.resolve()).as_posix() for path in seen)
+
+
+def _editor_runtime_imports(text: str) -> list[str]:
+    # Vite/Oxc erases explicit type declarations before resolving dependencies.
+    # Keep mixed declarations conservatively, and leave the iOS graph unchanged.
+    return IMPORT_RE.findall(EDITOR_TYPE_DECLARATION_RE.sub("", text))
+
+
+def test_editor_dependency_graph_excludes_only_erased_type_declarations() -> None:
+    imports = _editor_runtime_imports("""
+        import type { Settings } from "./type-only";
+        import type Default from "./default-type";
+        export type { Settings } from "./export-type";
+        export type * from "./export-all-types";
+        import { Settings } from "./runtime";
+        import { type Settings, create } from "./mixed";
+        import "./side-effect";
+        const lazy = import("./dynamic");
+        const legacy = require("./required");
+    """)
+    assert imports == ["./runtime", "./mixed", "./side-effect", "./dynamic", "./required"]
+    # Negative control: the same edge must become required when it is a value.
+    assert _editor_runtime_imports('import { Settings } from "./type-only";') == ["./type-only"]
 
 
 def _editor_uncovered(patterns: list[str]) -> list[str]:
@@ -469,6 +585,10 @@ def test_negative_control_the_editor_check_names_a_dropped_input() -> None:
     # One input reached through a read and a directory reached through imports.
     for dropped, reported in (
         ("hushh-webapp/app/globals.css", "hushh-webapp/app/globals.css"),
+        (
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+        ),
         ("hushh-webapp/lib/morphy-ux/**", "hushh-webapp/lib/morphy-ux/"),
     ):
         assert dropped in patterns, f"pick another negative control; {dropped} left the filter"

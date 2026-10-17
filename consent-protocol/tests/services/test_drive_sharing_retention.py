@@ -94,6 +94,32 @@ async def erase(store, user_id, permanent=False):
 
 
 @pytest.mark.asyncio
+async def test_owner_erasure_removes_pricing_without_erasing_another_owner(revocation_setup):
+    from pathlib import Path
+
+    store, _, _, _, _ = revocation_setup
+    migration = (
+        Path(__file__).resolve().parents[2] / "db/migrations/293_drive_request_owner_pricing.sql"
+    )
+    with store.db.engine.begin() as connection:
+        connection.exec_driver_sql(migration.read_text(), execution_options={"no_parameters": True})
+        connection.execute(
+            text("""INSERT INTO drive_request_owner_pricing(user_id,enabled)
+          VALUES ('owner',TRUE),('recipient',TRUE)""")
+        )
+    await erase(store, "owner", permanent=True)
+    with store.db.engine.connect() as connection:
+        remaining = (
+            connection.execute(
+                text("SELECT user_id FROM drive_request_owner_pricing ORDER BY user_id")
+            )
+            .scalars()
+            .all()
+        )
+    assert remaining == ["recipient"]
+
+
+@pytest.mark.asyncio
 async def test_erasure_preserves_confirmed_delivery_for_paid_obligation(revocation_setup):
     store, _, _, _, request_id = revocation_setup
     with store.db.engine.begin() as connection:
@@ -109,11 +135,21 @@ async def test_erasure_preserves_confirmed_delivery_for_paid_obligation(revocati
             {"request": request_id},
         )
     await erase(store, "recipient")
-    obligation = rows(store, "drive_request_payment_obligations")[0]
+    with store.db.engine.connect() as connection:
+        obligation = (
+            connection.execute(text("SELECT * FROM drive_request_payment_obligations"))
+            .mappings()
+            .one()
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
     assert obligation["erased_at"] is not None
     assert obligation["delivery_confirmed_at_erasure"] is True
     assert obligation["reconciliation_required"] is False
-    assert rows(store, "drive_request_payment_orders") == []
 
 
 @pytest.mark.asyncio
@@ -138,7 +174,12 @@ async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_set
             {"request": request_id, "mode": stored_mode},
         )
     await erase(store, "owner")
-    obligation = rows(store, "drive_request_payment_obligations")[0]
+    with store.db.engine.connect() as connection:
+        obligation = (
+            connection.execute(text("SELECT * FROM drive_request_payment_obligations"))
+            .mappings()
+            .one()
+        )
     assert obligation["delivery_unsettled_at_erasure"] is True
     assert obligation["reconciliation_required"] is True
     assert obligation["stripe_mode"] == stored_mode

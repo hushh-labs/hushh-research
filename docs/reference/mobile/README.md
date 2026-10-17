@@ -36,8 +36,16 @@ each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-Native controls are hidden and accessibility-isolated under mounted shared
-overlays, session/vault gates, the keyboard and the native privacy shield.
+The recovery wrapper hides native bottom navigation under mounted shared
+overlays and the keyboard. Profile and History remain full-height React
+drawers; custom dock, shell controls and selectors select React before first
+paint. Experimental reserved-region and asynchronous native-clipping paths
+are disabled together, not accepted presentation-continuity mechanisms.
+See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for the current renderer scope, qualification-only native composition study
+and separate physical evidence. Session/vault
+gates, keyboard navigation hiding and the full-window privacy shield retain
+their concealment contracts.
 The native bar and web voice slot stay pinned together without per-frame
 bridge traffic. The DOM reservation excludes the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not
@@ -62,6 +70,20 @@ Native checks have two deliberately separate lanes:
 - `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
 The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate or rerender an already-unlocked session.
+
+For an iPhone Debug reviewer preparation that must use Passphrase rather than
+the account's default quick unlock, launch once with `-UITestMode`,
+`-UITestResetAppState false`, `-UITestAutoReviewerLogin false` and
+`-UITestRunUiFlows false`. All four belong together: test mode alone defaults
+to resetting app state. Omit initial-route, expected-user and app credential
+injection; preserve the existing sign-in and verify its owner before the
+normal XCUI Unlock action. The existing test bridge selects the passphrase
+surface without authenticating it. Resolve the authorized credential into
+runner memory only. This launch is preparation, not continuity evidence;
+subsequent attach-only tests do not relaunch, reset or sign out. Ordinary
+users' default methods are unchanged. Follow
+[physical reviewer preflight](../../../.codex/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
+for device authorization and artifact handling.
 
 ## Native Authentication Settlement
 
@@ -207,10 +229,27 @@ substituted for one another:
 - Physical-device tests use a separately authorised test session and terminate
   their launched app even when an XCTest assertion fails.
 
+The anonymous account-recovery CI smoke leaves final termination to its host.
+`hushh-webapp/scripts/native/ios-simulator-cleanup.py` requires an explicit simulator UUID,
+bounds termination and process checks, and verifies absence of the exact app's
+launchd label or a freshly observed shutdown of that exact simulator. A failed
+inventory query records timeout, refusal, or invalid output separately; missing,
+duplicate, transitioning or unavailable device state cannot prove absence.
+The existing cold-audit wrapper uses the same helper. Test failure
+remains failure; successful assertions with unverified cleanup also fail. This
+proves app-process absence only, not cleanup of every WebKit child or XCTest
+runner. Direct invocations of that smoke must run the same host cleanup.
+
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
-and a pinned id fails only after a full build. Interactive runs resolve a
-concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+and a pinned id fails only after a full build. Simulator launches resolve a
+concrete device at launch time. The compatibility command
+`APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
+`.codex/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+native environment resolver. It keeps Simulator in the background, bounds boot
+readiness to 120 seconds, and verifies the bundled backend before installation.
+Its historical default remains UAT; select dev explicitly for private-branch work.
+Authenticated rehearsal follows the reviewer workflow and is separate from launch proof.
 A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its

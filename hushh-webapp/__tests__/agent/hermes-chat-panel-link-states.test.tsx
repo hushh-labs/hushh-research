@@ -27,7 +27,9 @@ vi.mock("@/lib/hermes/use-puppy-link", () => ({
 }));
 
 vi.mock("@/components/agent/puppy-model-picker", () => ({
-  PuppyModelPicker: () => null,
+  PuppyModelPicker: ({ currentModel }: { currentModel?: string }) => (
+    <button title="Choose machine model">{currentModel}</button>
+  ),
 }));
 
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
@@ -341,12 +343,13 @@ describe("HermesChatPanel when the bridge is not connected", () => {
     ).toBeTruthy();
   });
 
-  it("leaves the bridge's own pill alone when the bridge is connected", async () => {
+  it("shows the connected bridge's model once in its picker", async () => {
     await mount(
       link({ state: "unlinked" }),
       { connected: true, model: "gemma-4-26b-a4b-qat" },
     );
-    expect(await screen.findByText("gemma-4-26b-a4b-qat")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "gemma-4-26b-a4b-qat" })).toBeInTheDocument();
+    expect(screen.getAllByText("gemma-4-26b-a4b-qat")).toHaveLength(1);
     expect(screen.queryByText(/isn't connected to your account/)).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Ask Puppy One…")).not.toBeDisabled();
   });

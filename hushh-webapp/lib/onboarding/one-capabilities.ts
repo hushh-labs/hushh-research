@@ -1,4 +1,3 @@
-
 import { MessageCircle, type LucideIcon } from "@/components/icons";
 
 import {
@@ -13,10 +12,12 @@ import {
   ConsentAgentIcon,
   MarketplaceAgentIcon,
   CrmAgentIcon,
+  FolderRowIcon,
 } from "@/components/icons/agents";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
@@ -96,7 +97,7 @@ export interface OneCapability {
    * marketplace preview).
    *
    * This is a CONTRACT, not a comment: ids must exist in the backend
-   * SPECIALIST_A2A_SCOPE_MAP and are enforced by
+   * authored product manifests and are enforced by
    * consent-protocol/scripts/verify_agent_hierarchy_contract.py.
    */
   agentId: string | null;
@@ -115,7 +116,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
-  availability?: "enabled" | "paused" | "local-only";
+  availability?: "enabled" | "paused" | "local-only" | "development-only";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -292,6 +293,20 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     isExploreOnly: true,
   },
   {
+    id: "files",
+    agentId: "agent_files",
+    title: "Files",
+    description: "Store and organize your encrypted files.",
+    href: ROUTES.ONE_FILES,
+    icon: customCapabilityIcon(FolderRowIcon),
+    tone: "pkm",
+    group: "memory",
+    requiresVault: true,
+    // Match the specialist's authored rollout; workspace admission still
+    // verifies placement, unlocked ownership, installed capability and analysis consent.
+    availability: "development-only",
+  },
+  {
     id: "marketplace",
     // Preview surface only today; no roster agent behind it.
     agentId: null,
@@ -377,12 +392,20 @@ export function getOneCapability(id: string): OneCapability | undefined {
 // Tailwind's static content scanner can find and generate each utility.
 export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
 
-export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
+export function isOneCapabilityEnabled(
+  capability: OneCapability | string | undefined | null,
+): boolean {
   const resolved =
     typeof capability === "string" ? getOneCapability(capability) : capability;
-  if (!resolved || resolved.id === "marketplace" || resolved.availability === "paused") {
+  if (
+    !resolved ||
+    resolved.id === "marketplace" ||
+    resolved.availability === "paused"
+  ) {
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  if (resolved.availability === "development-only")
+    return resolveAppEnvironment() === "development";
   return true;
 }

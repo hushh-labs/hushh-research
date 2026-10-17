@@ -8,12 +8,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.services.google_calendar_service import get_google_calendar_service
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_firebase, hub_content_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/calendar", tags=["One Calendar"])
@@ -95,7 +96,7 @@ def _http(exc: Exception) -> HTTPException:
 
 @router.post("/connect/start")
 async def start_connect(
-    payload: CalendarConnectStart, firebase_uid: str = Depends(require_firebase_auth)
+    payload: CalendarConnectStart, firebase_uid: str = Depends(hub_content_firebase)
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
@@ -112,7 +113,7 @@ async def start_connect(
 
 @router.post("/connect/complete")
 async def complete_connect(
-    payload: CalendarConnectComplete, firebase_uid: str = Depends(require_firebase_auth)
+    payload: CalendarConnectComplete, firebase_uid: str = Depends(hub_content_firebase)
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
@@ -132,7 +133,7 @@ async def complete_connect(
 @router.post("/connect/native/start")
 async def start_native_connect(
     payload: CalendarNativeConnectStart | None = None,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(hub_content_firebase),
 ):
     try:
         return await get_google_connection_service().start_native(
@@ -150,7 +151,7 @@ async def start_native_connect(
 @router.post("/connect/native/complete")
 async def complete_native_connect(
     payload: CalendarNativeConnectComplete,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(hub_content_firebase),
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
@@ -188,7 +189,7 @@ async def disconnect(
 
 
 @router.post("/events")
-async def events(payload: CalendarRange, token: dict = Depends(require_vault_owner_token)):
+async def events(payload: CalendarRange, token: dict = Depends(hub_content_owner)):
     try:
         return await get_google_calendar_service().list_events(
             user_id=token["user_id"], start_at=payload.start_at, end_at=payload.end_at
@@ -198,7 +199,7 @@ async def events(payload: CalendarRange, token: dict = Depends(require_vault_own
 
 
 @router.post("/availability")
-async def availability(payload: CalendarRange, token: dict = Depends(require_vault_owner_token)):
+async def availability(payload: CalendarRange, token: dict = Depends(hub_content_owner)):
     try:
         return await get_google_calendar_service().freebusy(
             user_id=token["user_id"],
@@ -211,7 +212,7 @@ async def availability(payload: CalendarRange, token: dict = Depends(require_vau
 
 
 @router.post("/proposals")
-async def proposal(payload: CalendarProposal, token: dict = Depends(require_vault_owner_token)):
+async def proposal(payload: CalendarProposal, token: dict = Depends(hub_content_owner)):
     verify_user_id_match(token["user_id"], payload.user_id)
     try:
         return await get_google_calendar_service().propose(
@@ -224,7 +225,7 @@ async def proposal(payload: CalendarProposal, token: dict = Depends(require_vaul
 
 
 @router.post("/proposals/execute")
-async def execute(payload: CalendarExecute, token: dict = Depends(require_vault_owner_token)):
+async def execute(payload: CalendarExecute, token: dict = Depends(hub_content_owner)):
     verify_user_id_match(token["user_id"], payload.user_id)
     try:
         return await get_google_calendar_service().execute(

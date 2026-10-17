@@ -150,7 +150,7 @@ async def claim(user_id, consent_token, token):
         row = await conn.fetchrow(
             """SELECT * FROM pwm_claim_invitations WHERE token_hash=$1
             AND (contact_commitment=ANY($2::text[]) OR secondary_contact_commitment=ANY($2::text[]))
-            AND expires_at>NOW()
+            AND expires_at>clock_timestamp()
             AND inviter_user_id<>$3 FOR UPDATE""",
             token_hash,
             commitments,

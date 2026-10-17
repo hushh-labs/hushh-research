@@ -17,6 +17,11 @@ import yaml
 from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
+from tests._deploy_contract import (
+    backend_deploy_script,
+    managed_vertex_probe_script,
+    managed_vertex_probe_surface,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,15 +72,14 @@ def test_email_auth_release_admits_only_supported_enabled_backends(
 
 @pytest.mark.parametrize("environment", ["uat", "production", "dev"])
 def test_email_auth_secret_bindings_are_uat_only(environment):
-    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    body = next(step["args"][1] for step in build["steps"] if step["id"] == "deploy-backend")
+    body = backend_deploy_script()
     source = next(line.strip() for line in body.splitlines() if "source deploy/email-auth/" in line)
     source = source.replace("${_DEPLOY_ENV}", environment)
     result = subprocess.run(  # noqa: S603 - authored helper with synthetic environment
         [
             shutil.which("bash") or "bash",
             "-c",
-            'add_secret() { echo "$1=$2"; }; ' + source,
+            'append_optional_secret() { echo "$1=$2"; }; ' + source,
         ],
         cwd=REPO_ROOT,
         env=os.environ,
@@ -188,6 +192,37 @@ def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
+def _backend_deploy() -> str:
+    return _read("scripts/deploy/backend-deploy.sh")
+
+
+def _container_worker_count(tmp_path: Path, worker_count: str | None = None) -> int:
+    """Exercise the real Docker shell entrypoint without starting a server."""
+    executable = tmp_path / "gunicorn"
+    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    executable.chmod(0o700)
+    command = next(
+        line
+        for line in _read("consent-protocol/Dockerfile").splitlines()
+        if line.startswith("CMD ")
+    )
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]}
+    env.pop("WEB_CONCURRENCY", None)
+    if worker_count is not None:
+        env["WEB_CONCURRENCY"] = worker_count
+    result = subprocess.run(  # noqa: S603 - authored entrypoint, hermetic fake Gunicorn
+        json.loads(command[4:]), env=env, capture_output=True, text=True, check=True
+    )
+    arguments = result.stdout.splitlines()
+    return int(arguments[arguments.index("-w") + 1])
+
+
+def test_backend_container_honors_governed_worker_count(tmp_path: Path) -> None:
+    # Regression: dev declared one worker but the entrypoint launched two,
+    # doubling its database connection budget and process-local listeners.
+    assert _container_worker_count(tmp_path, "1") == 1
+
+
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
     tmp_path: Path,
 ) -> None:
@@ -198,9 +233,12 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         i for i, step in enumerate(steps) if step.get("id") == "verify-azure-pwm-runtime"
     )
     assert probe_index == deploy_index + 1
-    assert probe_index < next(
-        i for i, step in enumerate(steps) if step.get("id") == "verify-managed-vertex-runtime"
+    assert (
+        next(i for i, step in enumerate(steps) if step.get("id") == "verify-managed-vertex-runtime")
+        < deploy_index
+        < probe_index
     )
+    assert steps[probe_index]["waitFor"] == ["deploy-backend"]
     probe = steps[probe_index]["args"][-1]
     assert "execution_name" in probe and "--clear-secrets" in probe
 
@@ -453,7 +491,8 @@ def test_initial_contacts_source_change_requires_paired_scope_before_builds(
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
+    backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -463,8 +502,8 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
     assert (
-        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
-        in backend_build
+        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n  cmd+=("--no-traffic")'
+        in backend_deploy
     )
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
     assert (
@@ -476,7 +515,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     """Drive-only credentials are opt-in UAT bindings, never generic fallbacks."""
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     names = (
         "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
         "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
@@ -499,7 +538,7 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
 
 def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     """Existing paid-required requests still need Checkout and signed webhooks."""
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     for lane in ("dev", "production"):
         workflow = _read(f".github/workflows/deploy-{lane}.yml")
         assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
@@ -573,21 +612,24 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
                 )
                 assert selected.stdout.splitlines() == expected
 
+    backend_deploy = _backend_deploy()
+    secret_mounts = _read("scripts/deploy/scope-commerce-secrets.sh")
     # The build binds optional existing secrets, but refuses an enabled
     # new-request rollout unless both names resolve in the deploy project.
     assert (
         '"${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"'
-        in backend_build
+        in backend_deploy
     )
     assert (
         'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
-        in backend_build
+        in backend_deploy
     )
-    assert 'add_secret "${!v}" "${n}"' in backend_build
-    assert "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET" in backend_build
-    assert "STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY" in backend_build
-    assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_build
-    assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_build
+    for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET"):
+        assert f'append_optional_secret "${{_{name}_SECRET}}" "{name}"' in secret_mounts
+    assert "/scope-commerce-secrets.sh" in backend_deploy
+    assert "append_payment_provider_secrets" in backend_deploy
+    assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_deploy
+    assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_deploy
     assert '_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""' in backend_build
 
 
@@ -595,7 +637,7 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
     """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
     uat = _read(".github/workflows/deploy-uat.yml")
     production = _read(".github/workflows/deploy-production.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     uat_worker = _read("deploy/drive/deploy_worker_service.sh")
     production_worker = _read("deploy/drive/deploy_worker_service_prod.sh")
 
@@ -604,10 +646,10 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
     assert f"_{flag}={uat_variable}" in uat
     assert f"DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: {uat_variable}" in uat
     assert f'_{flag}: "false"' in backend_build
-    runtime_env_loops = re.findall(r"for n in ([^;\n]+); do", backend_build)
-    assert any({flag, "STRIPE_MODE"}.issubset(loop.split()) for loop in runtime_env_loops)
-    assert 'add_env "${n}" "${!v}"' in backend_build
-    assert f'"_{flag}=${{_{flag}}}"' in backend_build
+    backend_deploy = _backend_deploy()
+    for name in (flag, "STRIPE_MODE"):
+        assert f'append_optional_env "{name}" "${{_{name}}}"' in backend_deploy
+    assert f"owner_payouts_enabled=${{_{flag}}}" in backend_build
     assert f"{flag}=${{DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}}" in uat_worker
     assert '"${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true"' in uat_worker
     assert f"_{flag}=" not in production
@@ -616,11 +658,14 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
+    backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_build
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_deploy
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_deploy
+    assert '"--memory=${_CLOUD_RUN_MEMORY}"' in backend_deploy
+    assert '"_CLOUD_RUN_MEMORY=${_CLOUD_RUN_MEMORY}"' in backend_build
     assert "_CLOUD_RUN_CPU=2" in workflow
     assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
 
@@ -684,7 +729,7 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     assert load_profile("uat")["text_locations"] == ["global"]
@@ -734,11 +779,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
-    backend_build = next(
-        step["args"][-1]
-        for step in yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    backend_build = managed_vertex_probe_script()
     deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
@@ -750,11 +791,7 @@ def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
 
 
 def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
-    backend_build = next(
-        step["args"][-1]
-        for step in yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    backend_build = managed_vertex_probe_script()
     deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
@@ -766,48 +803,52 @@ def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
 
 
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
 
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
     assert "gcloud services describe" not in backend_build
 
 
+def _vertex_preflight_script(preflight: str) -> str:
+    start = preflight.index("gcloud iam service-accounts describe")
+    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
+    decision = preflight[start:end]
+    return (
+        """set -euo pipefail
+    gcloud() {
+      printf 'CALL:%s\\n' "$*" >&2
+      if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
+      if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
+      if [[ "$1 $2" == "services list" ]]; then
+    printf 'aiplatform.googleapis.com\\n'
+      elif [[ "$*" == *roles/aiplatform.user* ]]; then
+    printf 'roles/aiplatform.user\\n'
+      elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
+    printf 'roles/serviceusage.serviceUsageConsumer\\n'
+      else
+    return 8
+      fi
+    }
+    """
+        + decision
+    )
+
+
 def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
     preflight = next(step["args"][-1] for step in steps if step.get("id") == "verify-runtime-iam")
-    probe = next(
-        step["args"][-1] for step in steps if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    probe = managed_vertex_probe_script()
     step_ids = [step.get("id") for step in steps]
     assert step_ids.index("verify-runtime-iam") < step_ids.index("deploy-backend")
-    assert step_ids.index("deploy-backend") < step_ids.index("verify-managed-vertex-runtime")
+    assert step_ids.index("verify-managed-vertex-runtime") < step_ids.index("deploy-backend")
+    deploy = next(step for step in steps if step.get("id") == "deploy-backend")
+    assert "verify-managed-vertex-runtime" in deploy["waitFor"]
 
     # Execute the actual preflight decision with a fake build-principal gcloud.
     # Cross-project discovery is denied, as it is in the UAT Cloud Build account.
-    start = preflight.index("gcloud iam service-accounts describe")
-    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
-    decision = preflight[start:end]
-    script = (
-        """set -euo pipefail
-gcloud() {
-  printf 'CALL:%s\\n' "$*" >&2
-  if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
-  if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
-  if [[ "$1 $2" == "services list" ]]; then
-    printf 'aiplatform.googleapis.com\\n'
-  elif [[ "$*" == *roles/aiplatform.user* ]]; then
-    printf 'roles/aiplatform.user\\n'
-  elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
-    printf 'roles/serviceusage.serviceUsageConsumer\\n'
-  else
-    return 8
-  fi
-}
-"""
-        + decision
-    )
+    script = _vertex_preflight_script(preflight)
 
     def run_case(
         deploy_env: str,
@@ -886,6 +927,10 @@ gcloud() {
     assert static.returncode == 0, static.stderr
     assert static.stderr.count("CALL:projects get-iam-policy") == 2
 
+    _assert_vertex_candidate_probe(probe)
+
+
+def _assert_vertex_candidate_probe(probe: str) -> None:
     # Deferral is safe only while the exact runtime account probes the pinned
     # candidate image and positive chat/voice verdicts precede any advisory exit.
     assert '--service-account="${_RUNTIME_SERVICE_ACCOUNT}"' in probe
@@ -901,7 +946,7 @@ gcloud() {
         assert probe.index(required) < advisory
 
 
-def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
+def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Path) -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
     assert dispatch["inputs"]["skip_managed_vertex_probe_once"]["default"] is False
@@ -948,6 +993,42 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
     assert "release-tools/backend.cloudbuild.yaml" in checkout["run"]
     for step in (preserve, checkout):
         assert '"${{ inputs.skip_managed_vertex_probe_once }}" == "true"' in step["run"]
+    tools = (
+        "deploy/backend.cloudbuild.yaml",
+        "scripts/deploy/backend-deploy.sh",
+        "scripts/deploy/verify-managed-vertex-runtime.sh",
+        "scripts/deploy/commerce-preview-bindings.sh",
+        "scripts/deploy/backend-model-settings.sh",
+        "scripts/deploy/backend-drive-secret-settings.sh",
+        "scripts/deploy/scope-commerce-secrets.sh",
+        "deploy/email-auth/bind_secrets.sh",
+        "deploy/sso/bind_workos.sh",
+    )
+    (tmp_path / "runner/release-tools").mkdir(parents=True)
+    for tool in tools:
+        path = tmp_path / tool
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("current:" + tool)
+    for index, step in enumerate((preserve, checkout)):
+        script = step["run"]
+        start = script.index('if [[ "${{ inputs.skip_managed_vertex_probe_once }}"')
+        section = script[start : script.index("\nfi", start) + 3].replace(
+            "${{ inputs.skip_managed_vertex_probe_once }}", "true"
+        )
+        result = subprocess.run(  # noqa: S603 - authored workflow, synthetic paths only.
+            ["bash", "-euc", section],
+            cwd=tmp_path,
+            env={**os.environ, "RUNNER_TEMP": str(tmp_path / "runner")},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        if index == 0:
+            for tool in tools:
+                (tmp_path / tool).unlink()
+            (tmp_path / "deploy/sso/bind_workos.sh").write_text("old incompatible helper")
+    assert all((tmp_path / tool).read_text() == "current:" + tool for tool in tools)
     backend = next(step for step in deploy if step.get("id") == "deploy-backend")
     assert (
         "##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
@@ -956,11 +1037,14 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
 
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     assert build["substitutions"]["_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE"] == "false"
-    probe = next(
-        step["args"][-1]
-        for step in build["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
+    probe_step = next(
+        step for step in build["steps"] if step.get("id") == "verify-managed-vertex-runtime"
     )
+    assert (
+        "_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
+        in probe_step["env"]
+    )
+    probe = managed_vertex_probe_script()
     assert "one-time UAT Vertex probe skip" in probe
     assert probe.index("one-time UAT Vertex probe skip") < probe.index(
         'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in'
@@ -1010,12 +1094,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
 
 
 def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
-    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    probe = next(
-        step["args"][-1]
-        for step in build["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    probe = managed_vertex_probe_script()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
@@ -1110,7 +1189,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
 
     assert '--command="python3"' in backend_build
     assert '--command="python"' not in backend_build
@@ -1123,7 +1202,7 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 
 
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
         "dev": "hushh-gemini-bridge",
         "uat": "hushh-gemini-bridge",
@@ -1135,13 +1214,13 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
         )
     assert "Managed AI profile hash mismatch." in backend_build
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
-    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
-    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in _backend_deploy()
+    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in _backend_deploy()
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
 def test_one_chat_uses_central_project_and_verified_profile() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     workflow = _read(".github/workflows/deploy-uat.yml")
     assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=" not in workflow
@@ -1157,7 +1236,7 @@ def test_one_chat_uses_central_project_and_verified_profile() -> None:
 
 
 def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     for env in ("dev", "uat", "production"):
         workflow = _read(f".github/workflows/deploy-{env}.yml")
@@ -1200,12 +1279,12 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
 
 
 def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
-    assert "ONE_VOICE_CALENDAR_NARRATION_ENABLED" in backend_build
+    assert "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED}" in backend_build
     assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" in uat_workflow
     assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" not in production_workflow
 
@@ -1219,7 +1298,7 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     """
     from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
 
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     dev_workflow = _read(".github/workflows/deploy-dev.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
@@ -1258,9 +1337,13 @@ def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() 
     production_workflow = _read(".github/workflows/deploy-production.yml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
-    # Background warmups need CPU outside requests on every lane.
-    assert '"--no-cpu-throttling"' in backend_build
+    backend_build = managed_vertex_probe_surface()
+    # The Cloud Build wrapper delegates deployment to the canonical script.
+    assert "scripts/deploy/backend-deploy.sh" in backend_build
+    backend_deploy = _read("scripts/deploy/backend-deploy.sh")
+    command = backend_deploy.split("cmd=(", 1)[1].split("\n)", 1)[0]
+    # Background warmups need CPU outside requests on every shared lane.
+    assert '"--no-cpu-throttling"' in command
 
     for setting in (
         "_CLOUD_RUN_CPU=2",
@@ -1289,22 +1372,24 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
-def test_hosted_backend_bounds_database_connection_fanout() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
+    backend_build = managed_vertex_probe_surface()
+    backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
-    assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_build
-    assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_build
-    assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
-    assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
+    assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_deploy
+    assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_deploy
+    assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_deploy
+    assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_deploy
     assert (
-        'add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"' in backend_build
+        'append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"'
+        in backend_deploy
     )
-    assert 'add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
-    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
-    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
-    assert '"--min-instances=0"' in backend_build
+    assert 'append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_deploy
+    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_deploy
+    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_deploy
+    assert '"--min-instances=0"' in backend_deploy
     assert '_DB_POOL_MIN_SIZE: "1"' in backend_build
     assert '_DB_POOL_MAX_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
@@ -1315,10 +1400,7 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # worker count from the image rather than hardcoding it: raising -w without
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
-    dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
-    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
-    gunicorn_workers = int(worker_flag.group(1))
+    gunicorn_workers = _container_worker_count(tmp_path)
     assert gunicorn_workers == 2
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow

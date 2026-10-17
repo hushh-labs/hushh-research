@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
 
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
@@ -186,6 +186,7 @@ export function navigateGmailOAuthPopup(
   popup: Window,
   authorizeUrl: string,
 ): void {
+  assertOAuthReturnOrigin(authorizeUrl);
   popup.location.replace(authorizeUrl);
 }
 

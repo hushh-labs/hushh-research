@@ -183,15 +183,18 @@ elif args[:2] == ["logging", "read"]:
     try:
         timestamp_valid = (timestamp_value.startswith('"')
                            and timestamp_value.endswith('"')
-                           and datetime.strptime(timestamp_value[1:-1],
-                                                 "%Y-%m-%dT%H:%M:%SZ").strftime(
+                           and datetime.fromisoformat(timestamp_value[1:-1]).strftime(
                                "%Y-%m-%dT%H:%M:%SZ") == timestamp_value[1:-1])
     except ValueError:
         timestamp_valid = False
     if not timestamp_valid or not job or "--format=json" not in args:
         print("invalid Cloud Logging filter or output format", file=sys.stderr)
         sys.exit(76)
-    if job == os.environ.get("MOCK_MISSING_LOG_JOB"):
+    reads = state.setdefault("log_reads", {})
+    reads[job] = reads.get(job, 0) + 1
+    save()
+    if (job == os.environ.get("MOCK_MISSING_LOG_JOB")
+        or (job == os.environ.get("MOCK_DEFER_LOG_JOB") and reads[job] == 1)):
         print("[]")
     elif job in state.get("triggered", []):
         url = jobs[job]["httpTarget"]["uri"]
@@ -274,6 +277,9 @@ def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
         (True, '"2026-09-23T00:00:00Z"', True, True),
         (True, "2026-09-23T00:00:00Z", True, False),
         (True, '"not-a-time"', True, False),
+        (True, '"2026-02-30T00:00:00Z"', True, False),
+        (True, '"2026-09-23T00:00:00+00:00"', True, False),
+        (True, '"2026-09-23T00:00:00.123Z"', True, False),
         (False, '"2026-09-23T00:00:00Z"', True, False),
         (True, '"2026-09-23T00:00:00Z"', False, False),
     ],
@@ -397,6 +403,28 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
+def _release_probe_binaries(tmp_path: Path) -> Path:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
+        executable = fake_bin / name
+        executable.write_text(source, encoding="utf-8")
+        executable.chmod(0o755)
+    fake_sleep = fake_bin / "sleep"
+    fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_sleep.chmod(0o755)
+    # Exercise retry and exhaustion with two observations, rather than launching
+    # the same verifier 55 times. Production's 55-attempt request stays checked.
+    fake_seq = fake_bin / "seq"
+    fake_seq.write_text(
+        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = 1 ] && [ "$2" = 55 ] || exit 77\n'
+        "printf '1\\n2\\n'\n",
+        encoding="utf-8",
+    )
+    fake_seq.chmod(0o755)
+    return fake_bin
+
+
 @pytest.mark.parametrize(
     ("processing_enabled", "log_failure", "all_jobs_present"),
     [
@@ -415,20 +443,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     all_jobs_present: bool,
     wrong_scanner_child: bool,
 ):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
-        executable = fake_bin / name
-        executable.write_text(source, encoding="utf-8")
-        executable.chmod(0o755)
-    fake_sleep = fake_bin / "sleep"
-    fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    fake_sleep.chmod(0o755)
-    # Verify repeated log refusal and rollback without 55 identical subprocesses.
-    # The production polling budget and this fixture's watchdog stay unchanged.
-    fake_seq = fake_bin / "seq"
-    fake_seq.write_text("#!/bin/sh\nprintf '1\\n2\\n'\n", encoding="utf-8")
-    fake_seq.chmod(0o755)
+    fake_bin = _release_probe_binaries(tmp_path)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     initial_jobs = {"drive-work-drain-uat": original_document}
     if all_jobs_present:
@@ -457,6 +472,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             "MOCK_TERMINATE_AFTER_SETUP": "false",
             "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if log_failure == "wrong_url" else "",
             "MOCK_MISSING_LOG_JOB": "drive-work-sharing-uat" if log_failure == "missing" else "",
+            "MOCK_DEFER_LOG_JOB": "drive-work-sharing-uat" if log_failure == "none" else "",
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
             "MOCK_CLAMAV_IMAGE": (
                 WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
@@ -503,6 +519,11 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
+    assert state["log_reads"] == {
+        "drive-work-drain-uat": 1,
+        "drive-work-suggestions-uat": 1,
+        "drive-work-sharing-uat": 2,
+    }
     if log_failure != "none":
         assert result.returncode != 0
         assert "drive-work-sharing-uat produced no fresh 200" in output

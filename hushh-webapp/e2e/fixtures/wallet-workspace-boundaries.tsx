@@ -5,6 +5,7 @@ import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
 // card, and nothing leaves the page. The scenario is read from
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
+import type { WalletCardPayload } from "../../lib/services/wallet-card-service";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
 import type { CardSharingHistory, CardSharingHistoryItem } from "../../lib/services/wallet-card-access-service";
@@ -30,6 +31,7 @@ type Scenario = {
   locked?: boolean;
   delayMs?: number;
   error?: boolean;
+  profile?: WalletCardPayload;
   artworkGallery?: boolean;
   sharingHistory?: boolean;
   revokeFailure?: boolean;
@@ -301,7 +303,7 @@ export const ApiService = {
     } : requestPath.startsWith("/api/one/wallet-card") ? {
       card: {
         pass_serial: "fixture-wallet-0001", status: "active", share_token_version: profileQrRotated ? 2 : 1,
-        card_payload: { full_name: "Alex Rivera", username: "alex.rivera" },
+        card_payload: { full_name: "Alex Rivera", username: "alex.rivera", ...scenario().profile },
         display_name: "Alex Rivera", created_at: "2026-01-01T00:00:00Z",
         updated_at: "2026-09-01T10:00:00Z", scan_count: profileQrRotated ? 0 : 3,
         last_scanned_at: profileQrRotated ? null : "2026-09-01T09:00:00Z",

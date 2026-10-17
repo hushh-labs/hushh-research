@@ -1740,9 +1740,12 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     assert item["amount_decimal"] == "42.1"
     locator = item["durable_source_ref"]
     assert locator.startswith("grs1_") and "private-provider-id" not in locator
-    assert "private-provider-id".encode() not in base64.urlsafe_b64decode(
-        locator[5:] + "=" * (-len(locator[5:]) % 4)
-    )
+    sealed = base64.urlsafe_b64decode(locator[5:] + "=" * (-len(locator[5:]) % 4))
+    assert "private-provider-id".encode() not in sealed
+    # Flip authenticated bytes; trailing Base64 edits can preserve ciphertext.
+    tampered = bytearray(sealed)
+    tampered[-1] ^= 1
+    tampered_locator = "grs1_" + base64.urlsafe_b64encode(tampered).decode().rstrip("=")
     detail = await service.detail(
         user_id="owner",
         source_id=locator,
@@ -1757,20 +1760,34 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
     from dataclasses import replace
 
     assert service._open_locator(replace(authority, user_id="other-owner"), locator) is None
-    for owner, handle, connection in [
-        (
-            "owner",
-            locator[:-2] + ("aa" if locator[-2:] != "aa" else "bb"),
-            "2026-10-04T00:00:00+00:00",
-        ),
-        ("owner", locator, "2026-10-13T00:00:00+00:00"),
+    for handle, connection in [
+        (tampered_locator, "2026-10-04T00:00:00+00:00"),
+        (locator, "2026-10-13T00:00:00+00:00"),
     ]:
         service._gmail.row["connected_at"] = connection
         with pytest.raises(GmailApiError) as rejected:
             await service.detail(
-                user_id=owner,
+                user_id="owner",
                 source_id=handle,
                 consent_token=TEST_CONSENT_TOKEN,
                 require_access=_allowed,
             )
         assert rejected.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+async def test_dedicated_capacity_refusal_is_busy_and_releases_owner_scan(monkeypatch):
+    service = _service([])
+    admitted = live_receipts_module.dedicated_connection
+
+    @asynccontextmanager
+    async def busy():
+        raise live_receipts_module.DedicatedConnectionCapacityError("busy")
+        yield  # pragma: no cover - context manager must refuse before yielding
+
+    monkeypatch.setattr(live_receipts_module, "dedicated_connection", busy)
+    with pytest.raises(GmailApiError) as refused:
+        await _scan(service)
+    assert refused.value.code == "GMAIL_RECEIPT_SCAN_BUSY"
+    assert refused.value.status_code == 503
+    monkeypatch.setattr(live_receipts_module, "dedicated_connection", admitted)
+    assert (await _scan(service))["items"] == []

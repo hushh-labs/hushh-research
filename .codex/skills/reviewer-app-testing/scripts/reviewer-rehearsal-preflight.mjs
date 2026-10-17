@@ -1,3 +1,4 @@
+import { resolveReviewerAuthMode } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -44,6 +45,27 @@ export async function prepareReviewerRehearsal({
   secretProject = configuredValue(process.env.REVIEWER_SECRET_PROJECT),
 } = {}) {
   const identityModule = await loadIdentityModule(repoRoot);
+  const authMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
+  if (authMode === "operator_issued_token") {
+    const origin = new URL(appOrigin);
+    if (origin.protocol !== "https:" || origin.origin !== appOrigin || !configuredValue(process.env.REVIEWER_UID)) {
+      throw new Error("Operator reviewer admission requires exact HTTPS origin and canonical UID.");
+    }
+    identityModule.resolveReviewerTestIdentity({ envFiles: [] });
+    createRequire(path.join(repoRoot, "hushh-webapp", "package.json")).resolve("playwright");
+    return { appOrigin, identitySource: "operator_issued_memory_token", authMode,
+      mutationPolicy: process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" ? "explicit_mutation_authorized" : "read_only" };
+  }
+  if (authMode === "human_authenticated") {
+    if (!configuredValue(process.env.REVIEWER_UID) ||
+        new URL(appOrigin).protocol !== "https:" || new URL(appOrigin).origin !== appOrigin) {
+      throw new Error("Human reviewer admission requires an explicit canonical UID and exact HTTPS origin.");
+    }
+    identityModule.resolveReviewerTestIdentity({ envFiles: [], requireVaultPassphrase: false });
+    createRequire(path.join(repoRoot, "hushh-webapp", "package.json")).resolve("playwright");
+    return { appOrigin, identitySource: "configured_uid_human_authentication", authMode,
+      mutationPolicy: process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" ? "explicit_mutation_authorized" : "read_only" };
+  }
   const identityOptions = {
     envFiles: identityModule.defaultReviewerIdentityEnvFiles({
       repoRoot,

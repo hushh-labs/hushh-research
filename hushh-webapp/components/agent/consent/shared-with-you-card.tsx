@@ -374,6 +374,7 @@ export function SharedWithYouCard({ person, items: rawItems, variant = "chat", c
       ...base,
       state: "ready",
       data: result.value.data,
+      modelProcessingAllowed: result.value.modelProcessingAllowed === true,
       sensitive: base.sensitive || result.value.sensitivity === "sensitive",
     };
   });

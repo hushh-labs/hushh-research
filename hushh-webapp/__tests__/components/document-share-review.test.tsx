@@ -219,9 +219,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 async function poll() {
-  await act(async () => {
-    await state.periodic.mock.lastCall?.[2]();
-  });
+  await act(async () => state.periodic.mock.lastCall?.[2]());
 }
 const agentPackage = (overrides: Record<string, unknown> = {}) => ({
   status: "ready", revision: 2, digest: "b".repeat(64), selectedCount: 4,
@@ -406,7 +404,9 @@ describe("exact-file document review", () => {
     state.status.mockResolvedValue(pending(3));
     state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true, agentPackage: agentPackage() }));
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit price" }));
+    const editPrice = await screen.findByRole("button", { name: "Edit price" });
+    await waitFor(() => expect(editPrice).toBeEnabled());
+    await act(async () => fireEvent.click(editPrice));
     expect(await screen.findByRole("dialog", { name: "Set a price" })).toBeVisible();
     await act(async () => {});
     expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();

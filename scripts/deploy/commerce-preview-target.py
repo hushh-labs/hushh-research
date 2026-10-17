@@ -123,9 +123,13 @@ class PreviewTarget:
         if any(config.get(key) != expected for key, expected in required.items()):
             raise PreviewError("preview_runtime_policy_mismatch")
         countries = config.get("scope_commerce_country_policies_json")
+        paused = (
+            config.get("scope_commerce_enabled") is False
+            and config.get("scope_commerce_provider_enabled") is False
+        )
         if (
             not isinstance(countries, dict)
-            or set(countries) != {"US"}
+            or (set(countries) != {"US"} and not (paused and countries == {}))
             or policy.get("environment") != "sandbox"
             or policy.get("reviewer_funding_cap_cents") != 2000
             or policy.get("operating_capital_cap_cents") != 2500

@@ -150,6 +150,15 @@ describe("a Consent Center row keeps its lane in the URL", () => {
     },
   );
 
+  it.each([REQUEST, "not-a-uuid"])(
+    "keeps a recognized answer row in its own lane when its prefix is missing: %s",
+    (id) => {
+      const selected = consentSelectionId({ ...answerRow("owner"), id, request_id: id });
+      expect(isAnswerRequestSelection(selected)).toBe(true);
+      expect(answerRequestId(selected)).toBe(id === REQUEST ? REQUEST : null);
+    },
+  );
+
   it("still routes the Drive lanes and the generic lane unchanged", () => {
     // Negative control: the fix must not broaden recognition. A bare
     // `request_id` remains correct for the generic consent path, and both

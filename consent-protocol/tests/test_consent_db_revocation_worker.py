@@ -180,6 +180,8 @@ async def test_get_timed_out_requests_skips_requests_already_resolved(monkeypatc
                 _requested_row("req-granted", now_ms),
                 _requested_row("req-revoked", now_ms),
                 _requested_row("req-timed-out", now_ms),
+                _requested_row("req-paid-approved", now_ms),
+                _requested_row("req-paid-funded", now_ms),
             ],
             [
                 {"request_id": "req-cancelled"},
@@ -187,6 +189,8 @@ async def test_get_timed_out_requests_skips_requests_already_resolved(monkeypatc
                 {"request_id": "req-granted"},
                 {"request_id": "req-revoked"},
                 {"request_id": "req-timed-out"},
+                {"request_id": "req-paid-approved"},
+                {"request_id": "req-paid-funded"},
             ],
         ]
     )
@@ -202,6 +206,8 @@ async def test_get_timed_out_requests_skips_requests_already_resolved(monkeypatc
         "CANCELLED",
         "CONSENT_DENIED",
         "CONSENT_GRANTED",
+        "CONSENT_PAID_APPROVED",
+        "CONSENT_PAID_FUNDED",
         "REVOKED",
         "TIMEOUT",
     }

@@ -98,17 +98,32 @@ describe("agent chat header layout", () => {
     // Keep the mark visible at phone widths and allow the text slot to absorb
     // pressure before it can overlap the trailing controls.
     expect(openingTag(header, "data-agent-chat-brand-tile")).toContain(
-      "h-8 w-8 shrink-0 place-items-center",
+      "h-11 w-11 shrink-0 place-items-center",
     );
     expect(openingTag(header, "data-agent-chat-brand-tile")).not.toContain(
       "max-sm:hidden",
     );
   });
 
-  it("uses the larger One profile avatar with the canonical mark", () => {
+  it("keeps the canonical One mark compact without reducing its hit region", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
-    expect(header).toContain("size-full shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none");
+    expect(header).toContain(
+      'className="size-8 shrink-0"',
+    );
+    // The handler contains an arrow, so the first `>` is not the tag boundary.
+    const trigger = header.match(/<ShellActionSurface\b[\s\S]*?<\/ShellActionSurface>/g)
+      ?.find(surface => surface.includes("data-agent-chat-one-profile-trigger"));
+    expect(trigger).toBeDefined();
+    expect(trigger).toContain("<ShellActionSurface");
+    expect(trigger).toContain('variant="icon"');
+    expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-11");
+    expect(trigger).toContain("ripple={false}");
     expect(header).not.toContain("🤫");
+  });
+
+  it("binds the History renderer to the active Chat owner, not merely an unlocked vault", () => {
+    const history = headerBlock().match(/<NativeHistoryOpener[\s\S]*?\/>/)?.[0];
+    expect(history).toContain("eligible={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}");
   });
 });

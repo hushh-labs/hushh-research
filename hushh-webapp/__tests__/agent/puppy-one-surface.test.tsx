@@ -7,6 +7,15 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyJobs: vi.fn(),
   setPuppyJobPaused: vi.fn(),
   link: { current: null as unknown },
+  localHost: true,
+}));
+
+vi.mock("@/lib/hermes/local-host", () => ({
+  isLocalHost: () => mocks.localHost,
+}));
+
+vi.mock("@/components/agent/private-puppy-inference-panel", () => ({
+  PrivatePuppyInferencePanel: () => <div data-testid="private-puppy-panel" />,
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -30,6 +39,8 @@ vi.mock("@/components/agent/puppy-model-picker", () => ({
 }));
 
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
+import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 import type { PuppyLink } from "@/lib/services/puppy-one-service";
 
 /**
@@ -70,6 +81,7 @@ function reporting(): PuppyLink {
 }
 
 beforeEach(() => {
+  mocks.localHost = true;
   mocks.fetchPuppyStatus.mockResolvedValue({ connected: false });
   mocks.fetchPuppyResources.mockResolvedValue({
     configured: true,
@@ -89,12 +101,28 @@ afterEach(() => {
 });
 
 describe("PuppyOneSurface identity", () => {
+  it("uses the owner pod relay on a deployed origin", async () => {
+    mocks.localHost = false;
+    mocks.link.current = reporting();
+    const view = render(<AgentDockProvider>
+      <PuppyOneSurface sharedDock />
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>);
+    expect(await screen.findByTestId("private-puppy-panel")).toBeInTheDocument();
+    expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Cloud voice" })).not.toBeInTheDocument();
+    view.rerender(<AgentDockProvider>
+      <PuppyOneSurface sharedDock active={false} />
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>);
+    expect(await screen.findByRole("button", { name: "Cloud voice" })).toBeInTheDocument();
+  });
   it("says what Puppy One is to someone who has never connected one", async () => {
     mocks.link.current = link({ state: "unlinked" });
     render(<PuppyOneSurface />);
     expect(
       await screen.findByText(
-        /A personal supercomputer you own\. Pin a model to this machine and answers never leave it\./,
+        /A local model on your trusted machine\. Requests and replies travel through your private pod\./,
       ),
     ).toBeInTheDocument();
   });
@@ -104,7 +132,7 @@ describe("PuppyOneSurface identity", () => {
     render(<PuppyOneSurface />);
     await waitFor(() => expect(mocks.fetchPuppyStatus).toHaveBeenCalled());
     expect(
-      screen.queryByText(/A personal supercomputer you own/),
+      screen.queryByText(/A local model on your trusted machine/),
     ).not.toBeInTheDocument();
   });
 });

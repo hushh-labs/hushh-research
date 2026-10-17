@@ -1,0 +1,25 @@
+{
+  "version": "2026.10-dev.23",
+  "channel": "dev",
+  "summary": "Smoother Files, quieter idle agents and recovery-verified updates.",
+  "notes": {
+    "improvements": [
+      "The private agent includes the current conversation, connector and hosting improvements.",
+      "Files keeps its dedicated workspace with clearer folders and reversible actions.",
+      "An approved update preserves saved files, conversations and settings."
+    ],
+    "fixes": [
+      "Moving a file keeps the folder picker open on touch and desktop screens.",
+      "Conversation recovery avoids repeating a command whose outcome is uncertain.",
+      "Wallet preserves your reading position when your session renews.",
+      "Background status refreshes no longer wake a sleeping agent."
+    ],
+    "security": [
+      "Existing agents require recovery-qualified compatibility and exact owner approval before installation.",
+      "Computer Use and unqualified hosting moves remain unavailable."
+    ]
+  },
+  "supportedUpgradeDigests": [
+    "sha256:72b049dfdbc27801d8f2e8e6bc68808559eae6b65ec3bded65f8057c842b001b"
+  ]
+}

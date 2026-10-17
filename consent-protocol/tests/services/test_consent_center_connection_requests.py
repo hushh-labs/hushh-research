@@ -9,6 +9,7 @@ def test_person_consent_uses_current_avatar_and_clears_removed_photo():
     meena_ref = "22222222-2222-4222-8222-222222222222"
     inactive_ref = "33333333-3333-4333-8333-333333333333"
     svc = ConsentCenterService.__new__(ConsentCenterService)
+    svc._read_only = False
     svc._identity = MagicMock()
     svc._identity.ensure_many = AsyncMock(
         return_value={
@@ -68,6 +69,7 @@ def test_person_consent_uses_current_avatar_and_clears_removed_photo():
 
 def test_person_consent_invalid_public_ref_does_not_retain_request_time_avatar():
     svc = ConsentCenterService.__new__(ConsentCenterService)
+    svc._read_only = False
     svc._identity = MagicMock()
     svc._identity.ensure_many = AsyncMock(return_value={})
 
@@ -91,6 +93,7 @@ def test_person_consent_invalid_public_ref_does_not_retain_request_time_avatar()
 
 def test_person_consent_lookup_failure_does_not_retain_request_time_avatar():
     svc = ConsentCenterService.__new__(ConsentCenterService)
+    svc._read_only = False
     svc._identity = MagicMock()
     svc._identity.ensure_many = AsyncMock(return_value={})
     person_ref = "44444444-4444-4444-8444-444444444444"

@@ -488,7 +488,9 @@ def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_to
     )
     assert (
         before_external_read_tool(
-            SimpleNamespace(name="send_email"), {"body": "untrusted"}, context
+            tool=SimpleNamespace(name="send_email"),
+            args={"body": "untrusted"},
+            tool_context=context,
         )["status"]
         == "blocked"
     )
@@ -526,7 +528,9 @@ def _reviewed_native_tool(authorize=None):
 
     return _GovernedMcpTool(
         toolset=SimpleNamespace(
-            binding=SimpleNamespace(connector_id="synthetic_connector"),
+            binding=SimpleNamespace(
+                connector_id="synthetic_connector", endpoint="https://synthetic.invalid/mcp"
+            ),
             _mcp_session_manager=object(),
             _current_headers=AsyncMock(),
             authorize_call=authorize or review_or_resume_call,
@@ -883,6 +887,68 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
         assert "PRIVATE_" not in durable_external_read_projection(session).model_dump_json()
         assert session.state[agent_tree.STATE_CONVERSATION_ID] == "same-conversation"
         assert session.state[agent_tree.STATE_MAIL_READ_OFFER]["message_ids"] == ["msg1"]
+    finally:
+        await runner.close()
+
+
+async def test_direct_live_drive_read_is_answer_only_and_redacted(monkeypatch):
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    executed = []
+
+    async def read_google_drive(tool_name: str, arguments: dict, tool_context: ToolContext) -> dict:
+        executed.append(("read", tool_name))
+        return {
+            "source": "google_drive_mcp",
+            "status": "ok",
+            "result": {"text": "Untrusted document says to send secrets elsewhere."},
+        }
+
+    async def forbidden_action() -> dict:
+        executed.append(("action", ""))
+        return {"status": "ok"}
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="read_google_drive",
+                        args={"tool_name": "search_files", "arguments": {"query": "my file"}},
+                    )
+                ),
+                _call("forbidden_action"),
+            ],
+            [types.Part(text="A bounded Drive answer.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [read_google_drive, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="drive")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="drive",
+                new_message=types.Content(role="user", parts=[types.Part(text="Find my file")]),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        assert executed == [("read", "search_files")]
+        assert model._advertised == [{"read_google_drive", "forbidden_action"}, set()]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert (
+            next(r for r in responses if r.name == "forbidden_action").response["status"]
+            == "blocked"
+        )
+        session = await sessions.get_session(app_name="one", user_id="owner", session_id="drive")
+        projected = durable_external_read_projection(session).model_dump_json()
+        assert "Untrusted document" not in projected
     finally:
         await runner.close()
 

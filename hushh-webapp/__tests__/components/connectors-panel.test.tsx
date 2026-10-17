@@ -7,6 +7,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  privatePlacement: vi.fn(),
+  ownerPodRequest: vi.fn(),
   user: { uid: "owner-a", getIdToken: vi.fn() },
   token: "synthetic-owner-token" as string | null,
   overview: vi.fn(),
@@ -31,6 +33,8 @@ const state = vi.hoisted(() => ({
   connectCalendar: vi.fn(),
   disconnect: vi.fn(),
 }));
+vi.mock('@/lib/services/api-service', () => ({ ApiService: { ownerPodRequest: state.ownerPodRequest } }));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: state.privatePlacement }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
@@ -90,6 +94,43 @@ vi.mock("@/components/icons", () => ({
 
 import { Capacitor } from "@capacitor/core";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
+import { snapshotVaultSessionEpoch, advanceVaultSessionEpoch } from '@/lib/vault/session-epoch';
+
+describe('private Google transition owner review', () => {
+  const terms = { services: ['gmail', 'drive'] as const, scope: 'all_google_project_grants' as const };
+  function ReviewHarness({ ownerId, epoch, result }: { ownerId: string; epoch: number; result: (approved: boolean) => void }) {
+    const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(ownerId, epoch);
+    return <><button onClick={() => void confirmTransition(terms).then(result)}>Review Google</button>{transitionDialog}</>;
+  }
+  afterEach(cleanup);
+  it('requires explicit confirmation and explains that private-agent grants are replaced', async () => {
+    const result = vi.fn();
+    render(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
+    fireEvent.click(screen.getByText('Review Google'));
+    expect(screen.getByText(/Existing Google connections, including your private agent/)).toBeInTheDocument();
+    expect(result).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace and sign in' }));
+    await waitFor(() => expect(result).toHaveBeenCalledWith(true));
+  });
+  it('refuses confirmation after vault lock, cancellation or unmount', async () => {
+    const result = vi.fn();
+    const view = render(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
+    fireEvent.click(screen.getByText('Review Google'));
+    advanceVaultSessionEpoch();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace and sign in' }));
+    await waitFor(() => expect(result).toHaveBeenLastCalledWith(false));
+    view.rerender(<ReviewHarness ownerId="owner-a" epoch={snapshotVaultSessionEpoch()} result={result} />);
+    fireEvent.click(screen.getByText('Review Google'));
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+    await waitFor(() => expect(result).toHaveBeenCalledTimes(2));
+    expect(result).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByText('Review Google'));
+    view.unmount();
+    await waitFor(() => expect(result).toHaveBeenCalledTimes(3));
+    expect(result).toHaveBeenLastCalledWith(false);
+  });
+});
 
 const callbacks = {
   onBack: vi.fn(),
@@ -113,6 +154,8 @@ const panel = (open = true) => <ConnectorsPanel open={open} {...callbacks} />;
 
 describe("supported connector catalog", () => {
   beforeEach(() => {
+    state.privatePlacement.mockReset().mockResolvedValue(false);
+    state.ownerPodRequest.mockReset().mockImplementation(async (path: string) => new Response(JSON.stringify({ connectorId: path.split('/')[1], status: 'connected', capabilities: { read: true, manage: false }, accessLevel: 'read' })));
     state.user.uid = "owner-a";
     state.token = "synthetic-owner-token";
     state.overview.mockReset().mockResolvedValue(overview());
@@ -124,7 +167,7 @@ describe("supported connector catalog", () => {
     state.calendarRefresh.mockReset();
     state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
     state.calendarStartConnect.mockReset().mockResolvedValue({
-      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
       redirect_uri: "http://localhost:3000/one/profile/google/oauth/return",
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
@@ -143,6 +186,21 @@ describe("supported connector catalog", () => {
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
+
+  it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
+    state.privatePlacement.mockResolvedValue(true);
+    const view = render(panel());
+    expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
+    expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
+    expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
+    expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
+    expect(state.overview).not.toHaveBeenCalled();
+    expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+    state.token = null;
+    view.rerender(panel());
+    expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();
+    expect(screen.queryByText('Connected · reading only')).not.toBeInTheDocument();
+  });
 
   it("shows real connections without roadmap placeholders", async () => {
     state.overview.mockResolvedValue(overview([catalogItem]));
@@ -300,7 +358,7 @@ describe("supported connector catalog", () => {
     } as unknown as Window;
     vi.spyOn(window, "open").mockReturnValue(popup);
     state.startOAuthConnect.mockResolvedValue({
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
       attemptId: "synthetic-attempt-id",
       connectorId: "google_drive",
       // The server grants ten minutes, but its clock is 30 seconds ahead.
@@ -455,7 +513,7 @@ describe("supported connector catalog", () => {
         value: { origin: "https://uat.one.hushh.ai", assign },
       });
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed",
+        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "hubspot",
@@ -522,7 +580,7 @@ describe("supported connector catalog", () => {
     it("keeps a connected connector reachable for disconnect while rollout is off", async () => {
       state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "connected" }], false));
       render(panel());
-      const connected = screen.getByRole("region", { name: "Connected" });
+      const connected = await screen.findByRole("region", { name: "Connected" });
       expect(await within(connected).findByText("HubSpot")).toBeInTheDocument();
       fireEvent.click(within(connected).getByRole("button", { name: "Disconnect HubSpot" }));
       const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
@@ -575,7 +633,7 @@ describe("supported connector catalog", () => {
     it("offers a second curated provider with no provider-specific frontend code", async () => {
       state.overview.mockResolvedValue(withFlag([hubspot, notion]));
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.notion.com/authorize?state=signed",
+        authorizeUrl: "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "notion",
@@ -592,7 +650,7 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Connect Notion" }));
       await waitFor(() =>
         expect(providerPopup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://mcp.notion.com/authorize?state=signed",
+          "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         ),
       );
       expect(state.startOAuthConnect).toHaveBeenCalledWith(
@@ -637,7 +695,7 @@ describe("supported connector catalog", () => {
     it("treats a connection stuck before verification as needing sign-in", async () => {
       state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "verifying" }]));
       render(panel());
-      const available = screen.getByRole("region", { name: "Available" });
+      const available = await screen.findByRole("region", { name: "Available" });
       const connected = screen.getByRole("region", { name: "Connected" });
       expect(
         await within(available).findByRole("button", { name: "Reconnect HubSpot" }),
@@ -655,7 +713,7 @@ describe("supported connector catalog", () => {
 
     describe("signs in inside the session", () => {
       const ATTEMPT_KEY = "one_curated_popup_attempt_v1";
-      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed";
+      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn";
       const fakePopup = () =>
         ({
           closed: false,
@@ -1018,7 +1076,7 @@ describe("supported connector catalog", () => {
   it("asks before a Gmail disconnect without leaving the list", async () => {
     state.gmailStatus = { connected: true, compose_permission_granted: true };
     render(panel());
-    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    const connected = within(await screen.findByRole("region", { name: "Connected" }));
     fireEvent.click(await connected.findByRole("button", { name: "Disconnect Gmail" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Disconnect Mail?" });
     expect(within(dialog).getByText("Drive stays connected.")).toBeInTheDocument();
@@ -1074,6 +1132,7 @@ describe("supported connector catalog", () => {
     // Connecting stays inside the drawer: no route change, no drawer exit.
     expect(callbacks.onBack).not.toHaveBeenCalled();
     expect(state.push).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Connect Calendar" })).toBeEnabled());
     vi.mocked(window.open).mockRestore();
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     view.rerender(panel());
@@ -1345,7 +1404,7 @@ describe("supported connector catalog", () => {
       );
       await waitFor(() =>
         expect(popup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         ),
       );
       expect(state.calendarStartConnect).toHaveBeenCalledExactlyOnceWith({

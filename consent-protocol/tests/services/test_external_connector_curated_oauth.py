@@ -54,7 +54,7 @@ def connector() -> ExternalMcpConnectorDefinition:
 
 
 @pytest.fixture
-def service() -> oauth.ExternalConnectorCuratedOAuth:
+def service(shared_hub_owner) -> oauth.ExternalConnectorCuratedOAuth:
     return oauth.ExternalConnectorCuratedOAuth(
         registry=SimpleNamespace(get_connector=AsyncMock()),
         credentials=SimpleNamespace(

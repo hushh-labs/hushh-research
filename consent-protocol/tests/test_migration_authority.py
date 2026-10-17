@@ -249,6 +249,25 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute(
                 "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 4"
             )
+            for mutation, restoration, message in [
+                (
+                    "UPDATE one_referral_program_settings SET milestones = '[]'::jsonb WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET milestones = %s::jsonb WHERE version = 3",
+                    "active USD catalogue",
+                ),
+                (
+                    "UPDATE one_referral_program_settings SET retired_at = retired_at + INTERVAL '1 second' WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET retired_at = (SELECT activated_at FROM one_referral_program_settings WHERE version = 4) WHERE version = 3",
+                    "active USD catalogue",
+                ),
+            ]:
+                cursor.execute(mutation)
+                with pytest.raises(psycopg2.Error, match=message):
+                    cursor.execute(adapted_catalogue_sql)
+                cursor.execute("ROLLBACK")
+                cursor.execute(
+                    restoration, (json.dumps(with_v4[2][3]),) if "%s" in restoration else None
+                )
             # A lineage that ends without an active policy is still refused.
             cursor.execute(
                 "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"

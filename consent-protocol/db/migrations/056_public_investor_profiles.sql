@@ -166,18 +166,5 @@ INSERT INTO investor_profiles (
     '{"confidence":"official_sec_record","latest_known_13f_accession":"0001104659-26-059240"}'::jsonb,
     DATE '2026-05-12'
   )
-ON CONFLICT (cik) DO UPDATE SET
-  name = EXCLUDED.name,
-  name_normalized = EXCLUDED.name_normalized,
-  firm = EXCLUDED.firm,
-  title = EXCLUDED.title,
-  investor_type = EXCLUDED.investor_type,
-  location_hint = EXCLUDED.location_hint,
-  business_address = EXCLUDED.business_address,
-  investment_style = EXCLUDED.investment_style,
-  biography = EXCLUDED.biography,
-  data_sources = EXCLUDED.data_sources,
-  source_urls = EXCLUDED.source_urls,
-  evidence = EXCLUDED.evidence,
-  last_13f_date = EXCLUDED.last_13f_date,
-  updated_at = NOW();
+-- Seed missing public profiles once; replay must retain later SEC/curated records.
+ON CONFLICT (cik) DO NOTHING;

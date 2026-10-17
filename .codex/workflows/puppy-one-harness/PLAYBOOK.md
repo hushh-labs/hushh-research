@@ -13,8 +13,13 @@ scored 100% on throughput and produced **zero** usable saves.
 ## Steps
 
 1. Collect outputs by running the model over the corpus.
-2. Write a review queue. Controls are planted, shuffled per run, unmarked.
-3. Grade in a session that did **not** write the queue.
+2. Write a review queue. Controls are planted, unmarked, and shuffled under a
+   seed minted at issue and sealed; passing `--seed` replays a previous
+   shuffle and the report says the run was not blinded.
+3. Grade in a session that did **not** write the queue, and that has not
+   graded this corpus before: the planted rows' wording never changes.
+   Verdicts are written only by `memory_judge.py ... record`, one row at a
+   time; JSONL handed back for someone else to write voids the run.
 4. Ingest. The run voids if a control passed, a row hash changed, or any row
    went ungraded.
 5. Append to the ledger, including the capability profile.
@@ -42,7 +47,11 @@ a model result.
 ## Common Drift Risks
 
 1. grading in the session that wrote the queue
-2. opening `run-manifest.json` while grading
-3. reporting accuracy for a run whose controls were missed
-4. comparing runs with different capability profiles
-5. treating structural validity as correctness
+2. opening or hunting for the seal while grading, or reading
+   `memory_judge_controls` in the harness, which names the planted rows in
+   clear; `run-manifest.json` locates no control and is read for the rule list
+3. grading a corpus you have graded before, or writing `verdicts.jsonl` by any
+   route other than `record`
+4. reporting accuracy for a run whose controls were missed
+5. comparing runs with different capability profiles
+6. treating structural validity as correctness

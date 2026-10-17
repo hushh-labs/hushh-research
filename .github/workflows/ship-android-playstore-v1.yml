@@ -211,7 +211,7 @@ jobs:
 
           BACKEND_URL="$(get BACKEND_URL)";                            require BACKEND_URL "$BACKEND_URL"
           APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hussh.ai"
 
           FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"

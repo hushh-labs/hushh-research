@@ -134,6 +134,19 @@ def _as_response_dict(result: Any) -> dict:
     return result if isinstance(result, dict) else {"result": result}
 
 
+async def _run_inbox_tool(tools: dict[str, Callable], name: str, args: dict) -> dict:
+    tool = tools.get(name)
+    if tool is None:
+        logger.warning("email_chat.tool_dispatch_miss name=%s", name)
+        return {"error": "unknown_tool"}
+    try:
+        result = await tool(**args)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("email_chat.tool_failed name=%s type=%s", name, type(exc).__name__)
+        return {"error": "tool_failed"}
+    return _as_response_dict(result)
+
+
 class EmailChatService:
     def __init__(
         self,
@@ -144,11 +157,15 @@ class EmailChatService:
         model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
+        reader_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._gmail = gmail_service if gmail_service is not None else get_gmail_receipts_service()
-        self._use_adk = model_call is None
+        # Select ADK when a model adapter is supplied, while retaining the
+        # optional model_call callback for pod authority checks.
+        self._use_adk = model is not None
         self._adk_model = model
+        self._reader_factory = reader_factory
 
         if model_call is not None:
             self._model_call = model_call
@@ -215,8 +232,8 @@ class EmailChatService:
 
         try:
             reply, errored = await self._run_tool_loop(user_id=user_id, contents=contents)
-        except Exception:
-            logger.exception("Email chat turn failed")
+        except Exception as exc:
+            logger.warning("Email chat turn failed type=%s", type(exc).__name__)
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
         return await self._finish(turn, reply or "Done.", user_id, errored=errored)
@@ -243,6 +260,20 @@ class EmailChatService:
         """
         from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
 
+        dependencies: dict[str, Any] = {}
+        if self._adk_model is not None:
+            from hushh_mcp.agents.email.runtime import run_email_gene
+
+            async def owner_gene(**kwargs: Any) -> dict[str, Any]:
+                await require_access()
+                result = await run_email_gene(model=self._adk_model, **kwargs)
+                await require_access()
+                return result
+
+            dependencies["gene_runner"] = owner_gene
+        if self._reader_factory is not None:
+            dependencies["reader_factory"] = self._reader_factory
+
         return await run_delegated_mail_read(
             gmail=self._gmail,
             user_id=user_id,
@@ -251,6 +282,7 @@ class EmailChatService:
             message=message,
             require_access=require_access,
             timezone=timezone,
+            **dependencies,
             receipt_memory=receipt_memory,
             receipt_cursor=receipt_cursor,
             receipt_reads=True,
@@ -313,16 +345,7 @@ class EmailChatService:
         return reply, errored
 
     async def _run_tool(self, tools: dict[str, Callable], name: str, args: dict) -> dict:
-        tool = tools.get(name)
-        if tool is None:
-            logger.warning("email_chat.tool_dispatch_miss name=%s", name)
-            return {"error": "unknown_tool"}
-        try:
-            result = await tool(**args)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("email_chat.tool_failed name=%s err=%s", name, exc, exc_info=True)
-            return {"error": "tool_failed"}
-        return _as_response_dict(result)
+        return await _run_inbox_tool(tools, name, args)
 
     def _build_tools(self, user_id: str) -> dict[str, Callable]:
         """Read-only inbox tools bound to the current user."""

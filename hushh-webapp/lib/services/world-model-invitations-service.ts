@@ -1,11 +1,22 @@
 import { profileReportSchema } from "@/lib/services/profile-research-service";
 import { z } from "zod";
 import { apiJson } from "@/lib/services/api-client";
+import type { ApiFetchOptions } from "@/lib/services/api-service";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 
-type Session = { vaultKey: string; vaultOwnerToken: string };
+type Session = {
+  vaultKey: string;
+  vaultOwnerToken: string;
+  isCurrent: () => boolean;
+  signal?: AbortSignal;
+};
+
+function requireCurrent(session: Session) {
+  if (session.signal?.aborted || !session.isCurrent())
+    throw new DOMException("Owner session ended", "AbortError");
+}
 const invitation = z
   .object({
     id: z.string().uuid(),
@@ -21,16 +32,24 @@ async function request(
   method: string,
   body?: unknown,
 ) {
-  return apiJson(`/api/one/world-model/${path}`, {
+  requireCurrent(session);
+  const keyHeaders = await oneChatKeyHeaders(session.vaultKey);
+  requireCurrent(session);
+  const options: ApiFetchOptions = {
     method,
     cache: "no-store",
+    signal: session.signal,
+    isEffectCurrent: session.isCurrent,
     headers: {
       Authorization: `Bearer ${session.vaultOwnerToken}`,
       "Content-Type": "application/json",
-      ...(await oneChatKeyHeaders(session.vaultKey)),
+      ...keyHeaders,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  };
+  const result = await apiJson(`/api/one/world-model/${path}`, options);
+  requireCurrent(session);
+  return result;
 }
 export const WorldModelInvitationsService = {
   async create(

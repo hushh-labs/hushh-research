@@ -12,6 +12,7 @@ from typing import Any
 
 from hushh_mcp.services.domain_contracts import (
     DOMAIN_SHARING_POLICY_REGISTRY,
+    INTERNAL_ONLY_DOMAIN_SLUGS,
     get_domain_sharing_policy,
     is_owner_managed_reserved_domain,
 )
@@ -144,6 +145,8 @@ def is_private_pkm_export_scope(scope: str | None) -> bool:
     requestable when materialized and consented.
     """
     domain, _path = normalize_pkm_scope(scope)
+    if domain in INTERNAL_ONLY_DOMAIN_SLUGS:
+        return True
     if domain not in DOMAIN_SHARING_POLICY_REGISTRY:
         return False
     return not is_external_requestable_pkm_scope(scope)

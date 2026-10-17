@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { absoluteUrl, PUBLIC_CANONICAL_PATHS, isIndexablePath, isProductionIndexing } from "./lib/seo/site";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
-import { normalizeConnectorDetailId } from "./lib/navigation/profile-routes";
+import { resolveProfileRouteState } from "./lib/navigation/profile-routes";
+import { commerceReturnAttempt } from "./lib/services/scope-commerce-return";
 import {
   LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
   PUBLIC_LOCATION_VIEW_PREFIX,
@@ -23,6 +24,14 @@ const PUBLIC_ROUTES = [
 // API routes are handled separately
 const API_PREFIX = "/api";
 const LEGACY_CONNECT_ROOT = "/connect";
+const DIRECT_PROFILE_ROUTES = new Set([
+  ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
+  ROUTES.ONE_PROFILE_DISCOVERY,
+  ROUTES.PROFILE_CONNECTORS,
+  ROUTES.PROFILE_HOSTING,
+  ROUTES.PROFILE_SOFTWARE_UPDATES,
+  ROUTES.PROFILE_WORLD_MODEL,
+]);
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   "/chat": ROUTES.HOME,
@@ -91,9 +100,8 @@ function routeRequest(request: NextRequest) {
       pathname === "/profile" ||
       pathname.startsWith("/one/profile/") ||
       pathname.startsWith("/profile/")) &&
-    // Provider-registered OAuth returns (for example
-    // /one/profile/connectors/oauth/return) are deploy-enforced addresses and
-    // must render where the provider sends them. Never redirect them.
+    !DIRECT_PROFILE_ROUTES.has(legacyRedirectPath) &&
+    !commerceReturnAttempt(pathname + request.nextUrl.search) &&
     !pathname.includes("oauth/return") &&
     !(pathname.replace(/\/$/, "") === ROUTES.PROFILE_WORLD_MODEL &&
       request.nextUrl.searchParams.has("claim"))
@@ -105,22 +113,18 @@ function routeRequest(request: NextRequest) {
     url.pathname = ROUTES.ONE_HOME;
     url.searchParams.set("profile_pane", "1");
     if (rawSubpath) {
-      const parts = rawSubpath.split("/");
-      url.searchParams.set("profile_panel", parts[0]);
-      if (parts[1]) {
-        url.searchParams.set("profile_detail", parts.slice(1).join("/"));
-      }
+      // Path suffixes are not pane identifiers (for example kai-preferences
+      // and support-routing). Reuse the authored route mapping used by Back.
+      const state = resolveProfileRouteState(`${ROUTES.PROFILE}/${rawSubpath}`, url.searchParams);
+      url.searchParams.delete("profile_panel");
+      url.searchParams.delete("profile_detail");
+      if (state.panel) url.searchParams.set("profile_panel", state.panel);
+      if (state.detail) url.searchParams.set("profile_detail", state.detail);
     }
     // Connectors names its detail in the query (`?connector=google_drive`);
     // carry it into the pane's detail instead of leaving a stray parameter.
     if (rawSubpath === "connectors") {
-      const connectorId = normalizeConnectorDetailId(
-        url.searchParams.get("connector"),
-      );
       url.searchParams.delete("connector");
-      if (connectorId) {
-        url.searchParams.set("profile_detail", `connector:${connectorId}`);
-      }
     }
     return NextResponse.redirect(url);
   }

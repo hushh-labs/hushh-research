@@ -1,9 +1,13 @@
 // Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
+export function usePathname() { return "/"; }
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
-export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });
+export const loadCustomConnectorSnapshot = async () => ({
+  configurations: [],
+  invalid: [],
+});
 export const saveCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
@@ -76,7 +80,13 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+// Private turns are outside this Shared connector layout fixture.
+export async function streamAgentChat() {
+  throw new Error("Private chat is not admitted in the layout fixture");
+}
 export const ApiService = {
+  // This fixture explicitly rehearses a recorded Shared owner.
+  getPersonalAgentStatus: async () => ({ hostingMode: "shared" as const }),
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.
   apiFetch: (path: string, options: RequestInit) => fetch(path, options),
@@ -84,7 +94,7 @@ export const ApiService = {
 export const GmailReceiptsService = {
   startConnect: async () => ({
     configured: true,
-    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail",
+    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgmail%2Foauth%2Freturn",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   }),
   // Owner status read, routed by the browser harness like the real endpoint.

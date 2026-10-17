@@ -78,6 +78,7 @@ test.beforeAll(async () => {
           replacement: "\0fixture-analytics",
         },
         { find: "@/lib/capacitor/platform", replacement: "\0fixture-platform" },
+        // Exact: subpaths such as native-navigation load their real module.
         { find: /^@\/lib\/capacitor$/, replacement: "\0fixture-capacitor" },
         {
           find: "@/components/connections/contact-invitation-sheet",

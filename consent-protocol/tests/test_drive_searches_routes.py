@@ -17,7 +17,7 @@ BODY = {"clientRequestId": JOB, "query": "find my product documents", "backgroun
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = SimpleNamespace(
@@ -169,6 +169,30 @@ def test_invalid_timezone_still_rejected_before_job_lookup_or_planning(setup, ca
     assert BODY["query"] not in caplog.text
     service.existing.assert_not_awaited()
     planner.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "mode,status", [("byoc", 409), ("pending", 409), ("unplaced", 409), ("unknown", 503)]
+)
+def test_private_search_refuses_before_planning_but_stop_remains_available(
+    setup, shared_hub_owner, mode, status
+):
+    app, client, service, _, planner = setup
+    unlock(app)
+    shared_hub_owner.return_value = mode
+    for method, suffix, body in [
+        ("POST", "", BODY),
+        ("GET", "", None),
+        ("GET", f"/{JOB}", None),
+        ("GET", f"/{JOB}/results", None),
+        ("GET", f"/{JOB}/stream", None),
+    ]:
+        assert client.request(method, BASE + suffix, json=body).status_code == status
+    planner.assert_not_awaited()
+    service.create.assert_not_awaited()
+    service.list.assert_not_awaited()
+    assert client.post(BASE + f"/{JOB}/stop", json={}).status_code == 200
+    service.stop.assert_awaited_once()
 
 
 def test_stream_returns_committed_terminal_status_without_starting_work(setup):

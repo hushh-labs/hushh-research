@@ -1,5 +1,7 @@
 "use client";
 
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -8,6 +10,11 @@ import {
   ShieldWarningIcon as ShieldAlert,
 } from "@/components/icons";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { PkmSavedSharing } from "@/components/profile/pkm-saved-sharing";
+import { PkmDomainSharing } from "@/components/profile/pkm-domain-sharing";
+import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
+import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
+import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { SoulMemoryPanel } from "@/components/profile/soul-memory-panel";
@@ -24,7 +31,6 @@ import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/s
 import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -65,8 +71,7 @@ import {
 } from "@/lib/pkm/pkm-memory-cards";
 import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import {
-  buildPkmShareBundles,
-  pkmShareBundleState,
+  resolvePkmMemoryShareBundle,
 } from "@/lib/profile/pkm-memory-tree";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
@@ -94,12 +99,10 @@ type DomainDetailState = {
 
 type MemoryReadSession = symbol;
 
-type MemoryWorkspaceTab = "soul" | "browse" | "add" | "sharing";
+type MemoryWorkspaceTab = "browse" | "add";
 const MEMORY_WORKSPACE_TABS = [
-  { value: "soul", label: "memory.md" },
   { value: "browse", label: "Saved" },
   { value: "add", label: "Add" },
-  { value: "sharing", label: "Sharing" },
 ];
 
 const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
@@ -310,8 +313,11 @@ export function PkmNaturalPanel({
       setExportBusy(false);
     }
   }, [trackMemoryOutcome, user?.uid, vaultKey, vaultOwnerToken]);
-  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>(view === "home" ? "soul" : "browse");
+  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
+  const [identifierApproval, setIdentifierApproval] = useState<{ note: string; epoch: number } | null>(null);
+  const identifierProcessingApproved = () => identifierApproval?.note === captureText && isVaultSessionEpochCurrent(identifierApproval.epoch);
+  useEffect(() => subscribeVaultSessionEpoch(() => setIdentifierApproval(null)), []);
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
   const captureHasSharedRecipients = captureCards.some(
     (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
@@ -335,6 +341,7 @@ export function PkmNaturalPanel({
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
     if (captureAuthReady) return;
+    setIdentifierApproval(null);
     // Keep the owner's draft, but old work must not resume after verification.
     captureRevision.current += 1;
     setCaptureLoading(false);
@@ -353,6 +360,7 @@ export function PkmNaturalPanel({
   useEffect(() => {
     captureRevision.current += 1;
     setCaptureText("");
+    setIdentifierApproval(null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
     setCaptureRetryingSectionKey(null);
@@ -376,7 +384,11 @@ export function PkmNaturalPanel({
     pkmCaptureReconciliationNeeded.delete(user.uid);
     setRefreshNonce((value) => value + 1);
   }, [authLoading, isVaultUnlocked, sessionVerificationRequired, tokenExpiresAt, user?.uid, vaultOwnerToken]);
-  const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
+  const [sharingManifestState, setSharingManifestState] = useState<{ session: MemoryReadSession; values: Record<string, DomainManifest | null> } | null>(null);
+  const sharingManifests = sharingManifestState?.session === memoryReadSession ? sharingManifestState.values : {};
+  const setSharingManifests = useCallback((update: Record<string, DomainManifest | null> | ((current: Record<string, DomainManifest | null>) => Record<string, DomainManifest | null>)) => {
+    if (memoryReadSessionRef.current === memoryReadSession) setSharingManifestState(current => ({ session: memoryReadSession, values: typeof update === "function" ? update(current?.session === memoryReadSession ? current.values : {}) : update }));
+  }, [memoryReadSession]);
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
   const [cardManifestState, setCardManifestState] = useState<{ session: MemoryReadSession; manifest: DomainManifest | null } | null>(null);
@@ -677,7 +689,7 @@ export function PkmNaturalPanel({
 
   useEffect(() => {
     let cancelled = false;
-    if (workspaceTab !== "sharing" || !user || !vaultOwnerToken || visibleMetadataDomains.length === 0) {
+    if (workspaceTab !== "browse" || !user || !vaultOwnerToken || visibleMetadataDomains.length === 0) {
       return undefined;
     }
     setSharingManifestsLoading(true);
@@ -702,10 +714,12 @@ export function PkmNaturalPanel({
     };
   }, [
     pkmChangeRevision,
+    refreshNonce,
     user,
     vaultOwnerToken,
     visibleMetadataDomains,
     workspaceTab,
+    setSharingManifests,
   ]);
 
   useEffect(() => {
@@ -980,6 +994,7 @@ export function PkmNaturalPanel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
@@ -1054,6 +1069,7 @@ export function PkmNaturalPanel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
@@ -1248,17 +1264,9 @@ export function PkmNaturalPanel({
     return "loading";
   }
 
-  // The share bundle for this memory's own top-level scope, resolved from the
-  // domain manifest. Reuses the same PKM sharing contract the Sharing tab uses.
   function memoryScopeShareBundle(card: PkmMemoryCard) {
-    const scopePath = cardScopePath(card);
-    return (
-      buildPkmShareBundles(selectedCardManifest).find(
-        (bundle) => bundle.topLevelScopePath === scopePath,
-      ) || null
-    );
+    return resolvePkmMemoryShareBundle(selectedCardManifest, card);
   }
-
   function memorySharingPosture(card: PkmMemoryCard): MemorySharingPosture {
     const bundle = memoryScopeShareBundle(card);
     if (!bundle || !bundle.scopeHandle) return null;
@@ -1368,6 +1376,9 @@ export function PkmNaturalPanel({
         chevron
         ariaLabel={`Open category: ${domain.title}`}
         testId={`memory-category-${domain.key}`}
+        trailingInteractive
+        trailing={domain.key !== "location" ? <Button variant="none" effect="fade" size="sm"
+          data-voice-control-id="pkm-review-sharing-bundle" aria-label={`Sharing and price for ${domain.title}`} onClick={() => setSelectedDomainKey(domain.key)}>Sharing &amp; price</Button> : undefined}
       />
     );
   }
@@ -1448,6 +1459,7 @@ export function PkmNaturalPanel({
   }
 
   if (selectedCard) {
+    const priceSection = memoryScopeShareBundle(selectedCard);
     return (
       <>
         {nativeBeacon}
@@ -1462,6 +1474,10 @@ export function PkmNaturalPanel({
           sharingPosture={memorySharingPosture(selectedCard)}
           sharingBusy={memorySharingActionId === cardImpactKey(selectedCard)}
           sharingError={memorySharingError}
+          sharingPriceControl={priceSection?.scopeHandle ? <div className="space-y-2 border-t pt-4">
+            <p className="text-xs text-muted-foreground">Price applies to requests for the entire {priceSection.label} section. You review the requested scope before approval.</p>
+            <ScopeTariffEditor key={`${user.uid}:${priceSection.scopeHandle}:${selectedCard.domain}:${priceSection.topLevelScopePath}`} scopeHandle={priceSection.scopeHandle} machineScope={consentScopeForPermission(selectedCard.domain, priceSection.topLevelScopePath)} label={priceSection.label} showSavedPrice />
+          </div> : null}
           canMutate={selectedCard.editable && Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
           saving={memoryActionId === `${selectedCard.id}:edited`}
           deleting={memoryActionId === `${selectedCard.id}:deleted`}
@@ -1507,6 +1523,13 @@ export function PkmNaturalPanel({
           onDrill={(segment) => setPathStack((stack) => [...stack, segment])}
           onBack={unwindMemory}
           onOpenLeaf={openMemory}
+          sharingControls={sharingManifests[selectedMetadataDomain.key] ? <PkmDomainSharing
+            key={`${user.uid}:${selectedMetadataDomain.key}`}
+            userId={user.uid} title={selectedMetadataDomain.displayName} manifest={sharingManifests[selectedMetadataDomain.key]!}
+            pendingKey={sharingActionKey} onChange={updateSharingBundles} /> : <SurfaceInset className="space-y-2 p-4 text-sm text-muted-foreground">
+              <p>{sharingManifestsLoading ? "Checking sharing and prices…" : "Sharing and prices could not be checked."}</p>
+              {!sharingManifestsLoading ? <Button variant="muted" size="sm" onClick={() => setRefreshNonce(value => value + 1)}>Retry sharing settings</Button> : null}
+            </SurfaceInset>}
         />
       </>
     );
@@ -1536,11 +1559,12 @@ export function PkmNaturalPanel({
       {nativeBeacon}
       <div className="space-y-4">
         <SegmentedTabs
+          tabSetId="memory"
+          ariaLabel="Memory"
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
-          tabSetId="memory"
-          mobileColumns={4}
+          mobileColumns={2}
           variant="agent-top"
         />
         <SwipeViews
@@ -1551,9 +1575,10 @@ export function PkmNaturalPanel({
           viewportMinHeight="fill"
           heightMode="active"
         >
-          <SoulMemoryPanel userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-            tokenExpiresAt={tokenExpiresAt} verified={!sessionVerificationRequired} active={workspaceTab === "soul"} />
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
+          {workspaceTab === "browse" ? <MemoryCommerceSummary /> : null}
+          <SoulMemoryPanel userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+            tokenExpiresAt={tokenExpiresAt} verified={!sessionVerificationRequired} active={workspaceTab === "browse"} />
           <div className="relative">
             <Input
               type="search"
@@ -1672,6 +1697,12 @@ export function PkmNaturalPanel({
               ) : null}
             </>
           )}
+          <PkmSavedSharing userId={user?.uid || ""} active={workspaceTab === "browse"}
+            domains={visibleMetadataDomains} sharingManifests={sharingManifests}
+            sharingManifestsLoading={sharingManifestsLoading} sharingActionKey={sharingActionKey}
+            retrySharing={() => setRefreshNonce(value => value + 1)}
+            isVaultUnlocked={isVaultUnlocked} exportBusy={exportBusy} exportStatus={exportStatus}
+            exportError={exportError} handleExportMemory={handleExportMemory} updateSharingBundles={updateSharingBundles} />
           </div>
           <div className="space-y-5 pb-1 pr-px">
           <SurfaceInset className="space-y-4 p-4" data-pkm-memory-capture="true">
@@ -1686,12 +1717,24 @@ export function PkmNaturalPanel({
             }} onChange={(event) => {
               captureRevision.current += 1;
               setCaptureText(event.target.value);
+              setIdentifierApproval(null);
               setCaptureCards([]);
               setCaptureUnresolvedSections([]);
               setCaptureRetryingSectionKey(null);
               setCaptureMessage(null);
               setCaptureLoading(false);
             }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={50000} />
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <input type="checkbox" checked={identifierProcessingApproved()} disabled={captureLoading || captureSaving}
+                onChange={(event) => {
+                  captureRevision.current += 1;
+                  setIdentifierApproval(event.target.checked ? { note: captureText, epoch: snapshotVaultSessionEpoch() } : null);
+                  setCaptureCards([]);
+                  setCaptureUnresolvedSections([]);
+                  setCaptureMessage(null);
+                }} />
+              <span>Allow my private agent’s configured model to process personal identifiers in this note, including SSN, to prepare Memory. Sharing requires a separate approval.</span>
+            </label>
             <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || captureSaving || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
               {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review memory
             </Button>
@@ -1765,121 +1808,6 @@ export function PkmNaturalPanel({
             {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureSaveableCards.length === 0 || captureRetryingSectionKey !== null || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
-          </div>
-          <div className="space-y-4 pb-1 pr-px" data-pkm-memory-sharing="true">
-            {sharingManifestsLoading ? (
-              <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Checking sharing settings…
-              </p>
-            ) : null}
-
-            <SettingsGroup separatorInset testId="memory-export-group">
-              <SettingsRow
-                title={exportBusy ? "Preparing…" : "Download Memory"}
-                description={isVaultUnlocked
-                  ? "Readable file. Keep it private."
-                  : "Unlock to download."}
-                onClick={() => void handleExportMemory()}
-                disabled={!isVaultUnlocked || exportBusy}
-                trailing={exportBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : undefined}
-                ariaLabel="Download Memory"
-                testId="memory-export-button"
-              />
-            </SettingsGroup>
-
-            {exportStatus ? (
-              <p className="px-1 text-sm text-muted-foreground" role="status">
-                {exportStatus}
-              </p>
-            ) : null}
-            {exportError ? (
-              <p className="px-1 text-sm text-[color:var(--app-destructive)]" role="alert">
-                {exportError}
-              </p>
-            ) : null}
-
-            {!sharingManifestsLoading &&
-              visibleMetadataDomains.map((domain) => {
-                const manifest = sharingManifests[domain.key] || null;
-                const bundles = buildPkmShareBundles(manifest);
-                if (!manifest || bundles.length === 0) return null;
-                const state = pkmShareBundleState(bundles);
-                const allHandles = bundles
-                  .map((bundle) => bundle.scopeHandle)
-                  .filter((value): value is string => Boolean(value));
-                const allBusy = sharingActionKey === `${domain.key}:${allHandles.join(",")}`;
-                return (
-                  <SettingsGroup
-                    key={domain.key}
-                    title={domain.displayName}
-                    separatorInset
-                    testId={`memory-sharing-${domain.key}`}
-                    titleAction={
-                      bundles.length > 1 && allHandles.length > 0 ? (
-                        <button
-                          type="button"
-                          disabled={allBusy}
-                          aria-pressed={state === "checked"}
-                          aria-label={`Set every ${domain.displayName} item ${
-                            state === "checked" ? "private" : "to ask before sharing"
-                          }`}
-                          onClick={() =>
-                            void updateSharingBundles({
-                              domain: domain.key,
-                              manifest,
-                              scopeHandles: allHandles,
-                              enabled: state !== "checked",
-                            })
-                          }
-                          className="inline-flex min-h-11 items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                        >
-                          {allBusy ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                          ) : null}
-                          {state === "checked" ? "Make all private" : "Ask for all"}
-                        </button>
-                      ) : undefined
-                    }
-                  >
-                    {bundles.map((bundle) => {
-                      const bundleKey = `${domain.key}:${bundle.scopeHandle || bundle.topLevelScopePath}`;
-
-  return (
-                        <SettingsRow
-                          key={bundleKey}
-                          title={bundle.label}
-                          description={bundle.enabled ? "Ask before sharing" : "Private"}
-                          trailing={
-                            <Switch
-                              checked={bundle.enabled}
-                              disabled={sharingActionKey === bundleKey || !bundle.scopeHandle}
-                              onCheckedChange={(enabled) =>
-                                bundle.scopeHandle &&
-                                void updateSharingBundles({
-                                  domain: domain.key,
-                                  manifest,
-                                  scopeHandles: [bundle.scopeHandle],
-                                  enabled,
-                                })
-                              }
-                              aria-label={`${bundle.enabled ? "Make private" : "Ask before sharing"} ${bundle.label}`}
-                            />
-                          }
-                        />
-                      );
-                    })}
-                  </SettingsGroup>
-                );
-              })}
-
-            {!sharingManifestsLoading &&
-            visibleMetadataDomains.length > 0 &&
-            Object.values(sharingManifests).every(
-              (manifest) => buildPkmShareBundles(manifest).length === 0,
-            ) ? (
-              <p className="px-1 text-sm text-muted-foreground">Nothing to share yet.</p>
-            ) : null}
           </div>
         </SwipeViews>
       </div>

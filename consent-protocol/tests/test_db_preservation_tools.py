@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import json
+import os
 from pathlib import Path
+from uuid import uuid4
 
+import asyncpg
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -92,3 +97,99 @@ async def test_preservation_comparison_requires_source_reference(tmp_path: Path,
     monkeypatch.setattr(preservation.asyncpg, "connect", connect)
     with pytest.raises(RuntimeError, match="requires a source reference"):
         await preservation.run(args)
+
+
+@pytest.mark.asyncio
+async def test_capture_imports_backup_snapshot_and_remains_consistent_and_read_only():
+    dsn = os.getenv("SCOPE_COMMERCE_TEST_DSN") or os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL fixture is not configured")
+    writer = await asyncpg.connect(dsn)
+    exporter = await asyncpg.connect(dsn)
+    schema = "preservation_snapshot_" + uuid4().hex
+    transaction = exporter.transaction(isolation="repeatable_read", readonly=True)
+    try:
+        await writer.execute(f'CREATE SCHEMA "{schema}"')
+        await writer.execute(f'CREATE TABLE "{schema}".records (id INTEGER PRIMARY KEY)')
+        await writer.execute(f'INSERT INTO "{schema}".records VALUES (1)')
+        await transaction.start()
+        snapshot = await exporter.fetchval("SELECT pg_export_snapshot()")
+        await writer.execute(f'INSERT INTO "{schema}".records VALUES (2)')
+        async with preservation._snapshot_connection(dsn, 5, snapshot) as captured:
+            assert await captured.fetchval(f'SELECT count(*) FROM "{schema}".records') == 1
+        async with preservation._snapshot_connection(dsn, 5) as current:
+            assert await current.fetchval(f'SELECT count(*) FROM "{schema}".records') == 2
+            await writer.execute(f'INSERT INTO "{schema}".records VALUES (3)')
+            assert await current.fetchval(f'SELECT count(*) FROM "{schema}".records') == 2
+        with pytest.raises(asyncpg.ReadOnlySQLTransactionError):
+            async with preservation._snapshot_connection(dsn, 5) as captured:
+                await captured.execute(f'DELETE FROM "{schema}".records')
+    finally:
+        await exporter.close()
+        await writer.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        await writer.close()
+
+
+@pytest.mark.parametrize("snapshot", ["x", "00000003-0000001B-1'; SELECT 1--"])
+@pytest.mark.asyncio
+async def test_capture_rejects_malformed_snapshot_before_connect(snapshot, monkeypatch):
+    async def forbidden_connect(*_args, **_kwargs):
+        pytest.fail("malformed snapshots must never reach a database")
+
+    monkeypatch.setattr(preservation.asyncpg, "connect", forbidden_connect)
+    with pytest.raises(ValueError, match="snapshot identifier"):
+        async with preservation._snapshot_connection("unused", 1, snapshot):
+            pytest.fail("malformed snapshot was admitted")
+
+
+@pytest.mark.asyncio
+async def test_row_digest_preserves_information_across_text_collations_and_numeric_keys():
+    dsn = os.getenv("SCOPE_COMMERCE_TEST_DSN") or os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL fixture is not configured")
+    conn = await asyncpg.connect(dsn)
+    names = ["preservation_order_" + uuid4().hex for _ in range(2)]
+    try:
+        for table, collation in zip(names, ["C", "und-x-icu"], strict=True):
+            await conn.execute(
+                f'CREATE TABLE public."{table}" (id INTEGER, label TEXT COLLATE "{collation}", note TEXT, PRIMARY KEY (id, label))'
+            )
+            await conn.executemany(
+                f'INSERT INTO public."{table}" VALUES ($1, $2, $3)',
+                [(2, "Z", "first"), (2, "a", "second"), (10, "_", "last")],
+            )
+        manifests = [
+            await preservation._table_manifest(conn, table, ["id", "label", "note"])
+            for table in names
+        ]
+        assert {k: v for k, v in manifests[0].items() if k != "table"} == {
+            k: v for k, v in manifests[1].items() if k != "table"
+        }
+        expected_rows = [(2, "Z", "first"), (2, "a", "second"), (10, "_", "last")]
+        hashes = [
+            hashlib.md5(
+                json.dumps(
+                    dict(zip(["id", "label", "note"], row, strict=True)), separators=(",", ":")
+                ).encode(),
+                usedforsecurity=False,
+            ).hexdigest()
+            for row in expected_rows
+        ]
+        assert (
+            manifests[0]["deterministic_row_digest_sha256"]
+            == hashlib.sha256("".join(value + "\n" for value in hashes).encode()).hexdigest()
+        )
+        expected_bounds = await conn.fetchval(
+            "SELECT md5(ROW(2, 'Z'::text)::text || '|' || ROW(10, '_'::text)::text)"
+        )
+        assert manifests[0]["primary_key_range_digest"] == expected_bounds
+        await conn.execute(f'UPDATE public."{names[1]}" SET note=$1 WHERE label=$2', "changed", "a")
+        changed = await preservation._table_manifest(conn, names[1], ["id", "label", "note"])
+        assert (
+            changed["deterministic_row_digest_sha256"]
+            != manifests[0]["deterministic_row_digest_sha256"]
+        )
+    finally:
+        for table in names:
+            await conn.execute(f'DROP TABLE IF EXISTS public."{table}"')
+        await conn.close()

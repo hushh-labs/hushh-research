@@ -56,7 +56,7 @@ test.beforeAll(async () => {
           /^@\/lib\/hermes\/use-puppy-link$/,
           /^@\/lib\/services\/puppy-one-service$/,
           /^@\/components\/agent\/puppy-model-picker$/,
-          /^@\/components\/agent\/puppy-resource-monitor$/,
+          /^@\/components\/agent\/(?:puppy-resource-monitor|private-puppy-inference-panel)$/,
         ].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") })),
         {
           find: /^@\/components\/agent\/agent-structured-experience$/,
@@ -122,7 +122,7 @@ for (const width of [390, 1280]) for (const theme of ["light", "dark"] as const)
     expect(openingCopy.family).toContain("Plus Jakarta Sans");
     expect(openingCopy.size).toBe(width < 640 ? "16px" : "17px");
     expect(openingCopy.line).toBe("28px");
-    expect(await puppy.getByText("A personal supercomputer you own.", { exact: false }).evaluate(typeMetrics)).toEqual(openingCopy);
+    expect(await puppy.getByText("A local model on your trusted machine.", { exact: false }).evaluate(typeMetrics)).toEqual(openingCopy);
     const emptyCopy = puppy.getByText("Puppy One isn't connected to your account yet.", { exact: false });
     await expect(emptyCopy).toBeVisible();
     expect(await emptyCopy.evaluate(typeMetrics)).toEqual(openingCopy);

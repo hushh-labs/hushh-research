@@ -66,7 +66,7 @@ export function useWorldModelOwnerAction({
       if (capture.isCurrent()) setBusy(false);
     }
   }
-  return { busy, message, setMessage, guard, run, active, current };
+  return { busy, message, setMessage, guard, run, active, current, lifetime };
 }
 
 export function WorldModelInvitations({
@@ -84,7 +84,7 @@ export function WorldModelInvitations({
   const [link, setLink] = useState<string | null>(null);
   const [rows, setRows] = useState<WorldModelInvitation[]>([]);
   const [revision, setRevision] = useState(0);
-  const { busy, message, setMessage, guard, run, active, current } =
+  const { busy, message, setMessage, guard, run, active, current, lifetime } =
     useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken });
   const session = { vaultKey, vaultOwnerToken };
   const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -97,9 +97,10 @@ export function WorldModelInvitations({
       isEnabled: () =>
         active.current &&
         current.current.ownerId === ownerId &&
+        current.current.vaultKey === vaultKey &&
         current.current.vaultOwnerToken === vaultOwnerToken,
     });
-    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken })
+    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken, isCurrent: capture.isCurrent, signal: controller.signal })
       .then((value) => {
         if (capture.isCurrent()) setRows(value);
       })
@@ -160,7 +161,7 @@ export function WorldModelInvitations({
             void run(async () => {
               const capture = guard();
               const result = await WorldModelInvitationsService.create(
-                session,
+                { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
                 email.trim() || phone.trim(),
                 {
                   subject_name: name.trim(),
@@ -230,7 +231,7 @@ export function WorldModelInvitations({
                     void run(async () => {
                       const capture = guard();
                       await WorldModelInvitationsService.revoke(
-                        session,
+                        { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
                         row.id,
                       );
                       await capture.assertCurrent();

@@ -8,6 +8,7 @@ const ROSTER_DISPLAY_ORDER: readonly string[] = [
   "wallet",
   "consent",
   "pkm",
+  "files",
   "messages",
 ];
 

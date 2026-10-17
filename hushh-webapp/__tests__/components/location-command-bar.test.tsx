@@ -20,6 +20,7 @@ const harness = vi.hoisted(() => ({
   start: vi.fn(),
   finish: vi.fn(),
   cancelCapture: vi.fn(),
+  cancelTranscription: vi.fn(),
   haptic: vi.fn(),
   clearReferences: vi.fn(),
   pause: vi.fn(),
@@ -45,6 +46,17 @@ vi.mock(
   "@/components/one-location/onboarding/location-onboarding-interaction-surface",
   () => ({ useOptionalOneLocationInteractionSurface: () => null }),
 );
+vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
+  resolveGeminiRuntimeConnection: async () => ({ mode: "managed" }),
+}));
+vi.mock("@/lib/one-voice/readiness", () => ({
+  useOneVoiceLiveEnabled: () => false,
+  useOneVoiceCommandsEnabled: () => true,
+  useOneVoiceReadiness: () => ({
+    status: "resolved",
+    microphoneOwner: "pod_commands",
+  }),
+}));
 vi.mock("next/navigation", () => ({
   usePathname: () => harness.pathname,
   useRouter: () => harness.router,
@@ -97,6 +109,8 @@ vi.mock("@/lib/agent/location-command-runtime", () => ({
     recover = harness.recover;
     submit = harness.submit;
     transcribe = harness.transcribe;
+    cancelTranscription = harness.cancelTranscription;
+    hasActiveCheckpoint = true;
     cancel = harness.cancel;
     submitAction = harness.submitAction;
   },

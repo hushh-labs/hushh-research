@@ -30,7 +30,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-load_dotenv(PROJECT_ROOT / ".env")
 
 DEFAULT_WEBHOOK_URL = "http://127.0.0.1:8000/api/webhooks/workos"
 
@@ -84,6 +83,7 @@ def webhook(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    load_dotenv(PROJECT_ROOT / ".env")
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )

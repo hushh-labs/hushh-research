@@ -3,7 +3,7 @@
   --vault-v10-muted: #6e6e73;
   --vault-v10-field: #f8f9fb;
   --vault-v10-line: #e1e4ea;
-  --vault-v10-blue: #0071e3;
+  --vault-v10-blue: var(--app-accent);
   color: var(--vault-v10-ink);
   font-family: var(--font-family-product, "Plus Jakarta Sans", system-ui, sans-serif);
 }
@@ -125,7 +125,7 @@
   min-height: 52px;
   border-radius: 999px;
   background: var(--vault-v10-blue) !important;
-  color: #fff !important;
+  color: var(--app-accent-fg) !important;
   font-size: 16px;
   font-weight: 600;
   line-height: 24px;

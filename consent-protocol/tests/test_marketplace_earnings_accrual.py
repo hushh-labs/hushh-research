@@ -70,14 +70,15 @@ async def test_has_buyers_is_false_without_an_approved_request():
 
 
 async def test_payouts_disabled_and_nothing_accrued_always():
-    # The core honesty guarantee: even with an approved buyer, no money exists.
+    # Estimator compatibility values never establish recorded financial facts.
     summary = await _service([_req("approved", buyer_id="b2", req_id="r3")]).earnings_summary(
         user_id="owner"
     )
     assert summary["accruedCents"] == 0
     assert summary["payoutsEnabled"] is False
     assert summary["hasPaymentRail"] is False
-    assert "coming soon" in summary["note"].lower()
+    assert "hypothetical" in summary["note"].lower()
+    assert "account" in summary["note"].lower()
 
 
 async def test_anonymous_requests_each_count_as_a_distinct_buyer():
@@ -97,7 +98,8 @@ async def test_no_demand_summary_is_honest():
     assert summary["interestedBuyerCount"] == 0
     assert summary["hasBuyers"] is False
     assert summary["payoutsEnabled"] is False
-    assert "coming soon" in summary["note"].lower()
+    assert "hypothetical" in summary["note"].lower()
+    assert "account" in summary["note"].lower()
 
 
 async def test_inbox_failure_degrades_to_zero_demand():
@@ -108,3 +110,56 @@ async def test_inbox_failure_degrades_to_zero_demand():
     assert summary["hasBuyers"] is False
     assert summary["accruedCents"] == 0
     assert summary["payoutsEnabled"] is False
+
+
+async def test_memory_commerce_tools_use_verified_owner_port_and_never_mutate(monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from hushh_mcp.agents.personal_information import tools
+    from hushh_mcp.hushh_adk import tools as tool_authority
+    from hushh_mcp.hushh_adk.context import HushhContext
+
+    calls = []
+    token_owner = "owner"
+
+    async def validate(_token, *, expected_scope):
+        assert expected_scope.value == "cap.pkm.marketplace.view"
+        return True, None, SimpleNamespace(user_id=token_owner)
+
+    class Port:
+        async def scope_commerce_summary(self, *, user_id):
+            calls.append(("summary", user_id))
+            return {"earnings": {"pendingCents": 7}, "readiness": {"enabled": False}}
+
+        async def scope_commerce_activity(self, *, user_id, view, cursor):
+            calls.append(("activity", user_id, view, cursor))
+            return {"items": [], "next_cursor": None}
+
+    monkeypatch.setattr(tool_authority, "validate_token_with_db", validate)
+    monkeypatch.setattr("hushh_mcp.runtime_settings.pod_mode", lambda: False)
+    with HushhContext(
+        "owner", "synthetic-owner-token", service_ports={"marketplace_information": Port()}
+    ):
+        assert (await tools.get_scope_commerce_summary())["earnings"]["pendingCents"] == 7
+        assert await tools.get_scope_commerce_activity("sales") == {
+            "items": [],
+            "next_cursor": None,
+        }
+        token_owner = "other"
+        with pytest.raises(PermissionError, match="Identity Spoofing"):
+            await tools.get_scope_commerce_summary()
+    assert calls == [("summary", "owner"), ("activity", "owner", "sales", None)]
+    token_owner = "owner"
+    monkeypatch.setattr("hushh_mcp.runtime_settings.pod_mode", lambda: True)
+    with HushhContext("owner", "synthetic-owner-token"):
+        with pytest.raises(PermissionError, match="port is unavailable"):
+            tools._commerce()
+    names = {
+        getattr(tool, "_name", tool.__name__) for tool in tools.PERSONAL_INFORMATION_CHAT_TOOLS
+    }
+    assert {"get_scope_commerce_summary", "get_scope_commerce_activity"} <= names
+    assert not names.intersection(
+        {"reserve_purchase", "funding_checkout", "prepare_export", "stage_export", "withdraw"}
+    )

@@ -4,7 +4,8 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `.codex/agents/` in this worktree. They
+engineering evidence agents are authored under root `agents/`; host mirrors are
+generated. They
 are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
@@ -37,9 +38,11 @@ In this shared-runtime branch, omitted individual ports retain shared defaults;
 these hooks alone do not establish private isolation. No ingress binding is added
 by the generic dependency seam.
 
-The process-local `adk_bridge.dispatch` registry currently registers exactly
+The default shared-runtime `adk_bridge.dispatch` registry registers
 `agent_documents`, `agent_location`, `agent_email`, `agent_nav`, and
-`agent_personal_information`. This is separate from `SPECIALIST_A2A_SCOPE_MAP`,
+`agent_personal_information`. An owner-bound pod may register Connections and
+Connected Systems for its own turn; those are not ambient shared-runtime
+handlers. This registry is separate from `SPECIALIST_A2A_SCOPE_MAP`,
 which validates five external A2A identifiers: One, Kai, Nav, KYC, and Personal
 Information. A scope-map entry does not register an in-process handler, and a
 local dispatch registration does not create an A2A endpoint. Nav
@@ -61,6 +64,14 @@ pod admission policy with their owning topology.
 
 ## Architecture Review Questions
 
+### Gated Computer Use foundation
+
+`agent_computer_use` is a development-only, withheld manifest. Its native ADK
+factory and browser boundary are not registered in One or admitted by pod
+routes. Follow the [private browser runtime](./private-browser-runtime.md) for
+isolation, authority and provider-image gates; a manifest or synthetic test
+must not enable browser execution on a shared server or an unsandboxed pod.
+
 ### One Chat connector execution boundary
 
 The existing external connector registry is a catalog of configurations, not a
@@ -68,8 +79,12 @@ permission grant or proof that a tool is callable. One has two execution paths:
 
 - A remote, owner-registered HTTPS MCP server is discovered through the
   owner-bound `RegisteredMcpToolset`. The ADK toolset validates schemas,
-  connection revision, credentials and exact-call review. Adding a compatible
-  custom server does not require a provider-specific Python tool dispatcher.
+  connection revision, credentials and current owner authority. Ordinary calls
+  on the person's own connector run without exact-call review; an owner-blocked
+  tool whose contract changed still requires review. Curated connectors follow
+  their reviewed policy, and a review-required call uses the existing one-use
+  app ledger. Adding a compatible custom server does not require a
+  provider-specific Python tool dispatcher.
 - Google Drive, Gmail and Calendar can use their existing OAuth-backed API
   services. Their typed Chat reads and reviewed actions retain those services'
   scope and confirmation checks. An OAuth API capability is not a Google-hosted
@@ -89,8 +104,10 @@ The Founder Wiki at `https://mcp.hushh.ai/mcp` is a custom-connector contract
 example: its HTTPS endpoint and owner-supplied authorization fit the generic
 vault connector path without a Wiki-specific dispatcher. The coding agent's
 Wiki credential is not available to app owners. A live Chat read requires the
-owner to connect it in-app and approve the exact call; synthetic contract
-tests prove compatibility only, not live authorization.
+owner to connect it in-app and satisfy current admission and consent; ordinary
+owner-private calls do not require an exact-call review. A review-required
+connector fixture still needs a dev owner journey. Synthetic contract tests
+prove compatibility only, not live authorization.
 
 Apply these questions to each orchestration change at the pinned ADK revision:
 
@@ -156,7 +173,7 @@ flowchart LR
     runner --> root["One LlmAgent"]
     root -->|bounded in-process child| toolchild["ADK AgentTool<br/>e.g. Kai, Wallet"]
     root -->|calls bounded tool| dispatchTool["Typed dispatch tool"]
-    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five registered handlers"]
+    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five default shared handlers"]
     dispatch --> handler["Registered handler<br/>owner and invocation checks"]
   end
 

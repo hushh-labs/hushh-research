@@ -8,6 +8,31 @@ backend_cloudbuild="$REPO_ROOT/deploy/backend.cloudbuild.yaml"
 frontend_cloudbuild="$REPO_ROOT/deploy/frontend.cloudbuild.yaml"
 ria_proxy_route="$REPO_ROOT/hushh-webapp/app/api/ria/[...path]/route.ts"
 
+# The fixed preview selects its secret namespace through the reviewed Cloud
+# Build substitution. Shared deployment keeps the empty-prefix default. Require
+# the exact source secret in either authored form; arbitrary prefixes fail.
+has_frontend_secret_binding() {
+  local plain="$1=$2:latest"
+  local selected="$1="'${_SECRET_PREFIX}'"$2:latest"
+  grep -Fq "$plain" "$frontend_cloudbuild" || grep -Fq "$selected" "$frontend_cloudbuild"
+}
+
+# Cloud Build rejects a template that references an undeclared substitution,
+# even when that setting is optional and the deploy workflow leaves it empty.
+python3 - "$backend_cloudbuild" "$frontend_cloudbuild" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+for name in sys.argv[1:]:
+    source = Path(name).read_text(encoding="utf-8")
+    referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", source))
+    declared = set(re.findall(r"^  (_[A-Z0-9_]+):", source, re.MULTILINE))
+    missing = sorted(referenced - declared)
+    if missing:
+        raise SystemExit(f"{name}: undeclared Cloud Build substitutions: {', '.join(missing)}")
+PY
+
 if grep -q 'consent-protocol-rpphvsc3tq-uc.a.run.app' "$backend_helper"; then
   echo "❌ backend route helper still hardcodes a production backend fallback."
   exit 1
@@ -18,12 +43,12 @@ if ! grep -q 'do not guess a backend origin' "$backend_helper"; then
   exit 1
 fi
 
-if ! grep -q 'BACKEND_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
+if ! has_frontend_secret_binding BACKEND_URL BACKEND_URL; then
   echo "❌ frontend Cloud Run deploy must inject BACKEND_URL at runtime."
   exit 1
 fi
 
-if ! grep -q 'DEVELOPER_API_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
+if ! has_frontend_secret_binding DEVELOPER_API_URL BACKEND_URL; then
   echo "❌ frontend Cloud Run deploy must inject DEVELOPER_API_URL at runtime."
   exit 1
 fi
@@ -69,7 +94,7 @@ for association_secret in \
   NEXT_PUBLIC_IOS_BUNDLE_ID \
   NEXT_PUBLIC_ANDROID_APP_ID \
   ANDROID_SHA256_CERT_FINGERPRINTS; do
-  if ! grep -q "${association_secret}=${association_secret}:latest" "$frontend_cloudbuild"; then
+  if ! has_frontend_secret_binding "$association_secret" "$association_secret"; then
     echo "❌ frontend Cloud Run deploy must inject ${association_secret} for native passkey association."
     exit 1
   fi
@@ -139,6 +164,28 @@ if ! grep -q 'hostname not in aliases.get(environment, \[\])' "$frontend_cloudbu
   echo "frontend Cloud Build must reject hosts outside the deployment environment."
   exit 1
 fi
+
+# Legacy RP compatibility is authored in the catalog consumed above, not in
+# removed Cloud Build shell branches. Check that source without weakening
+# either legacy compatibility or environment isolation.
+python3 - "$REPO_ROOT/hushh-webapp/lib/vault/passkey-domain-aliases.json" <<'PY_LEGACY_RP'
+import json
+import sys
+from pathlib import Path
+
+aliases = json.loads(Path(sys.argv[1]).read_text())
+required = {"uat": "uat.one.hushh.ai", "production": "one.hushh.ai"}
+for environment, legacy in required.items():
+    if legacy not in aliases.get(environment, []):
+        raise SystemExit("Passkey domain catalog must retain environment-scoped legacy app domains")
+seen = set()
+for hosts in aliases.values():
+    if not isinstance(hosts, list) or any(not isinstance(host, str) for host in hosts):
+        raise SystemExit("Passkey domain catalog must contain hostname lists")
+    if seen.intersection(hosts):
+        raise SystemExit("Passkey domain catalog must not share hosts across environments")
+    seen.update(hosts)
+PY_LEGACY_RP
 
 if ! grep -q 'APP_FRONTEND_ORIGIN_VAL' "$frontend_cloudbuild"; then
   echo "frontend Cloud Build must source the frontend origin from Secret Manager."

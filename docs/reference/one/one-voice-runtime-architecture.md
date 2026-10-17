@@ -99,6 +99,9 @@ Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement respons
 Run `npm run verify:one-voice`, `npm run typecheck`, native plugin/privacy checks, the Location regression suite, focused backend command tests and real PostgreSQL command transaction tests. PostgreSQL tests require `ONE_COMMAND_TEST_DATABASE_URL` pointing to an isolated test database; never use a shared account database. Regenerate both the action gateway and product-agent registry after authored changes.
 
 When integrating a branch with a different generated workflow history, run `node scripts/voice/generate-capability-graph.mjs --workflow-predecessor-ref <merged-ancestor-sha>` from `hushh-webapp`, then `node scripts/voice/generate-one-location-workflow-card-catalog.mjs`. The generator accepts only committed ancestors and proves unchanged or additive workflow semantics before preserving their compatible revisions. Authority changes and conflicting rejection or migration policies fail closed. This retains unfinished setup from either merge parent without hand-editing generated compatibility lists.
+If the merged history must survive ordinary `--check` runs, record the exact ancestor
+in the existing capability graph evolution contract's `workflow_predecessor_refs`.
+The generator validates ancestry and workflow compatibility on every build.
 
 September 13 repair evidence includes mounted bar/provider/workflow tests, native slash/query settlement tests, focused semantic/read-port tests, actual PostgreSQL share/check-in/request/membership writers under concurrency and failure injection, and real encrypted v5→v4→v3→v2 PKM preservation/rollback tests. The existing coordinator's default-place test preserves Home, Work and unrelated records and refuses invalid records without a write. Mounted Connect tests cover scope review, account changes, cancel/reopen and reverse-direction request races. Native static/plugin and Siri contracts pass. Earlier baseline web/native builds and historical route audits are not acceptance evidence for this uncommitted repair. Provider generation receives the typed schema shape; full size and authority validation remains local. Exact digital silence returns an empty transcript without a model call.
 
@@ -113,3 +116,18 @@ Nearby stores its encrypted rating visit and exact internal pointer in the prese
 Fresh web production compilation, typechecking and page generation passed. After integrating the current baseline, 310 focused frontend tests, 700 backend tests and the expanded 152-test voice verification passed. Physical English/Hindi/Hinglish speech, OS permission prompts, interruption/tail capture and termination recovery still need proof on web, physical iPhone and Android. The native bundle/build checks must be repeated if subsequent integration changes affect them. No optional-device skip can satisfy this release. Founder Wiki verification/update remains outstanding because its credential was unavailable.
 
 Created-circle result references are projected only from correlated completed-step receipts and a fresh owner-scoped circle read. Stable non-authorizing handles avoid duplicate candidates across result reads. Cancel retries retain the same command identity until terminal acknowledgement or owner-scoped expiry. Choice and semantic reassessment changes install only after encrypted checkpoint acknowledgement; a rejected or lost response requires explicit canonical refresh before further execution. Renewed partial operations retain their original consumed-history fence before semantic reassessment.
+
+### Pod transport qualification — 2026-09-26
+
+The integrated pod branch uses admitted `/api/one/pod/commands/transcriptions`
+and `/api/one/pod/commands/assess` for bounded private commands. Checkpoints and
+exact effect approval remain hub-owned. Microphone selection now combines fresh
+owner hosting with provider readiness: BYOC uses recorded pod commands; confirmed
+Shared accounts can use ready hub Live sessions. Pending, unknown and unsupported
+placement enables neither microphone. Provider-health caching cannot replace a
+fresh hosting observation. Maintained `/api/one/voice/*` rechecks Shared placement
+at ticket issuance and socket admission; a hosting change refuses the attempt
+without automatic replay on another transport. These guards cover new sessions
+and reconnects, not continuous eviction of an already active Shared session.
+Separate live evidence is still required for private-pod voice acceptance.
+The obsolete `/api/one/adk/*` Live endpoints return retirement responses.

@@ -45,7 +45,6 @@ DEFAULT_MANIFEST = ROOT / "tests/fixtures/drive_pipeline_eval/manifest-v2.json"
 RUNTIME_MODEL = "gemini-3.6-flash"
 J1_MODEL = "gemini-3.1-pro-preview"
 J2_MODEL = "gemini-3.8-flash"
-VERTEX_PROJECT = load_profile("uat")["project"]
 
 
 class UsageError(Exception):
@@ -71,8 +70,8 @@ def _owner_listing(args, source) -> tuple[dict | None, str]:
     """The owner's name for the runtime's wrong-person fence, and where it came
     from: --owner-name, else the owner's identity on file in a live source.
 
-    The name stays in memory: it never enters a prompt, a batch file or a
-    report, and only its origin is printed.
+    The name stays in memory as authored-assessment comparison context. It
+    never enters a batch file or report, and only its origin is printed.
     """
     name = (getattr(args, "owner_name", None) or "").strip()
     if name:
@@ -400,9 +399,10 @@ def _judges(args, plan):
     require_independent(
         runtime_model=plan.runtime["runtime_model"], j1=plan.judge["j1"], j2=plan.judge["j2"]
     )
+    project = args.vertex_project or load_profile("uat")["project"]
     return (
-        VertexJudge(model=plan.judge["j1"], project=args.vertex_project),
-        VertexJudge(model=plan.judge["j2"], project=args.vertex_project),
+        VertexJudge(model=plan.judge["j1"], project=project),
+        VertexJudge(model=plan.judge["j2"], project=project),
     )
 
 
@@ -858,13 +858,13 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--owner-name",
         help="The consenting owner's name for the wrong-person fence (default: the owner's "
-        "identity on file for live sources). Held in memory only; never written or printed.",
+        "identity on file for live sources). Held in memory as model context; never written or printed.",
     )
     run.set_defaults(func=cmd_run)
 
     judge = base("judge", "Deterministic checks, then the pinned J1/J2 judges")
     judge.add_argument("--judge", choices=("vertex", "fake"), default="vertex")
-    judge.add_argument("--vertex-project", default=VERTEX_PROJECT)
+    judge.add_argument("--vertex-project", default=None)
     judge.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
     judge.add_argument(
         "--retry-provider-errors",
@@ -875,7 +875,7 @@ def parser() -> argparse.ArgumentParser:
 
     label = base("label", "Deterministic labels, blind pre-labels, silver and the human queue")
     label.add_argument("--judge", choices=("vertex", "fake"), default="vertex")
-    label.add_argument("--vertex-project", default=VERTEX_PROJECT)
+    label.add_argument("--vertex-project", default=None)
     label.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
     label.add_argument("--interactive", action="store_true", help="Terminal y/n/edit labeler")
     label.add_argument("--labeler", default="operator")

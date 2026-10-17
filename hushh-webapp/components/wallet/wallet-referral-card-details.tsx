@@ -1,8 +1,8 @@
 "use client";
 
-import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ProfilePaneCopyIcon } from "@/components/profile/profile-pane-icons";
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardQrActions } from "@/components/wallet-card/wallet-card-qr-actions";
@@ -36,6 +36,10 @@ export function WalletReferralCardDetails({
 }) {
   const [busy, setBusy] = useState<"wallet" | "revoke" | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const visit = useMemo(() => ({ ownerId: profile?.ownerId, onRevoke }), [profile?.ownerId, onRevoke]);
+  const visitRef = useRef<object | null>(visit);
+  visitRef.current = visit;
+  useEffect(() => { visitRef.current = visit; setBusy(null); setConfirmRevoke(false); return () => { if (visitRef.current === visit) visitRef.current = null; }; }, [visit]);
   if (!summary) {
     return <div className="space-y-3 py-6">
       <p role={failed ? "alert" : "status"} className="text-xs text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
@@ -48,11 +52,11 @@ export function WalletReferralCardDetails({
     setBusy("wallet");
     try {
       const result = await WalletCardService.addToAppleWallet(shareToken, { variant: "referral" });
-      if (result.state !== "opened") morphyToast.error(result.message);
+      if (visitRef.current === visit && result.state !== "opened") morphyToast.error(result.message);
     } catch {
-      morphyToast.error("Could not create your pass. Try again.");
+      if (visitRef.current === visit) morphyToast.error("Could not create your pass. Try again.");
     } finally {
-      setBusy(null);
+      if (visitRef.current === visit) setBusy(null);
     }
   };
 
@@ -61,12 +65,13 @@ export function WalletReferralCardDetails({
     setBusy("revoke");
     try {
       await onRevoke(summary.slug);
+      if (visitRef.current !== visit) return;
       setConfirmRevoke(false);
       morphyToast.success("Old referral QR revoked. Your new link starts with zero opens.");
     } catch {
-      morphyToast.error("Could not revoke access. Try again.");
+      if (visitRef.current === visit) morphyToast.error("Could not revoke access. Try again.");
     } finally {
-      setBusy(null);
+      if (visitRef.current === visit) setBusy(null);
     }
   };
 
@@ -79,7 +84,7 @@ export function WalletReferralCardDetails({
               <AppleWalletIcon />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
-            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"))}>
+            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => { if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"); })}>
               <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>

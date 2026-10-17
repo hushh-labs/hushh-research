@@ -113,7 +113,14 @@ def app_for_owner():
     return app
 
 
-def test_route_uses_authenticated_owner_and_rejects_extra_or_unbounded_fields(monkeypatch):
+@pytest.mark.parametrize("placement", ["shared", "byoc"])
+def test_route_uses_authenticated_owner_and_rejects_extra_or_unbounded_fields(
+    monkeypatch, placement
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    placement_reader = AsyncMock(return_value=placement)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", placement_reader)
     mark = AsyncMock()
     monkeypatch.setattr(routes, "complete_magic_intelligence", mark)
     client = TestClient(app_for_owner())
@@ -131,6 +138,8 @@ def test_route_uses_authenticated_owner_and_rejects_extra_or_unbounded_fields(mo
         assert response.status_code == 422
         assert response.headers["cache-control"] == "private, no-store"
     assert mark.await_count == 1
+    # Receipt reconciliation is metadata authority, independent of content placement.
+    placement_reader.assert_not_awaited()
 
 
 @pytest.mark.parametrize("boundary", ["token", "chat_key"])

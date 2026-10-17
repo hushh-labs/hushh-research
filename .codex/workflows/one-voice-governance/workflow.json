@@ -30,7 +30,7 @@
     "cd hushh-webapp && npm run build:voice-gateway",
     "cd hushh-webapp && npm run verify:voice-gateway",
     "cd hushh-webapp && npm run typecheck",
-    "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts",
+    "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/one-voice/live-client.test.ts __tests__/components/one-voice-hosting-readiness.test.tsx",
     "cd consent-protocol && python3 -m pytest tests/test_one_adk_live_protocol.py tests/services/test_agent_chat_service.py -q",
     "./bin/hushh docs verify"
   ],
@@ -40,13 +40,13 @@
       "cd hushh-webapp && npm run build:voice-gateway",
       "cd hushh-webapp && npm run verify:voice-gateway",
       "cd hushh-webapp && npm run typecheck",
-      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts",
+      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/one-voice/live-client.test.ts __tests__/components/one-voice-hosting-readiness.test.tsx",
       "cd consent-protocol && python3 -m pytest tests/test_one_adk_live_protocol.py tests/services/test_agent_chat_service.py -q",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "cd hushh-webapp && npm run verify:voice-gateway",
-      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts",
+      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/one-voice/live-client.test.ts __tests__/components/one-voice-hosting-readiness.test.tsx",
       "cd consent-protocol && python3 -m pytest tests/test_one_adk_live_protocol.py tests/services/test_agent_chat_service.py -q",
       "./bin/hushh docs verify"
     ]

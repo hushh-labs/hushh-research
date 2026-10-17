@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyResources: vi.fn(),
   fetchPuppyJobs: vi.fn(),
   setPuppyJobPaused: vi.fn(),
+  refreshPuppyLink: vi.fn(),
   // What the shared link store would hand every surface on the page.
   link: { current: null as unknown },
 }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
     fetchPuppyResources: mocks.fetchPuppyResources,
     fetchPuppyJobs: mocks.fetchPuppyJobs,
     setPuppyJobPaused: mocks.setPuppyJobPaused,
+    refreshPuppyLink: mocks.refreshPuppyLink,
   };
 });
 
@@ -98,7 +100,9 @@ async function mount(payload: PuppyResources, value: PuppyLink) {
   mocks.fetchPuppyResources.mockResolvedValue(payload);
   mocks.link.current = value;
   const view = render(<PuppyMachineSheet />);
-  await waitFor(() => expect(mocks.fetchPuppyResources).toHaveBeenCalled());
+  if (window.location.hostname === "localhost") {
+    await waitFor(() => expect(mocks.fetchPuppyResources).toHaveBeenCalled());
+  }
   return view;
 }
 
@@ -187,11 +191,9 @@ describe("PuppyMachineSheet reading from One", () => {
     expect(within(sheet).queryByText("gemma-4-26b-a4b-qat")).not.toBeInTheDocument();
   });
 
-  it("offers no control at all when the device has no snapshot", async () => {
-    // A trusted device that has never reported is the normal state between
-    // `/hussh-one connect` and the first push. With an unreachable bridge
-    // there is no reading from either authority, so the panel would be one
-    // muted sentence: the control is not offered rather than opened onto that.
+  it("keeps the device status accessible before its first snapshot", async () => {
+    // The owner can inspect a linked device before it sends a heartbeat;
+    // missing readings must not be represented as live measurements.
     await mount(
       UNREACHABLE,
       link({
@@ -206,9 +208,9 @@ describe("PuppyMachineSheet reading from One", () => {
         },
       }),
     );
-    expect(
-      screen.queryByRole("button", { name: /this machine/i }),
-    ).not.toBeInTheDocument();
+    const sheet = await open();
+    expect(within(sheet).getByText("Puppy One is not answering on this machine.")).toBeInTheDocument();
+    expect(within(sheet).queryByText(/As reported to Hussh One/)).not.toBeInTheDocument();
   });
 
   it("leaves One's record to the chat panel: no install link, no banner on the strip", async () => {
@@ -293,19 +295,11 @@ describe("PuppyMachineSheet reading from One", () => {
     } satisfies PuppyJobs);
     await mount(NOT_CONFIGURED, liveWithSnapshot());
     const sheet = await open();
+    expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyJobs).not.toHaveBeenCalled();
 
     expect(within(sheet).queryByText(/HERMES_API_SERVER_KEY/)).not.toBeInTheDocument();
-    expect(
-      within(sheet).getByText(
-        "Live readings can only be taken on the machine Puppy One runs on.",
-      ),
-    ).toBeInTheDocument();
-    // Said once. The jobs probe has nothing of its own to add off-machine.
-    expect(
-      within(sheet).getAllByText(
-        "Live readings can only be taken on the machine Puppy One runs on.",
-      ),
-    ).toHaveLength(1);
+    expect(within(sheet).queryByText(/Live readings can only/)).not.toBeInTheDocument();
     expect(
       within(sheet).queryByText("Puppy One did not answer about its scheduled work."),
     ).not.toBeInTheDocument();
@@ -321,11 +315,48 @@ describe("PuppyMachineSheet reading from One", () => {
     expect(
       within(sheet).queryByText("Puppy One is not answering on this machine."),
     ).not.toBeInTheDocument();
-    expect(
-      within(sheet).getByText(
-        "Live readings can only be taken on the machine Puppy One runs on.",
-      ),
-    ).toBeInTheDocument();
+    expect(within(sheet).queryByText(/Live readings can only/)).not.toBeInTheDocument();
+    expect(within(sheet).getByText("gemma-4-26b-a4b-qat")).toBeInTheDocument();
+  });
+
+  it("offers retry when the first owner-device read fails, then shows the report", async () => {
+    setHostname("dev.one.hushh.ai");
+    const unavailable = link({ state: "unavailable" });
+    mocks.link.current = unavailable;
+    mocks.refreshPuppyLink.mockImplementation(async () => {
+      mocks.link.current = liveWithSnapshot();
+      return mocks.link.current;
+    });
+    const view = render(<PuppyMachineSheet />);
+    const sheet = await open();
+    expect(within(sheet).getByText("Could not load your machine report.")).toBeInTheDocument();
+
+    fireEvent.click(within(sheet).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(mocks.refreshPuppyLink).toHaveBeenCalledTimes(1));
+    view.rerender(<PuppyMachineSheet />);
+    expect(await within(sheet).findByText("gemma-4-26b-a4b-qat")).toBeInTheDocument();
+    expect(within(sheet).getByText("Apple · Apple M4 Max")).toBeInTheDocument();
+    expect(sheet).toBe(screen.getByRole("dialog"));
+  });
+
+  it("shows a partial device report instead of an empty remote sheet", async () => {
+    setHostname("dev.one.hushh.ai");
+    const now = Date.now();
+    await mount(UNREACHABLE, link({
+      state: "live",
+      activeCount: 1,
+      checkedAt: now,
+      device: {
+        id: "dev-1",
+        name: "Kushal's Mac",
+        lastHeartbeatAt: now,
+        lastSyncedAt: null,
+        heartbeat: { busy: true, active_sessions: 2 },
+      },
+    }));
+    const sheet = await open();
+    expect(within(sheet).getByText("busy · 2 active sessions")).toBeInTheDocument();
+    expect(within(sheet).getByText(/As reported to Hussh One/)).toBeInTheDocument();
   });
 
   it("keeps the developer hint on the machine that serves the page", async () => {

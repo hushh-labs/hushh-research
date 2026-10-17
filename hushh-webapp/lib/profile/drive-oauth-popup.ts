@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
 
 // Keep this opaque marker in same-origin localStorage. Google's desktop COOP
 // can replace the popup browsing-context group during sign-in, which clears
@@ -92,6 +92,7 @@ export function navigateDriveOAuthPopup(
   ) {
     throw new Error("Authorization could not start. Try again.");
   }
+  assertOAuthReturnOrigin(authorizeUrl);
   // Only a redacted correlation marker crosses the popup boundary. Never copy
   // the opener's owner token, drafts, Google credentials or signed OAuth state.
   // Write it from the opener so it remains available after a desktop browser

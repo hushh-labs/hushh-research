@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   WorldModelResearchService,
   type PwmPreferences,
@@ -222,6 +223,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         Math.min(Math.max(0, at - Date.now()), 2_147_483_647),
       );
     };
+    const cleanup = () => { controller.abort(); clearRetry(); };
     // Read after ensure, so a first-time owner sees the enrolled row; a failed
     // run still reads them, so the off switch stays reachable.
     const readPreferences = () => {
@@ -234,6 +236,10 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => undefined);
     };
+    if (shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh) {
+      readPreferences();
+      return cleanup;
+    }
     void (async () => {
       // Past decisions only refine research; an unreadable memory never blocks it.
       let ownerDecisions: PwmOwnerDecisions | undefined;
@@ -328,10 +334,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       publish();
       readPreferences();
     });
-    return () => {
-      controller.abort();
-      clearRetry();
-    };
+    return cleanup;
   }, [ready, user, vaultKey, vaultOwnerToken, inSetup, revision]);
   return <>{children}</>;
 }

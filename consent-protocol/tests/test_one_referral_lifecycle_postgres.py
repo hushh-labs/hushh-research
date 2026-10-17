@@ -727,7 +727,30 @@ def test_account_deletion_rebuilds_surviving_parent_chains(db):
     _invite(db, "bob", "carol")
     _invite(db, "carol", "dave")
     with db.begin() as conn:
+        conn.execute(
+            text("""
+            INSERT INTO one_referral_activity_days(user_id,activity_date,timezone)
+            VALUES('bob',CURRENT_DATE,'UTC'),('carol',CURRENT_DATE,'UTC')
+        """)
+        )
+        assert (
+            conn.execute(
+                text("SELECT COUNT(*) FROM one_referral_network_members WHERE user_id='bob'")
+            ).scalar_one()
+            == 1
+        )
         conn.execute(text("DELETE FROM actor_profiles WHERE user_id='bob'"))
+        for table in ("one_referral_activity_days", "one_referral_network_members"):
+            assert (
+                conn.execute(text(f"SELECT COUNT(*) FROM {table} WHERE user_id='bob'")).scalar_one()
+                == 0
+            )
+            assert (
+                conn.execute(
+                    text(f"SELECT COUNT(*) FROM {table} WHERE user_id='carol'")
+                ).scalar_one()
+                == 1
+            )
     assert (
         network.get_network_circle("carol")["circle_id"]
         == network.get_network_circle("dave")["circle_id"]

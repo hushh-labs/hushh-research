@@ -14,12 +14,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
 from hushh_mcp.services.message_feedback_service import (
     MessageFeedbackError,
     get_feedback,
     set_feedback,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 router = APIRouter(prefix="/api/one/agent-chat/feedback", tags=["one-agent-feedback"])
 
@@ -40,7 +40,7 @@ class MessageFeedbackRequest(BaseModel):
 @router.get("")
 async def read_feedback(
     conversation_id: str = Query(max_length=200),
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     feedback: dict[str, Any] = await get_feedback(
         user_id=str(token["user_id"]), conversation_ref=conversation_id
@@ -51,7 +51,7 @@ async def read_feedback(
 @router.put("")
 async def write_feedback(
     payload: MessageFeedbackRequest,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     try:
         recorded: dict[str, Any] = await set_feedback(

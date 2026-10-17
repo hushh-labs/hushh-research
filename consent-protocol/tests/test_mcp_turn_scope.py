@@ -365,6 +365,8 @@ async def test_founder_wiki_uses_generic_vault_mcp_path(runtime, monkeypatch):
         "Bearer HCT:synthetic.signature",
         "Token HCT:synthetic.signature",
         "  basic   hct:synthetic.signature",
+        "Bearer pst1.synthetic.signature",
+        "pod-session:synthetic-local-grant",
     ],
 )
 def test_vault_owner_token_cannot_be_forwarded_as_custom_api_key(value):

@@ -7,6 +7,19 @@ Use this contract for browser rehearsals whose result depends on protected infor
 1. Use the canonical environment-wired reviewer identity. Resolve it through `hushh-webapp/scripts/testing/reviewer-test-identity.mjs`; do not create a convenient replacement account.
 2. Mutating a shared reviewer fixture requires explicit operator authority for that task. Read-only authentication, unlock, routing, and rendering checks do not grant write authority.
 3. Never reset, delete, reseed, or broaden grants merely to make a rehearsal pass.
+4. Automated authentication does not record legal agreement. Use the reviewer
+   automation bridge; defer the specific Terms and Privacy dialog with “Not now”.
+   Keep legal-acceptance writes blocked unless that separate agreement is explicitly
+   authorized. Do not use an interactive sign-in click as an automation fallback.
+   An isolated preview may instead explicitly select `human_authenticated` before
+   preflight, as defined in [reviewer preflight](human-reviewer-authentication.md).
+   This observes ordinary human Google sign-in and manual vault unlock without
+   injecting mint credentials; it never converts a failed automatic run to human mode.
+   Explicit headless `operator_issued_token` admission for an isolated preview
+   follows that same reference: real operator-minted Firebase tokens, exact
+   main-frame/origin/owner binding, no initialized passphrase and no backend
+   receipt fabrication. It never falls back from another failed mode.
+   Apple exchanges are not admitted by this rehearsal contract.
 
 ## Memory-only BYOK boundary
 
@@ -35,7 +48,45 @@ Run the read-only baseline:
 node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 ```
 
+Read-only rehearsals locally suppress POST requests to the known Google Analytics
+collection endpoint and send no measurement events through that path. This is not
+analytics delivery proof; use the owning analytics smoke workflow for that evidence.
+All other unapproved product mutations remain refused. The route guard must be
+installed before the first navigation.
+
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
+
+Private Memory preparation may opt into `admitOwnerPodMemoryPreparation` together
+with `allowMemoryPreparation`. This filters only non-navigation HTTPS
+`POST /api/one/pod/memory/proposals`, without URL credentials, query or fragment.
+Before accepting, the caller must discover the endpoint through the current
+owner's authenticated hub API and verify it with the canonical `verifyHubSignature`.
+Freeze the owner/environment/key/version/URL tuple and revalidate it before
+forwarding; endpoint rotation or owner/vault retirement refuses the request.
+Bind the request to the reviewed synthetic message, expected owner and body
+contract. Keep discovery, signatures, tokens and source information in memory.
+This filter supplies no pod-session authority and admits no enrollment, renewal,
+encrypted save, consent or payment. Existing owner-session attachment checks its
+lease before and after the asynchronous callback.
+
+An explicitly authorized owner-cloud or Stripe-connector rehearsal may supply `admitProviderOAuth`
+with `admitMutation`. This opt-in admits only reviewed POST document navigation
+in the top frame at exact Microsoft sign-in origins or Stripe's declared
+`https://access.stripe.com/mcp/oauth2/authorize` endpoint. Stripe token,
+registration, login and payment endpoints are not admitted by this exception.
+The callback must bind the exact selected page and current owner/PKCE attempt;
+absent or failed admission remains refused. It never admits background writes.
+At a full-page provider handoff, retire the app attachment and install a separate
+provider-phase guard on the same task-owned page. Fence its captured route handler
+before and after awaited admission and immediately before forwarding; remove only
+that handler on retirement. App return requires fresh owner/vault admission and
+an armed callback barrier before unlock. Never replay an ambiguous completion. The known Microsoft
+`browser.events.data.microsoft.com/OneCollector/1.0/` telemetry POST is suppressed
+locally, just like the known Analytics collection endpoint; no measurement is
+forwarded. Owner OAuth state, code and credentials remain memory-only. Preserve
+the original authenticated page, and exercise cold recovery separately rather
+than changing Firebase or vault persistence.
+
 
 ### Additive Memory preservation proof
 
@@ -71,6 +122,11 @@ them instead, behind the single shared signal
 `autoReviewerLogin` and a `read_only`, `preparation_only` or `bounded_mutation`
 policy). A `mutation_authorized` run keeps ordinary behavior.
 
+Proactive private-agent wake requests use this same guard before touching owner,
+cooldown or in-flight state. Mount, composer, foreground and visible-tab triggers
+cannot wake a costed private runtime during a read-only or bounded rehearsal;
+an explicitly authorized session retains its ordinary wake allowance.
+
 Read-only reviewer sessions never write Terms and Privacy acceptance.
 `LegalAcceptanceService.recordSignInAcceptance` returns before any request under
 that signal. This defers the record, it does not drop it: the fixture's next
@@ -99,3 +155,13 @@ Fail closed and classify the first broken boundary:
 6. domain-specific storage, scope, projection, or consumer behavior
 
 Do not weaken the BYOK or navigation assertion to turn an environment defect into a pass.
+
+Private connector rehearsals compose `admitOwnerPodConnectorOperation` with the
+existing bounded `admitMutation` callback; connector-only configuration is refused
+before browser or route installation. The port admits only non-navigation HTTPS
+POSTs for a custom connector's catalog, verification and OAuth begin/complete/cancel
+operations. The caller must verify the current signed owner endpoint, configuration
+revision and OAuth attempt; the borrowed-session lease rechecks owner/vault authority
+before and after asynchronous admission. This grants no generic tool-call endpoint
+or payment-write authority. Cross-origin OAuth handoff and cold-return unlock remain
+separate phases; retiring a session never authorizes continued protected requests.

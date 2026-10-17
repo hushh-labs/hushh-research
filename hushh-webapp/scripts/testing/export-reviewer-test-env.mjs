@@ -14,15 +14,16 @@ const identity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
 });
 
-process.stdout.write(`export REVIEWER_UID=${JSON.stringify(identity.reviewerUid)}\n`);
-process.stdout.write(`export NEXT_PUBLIC_REVIEWER_UID=${JSON.stringify(identity.reviewerUid)}\n`);
-process.stdout.write(`export NEXT_PUBLIC_KAI_TEST_USER_ID=${JSON.stringify(identity.reviewerUid)}\n`);
-process.stdout.write(
-  `export REVIEWER_VAULT_PASSPHRASE=${JSON.stringify(identity.reviewerVaultPassphrase)}\n`
-);
-process.stdout.write(
-  `export HUSHH_UI_TEST_REVIEWER_UID=${JSON.stringify(identity.reviewerUid)}\n`
-);
-process.stdout.write(
-  `export HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE=${JSON.stringify(identity.reviewerVaultPassphrase)}\n`
-);
+// This output is a private shell pipe, never a diagnostic. JSON double quotes
+// still execute shell substitutions; POSIX single quoting preserves literals.
+const shellLiteral = (value) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+for (const [key, value] of Object.entries({
+  REVIEWER_UID: identity.reviewerUid,
+  NEXT_PUBLIC_REVIEWER_UID: identity.reviewerUid,
+  NEXT_PUBLIC_KAI_TEST_USER_ID: identity.reviewerUid,
+  REVIEWER_VAULT_PASSPHRASE: identity.reviewerVaultPassphrase,
+  HUSHH_UI_TEST_REVIEWER_UID: identity.reviewerUid,
+  HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: identity.reviewerVaultPassphrase,
+})) {
+  process.stdout.write(`export ${key}=${shellLiteral(value)}\n`);
+}

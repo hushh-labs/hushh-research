@@ -8,11 +8,12 @@ on:
         required: true
         type: string
       scope:
-        description: "Deploy backend only, frontend only, or both"
+        description: "Auto-detect changed services, or force backend/frontend/all"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - all
           - backend
           - frontend
@@ -71,7 +72,7 @@ env:
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://one.hussh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
   BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
@@ -158,6 +159,12 @@ jobs:
           # is older than this workflow's production voice enablement.
           cp deploy/backend.cloudbuild.yaml \
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          # The current YAML invokes extracted helpers even for an older image.
+          mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
+          for tool in backend-deploy.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
+            verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
+            cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
+          done
           # Source upload admission belongs to the same current tooling bundle.
           cp .gcloudignore "${RUNNER_TEMP}/release-tools/.gcloudignore"
           # Preserve the companion sourced by current Cloud Build tooling when
@@ -169,7 +176,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py setup_native_callback_log_exclusion.sh \
+          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
@@ -203,6 +210,8 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          mkdir -p scripts/deploy
+          cp "${RUNNER_TEMP}/release-tools/backend-deploy/"* scripts/deploy/
           cp "${RUNNER_TEMP}/release-tools/.gcloudignore" .gcloudignore
           mkdir -p deploy/email-auth
           cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \

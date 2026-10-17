@@ -145,7 +145,9 @@ async def test_operator_owned_row_without_a_runtime_manifest_never_reopens_legac
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("policy", [{}, {"chat": "unreviewed"}])
-async def test_operator_owned_row_never_falls_back_to_legacy_oauth_complete(monkeypatch, policy):
+async def test_operator_owned_row_never_falls_back_to_legacy_oauth_complete(
+    monkeypatch, policy, shared_hub_owner
+):
     row = _notion_row(policy)
     registry = SimpleNamespace(get_connector=AsyncMock(return_value=row))
     credentials = SimpleNamespace(decrypt_secret=Mock(side_effect=AssertionError("legacy path")))

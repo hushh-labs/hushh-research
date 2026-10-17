@@ -91,3 +91,17 @@ export function pkmShareBundleState(bundles: readonly PkmShareBundle[]): "checke
   if (bundles.every((bundle) => bundle.enabled)) return "checked";
   return "indeterminate";
 }
+
+/** Resolve a materialized section explicitly; a record never invents a pricing scope. */
+export function resolvePkmMemoryShareBundle(
+  manifest: DomainManifest | null,
+  card: Pick<PkmMemoryCard, "domain" | "pathSegments">,
+): PkmShareBundle | null {
+  const section = card.pathSegments[0];
+  if (!manifest || manifest.domain !== card.domain || typeof section !== "string" || !section.trim()) return null;
+  const matches = buildPkmShareBundles(manifest).filter(
+    bundle => bundle.topLevelScopePath === section,
+  );
+  if (matches.length !== 1 || !matches[0]?.scopeHandle?.trim()) return null;
+  return matches[0];
+}

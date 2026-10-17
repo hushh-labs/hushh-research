@@ -15,6 +15,10 @@ class AdkEventCleanupError(RuntimeError):
     """The source ignored cancellation; its termination is not confirmed."""
 
 
+class AdkEventTimeoutError(TimeoutError):
+    """The event boundary's own deadline expired, rather than a provider error."""
+
+
 async def bounded_adk_events(
     source: AsyncIterator[T],
     *,
@@ -69,7 +73,7 @@ async def bounded_adk_events(
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise asyncio.TimeoutError
+                raise AdkEventTimeoutError
             idle_started = loop.time()
             idle_limit = between_event_timeout_s if saw_event else first_event_timeout_s
             # Demand exactly once for this outer event. A nested callback can
@@ -84,7 +88,7 @@ async def bounded_adk_events(
                     idle_started = max(idle_started, last_progress)
                 timeout = min(idle_started + idle_limit - now, deadline - now)
                 if timeout <= 0:
-                    raise asyncio.TimeoutError
+                    raise AdkEventTimeoutError
                 try:
                     is_event, value = await asyncio.wait_for(queue.get(), timeout)
                     break
@@ -112,4 +116,4 @@ async def bounded_adk_events(
             producer.result()
 
 
-__all__ = ["AdkEventCleanupError", "bounded_adk_events"]
+__all__ = ["AdkEventCleanupError", "AdkEventTimeoutError", "bounded_adk_events"]

@@ -7,6 +7,12 @@ import {
 } from "@/components/profile/pkm-data-manager";
 import type { PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: { uid: "synthetic-pkm-owner", getIdToken: vi.fn(async () => "synthetic-token") },
+  }),
+}));
+
 const previewPresentation: PkmSectionPreviewPresentation = {
   title: "Portfolio",
   description: "Holdings, balances, and imported account details.",

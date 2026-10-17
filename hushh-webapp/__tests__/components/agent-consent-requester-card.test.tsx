@@ -204,7 +204,6 @@ describe("living requester card body", () => {
     expect(chip).toHaveAttribute("data-state", "ended");
     expect(chip.querySelector("svg")!.innerHTML).toBe(endedMark);
     cleanup();
-    // Localhost run 4 (R6): "Kushal declined" carried the check too.
     const declinedMark = svg(<MinusCircle />);
     cleanup();
     render(<SelectionChip label="Kushal declined" outcome="denied" />);
@@ -397,9 +396,6 @@ describe("InformationRequestReviewView with and without progress", () => {
     expect(card.querySelector("[aria-current='step']")).toHaveAttribute("data-step", "reading");
   });
 
-  // A5 (localhost run 4): asked again while the request waited, One offered a
-  // fresh ask card with Send. The server now reports it as already waiting;
-  // this is its exact output (test_consent_lifecycle_chat.py, TestPropose).
   it("renders an already waiting request as its living card, with no Send", async () => {
     const PERSON_REF = "11111111-1111-4111-8111-111111111111";
     const BUNDLE = "0f0e0d0c-0b0a-4908-8706-050403020100";
@@ -436,6 +432,7 @@ describe("InformationRequestReviewView with and without progress", () => {
   // own read of a starved pool and still said "Seen" until 33.5s.
   it("shows Reading… from the doorbell's reading at once, even while its own reads stall", async () => {
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
+    void readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" });
     let phase: "reading" | null = null;
     const card = (experience = restored) => (
       <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
@@ -444,6 +441,9 @@ describe("InformationRequestReviewView with and without progress", () => {
     );
     const view = render(card());
     expect(await screen.findByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
+    phase = "reading";
+    view.rerender(card());
+    expect(screen.getByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
     // The doorbell reads the approval; every read after it stalls.
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
     mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));

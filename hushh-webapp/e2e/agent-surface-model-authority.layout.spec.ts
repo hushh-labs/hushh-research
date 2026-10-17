@@ -72,7 +72,7 @@ import {
  * Run: npx playwright test e2e/agent-surface-model-authority.layout.spec.ts --project=chromium
  */
 
-const WIDTHS = [360, 390, 430, 768, 1024, 1280] as const;
+const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280] as const;
 
 /** A person with a choice of cloud models, so One's picker exists at all. */
 const MODEL_PREFERENCE = {
@@ -141,12 +141,13 @@ function escapeHtml(value: string): string {
  * shipped source is the `AS_REPORTED` one, which reproduces a condition that no
  * longer exists to extract; see `Variant.applyShippedGate`.
  */
-function decide(mode: Mode, variant: Variant) {
+function decide(mode: Mode, variant: Variant, width = 1024) {
   const scope = {
     isPuppySurface: mode === "puppy",
     oneDisplayName: "One",
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
+    hasInlineModelPicker: width >= 640,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
@@ -189,8 +190,8 @@ function cloudChipTitle(): string {
   );
 }
 
-function renderScreen(mode: Mode, variant: Variant): string {
-  const plan = decide(mode, variant);
+function renderScreen(mode: Mode, variant: Variant, width: number): string {
+  const plan = decide(mode, variant, width);
 
   const segments = SRC.toggle.options
     .map((option) => {
@@ -212,23 +213,20 @@ function renderScreen(mode: Mode, variant: Variant): string {
     : "";
 
   const toggleGroup = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
+             class="${SRC.toggle.containerClass} w-auto shrink-0" style="min-width:${SRC.toggle.minimumWidth}px">${segments}</div>`;
+  const framedToggle = `<div class="${SRC.toggle.frameClass}">${toggleGroup}</div>`;
   const toggle = variant.centeredHeader
-    ? `<div class="${SRC.header.centered.surfaceClass}"><div>${toggleGroup}</div></div>`
-    : toggleGroup;
+    ? `<div class="${SRC.header.centered.surfaceClass}"><div>${framedToggle}</div></div>`
+    : framedToggle;
   const profileButton = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
   const profile = variant.centeredHeader
     ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle">${profileButton}</span>`
     : profileButton;
-  const historyButton = `<button type="button" data-testid="history-button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full">☰</button>`;
-  const history = variant.centeredHeader
-    ? `<div class="${SRC.header.centered.historyClass}"><div><span class="relative inline-flex shrink-0">${historyButton}</span></div></div>`
-    : historyButton;
   const artwork = SRC.header.centered.artwork;
   const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
-  const brand = variant.centeredHeader
-    ? `<button type="button" data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="${SRC.header.centered.profileTriggerClass}">${artworkMarkup}</button>`
+  const brand = mode === "one"
+    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
     : "";
   const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
@@ -238,22 +236,22 @@ function renderScreen(mode: Mode, variant: Variant): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" ${variant.centeredHeader && evaluateShippedExpression(SRC.header.centeredMarkerExpression, { isPuppySurface: mode === "puppy" }) === "true" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
-      ${history}
-      <div data-testid="agent-identity" data-agent-chat-header-region="identity" class="${SRC.header.identityClass}">
-        <div data-testid="agent-brand-tile" data-agent-chat-brand-tile class="${SRC.header.brandTileClass}">${brand}</div>
+    <div data-testid="agent-header" class="${SRC.header.containerClass}">
+      <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
+      <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
+        <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           ${subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}"><span class="block truncate">${escapeHtml(subtitle)}</span></p>` : ""}
         </div>
       </div>
-      <div data-testid="agent-header-cluster" data-agent-chat-header-region="actions" class="${SRC.header.clusterClass}">${actions}</div>
+      <div data-agent-chat-header-region="actions" data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
     </div>`;
 
   /*
    * Puppy One's surface. Only the two things this spec measures are modelled:
    * its own model control (the real `PuppyModelPicker` trigger's classes and
-   * title, extracted) and its own composer. The pill reports a local weight
+   * title, extracted) and its own composer. The picker reports a local weight
    * file, which is what makes the "no cloud model name on this screen" sweep
    * meaningful rather than tautological.
    */
@@ -263,11 +261,14 @@ function renderScreen(mode: Mode, variant: Variant): string {
       <div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3">
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
           <div class="${SRC.puppy.panelHeaderClass}">
-            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)]">${escapeHtml(PUPPY_MODEL)}</span>
-            <button type="button" class="${SRC.puppy.pickerClass} ml-auto"
+            <div class="${SRC.puppy.panelBodyClass}">
+              <div class="${SRC.puppy.controlsClass}">
+            <button type="button" class="${SRC.puppy.pickerClass} ${SRC.puppy.pickerInstanceClass}"
                     title="${escapeHtml(SRC.puppy.pickerTitle)}">${escapeHtml(PUPPY_MODEL)}</button>
             <button type="button" aria-pressed="true"
-                    class="rounded-full px-2 py-0.5 text-[11px] font-medium">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+                    class="${SRC.puppy.pinOnClass}">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+              </div>
+            </div>
           </div>
           <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4"></div>
           <div class="flex items-end gap-2 border-t border-border/60 px-4 py-3">
@@ -371,14 +372,14 @@ const fixtureCache = new Map<string, string>();
  * change is a real re-render in a real layout rather than two screenshots of
  * two documents.
  */
-async function buildFixture(variant: Variant): Promise<string> {
-  const key = JSON.stringify(variant);
+async function buildFixture(variant: Variant, width: number): Promise<string> {
+  const key = JSON.stringify([variant, width]);
   const cached = fixtureCache.get(key);
   if (cached) return cached;
 
   const screens: Record<Mode, string> = {
-    one: renderScreen("one", variant),
-    puppy: renderScreen("puppy", variant),
+    one: renderScreen("one", variant, width),
+    puppy: renderScreen("puppy", variant, width),
   };
 
   const used = new Set<string>();
@@ -387,28 +388,19 @@ async function buildFixture(variant: Variant): Promise<string> {
       for (const token of match[1].split(/\s+/)) if (token) used.add(token);
     }
   }
-  let css = await compileTailwind(used);
-  if (variant.centeredHeader) {
-    const globals = fs.readFileSync(
-      path.join(process.cwd(), "app/globals.css"),
-      "utf8",
-    );
-    const start = globals.indexOf("/* Equal outer tracks center One");
-    if (start < 0) throw new Error("Centered header styles are missing");
-    const headerCss = globals.slice(start);
-    const phoneStart = headerCss.indexOf("/* One's phone header");
-    if (phoneStart < 0) throw new Error("Phone header styles are missing");
-    css += variant.legacyPhoneCss ? headerCss.slice(0, phoneStart) : headerCss;
-    if (variant.stackedPhoneCss) {
-      // Reproduce the previous centered identity above a separate control row.
-      css += `@media (max-width: 767px) {
-        .agent-chat-header[data-one-centered-header="true"] { grid-template-rows: 88px 44px; height: calc(152px + var(--agent-chat-header-safe-top)); }
-        .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] { grid-column: 1 / -1; grid-row: 1; }
-        .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control,
-        .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control,
-        .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] > span:last-child { grid-row: 2; }
-      }`;
-    }
+  const css = await compileTailwind(used);
+  const globals = fs.readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
+  const geometryStart = globals.indexOf("/* One shared header measure,");
+  if (geometryStart < 0) throw new Error("Missing shared Chat header geometry");
+  let geometry = globals.slice(geometryStart);
+  if (variant.stackedPhoneCss) {
+    // Historical negative control: identity and controls occupy separate rows.
+    geometry += `@media (max-width:767px) {
+      .agent-chat-header { grid-template-columns:44px minmax(0,1fr); grid-template-rows:88px 44px; height:calc(152px + var(--agent-chat-header-safe-top)); }
+      .agent-chat-header [data-agent-chat-header-region="identity"] { grid-column:1 / -1; grid-row:1; }
+      .agent-chat-header > :first-child, .agent-chat-header > :last-child { grid-row:2; }
+      .agent-chat-header > :last-child { grid-column:2; }
+    }`;
   }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-surface-"));
@@ -423,7 +415,8 @@ async function buildFixture(variant: Variant): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
-:root { --agent-chat-header-safe-top: ${variant.safeTop ?? 0}px; }
+:root { --agent-chat-header-safe-top:${variant.safeTop ?? 0}px; --agent-chat-header-height:calc(60px + var(--agent-chat-header-safe-top)); }
+${geometry}
 ${productFontStyle()}
 </style></head><body>
 <div id="screen"></div>
@@ -448,7 +441,7 @@ ${productFontStyle()}
 
 async function openFixture(page: Page, variant: Variant, width: number) {
   await page.setViewportSize({ width, height: 844 });
-  await page.goto(await buildFixture(variant));
+  await page.goto(await buildFixture(variant, width));
   await awaitProductFont(page);
   await expect(page.getByTestId("agent-toggle")).toBeVisible();
 }
@@ -513,7 +506,7 @@ test.describe("Agent Chat: which agent is answering", () => {
   test("Puppy mode carries exactly one model control, and it is not a cloud one", async ({
     page,
   }) => {
-    await openFixture(page, SHIPPED, 390);
+    await openFixture(page, SHIPPED, 768);
 
     // One first, so the picker is proven to exist before its absence means
     // anything. A gate stuck shut would fail here, not silently pass below.
@@ -576,16 +569,13 @@ test.describe("Agent Chat: which agent is answering", () => {
     // The name is the reader's only guarantee about which agent is answering,
     // so it names the agent on screen, not the workspace.
     await expect(page.getByTestId("agent-name")).toHaveText(puppyName);
-    await expect(page.getByTestId("agent-subtitle")).toHaveText(
-      decide("puppy", SHIPPED).subtitle,
-    );
+    await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
     await expect(
       page.locator(`[aria-label="${puppyOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
 
-    // The spoken label says what is being chosen; "One" and "Puppy" alone do
-    // not. Both options carry one, and it names the machine for Puppy.
-    expect(puppyOption.accessibleLabel ?? "").toMatch(/on your machine/i);
+    // The selected agent's concise authored name matches native and web.
+    expect(puppyOption.accessibleLabel).toBe("Puppy One");
     expect(oneOption.accessibleLabel ?? "").toMatch(/cloud/i);
 
     // Name and controls moved in the same render: the surface below is Puppy's
@@ -650,6 +640,10 @@ test.describe("Agent Chat: which agent is answering", () => {
 
       const tile = await box(page, "agent-brand-tile");
       const header = await box(page, "agent-header");
+      if (width < 640) {
+        const identity = await box(page, "agent-identity");
+        expect(tile.x).toBeCloseTo(identity.x, 0);
+      }
       expect(tile.width).toBeGreaterThan(0);
       expect(tile.height).toBeGreaterThan(0);
       expect(tile.x).toBeGreaterThanOrEqual(header.x - 0.5);
@@ -726,13 +720,34 @@ test.describe("Agent Chat: which agent is answering", () => {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
         const cluster = await box(page, "agent-header-cluster");
-        expect(identity.x + identity.width).toBeLessThanOrEqual(
-          cluster.x + 0.5,
-        );
+        const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
+        expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
+        expect(before.header.height).toBeLessThanOrEqual(60);
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
+        // Identity and controls are side by side, not two separate app-bar rows.
+        expect(Math.abs(identity.y + identity.height / 2 - (cluster.y + cluster.height / 2))).toBeLessThanOrEqual(1);
+        const name = page.getByTestId("agent-name");
+        expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
     });
   }
+
+  test("active tool status cannot overlap the full action cluster at constrained widths", async ({ page }) => {
+    for (const width of [768, 1024, 1280]) {
+      await openFixture(page, SHIPPED, width);
+      // Public synthetic status exercises the streaming state omitted by the
+      // idle fixture. No real prompt or tool payload enters layout artifacts.
+      await page.getByTestId("agent-identity").locator("div.min-w-0").evaluate((element) => {
+        const status = document.createElement("p");
+        status.textContent = "Searching connected information";
+        element.append(status);
+      });
+      const identity = await box(page, "agent-identity");
+      const actions = await box(page, "agent-header-cluster");
+      expect(identity.y + identity.height <= actions.y + 0.5 || identity.x + identity.width <= actions.x + 0.5).toBe(true);
+      expect(actions.x + actions.width).toBeLessThanOrEqual(width + 0.5);
+    }
+  });
 
   test("a person with a single cloud model gets no picker, and the toggle still holds still", async ({
     page,
@@ -761,7 +776,7 @@ test.describe("Agent Chat: which agent is answering", () => {
      * the checks above have stopped being able to see the defect they exist
      * for, and are passing for some other reason.
      */
-    await openFixture(page, AS_REPORTED, 390);
+    await openFixture(page, AS_REPORTED, 768);
     await switchTo(page, "puppy");
 
     await expect(page.getByTestId("agent-name")).toHaveText(
@@ -838,8 +853,8 @@ test.describe("Empty One chat: welcome spacing", () => {
   });
 });
 
-test.describe("One centered header: phone regression", () => {
-  test("centers One on the phone screen and keeps the controls aligned and reachable", async ({
+test.describe("One compact header: phone regression", () => {
+  test("keeps presence, name, activity and controls on one aligned reachable row", async ({
     page,
   }) => {
     for (const width of [320, 332, 360, 393, 430, 640, 767]) {
@@ -855,8 +870,8 @@ test.describe("One centered header: phone regression", () => {
         await openFixture(page, variant, width);
         const targets = [
           "history-button",
-          ...(canPickOneModel ? [SRC.cloudPicker.testId] : []),
           "one-profile-button",
+          ...(decide("one", variant, width).showPicker ? [SRC.cloudPicker.testId] : []),
           "agent-toggle",
           "profile-open-button",
         ];
@@ -879,16 +894,10 @@ test.describe("One centered header: phone regression", () => {
           expect(target?.height).toBeGreaterThanOrEqual(44);
         }
         const identity = await box(page, "agent-identity");
-        expect(
-          Math.abs(identity.x + identity.width / 2 - width / 2),
-        ).toBeLessThan(1);
         const avatar = await box(page, "one-profile-button");
         const name = await box(page, "agent-name");
-        expect(Math.abs(avatar.x + avatar.width / 2 - width / 2)).toBeLessThan(
-          1,
-        );
-        expect(Math.abs(name.x + name.width / 2 - width / 2)).toBeLessThan(1);
-        expect(name.y).toBeCloseTo(avatar.y + Math.max(avatar.height * 0.9, avatar.height / 2 + 22), 0);
+        expect(avatar.x).toBeGreaterThanOrEqual(identity.x);
+        expect(name.x).toBeGreaterThanOrEqual(avatar.x + avatar.width);
         await expect(page.getByTestId("agent-name")).toBeVisible();
         expect(
           await page
@@ -896,13 +905,11 @@ test.describe("One centered header: phone regression", () => {
             .evaluate((el) => el.scrollWidth <= el.clientWidth),
         ).toBe(true);
         const oneTarget = await box(page, "one-profile-button");
-        const size = Math.min(64, Math.max(52, width - 268));
-        // WebKit rounds percentage children to 1/64px at the fluid boundary.
-        expect(oneTarget.width).toBeCloseTo(size, 1);
-        expect(oneTarget.height).toBeCloseTo(size, 1);
+        expect(oneTarget.width).toBe(44);
+        expect(oneTarget.height).toBe(44);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBeCloseTo(size, 1);
-        expect(artwork.height).toBeCloseTo(size, 1);
+        expect(artwork.width).toBe(32);
+        expect(artwork.height).toBe(32);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -910,11 +917,11 @@ test.describe("One centered header: phone regression", () => {
           ),
         ).toBe(true);
         const header = await box(page, "agent-header");
-        expect(header.height).toBe(size + 36 + safeTop);
+        expect(header.height).toBe(60 + safeTop);
         expect(name.y + name.height).toBeLessThanOrEqual(
           header.y + header.height - 8,
         );
-        if (canPickOneModel) {
+        if (decide("one", variant, width).showPicker) {
           const picker = await box(page, SRC.cloudPicker.testId);
           expect(picker.y).toBe(boxes[0].y);
           await expect(
@@ -929,7 +936,12 @@ test.describe("One centered header: phone regression", () => {
         const longName = await box(page, "agent-name");
         expect(longName.x).toBeGreaterThanOrEqual(0);
         expect(longName.x + longName.width).toBeLessThanOrEqual(width);
-        expect(longName.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
+        expect(longName.y).toBe(name.y);
+        expect(longName.height).toBe(name.height);
+        expect(longName.x).toBeGreaterThanOrEqual(avatar.x + avatar.width);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(identity.x + identity.width);
+        expect(longName.y + longName.height).toBeLessThanOrEqual(header.y + header.height - 8);
+        await expect(page.getByTestId("agent-name")).toHaveCSS("text-overflow", "ellipsis");
       }
     }
   });
@@ -954,8 +966,8 @@ test.describe("One centered header: phone regression", () => {
       await openFixture(page, variant, width);
       const after = await Promise.all(ids.map((id) => box(page, id)));
       expect(after).toEqual(before);
-      expect(after[2].width).toBe(104);
-      expect(after[3].width).toBe(104);
+      expect(after[2].width).toBe(44);
+      expect(after[3].width).toBe(32);
       await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
       const activeHeader = await box(page, "agent-header");
       const subtitle = await box(page, "agent-subtitle");

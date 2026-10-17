@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
 
 import {
   LiveTurnQueue,
@@ -50,6 +51,11 @@ function fakeServer() {
       const ids = pending.splice(0);
       for (const id of ids) outcomes.set(id, "delivered");
       return ids;
+    },
+    /** The model callback took the message but has not sealed it yet. */
+    startAppend: () => pending.splice(0),
+    completeAppend: (ids: string[]) => {
+      for (const id of ids) outcomes.set(id, "delivered");
     },
     /** The turn ends; whatever it did not take comes back. */
     close: () => {
@@ -107,7 +113,7 @@ describe("live turn queue", () => {
     expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
   });
 
-  it("reconnects by reading each outcome, and falls back to the next turn only when unreadable", async () => {
+  it("reconnects by reading terminal outcomes and holds an unreadable receipt", async () => {
     const server = fakeServer();
     const wait = vi.fn(async () => undefined);
     const queue = new LiveTurnQueue(server.ports, wait);
@@ -127,8 +133,50 @@ describe("live turn queue", () => {
     const offline = new LiveTurnQueue(flaky.ports, wait);
     offline.begin("conversation");
     await offline.offer("client-d", "unknown fate");
-    expect(await offline.settle()).toEqual({ joined: [], waiting: ["client-d"] });
+    expect(await offline.settle()).toEqual({ joined: [], waiting: [], unresolved: ["client-d"] });
     expect(flaky.ports.status).toHaveBeenCalledTimes(3);
+    expect(offline.holds("client-d")).toBe(true);
+  });
+
+  it("waits for a sealed append and never resends an unresolved message", async () => {
+    const server = fakeServer();
+    const wait = vi.fn(async () => undefined);
+    const queue = new LiveTurnQueue(server.ports, wait);
+    queue.begin("conversation");
+    await queue.offer("client-a", "one exact message");
+    const inflight = server.startAppend();
+
+    // Negative control: a queued receipt after the stream closes does not
+    // establish whether the append will succeed, nor permit a second turn.
+    expect(await queue.settle()).toEqual({ joined: [], waiting: [], unresolved: ["client-a"] });
+    expect(queue.holds("client-a")).toBe(true);
+    expect(await queue.withdraw("client-a")).toBe("not_held");
+    expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
+
+    let release!: () => void;
+    let released = false;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    void gate.then(() => { released = true; });
+    const retire = vi.fn(() => { queue.stopAccepting(); release(); });
+    const session = new AgentChatSessionEpoch(retire);
+    const retiredEpoch = session.value;
+    session.start();
+    await Promise.resolve();
+    expect(released).toBe(true);
+    expect(retire).toHaveBeenCalledOnce();
+    expect(session.isCurrent(retiredEpoch)).toBe(false);
+    expect(queue.holds("client-a")).toBe(true);
+    // Reopening the same conversation cannot turn an unknown old append into
+    // delivery, or keep a fresh session waiting on that retired local gate.
+    const fresh = new LiveTurnQueue(server.ports, wait);
+    fresh.begin("conversation");
+    expect(await fresh.offer("client-b", "new session")).toBe("joining");
+    session.start();
+    expect(retire).toHaveBeenCalledTimes(2);
+    server.completeAppend(inflight);
+    expect(await queue.settle()).toEqual({ joined: ["client-a"], waiting: [] });
+    expect(queue.holds("client-a")).toBe(false);
+    expect(server.ports.enqueue).toHaveBeenCalledTimes(2);
   });
 
   it("stops the turn and brings every held message back unsent", async () => {

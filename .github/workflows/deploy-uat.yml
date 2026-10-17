@@ -53,7 +53,7 @@ env:
   FRONTEND_RUNTIME_SERVICE_ACCOUNT: hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
   GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-sched
-  APP_FRONTEND_ORIGIN: https://uat.one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://uat.one.hussh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai
   CONSENT_API_RUNTIME_ORIGIN: https://consent-protocol-f2gsa4kfsq-uc.a.run.app
   UAT_CLOUDSQL_INSTANCE: hushh-pda-uat:us-central1:hushh-uat-pg
@@ -283,8 +283,19 @@ jobs:
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp deploy/backend.cloudbuild.yaml \
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
-            cp deploy/email-auth/bind_secrets.sh \
-              "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh"
+            printf '%s\n' \
+              scripts/deploy/backend-deploy.sh \
+              scripts/deploy/verify-managed-vertex-runtime.sh \
+              scripts/deploy/commerce-preview-bindings.sh \
+              scripts/deploy/backend-model-settings.sh \
+              scripts/deploy/backend-drive-secret-settings.sh \
+              scripts/deploy/scope-commerce-secrets.sh \
+              deploy/email-auth/bind_secrets.sh \
+              deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
+            while IFS= read -r tool; do
+              mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
+              cp "$tool" "${RUNNER_TEMP}/release-tools/$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
           fi
 
       - name: Checkout deployment SHA
@@ -306,9 +317,10 @@ jobs:
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
               deploy/backend.cloudbuild.yaml
-            mkdir -p deploy/email-auth
-            cp "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh" \
-              deploy/email-auth/bind_secrets.sh
+            while IFS= read -r tool; do
+              mkdir -p "$(dirname "$tool")"
+              cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
           fi
 
@@ -2050,24 +2062,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-          if [ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" = "true" ]; then
-            reviewer_uid="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_UID \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            reviewer_passphrase="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_VAULT_PASSPHRASE \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            echo "::add-mask::$reviewer_uid"
-            echo "::add-mask::$reviewer_passphrase"
-            {
-              echo "REVIEWER_UID<<EOF"
-              printf '%s\n' "$reviewer_uid"
-              echo "EOF"
-              echo "REVIEWER_VAULT_PASSPHRASE<<EOF"
-              printf '%s\n' "$reviewer_passphrase"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-          fi
+
 
       - name: Semantic UAT verification
         id: verify-uat-1
@@ -2108,6 +2103,7 @@ jobs:
         env:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs \
@@ -3376,7 +3372,12 @@ jobs:
             # Degradation is reported next to the status, not buried in the JSON.
             # A release that deployed correctly while a provider was down must be
             # readable as exactly that -- neither a clean success nor a failure.
-            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            # Read from the CLASSIFICATION file, which is the only one that has
+            # ever carried `dependency_health`. This read pointed at the status
+            # file, whose payload has no such key, so `.get(...)` always returned
+            # {} and the branch below always printed "healthy" -- a banner that
+            # said the same thing whether or not a capability was down.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
             if [[ -n "${degraded_capabilities}" ]]; then
               echo "- **Dependency health: DEGRADED**"
               echo "- Degraded capabilities: \`${degraded_capabilities}\`"

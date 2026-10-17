@@ -85,6 +85,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     bottomNavScope: "one",
     screenId: "one_marketplace",
   },
+  files: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "one_files",
+  },
   "connected-systems": {
     routeFamily: "one",
     bottomNavScope: "one",

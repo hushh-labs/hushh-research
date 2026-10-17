@@ -15,6 +15,13 @@ about twenty lines if the backend calls the People API — it reuses
 origins, and no Capacitor gate. It would read as a simplification in review. It
 also puts the phone number of every non-user in somebody's address book onto our
 servers. This test is what turns that from a judgement call into a failing test.
+
+One exception, exactly one path, decided 2026-10-06: an agent that runs in the
+owner's OWN cloud account is the owner's own computer, not a Hussh server, and it
+may read Contacts with a login sealed to it. That reader is
+``hushh_mcp/pod_connectors/google_people.py``, and it refuses to load anywhere
+else (the shared hub, a Hussh-hosted pod). The tests below allow that one file and
+nothing more, and prove the refusal.
 """
 
 from __future__ import annotations
@@ -28,6 +35,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: on purpose — this file itself names the forbidden host, and a fixture may
 #: legitimately need to.
 _SERVER_TREES = ("hushh_mcp", "api", "mcp_modules")
+
+#: The single in-agent Contacts reader. It raises at import unless the process is a
+#: pod in its owner's own cloud, which ``test_the_in_agent_reader_refuses_*`` proves.
+_IN_AGENT_READER = REPO_ROOT / "hushh_mcp" / "pod_connectors" / "google_people.py"
 
 
 def _server_python_files() -> list[Path]:
@@ -52,6 +63,8 @@ def test_no_server_module_talks_to_the_people_api():
 
     offenders: list[str] = []
     for path in _server_python_files():
+        if path == _IN_AGENT_READER:
+            continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         if "people.googleapis.com" not in text:
             continue
@@ -85,7 +98,7 @@ def test_the_contacts_scope_is_declared_but_never_exchanged_for_a_token():
 
     callers: list[str] = []
     for path in _server_python_files():
-        if path == service_path:
+        if path in {service_path, _IN_AGENT_READER}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         if "access_token" not in text:
@@ -125,3 +138,53 @@ def test_the_match_endpoint_still_stores_nothing():
                 "persists nothing; a contact who is not a Hushh user must leave "
                 "no trace."
             )
+
+
+def test_the_only_people_api_caller_is_the_in_agent_reader():
+    """The exception is one file. A second caller, even a pod one, fails here."""
+    callers = sorted(
+        str(path.relative_to(REPO_ROOT))
+        for path in _server_python_files()
+        if "people.googleapis.com" in path.read_text(encoding="utf-8", errors="ignore")
+    )
+    assert callers == ["hushh_mcp/pod_connectors/google_people.py"], callers
+
+
+def _import_reader():
+    import importlib
+    import sys
+
+    sys.modules.pop("hushh_mcp.pod_connectors.google_people", None)
+    return importlib.import_module("hushh_mcp.pod_connectors.google_people")
+
+
+def test_the_in_agent_reader_refuses_to_load_on_the_shared_hub(monkeypatch):
+    import pytest
+
+    monkeypatch.delenv("HUSSH_POD_MODE", raising=False)
+    monkeypatch.setenv("HUSSH_POD_KMS_KEY", "projects/p/locations/l/keyRings/r/cryptoKeys/k")
+    with pytest.raises(ImportError, match="own cloud"):
+        _import_reader()
+
+
+def test_the_in_agent_reader_refuses_to_load_in_a_hussh_hosted_pod(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.delenv("HUSSH_POD_KMS_KEY", raising=False)
+    monkeypatch.delenv("HUSSH_POD_KEY_VAULT_KEY", raising=False)
+    with pytest.raises(ImportError, match="own cloud"):
+        _import_reader()
+
+
+def test_the_in_agent_reader_loads_only_in_an_owner_cloud_agent(monkeypatch):
+    import sys
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_POD_KMS_KEY", "projects/p/locations/l/keyRings/r/cryptoKeys/k")
+    monkeypatch.delenv("HUSSH_POD_KEY_VAULT_KEY", raising=False)
+    try:
+        module = _import_reader()
+        assert module.MAX_PEOPLE == 25
+    finally:
+        sys.modules.pop("hushh_mcp.pod_connectors.google_people", None)

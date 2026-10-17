@@ -19,6 +19,175 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
+## Owner-cloud erasure boundary
+
+Account deletion also requires its owner's cloud inventory to settle. Preserve
+the reserved attempt, exact resource incarnations and original setup evidence;
+stop writers and reconcile uncertain provider operations before deleting their
+dependencies. An accepted cloud DELETE or destroyed key is not resource-absence
+evidence. Retention and protected provider objects remain explicit outcomes.
+
+The local Azure correction uses dev-only migration 960 to retain the producer's
+provider-revocation counters and the exact `connector_history_v1` coverage marker
+from a validated v4 pod tombstone. Old zero-counter checkpoints remain readable;
+they do not prove historical grant coverage and must not be backfilled. Its
+read-only preflight probes the complete producer shape against the installed
+checkpoint validator before the pod destroys keys. Deploy the hub decoder and
+schema acceptance before approving an image that emits the marker: older hub
+decoders reject additional response fields. Rolling 960 back locks the
+registry against new reservations and refuses existing Azure reservations or
+new retained outcomes. Other erasure schema rollback requires its own fenced,
+drained release procedure; an application rollback does not recover deleted keys.
+
+Before requesting key destruction, the hub now makes an authenticated, read-only
+`crypto-erase/preflight` call bound to the exact owner, service and revision.
+Its proof cannot authorize deletion. Missing or incompatible old-image support
+returns `POD_ERASURE_COMPATIBILITY_REQUIRED` before any destructive POST; update
+or repair that image first. The pod still independently checks schema acceptance
+and provider revocation before destroying keys. Inspection of cleanup terms must
+never call the destructive owner-access preparation port.
+
+Dev-only 961 records the original Azure setup nonce and coordinates in the
+existing job before its first write. Same-cloud retries preserve prior bindings
+in that job; stale bound workers require reconciliation, and protected history
+cannot be cleared or moved to another cloud. The 64-binding cap refuses another
+binding while allowing terminal bookkeeping. Owner locks serialize replacement
+with erasure reservation; disabled or missing guards refuse admission. This fence
+prevents subsequent setup stages and internal ARM write retries. Setup/rebuild
+cancellation joins the actual local execution, including queued and repeated
+cancellation, before reporting interruption. That exit is not proof that a cloud
+operation has settled; teardown remains refused until provider operations settle.
+
+The local owner flow now composes read-only inspection, exact resource/retention
+approval, fresh Microsoft authorization and the existing joined cleanup worker.
+Ordinary account deletion refuses before pod erasure when this backend needs that
+review. Checkpoint-only pod erasure precedes cloud cleanup; every subsequent ARM
+DELETE, including Hussh’s own role removal, uses the fresh delegated grant and the
+same durable request/acknowledgement/settlement journal. No synthetic legacy
+revocation receipt is created. Retained legacy receipts remain validated.
+The checkpoint-only port receives that exact delegated backend explicitly;
+general placement resolution must not replace it with standing federation.
+Admin ADC can independently verify cloud IAM and resource state during rehearsal;
+it never substitutes for the provider's owner OAuth revocation receipt. Unknown
+revocation preserves encrypted retry custody and blocks final key destruction.
+
+The callback cannot approve terms or fall through into setup. Execution records a
+bounded, nonce-hashed authorization outcome before spawning; early failure and
+expiry remain visible without retaining tokens or provider bodies. Inspection
+failures return directly. Settings retains the account until the independent
+finalization transaction passes. The new flow is source-qualified only: 962 is selected in the dev manifest
+for governed rehearsal, together with 963’s complete archive projection.
+Destructive admission remains unavailable until both contracts are installed;
+selection does not establish disposable live acceptance. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
+
+## GCP runtime quota grants
+
+Dev-only migration 964 extends the existing runtime-grant erasure journal with a
+`quota` slot. New GCP setup discloses both Vertex AI User and Service Usage
+Consumer on the owner's project; the latter permits quota consumption, not API
+enablement or billing changes. Each grant needs exact added-binding provenance,
+the deleted service account's numeric identity and observed policy absence.
+Repository release and finalization refuse a missing quota receipt or ambiguous
+provenance. Older Vertex-only receipts remain readable. Apply 964 before admitting
+the new bootstrap plan; do not backfill creation evidence from current IAM.
+Drain quota-writing workers before schema rollback. Rollback also locks the custody
+tables and refuses unresolved provision attempts, quota plans or retained receipts;
+an application rollback cannot remove an unjournaled cloud grant.
+
+## OAuth-project Gmail cleanup
+
+Dev-only963 preserves the owner-specific full topic name, creation observation
+and original operator IAM grants through notification retries, final provisioning,
+host publication and erasure archival. Apply the schema before enabling the new
+five-resource notification plan; old schemas refuse that plan before topic writes.
+Legacy four-resource checkpoints remain readable. Rollback refuses retained
+operator custody and requires forward recovery.
+
+Cleanup uses verified attached consent-plane credentials for the OAuth developer
+project; owner-project impersonation never supplies that authority. Delete only
+the exactly bound, created topic after independently qualified subscription
+cleanup, both original added grants, exclusive current IAM and a complete empty
+subscription listing. Adopted/shared/conditional topics and unknown DELETE
+outcomes remain pending. Pub/Sub exposes no immutable incarnation or conditional
+DELETE token; the existing owner lifecycle fence remains mandatory. This is local
+source evidence, not live operator-project cleanup acceptance.
+
+## Private Azure setup and cleanup
+
+Dev-only 961 records original setup bindings and bounded provider receipts in
+`byoc_setup_jobs.stages`; it adds no credential store or second operation ledger.
+Its latest verified dev ledger read (2026-10-15, 20:22 UTC) stops at 959. Recheck
+that ledger before deploying: an applied migration must never be edited.
+
+Fresh setup, approved updates and rebuilds hold a dedicated database session
+until their actual thread exits. Version-2 hosted intents bind the original pod
+identity, setup nonce and exact permitted requests. Updates additionally bind the
+lease, operation, release, target and capability approval. Files dispatch requires
+the current exact checkpoint. SQL restricts resource kinds independently of the
+supplied request list; rebuild cannot recreate the group, identity, keys or
+storage. Reject invalid rebuild intent before claiming a job.
+
+The worker's exit, Azure's acceptance and Azure's terminal result are separate
+receipts. Reserve acknowledgement, terminal and exit capacity before dispatch;
+ordinary progress writes cannot spend it. A lost write response remains
+unresolved and cannot be automatically replayed. Late results for admitted
+writes remain retainable after erasure has fenced new work.
+
+Interrupted cleanup may poll the original acknowledged operation using its
+retained header kind, immutable URL/hash and request ID. Reconciliation requires
+current owner/worker approval and never sends another DELETE. Reject changed
+subscriptions and normalized path escapes before requesting the operation.
+Legacy asynchronous receipts without a known header kind remain unresolved;
+resource404 alone does not settle them. Independent absence still follows a
+terminal provider receipt. Provider-retained copies need separate disclosure.
+
+Cleanup now retains a fresh final GET-set receipt and actual worker exit as
+separate, append-only execution receipts in the same erasure record. The final
+readback binds the exact plan and retained resource-state digests; missing or
+reappearing resources in that evidence refuse completion. The joined thread
+runner fences cancelled dispatch and waits for exit-receipt persistence before
+closing its dedicated session, including repeated cancellation. An exit may
+truthfully be failed or cancelled with unresolved provider work. Receipt writes
+can finish after approval expires; new mutations cannot. Neither receipt proves
+provider-retained copies were purged, and source composition keeps public cleanup unavailable unless the complete
+archive, retention and final account-deletion schema is installed.
+
+The local full-inventory path additionally compares every canonical resource's
+kind, API version, parent coverage and expected identity/configuration before
+execution. It removes the exact `one-chat` deployment before its account, refuses
+unknown/incompletely listed deployments and requires a verified empty listing
+before parent removal. Parent authority is checked at dispatch, so observing an
+already-deleted child can still recover after its parent disappears.
+
+The retained cleanup state now holds SQL-derived original setup history. Its
+hash must still match the protected setup job; oversized evidence refuses before
+the first cleanup write. Final archival keeps that actual history and resource
+receipts, and schema rollback refuses retained Azure live/archive custody.
+
+[Key Vault deleted-record](https://github.com/Azure/azure-rest-api-specs/blob/220ad9c6554fc7d6d10a89bdb441c1e3b36e3285/specification/keyvault/resource-manager/Microsoft.KeyVault/stable/2023-07-01/keyvault.json),
+[Storage deleted-record](https://github.com/Azure/azure-rest-api-specs/blob/220ad9c6554fc7d6d10a89bdb441c1e3b36e3285/specification/storage/resource-manager/Microsoft.Storage/stable/2023-05-01/storage.json)
+and [AI account deleted-record](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/deleted-accounts/get?view=rest-aiservices-accountmanagement-2024-10-01)
+observations retain only exact resource identities and provider dates/policy.
+Storage recovery handles and raw response bodies are excluded. A missing record
+never establishes physical purge; no Storage purge date is invented. Read-only
+observations may finish after mutation approval expires. Final active-resource
+receipts bind the retention observations; source checks alone do not establish live cleanup or account-finalization
+acceptance.
+
+If replacement polling fails, only the existing exact incarnation/revision/image
+verdict may settle that original request. Timeout remains unresolved. The explicit
+`RoleAssignmentExists` denial is a terminal refusal, not an uncertain write.
+Optional registry-image pruning is excluded from governed hosted updates until
+its data-plane deletion has equivalent durable receipts; retain the predecessor.
+
+These receipts do not qualify historical workers or authorize group-wide
+resource deletion. Before full cleanup, reconcile every retained setup attempt,
+stop old writers and upgrades, establish exact resource ownership and obtain
+fresh owner authority through the existing deletion attempt. Preserve unrelated
+resources. Record soft-delete and purge-protection retention separately from
+logical erasure; never report cleanup solely from key destruction or an accepted
+DELETE. The dev offer remains unavailable until the selected schema, owner interface and
+disposable live cleanup have qualified together.
 Once every retained backend revision carries the v201 contract, ordinary
 rollouts keep account deletion available. The deploy first verifies the live
 unfenced database, including both tombstone triggers, the DDL guard, every UID

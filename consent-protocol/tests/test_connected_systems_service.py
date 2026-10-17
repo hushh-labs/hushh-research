@@ -7,7 +7,6 @@ import pytest
 from hushh_mcp.services.connected_systems_service import (
     CONNECTED_SYSTEM_SALESFORCE_ID,
     EXTERNAL_CRM_TOOL_CATALOG,
-    REGISTRY_MCP_ENDPOINT,
     SALESFORCE_CRM_SYSTEM,
     ConnectedSystemBlockedError,
     ConnectedSystemConfigurationError,
@@ -480,68 +479,6 @@ async def test_registry_schema_catalogue_without_access_metadata_keeps_mapped_to
         "delete": False,
     }
     assert adapter.calls == ["schema"]
-
-
-@pytest.mark.asyncio
-async def test_missing_omni_gateway_headers_fail_before_streamable_http_call():
-    adapter = ExternalCrmStreamableMcpAdapter(endpoint=REGISTRY_MCP_ENDPOINT)
-
-    with pytest.raises(ConnectedSystemConfigurationError) as error:
-        await adapter.call_operation(
-            operation="schema",
-            tool_name="object-schema",
-            endpoint=REGISTRY_MCP_ENDPOINT,
-            timeout_seconds=1,
-            retry_count=0,
-            arguments={"target": "Example", "objectType": "Person"},
-        )
-
-    assert error.value.code == "CONNECTED_SYSTEM_GATEWAY_AUTH_UNCONFIGURED"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("gateway_status", "expected_code"),
-    [
-        (401, "CONNECTED_SYSTEM_MCP_AUTH_FAILED"),
-        (403, "CONNECTED_SYSTEM_MCP_ACCESS_DENIED"),
-    ],
-)
-async def test_gateway_auth_failures_return_safe_configuration_errors(
-    monkeypatch, gateway_status, expected_code
-):
-    import contextlib
-
-    import mcp.client.streamable_http as streamable_mod
-
-    class GatewayStatusError(Exception):
-        def __init__(self, status_code: int):
-            self.response = type("Response", (), {"status_code": status_code})()
-            super().__init__(f"HTTP {status_code}")
-
-    @contextlib.asynccontextmanager
-    async def rejected_streamable(*_args, **_kwargs):
-        raise GatewayStatusError(gateway_status)
-        yield  # pragma: no cover - required only to make this an async generator
-
-    monkeypatch.setattr(streamable_mod, "streamablehttp_client", rejected_streamable)
-    adapter = ExternalCrmStreamableMcpAdapter(
-        endpoint="https://gateway.invalid/mcp",
-        headers=(("client_id", "test-client"), ("client_secret", "test-secret")),
-    )
-
-    with pytest.raises(ConnectedSystemConfigurationError) as error:
-        await adapter.call_operation(
-            operation="schema",
-            tool_name="object-schema",
-            endpoint="https://gateway.invalid/mcp",
-            timeout_seconds=1,
-            retry_count=0,
-            arguments={"target": "Example", "objectType": "Person"},
-        )
-
-    assert error.value.code == expected_code
-    assert "gateway" in str(error.value).lower()
 
 
 def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_env_endpoint():

@@ -40,6 +40,21 @@ Keep one abstraction level per figure. Prefer context plus one dynamic flow. Add
 4. Show prohibited crossings when they prevent a likely misunderstanding, such as OAuth tokens entering an agent or browser.
 5. A diagram cannot grant authority. Link architecture decisions to the owning contract or ADR.
 
+## Color And Theme
+
+1. Diagram color is owned by the single source, not the diagram. For a PDF, the canonical
+   formatter (`hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` via
+   `scripts/reports/export-markdown-pdf.mjs`) themes every Mermaid figure from
+   `hushh-webapp/app/globals.css`: edges / actors / signals take the accent
+   (`--app-accent-deep`, iOS Blue `#007aff` default; Molten Gold a variant), surfaces and
+   notes take the Foundation ground, in both light and dark.
+2. Do not set hardcoded hex fills, `classDef`, or `style` colors in Mermaid source, and for a
+   hand-authored SVG diagram use `currentColor` plus the theme tokens, never a literal accent
+   hex. Reserve one literal-meaning color for the one element that carries it (a revoke path,
+   the option under discussion); everything else is neutral ink.
+3. Color encodes meaning only — a trust boundary, an owned lane, a prohibited crossing — never
+   decoration. A figure must read correctly in light and dark and under both accents.
+
 ## Rendering And Proof
 
 1. The Markdown PDF exporter renders Mermaid locally to SVG in strict security mode using the pinned `mermaid` package.

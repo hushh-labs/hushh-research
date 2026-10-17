@@ -13,8 +13,9 @@ Founder-language mapping:
 ## Visual Map
 
 Both transports mount the same `mcp_server.py` server object and the same guard
-chain. The only behavioral fork is `is_local_stdio_transport()`, which enables
-auto-keypair and local decrypt on stdio and never on `/mcp`.
+chain. `is_local_stdio_transport()` enables auto-keypair and legacy free export
+decryption on stdio. Paid exports remain encrypted on every transport and require
+the app's active registered X25519 recipient key.
 
 ```mermaid
 flowchart TB
@@ -183,7 +184,9 @@ instructions.
 The local stdio MCP process (spawned by `npx -y @hushh/mcp` or a direct
 `python mcp_server.py` invocation) runs as the developer's own trusted
 software on their own machine, with loopback network access the LLM host's
-own sandbox typically does not have. On this transport only:
+own sandbox typically does not have. The following compatibility behavior applies
+to free sharing. Paid sharing returns ciphertext for trusted recipient decryption
+outside model context and requires an active server-registered app recipient key:
 
 - `get_encrypted_scoped_export` decrypts and narrows the export locally,
   returning only a bounded `information` object. Ciphertext and wrapped-key metadata

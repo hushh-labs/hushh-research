@@ -67,4 +67,22 @@ describe("buildBackgroundShareSession", () => {
     });
     expect(session.grants).toEqual([]);
   });
+  it("drops expired or malformed expiry while preserving future expiry for native enforcement", () => {
+    const future = Date.now() + 60_000;
+    const session = buildBackgroundShareSession({
+      activeGrants: [
+        grant({ id: "expired", expiresAt: new Date(1).toISOString() }),
+        grant({ id: "malformed", expiresAt: "invalid" }),
+        grant({ id: "future", expiresAt: new Date(future).toISOString() }),
+      ],
+      recipients: [recipient()],
+      vaultOwnerToken: "synthetic-token",
+      backendBaseUrl: "https://fixture.invalid",
+      minMoveMeters: 25,
+      minIntervalMs: 8000,
+    });
+    expect(session.grants).toHaveLength(1);
+    expect(session.grants[0]).toMatchObject({ grantId: "future", expiresAtMs: future });
+  });
+
 });

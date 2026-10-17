@@ -36,8 +36,8 @@ Personal recall uses this supplied document, not Drive. Missing information
 remains unknown; a failed Drive detour cannot replace available memory with a
 mandatory connector message. External-read authority still fails closed.
 
-The Memory screen opens on its first tab, **memory.md**, which renders this exact
-document and offers a Markdown editor with a live preview. Save changes uses
+The Memory screen opens on **Saved**. Its private memory.md section renders this
+exact document and offers a Markdown editor with a live preview. Save changes uses
 the existing browser-encrypted PKM coordinator on web, iOS, and Android. It
 compares the edit-start document with the current document on every conflict
 retry, so a concurrent automatic save cannot be overwritten. A rejected save
@@ -50,8 +50,8 @@ passwords and other authentication material are omitted before encryption.
 Mutation doorbells reconcile cloud changes in the background after local writers
 finish, not before every prompt. Clean previews reflect RAM updates; unsaved drafts remain in
 memory until canceled, saved, or the unlocked session ends. Markdown does not
-execute raw HTML or automatically fetch external images. Saved, Add, and
-Sharing remain available as the subsequent tabs for specialist records. memory.md
+execute raw HTML or automatically fetch external images. Memory has two tabs, **Saved** and **Add**. Saved includes specialized records,
+exact-scope sharing, pricing and earnings; sharing is not a separate tab. memory.md
 uses the product font with bold section headings, readable foreground text, and
 a bounded reading measure. New bullets follow the preparation agent's authored
 intent classification, not domain paths. The client formats technical packets
@@ -470,38 +470,30 @@ change; general and KYC preparation retain their existing behavior.
 
 ### Explicit saves from chat
 
-When the owner asks One to save something ("save this to my memory"), One calls
-`add_to_pkm`. The tool saves nothing itself: it returns `status: handed_to_device` with
-`saved: false`, and for a pasted document (`whole_message=true`) the browser reads the
-owner's own message instead of a copy in the tool argument. The browser accepts
-`pkm.add` as a local memory action even though it is not a route action in the
-generated Kai gateway. The existing semantic preparation pipeline receives the
-`soul_markdown_v1` profile and the already-decrypted document's offered bullets.
-It authors plain attributed facts and Facts/Preferences/Commitments sections,
-never legacy domain trees. Both explicit and automatic captures use this path;
-there is no raw-message append bypass or extra review UI. Corrections/extensions
-replace an exact offered bullet; forget requests remove it. Stale or ambiguous
-targets fail closed, preserving unrelated facts and fenced examples. Masked
-targets and multiline/nested owner bullets require the editor for replacement.
-Credential values are omitted; owner identifiers remain private.
+When the owner asks One to save information, `add_to_pkm` returns
+`status: handed_to_device` and `saved: false`; the device verifies the result.
+For `whole_message=true`, the browser uses the owner's own selected message.
+The typed `pkm.add` action retains the existing resumable, structured save job
+for Saved information and exact-scope sharing. Its semantic preparation uses the
+owner's private runtime when selected, and current manifests, duplicate checks
+and reconciliation remain authoritative. Active-recipient effects and proposals
+requiring review wait for owner confirmation. Credentials are excluded.
 
-Every capture job has a deadline and settles internally to a terminal outcome.
-Capture never adds a line, status, Activity item, receipt, confirmation control,
-or card to the conversation, and One is instructed not to narrate it. Background
-failures remain observable through value-free debug and aggregate telemetry.
+These explicit jobs retain acknowledgement-derived receipts, progress, pause,
+unlock and retry controls. Receipt context sent to the next private-agent turn
+contains counts and categories only. Structured records do not become Soul
+prompt context or seed Soul. Owner/conversation retirement prevents stale jobs
+from publishing receipts or review cards into another workspace. Ambient,
+explicit and request-bound capture authorities have distinct deduplication keys.
 
-Accepted facts receive vault-encrypted IndexedDB checkpoints while cloud saving
-runs. Freshly unlocked sessions can recover these bounded seven-day envelopes
-with current credentials, without another semantic assessment. Encrypted staging
-order preserves dependent corrections across out-of-order device writes.
-Unreadable envelopes defer recovery rather than reordering later mutations. Checkpoints never
-contain keys or tokens. Cloud failures retry at bounded intervals, then remain
-retryable in memory.md; checkpoint cleanup failure also remains pending rather
-than falsely reporting synchronization. If device storage itself is unavailable,
-cloud saving still proceeds, but unsynced RAM cannot survive a reload. Passwords
-and other authentication material are removed before either persistence path.
-Old resumable multi-domain jobs remain readable by their compatibility code, but
-new One chat saves do not create or resume them from the chat surface.
+Background capture and owner-confirmed KYC replies continue through the private
+`soul_markdown_v1` preparation and encrypted Soul staging queue. Ambient capture
+adds no transcript status or review card. It never creates a shareable scope;
+`one_memory` is excluded from discovery, tariffs and exact/root exports, including
+retrieval of historical ciphertext. KYC replies do not invoke a structured
+identity writer or force a pre-draft cloud read. Soul recovery, revision fences,
+seven-day encrypted checkpoints and bounded retry remain unchanged.
+
 
 Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer
 with 16 sections, the real proposal service and the real client merge path with only
@@ -941,7 +933,8 @@ exact route on a wired route action whose screen is the path's own.
 
 ## Storage rules
 
-- New One chat memory writes target only `one_memory.markdown`.
+- Background private-agent memory and KYC reply writes target `one_memory.markdown`;
+  explicit `pkm.add` retains the structured Saved/review compatibility contract.
 - Unstructured, user-authored memory still uses the shared
   `POST /api/pkm/memory/proposals` pipeline to select durable facts, but the
   resulting text is appended to the single Markdown document rather than saved

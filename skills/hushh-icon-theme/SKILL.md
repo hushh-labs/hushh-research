@@ -113,6 +113,14 @@ library from application code. A state (off, paused) may mute the same glyph
 rather than swap to a gray tile. `__tests__/components/iconography-motion.contract.test.ts`
 enforces both the import boundary and the Profile row treatment.
 
+Profile menu glyphs also generate native artwork. After changing
+`components/profile/profile-menu-model.ts` or its rendered icons, run
+`npm run build:brand-assets` then `npm run verify:brand-assets` from
+`hushh-webapp`. Commit the resulting `HushhProfile-*.imageset` assets and
+`NativeProfileArtwork.swift` with the authored change; never hand-edit them.
+Update the native artwork test's semantic accent and colour assertions when
+those authored properties change; generator freshness does not check XCTest expectations.
+
 ### Card headers, status lines, and the sparkle ban
 
 A card header icon follows the /one launcher: the concept's registry glyph,

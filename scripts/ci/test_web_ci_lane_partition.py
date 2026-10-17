@@ -6,7 +6,7 @@ PR Validation runs two web lanes as matrices to shorten the critical path:
 * ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
   browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency as a macOS browser job, outside Linux's
+* 100 KB editor latency and History motion as a macOS browser job, outside Linux's
   software-rendered WebKit layout pack, scheduled and required whenever the
   ``editor`` path filter matches.
 
@@ -34,6 +34,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from web_lane_topology_contract import assert_web_lane_topology
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
@@ -51,8 +53,11 @@ def _bash() -> str:
                 for candidate in (anchor / "bash.exe", anchor / "bin/bash.exe"):
                     if candidate.is_file():
                         return str(candidate)
-        raise RuntimeError("Git Bash is required to verify web lane partitioning on Windows")
+        raise RuntimeError(
+            "Git Bash is required to verify web lane partitioning on Windows"
+        )
     return "bash"
+
 
 STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
@@ -62,13 +67,8 @@ exit 0
 """
 
 
-def _job_block(workflow: str, job: str, next_job: str) -> str:
-    start = workflow.index(f"  {job}:\n")
-    end = workflow.index(f"\n  {next_job}:\n", start)
-    return workflow[start:end]
 
-
-def _run(script: Path, env_overrides: dict[str, str]) -> tuple[int, list[str], str]:
+def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = False) -> tuple[int, list[str], str]:
     with tempfile.TemporaryDirectory() as tmp:
         stub_dir = Path(tmp) / "bin"
         stub_dir.mkdir()
@@ -77,12 +77,23 @@ def _run(script: Path, env_overrides: dict[str, str]) -> tuple[int, list[str], s
         npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
         log = Path(tmp) / "npm.log"
         log.touch()
+        if stub_diagrams:
+            node = stub_dir / "node"
+            real_node = shlex.quote(shutil.which("node") or "node")
+            node.write_text(
+                '#!/usr/bin/env bash\ncase "${1:-}" in\n'
+                '  scripts/verify-doc-diagrams.cjs|scripts/render-doc-mermaid.mjs)\n'
+                '    printf "%s\\n" "$1" >> "$NPM_STUB_LOG"; exit 0;;\n'
+                f'esac\nexec {real_node} "$@"\n', encoding="utf-8"
+            )
+            node.chmod(node.stat().st_mode | stat.S_IEXEC)
         env = dict(os.environ)
         env.update(
             {
                 "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
                 "NPM_STUB_LOG": str(log),
                 "WEB_CI_DEPS_INSTALLED": "1",
+                "HUSHH_WEB_TEST_MAX_WORKERS": "2",
             }
         )
         env.update(env_overrides)
@@ -108,6 +119,10 @@ def _one_matching_file_per_pack() -> str:
     assert patterns, "web-targeted-check.sh has no has_match packs"
     chosen: list[str] = []
     for pattern in patterns:
+        # Mermaid rendering is a direct browser command, outside run_check's
+        # npm packs. Exercise its leg separately below without Chromium here.
+        if "render-doc-mermaid" in pattern:
+            continue
         regex = re.compile(pattern)
         hit = next((path for path in tracked if regex.search(path)), None)
         if hit is not None:
@@ -168,7 +183,8 @@ def _reaches_playwright(script: str, scripts: dict[str, str], seen: set[str]) ->
     if re.search(r"\bplaywright\b", body):
         return True
     return any(
-        _reaches_playwright(ref, scripts, seen) for ref in re.findall(r"npm run ([\w:.-]+)", body)
+        _reaches_playwright(ref, scripts, seen)
+        for ref in re.findall(r"npm run ([\w:.-]+)", body)
     )
 
 
@@ -179,12 +195,16 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         code, calls, output = _run(
             TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed}
         )
-        assert code == 0, f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
+        assert code == 0, (
+            f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
+        )
         runs[part] = calls
 
     all_calls, node, browser = runs["all"], runs["node"], runs["browser"]
     assert node and browser, "the fixture must schedule packs in both legs"
-    assert not set(node) & set(browser), f"packs ran in both legs: {set(node) & set(browser)}"
+    assert not set(node) & set(browser), (
+        f"packs ran in both legs: {set(node) & set(browser)}"
+    )
     assert sorted(node + browser) == sorted(all_calls), (
         "the node and browser legs together must run exactly what `all` runs"
     )
@@ -192,15 +212,64 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     for call in browser:
         name = call.split()[1]
-        assert _reaches_playwright(name, scripts, set()), f"{name} ran in the browser leg"
+        assert _reaches_playwright(name, scripts, set()), (
+            f"{name} ran in the browser leg"
+        )
     for call in node:
         name = call.split()[1]
         assert not _reaches_playwright(name, scripts, set()), f"{name} needs a browser"
 
 
+def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    spec = "e2e/agent-surface-model-authority.layout.spec.ts"
+    broad_commands = [
+        command
+        for command in scripts["test:layout-contracts"].split("&&")
+        if "playwright test" in command
+    ]
+    for project in ("chromium", "webkit"):
+        commands = [
+            command for command in broad_commands if f"--project={project}" in command
+        ]
+        assert len(commands) == 1 and spec in commands[0], (
+            f"the broader layout pack must retain the agent spec on {project}"
+        )
+
+    agent_only = "hushh-webapp/components/agent/agent-chat-workspace.tsx"
+    for changed, broad_required in (
+        (agent_only, False),
+        (agent_only + "\n" + "hushh-webapp/" + spec, True),
+    ):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run test:layout-contracts") == int(broad_required)
+        assert calls.count("run test:agent-surface-layout") == int(not broad_required)
+
+
 def test_targeted_rejects_an_unknown_part() -> None:
     code, calls, _ = _run(TARGETED, {"WEB_TARGETED_PART": "chromium"})
     assert code == 2 and not calls
+
+
+def test_node_leg_leaves_diagram_rendering_to_browser_leg() -> None:
+    code, calls, output = _run(
+        TARGETED,
+        {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": "docs/README.md"},
+    )
+    assert code == 0, output[-2000:]
+    assert not calls and "Rendered " not in output
+    for index in (1, 2, 3):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": "docs/README.md", "PLAYWRIGHT_SHARD": f"{index}/3"},
+            stub_diagrams=True,
+        )
+        assert code == 0, output[-2000:]
+        assert calls == (["scripts/verify-doc-diagrams.cjs", "scripts/render-doc-mermaid.mjs"] if index == 1 else [])
 
 
 def test_paid_answer_photo_inputs_schedule_browser_pack() -> None:
@@ -263,17 +332,19 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
 def test_full_suite_shards_run_verifiers_once() -> None:
     code, unsharded, output = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": ""})
     assert code == 0, output[-2000:]
-    verifiers = [call for call in unsharded if call != "run test:ci"]
-    assert unsharded[0] == "run test:ci" and verifiers
+    verifiers = [call for call in unsharded if not call.startswith("run test:ci")]
+    assert unsharded == [*verifiers, "run test:ci -- --maxWorkers=2"] and verifiers
 
     shard_calls: list[list[str]] = []
     for index in (1, 2, 3):
         code, calls, output = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": f"{index}/3"})
         assert code == 0, output[-2000:]
-        assert calls[0] == f"run test:ci -- --shard={index}/3", calls
-        shard_calls.append(calls[1:])
+        assert calls[-1] == f"run test:ci -- --shard={index}/3 --maxWorkers=2", calls
+        shard_calls.append(calls[:-1])
     assert shard_calls[0] == verifiers, "shard 1 must run every contract verifier"
-    assert shard_calls[1] == [] and shard_calls[2] == [], "only shard 1 runs the verifiers"
+    assert shard_calls[1] == [] and shard_calls[2] == [], (
+        "only shard 1 runs the verifiers"
+    )
 
     for bad in ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3"):
         code, calls, _ = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": bad})
@@ -282,46 +353,35 @@ def test_full_suite_shards_run_verifiers_once() -> None:
 
 def test_workflow_schedules_every_leg_and_shard() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
-
-    targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
-    entries = re.findall(
-        r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
-    )
-    assert [(part, shard) for part, _, shard in entries] == [
-        ("node", ""), ("browser", "1/3"), ("browser", "2/3"), ("browser", "3/3")
-    ], "run node once and all three browser shards"
-    assert len({label for _, label, _ in entries}) == 4, "matrix names must be unique"
-    assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
-    assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
-    assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
-    assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
-    assert "timeout-minutes: 30" in targeted
-    assert "fail-fast: false" in targeted
-
-    editor_perf = _job_block(workflow, "web-editor-performance-check", "web-full-suite-check")
-    assert "runs-on: macos-15" in editor_perf
-    assert "npm run test:layout-editor-performance" in editor_perf
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
-    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
-
-    full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
-    shards = re.search(r"shard: \[([0-9, ]+)\]", full)
-    assert shards, "web-full-suite-check has no shard matrix"
-    indexes = [int(value) for value in shards.group(1).split(",")]
-    count = len(indexes)
-    assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
-    assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
-    assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
-    assert "fail-fast: false" in full
-
-    gate = workflow[workflow.index("  ci-status:") :]
-    assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
-    assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
-    assert '[ "$WEB_TARGETED" != "success" ]' in gate
-    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
-    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
+    playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
+    assert_web_lane_topology(workflow, scripts, playwright)
+    shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
+    broken = workflow.replace(shard, shard + shard, 1)
+    assert broken != workflow
+    try:
+        assert_web_lane_topology(broken, scripts, playwright)
+    except AssertionError as error:
+        assert "duplicate PLAYWRIGHT_SHARD" in str(error)
+    else:
+        raise AssertionError("duplicated workflow environment was accepted")
 
 
+def test_browser_shard_setting_is_validated_before_any_pack() -> None:
+    gene = ROOT / "hushh-webapp/scripts/testing/playwright-shard.cjs"
+    for shard, primary in (("", "1"), ("1/3", "1"), ("2/3", "0"), ("3/3", "0")):
+        result = subprocess.run(
+            ["node", str(gene)],
+            env={**os.environ, "PLAYWRIGHT_SHARD": shard},
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0 and result.stdout.strip() == primary
+    for bad in ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3", "1/9007199254740992"):
+        code, calls, _ = _run(
+            TARGETED, {"PLAYWRIGHT_SHARD": bad, "WEB_TARGETED_PART": "browser"}
+        )
+        assert code != 0 and not calls, f"invalid browser shard {bad!r} ran a pack"
 def collect_browser_shards() -> None:
     """Optional native collection proof; normal governance needs no web install."""
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
@@ -336,7 +396,7 @@ def collect_browser_shards() -> None:
             cwd=ROOT, capture_output=True, text=True, check=True,
         ).stdout
     code, calls, output = _run(
-        TARGETED, {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed}
+        TARGETED, {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed}, stub_diagrams=True
     )
     assert code == 0 and calls, output[-2000:]
 
@@ -399,14 +459,19 @@ def collect_browser_shards() -> None:
         return set(found)
 
     proof = []
+    linux_identities: set[tuple[str, str, str]] = set()
     first_command = None
     for call in calls:
+        if not call.startswith("run "):
+            assert call in {"scripts/verify-doc-diagrams.cjs", "scripts/render-doc-mermaid.mjs"}, f"unexpected direct command: {call}"
+            continue
         pack = call.split()[1]
         selected = list(commands(pack, {}))
         assert selected, f"no native browser command extracted from {pack}"
         for argv, env in selected:
             first_command = first_command or (argv, env)
             baseline = identities(collect(argv, env, None), None)
+            linux_identities.update(baseline)
             shards = [
                 identities(collect(argv, env, f"{index}/3"), f"{index}/3")
                 for index in (1, 2, 3)
@@ -416,6 +481,24 @@ def collect_browser_shards() -> None:
             assert set().union(*shards) == baseline, f"missing or added tests: {pack} {argv}"
             proof.append({"pack": pack, "argv": argv, "unsharded": len(baseline),
                           "shards": [len(shard) for shard in shards]})
+
+    timing = set().union(*(
+        identities(collect(argv, env, None), None)
+        for argv, env in commands("test:layout-editor-performance", {})
+    ))
+    history = identities(collect([
+        "test", "e2e/history-motion.layout.spec.ts",
+        "--project=chromium", "--project=webkit",
+    ], {"CI": "1"}, None), None)
+    assert len(history) == 2 and {item[1] for item in history} == {"chromium", "webkit"}
+    assert history <= timing, "both unchanged History timing tests must reach macOS"
+    assert history.isdisjoint(linux_identities), "do not duplicate timing tests in Linux"
+    if any(call == "run test:connections-layout" for call in calls):
+        remaining = identities(collect([
+            "test", "e2e/connections-drawer.layout.spec.ts",
+            "--project=chromium", "--project=webkit",
+        ], {"CI": "1"}, None), None)
+        assert remaining and remaining <= linux_identities, "remaining Connections tests must stay on Linux"
 
     assert first_command is not None
     argv, env = first_command
@@ -428,6 +511,7 @@ def collect_browser_shards() -> None:
         proc = collect(argv, env, bad)
         assert proc.returncode != 0 and "PLAYWRIGHT_SHARD must be current/total" in proc.stderr, bad
     print(json.dumps({"native_browser_collection": proof, "invalid_shards_rejected": list(invalid),
+                      "motion_timing_projects": sorted(item[1] for item in history),
                       "browser_launches": 0, "partition": "complete and disjoint"}, indent=2))
 
 
@@ -435,11 +519,14 @@ def main() -> int:
     tests = (
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,
+        test_node_leg_leaves_diagram_rendering_to_browser_leg,
         test_paid_answer_photo_inputs_schedule_browser_pack,
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
+        test_browser_shard_setting_is_validated_before_any_pack,
     )
     for test in tests:
         test()

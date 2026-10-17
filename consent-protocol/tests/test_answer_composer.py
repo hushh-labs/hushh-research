@@ -232,3 +232,39 @@ async def test_production_writer_refuses_nonconfigured_gemini_before_dispatch(
     with pytest.raises(AnswerComposerError, match="configured Gemini"):
         await AnswerComposer().compose(question="How much on travel?", projection=PROJECTION)
     build.assert_not_called()
+
+
+async def test_composer_refuses_hosting_change_before_provider_dispatch(
+    monkeypatch, shared_hub_owner
+):
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    from fastapi import HTTPException, Response
+
+    from api.routes.one import answer_requests as routes
+
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
+
+    async def answerable(**kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return {"approvedScopes": ["attr.travel.trips"], "modelProcessingConsented": True}
+
+    monkeypatch.setattr(routes, "_requests", lambda: Mock(assert_answerable=answerable))
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "synthetic",
+                    "values": {"attr.travel.trips": {"trips": [{"city": "Tokyo"}]}},
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 409
+    composer.assert_not_called()

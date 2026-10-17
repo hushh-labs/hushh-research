@@ -198,6 +198,27 @@ describe("habit in ranking (gateway, not Search's own catalog)", () => {
 });
 
 describe("what search offers", () => {
+  it.each(["payments", "add funds", "purchase balance"])("uses the authored payment alias %s", (query) => {
+    const { onSelectAction } = renderPalette(query);
+    fireEvent.keyDown(screen.getByPlaceholderText("Ask One or search"), { key: "Enter" });
+    expect(onSelectAction).toHaveBeenCalledWith({actionId: "route.profile_payouts", slots: undefined});
+  });
+
+  it("keeps payment navigation blocked after sign-out", () => {
+    const { onSelectAction } = renderPalette("link my bank", {
+      state: {...runtimeState, auth: {signed_in: false, user_id: null}},
+    });
+    const label = getKaiActionById("route.profile_payouts")!.label;
+    expect(screen.getByText(label).closest("[cmdk-item]")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(screen.getByPlaceholderText("Ask One or search"), {key: "Enter"});
+    expect(onSelectAction).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a client-specific destination without a selected client", () => {
+    renderPalette("show client overview");
+    expect(screen.queryByText(getKaiActionById("ria.client_workspace.open_overview_tab")!.label)).toBeNull();
+  });
+
   it("leaves out actions only One itself can run", () => {
     for (const actionId of [
       "consent.chat.turn",

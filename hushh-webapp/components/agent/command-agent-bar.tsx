@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { AudioLines, Send, X, ChevronUp } from "@/components/icons";
-import { AgentBarSurface } from "./agent-bar-surface";
+import { AgentBarSurface, useRetainedAgentBarFrame } from "./agent-bar-surface";
+import { useAgentDockSurface } from "./agent-dock";
+import { useNativeDockPort } from "./native-dock-port";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
 import {
@@ -24,9 +26,12 @@ import {
 /** Presentation only. The provider above route and chrome changes owns the task. */
 export function CommandAgentBar({
   layout = "fixed",
+  unavailableLabel,
 }: {
   layout?: "fixed" | "slot";
+  unavailableLabel?: string;
 }) {
+  const retainedFrame = useRetainedAgentBarFrame();
   const {
     view,
     user,
@@ -79,7 +84,7 @@ export function CommandAgentBar({
   const elapsed = `${Math.floor(elapsedMs / 60_000)}:${String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}`;
   const working = view.phase === "working";
   const status =
-    recording === "starting"
+    unavailableLabel ? unavailableLabel : recording === "starting"
       ? "Preparing microphone…"
       : cancelArmed
         ? "Release to cancel"
@@ -90,9 +95,23 @@ export function CommandAgentBar({
           : working
             ? view.message
             : "Talk to One";
+  const dock = useAgentDockSurface();
+  useNativeDockPort("voice", dock ? {
+    projection: { context: "command-voice", mode: "voice", text: "", placeholder: status, expanded: false,
+      editable: false, sendEnabled: false, micEnabled: false, cancelEnabled: active,
+      recording: Boolean(recording), recordingReady: recording === "recording", supportsHold: true,
+      muted: false, attachments: [], attachmentRevision: 0, editorRevision: 0 },
+    onAction: event => {
+      if (event.action === "voice-tap") { if (active) cancelTask(); else run(startCapture()); }
+      else if (event.action === "capture-start" && !active) run(startCapture());
+      else if (event.action === "capture-finish") run(finishCapture());
+      else if (event.action === "capture-cancel") cancelCapture();
+      else if (event.action === "cancel") { if (recording) cancelCapture(); else cancelTask(); }
+    },
+  } : null);
   return (
     <div
-      data-agent-bar-shell
+      data-agent-bar-shell={retainedFrame ? undefined : true}
       data-command-active={active || undefined}
       data-ui-role="talk-to-one"
       data-agent-bar-layout={layout}
@@ -146,8 +165,9 @@ export function CommandAgentBar({
             "agent-bar-voice-launcher relative flex h-11 min-w-0 flex-1 touch-none select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
             recording && "bg-primary/5",
           )}
+          disabled={Boolean(unavailableLabel) && !active}
           aria-label={
-            active ? "Cancel voice command" : "Talk to One. Hold to speak, or tap to start."
+            active ? "Cancel voice command" : unavailableLabel || "Talk to One. Hold to speak, or tap to start."
           }
           onContextMenu={(event) => event.preventDefault()}
           onPointerDown={(event) => {

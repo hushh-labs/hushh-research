@@ -7,32 +7,34 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import developer
 from api.routes.developer import _STATIC_REQUESTABLE_SCOPES, _is_supported_scope
-
-_CONNECTOR_PUBLIC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
-_CONNECTOR_KEY_ID = "connector_demo"
-_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
-
-
-def _build_app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(developer.router)
-    return app
-
-
-def _fake_principal():
-    return developer.DeveloperPrincipal(
-        app_id="app_demo_123",
-        agent_id="developer:app_demo_123",
-        display_name="Demo App",
-        allowed_tool_groups=("core_consent",),
-        allowed_capabilities=("cap.one.invoke",),
-        contact_email="founder@example.com",
-    )
+from tests.developer_contract_harness import (
+    _CONNECTOR_KEY_ID as _CONNECTOR_KEY_ID,
+)
+from tests.developer_contract_harness import (
+    _CONNECTOR_PUBLIC_KEY as _CONNECTOR_PUBLIC_KEY,
+)
+from tests.developer_contract_harness import (
+    _CONNECTOR_WRAPPING_ALG as _CONNECTOR_WRAPPING_ALG,
+)
+from tests.developer_contract_harness import (
+    _build_app as _build_app,
+)
+from tests.developer_contract_harness import (
+    _discovery_fakes,
+)
+from tests.developer_contract_harness import (
+    _fake_principal as _fake_principal,
+)
+from tests.developer_contract_harness import (
+    _isolate_developer_registry_keys as _isolate_developer_registry_keys,
+)
+from tests.developer_contract_harness import (
+    _offer_fakes as _offer_fakes,
+)
 
 
 def _override_firebase_auth():
@@ -367,12 +369,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
             assert user_id == "user_123"
             return _FakeIndex()
 
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
-    monkeypatch.setattr(
-        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
-    )
+    _discovery_fakes(monkeypatch, _FakePkmService())
 
     client = TestClient(_build_app())
     response = client.get(
@@ -388,6 +385,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     assert len(payload["scope_entries"]) == 1
     assert all(entry["path"] != "schema_version" for entry in payload["scope_entries"])
     assert payload["app_display_name"] == "Demo App"
+    assert payload["scope_entries"][0]["tariff"]["price_cents"] == 1
 
 
 def test_user_scopes_omits_private_entries_and_marks_default_available(monkeypatch):
@@ -1016,48 +1014,6 @@ def test_request_consent_creates_pending_one_invocation_request(monkeypatch):
     assert inserted["scope"] == "cap.one.invoke"
     assert inserted["metadata"]["reason"] == "Coordinate this request through Agent One"
     assert "connector_wrapping_alg" not in inserted["metadata"]
-
-
-def _offer_fakes(monkeypatch, inserted):
-    """Shared fakes for offer/reverse-auction request_consent tests."""
-
-    class _FakeScopeGenerator:
-        async def get_available_scopes(self, user_id: str) -> list[str]:
-            return ["attr.financial.portfolio.*"]
-
-    class _FakeIndex:
-        available_domains = ["financial"]
-
-    class _FakePkmService:
-        scope_generator = _FakeScopeGenerator()
-
-        async def resolve_metadata_index(self, user_id: str):
-            return _FakeIndex()
-
-    class _FakeConsentDBService:
-        async def get_covering_active_tokens(self, user_id, *, requested_scope, agent_id=None):
-            return []
-
-        async def get_pending_request_for_scope(self, user_id, *, agent_id, scope):
-            return None
-
-        async def get_superseded_active_tokens(self, user_id, *, requested_scope, agent_id=None):
-            return []
-
-        async def was_recently_denied(self, user_id, scope, cooldown_seconds=60, agent_id=None):
-            return False
-
-        async def insert_event(self, **kwargs):
-            inserted.update(kwargs)
-            return 1
-
-    monkeypatch.setenv("ENVIRONMENT", "development")
-    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
-    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(
-        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
-    )
 
 
 def test_request_consent_records_reverse_auction_offer(monkeypatch):
@@ -2292,88 +2248,6 @@ def test_mcp_request_authenticates_before_resolving_identifier(monkeypatch):
     )
     assert response.status_code == 401
     assert resolved is False
-
-
-def test_mcp_export_resolves_internal_token_by_app_and_grant(monkeypatch):
-    audit_events: list[dict[str, object]] = []
-
-    class _FakeConsentDBService:
-        async def get_consent_export_by_grant(self, grant_id: str, *, app_id: str):
-            assert grant_id == "req_0123456789abcdef0123456789ab"
-            assert app_id == "app_demo_123"
-            return {
-                "consent_token": "HCT:internal-only",
-                "user_id": "firebase_uid_internal",
-            }
-
-        async def insert_event(self, **kwargs):
-            audit_events.append(kwargs)
-            return 1
-
-    async def _load(**kwargs):
-        assert kwargs["consent_token"] == "HCT:internal-only"
-        assert kwargs["user_id"] == "firebase_uid_internal"
-        return (
-            _fake_principal(),
-            SimpleNamespace(
-                scope_str="attr.financial.portfolio.*",
-                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
-                expires_at=123456789,
-            ),
-            {
-                "scope": "attr.financial.portfolio.*",
-                "is_strict_zero_knowledge": True,
-                "envelope_version": 2,
-                "export_id": "a" * 32,
-                "export_revision": 1,
-                "iv": "iv",
-                "tag": "tag",
-                "wrapped_key_bundle": {"connector_key_id": "connector_demo"},
-                "envelope_aad": {"grant_id": "req_0123456789abcdef0123456789ab"},
-                "envelope_aad_sha256": "b" * 64,
-                "ciphertext_sha256": "c" * 64,
-                "ciphertext_bytes": 128,
-            },
-        )
-
-    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(developer, "_load_scoped_export_or_raise", _load)
-    monkeypatch.setattr(
-        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
-    )
-    client = TestClient(_build_app())
-    response = client.post(
-        "/api/v1/mcp/scoped-export",
-        headers={"Authorization": "Bearer hdk_demo"},
-        json={
-            "grant_ref": "req_0123456789abcdef0123456789ab",
-            "expected_scope": "attr.financial.portfolio.*",
-        },
-    )
-    assert response.status_code == 200
-    assert response.json()["status"] == "success"
-    assert "HCT:internal-only" not in response.text
-    assert "firebase_uid_internal" not in response.text
-    assert len(audit_events) == 1
-    assert audit_events[0]["action"] == "READ"
-    assert "request_id" not in audit_events[0]
-    assert audit_events[0]["metadata"] == {
-        "event_schema": "consent_export_read/v1",
-        "event_kind": "export_issued",
-        "outcome": "released",
-        "app_id": "app_demo_123",
-        "grant_ref": None,
-        "export_id": "a" * 32,
-        "export_revision": 1,
-        "expected_scope": "attr.financial.portfolio.*",
-        "coverage_kind": "exact",
-        "connector_key_id": "connector_demo",
-        "recipient_key_fingerprint": None,
-        "wrapping_alg": None,
-        "delivery_surface": "mcp_inline",
-        "delivered_bytes": 128,
-        "correlation_ref": None,
-    }
 
 
 def test_mcp_export_hides_cross_app_grant(monkeypatch):

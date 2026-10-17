@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.one import calendar
+
+
+@pytest.fixture(autouse=True)
+def shared_placement(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
 
 
 def _app() -> FastAPI:

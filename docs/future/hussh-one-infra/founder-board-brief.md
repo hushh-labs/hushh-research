@@ -6,9 +6,12 @@ Status: planning-only brief. It is directionally aligned to the One infrastructu
 
 ```mermaid
 flowchart TD
+  accTitle: Founder and board architecture map
+  accDescr: Hussh trust, private agent, dev pod, and future partner and local compute lanes.
   root["Founder and Board Brief"]
   one["One<br/>personal operating layer"]
   trust["Hussh<br/>trust infrastructure"]
+  devPod["Per-person cloud pod<br/>dev source path; live acceptance separate"]
   specialists["Kai, Nav, KYC<br/>specialists"]
   enterprise["Salesforce and MuleSoft<br/>enterprise workflow channel"]
   privateCompute["Mac Mini, OpenClaw, MLX<br/>future private compute"]
@@ -17,6 +20,7 @@ flowchart TD
   root --> one
   one --> specialists
   root --> trust
+  trust --> devPod
   trust --> enterprise
   trust --> privateCompute
   wiki --> root
@@ -34,6 +38,7 @@ The architecture should scale into enterprise and private compute without losing
 | --- | --- |
 | Platform | Hussh already has trust, consent, API, MCP, frontend, PKM, and governance surfaces. |
 | Agent experience | One Voice is direct, but runtime remains partially Kai-era compatibility. One is the approved top-level direction, not uniformly shipped everywhere. |
+| Per-person pod | The dev branch contains a per-owner Cloud Run pod and BYOC image/control path. An installed image, direct browser access, and device relay each need their own live proof. See the [current dev image and private-agent flow](../../reference/architecture/views/deployment.md#dev-byoc-image-and-private-agent-flow). |
 | Trust boundary | PCHP, consent, scoped export, audit, and vault/PKM rules remain the durable authority. |
 | Partner integrations | Salesforce, MuleSoft, Agentforce, and Flex Gateway are planning lanes, not implemented repo surfaces. |
 | Private compute | Mac Mini, OpenClaw, local MCP, MLX, and App Intents are future lanes unless checked runtime proof exists. |

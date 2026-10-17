@@ -14,6 +14,7 @@ Define environment policy for IAM changes without risking production behavior.
 | Environment | Purpose | IAM Change Policy |
 | --- | --- | --- |
 | local | Developer iteration and contract validation | Local-only tests; no production resources |
+| dev | Admin-authorized shared Dev rehearsals | CI-green scoped deployment; no live payments or production identity changes |
 | uat | Integration validation for actor flows and verification gates | Auto-deploy from the latest green `main` SHA |
 | production | Live user traffic | No IAM contract change without explicit promotion gate |
 
@@ -39,3 +40,27 @@ Define environment policy for IAM changes without risking production behavior.
 2. New actor routes must be isolated and protected by auth + consent + scope policy.
 3. Consent audit semantics must remain append-only and traceable.
 4. If IAM schema is not ready, investor flows stay operational via compatibility mode.
+
+## Temporary Dev Reviewer Phone Transport
+
+The existing authenticated `/api/account/phone/uat-test/start` and `/confirm`
+endpoints admit a dedicated recorded transport on shared Dev only. Its separate
+`HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON` Secret Manager binding is optional
+and default-off. The strict configuration contains an enable boolean, designated
+primary UID, exact US E.164 phone, six-digit code, independent challenge secret,
+approved Sandbox account and a Unix expiry no more than 24 hours ahead.
+
+Runtime and deploy lane must both be `dev`, deployment source must be
+`deploy-dev`, review mode must be enabled, and the frontend origin must be
+`https://dev.one.hushh.ai`. A production runtime profile always rejects this
+transport. The account is pinned to the approved test Sandbox and the primary
+must match the first owner in the independently validated commerce Sandbox
+policy. The unrelated global reviewer fixture is never reassigned.
+
+Challenges bind authenticated owner, exact phone, configuration revision, nonce
+and a ten-minute expiry. Confirmation rechecks all admission and proof fields
+before the existing canonical phone-claim authority persists the
+`dev_reviewer_test_phone_claim` source. No Firebase project-wide test-number
+registration or production/UAT secret fallback is introduced. Expired or missing
+configuration closes admission; cleanup removes this dedicated secret binding
+after the synthetic rehearsal and retains existing identity/audit history.

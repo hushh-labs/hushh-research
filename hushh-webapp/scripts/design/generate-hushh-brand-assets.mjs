@@ -4,6 +4,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createServer } from "vite";
+import { JSDOM } from "jsdom";
+import { renderNavigationArtwork } from "../../components/icons/native-navigation-artwork.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "../..");
@@ -350,6 +355,7 @@ function encodeIco(images) {
 // their existing host dimensions while this asset supplies identical artwork.
 const runtimeMark = await markLayer(512, 512, 478, 512);
 await emit("public/brand/hushh-mark.png", runtimeMark);
+await emit("public/brand/hushh-mark.svg", source);
 
 // Browser icons use a transparent canvas and a generous, centered mark.
 // Keep a small safe margin so the artwork is legible without clipping at 16px.
@@ -421,6 +427,123 @@ for (const size of [48, 72, 96, 128, 192, 256, 512]) {
 }
 
 // iOS and Wallet require opaque, square sources without pre-rounded corners.
+// Native tabs project the same registry descriptor as web/Android. Alpha carries
+// Phosphor's duotone; UIKit owns the accent, foreground and selection material.
+const navigationIcons = JSON.parse(await readFile(
+  resolve(WEB_ROOT, "components/icons/bottom-navigation-icons.json"), "utf8",
+));
+for (const [tab, definition] of Object.entries(navigationIcons)) {
+  for (const selected of [false, true]) {
+    const variant = selected ? "selected" : "default";
+    const directory = `ios/App/App/Assets.xcassets/HushhNav-${tab}-${variant}.imageset`;
+    const svg = Buffer.from(renderNavigationArtwork(definition, selected));
+    const images = [];
+    for (const scale of [1, 2, 3]) {
+      const filename = `icon@${scale}x.png`;
+      await emit(`${directory}/${filename}`, await sharp(svg).resize(24 * scale, 24 * scale).png().toBuffer());
+      images.push({ filename, idiom: "universal", scale: `${scale}x` });
+    }
+    await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({
+      images, info: { author: "xcode", version: 1 },
+      properties: { "template-rendering-intent": "template" },
+    }, null, 2) + "\n"));
+  }
+}
+
+// Render the actual shared Profile roster. Do not maintain a second vector or
+// SF Symbol mapping. Template alpha preserves duotone; an optional second
+// layer preserves the account glyphs' app-authoritative accent strokes.
+const profileAssets = [];
+const profileGlyphSize = 28; // Shared SettingsRow glyph, inside its 32-point well.
+const profileLoader = await createServer({
+  configFile: false, root: WEB_ROOT, appType: "custom", logLevel: "error",
+  resolve: { alias: { "@": WEB_ROOT } },
+  server: { middlewareMode: true, watch: null },
+  oxc: { jsx: { runtime: "automatic" } },
+});
+try {
+  const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
+  const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
+  const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
+  const formIcons = [
+    { id: "style-name", icon: rows.PreferredNameRowIcon },
+    { id: "style-tone", icon: rows.ToneRowIcon },
+    { id: "style-length", icon: rows.ReplyLengthRowIcon },
+    { id: "style-language", icon: rows.LanguageRowIcon },
+    { id: "style-punctuation", icon: rows.PunctuationRowIcon },
+    { id: "account-mail", icon: accountIcons.GmailAgentIcon },
+    { id: "account-phone", icon: accountIcons.PhoneRowIcon },
+    { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
+    { id: "account-reset", icon: accountIcons.ResetRowIcon },
+    { id: "account-delete", icon: accountIcons.DeleteRowIcon },
+  ];
+  for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {
+    if (!/^[a-z][a-z-]*$/.test(entry.id)) throw new Error("Invalid authored Profile asset id");
+    const markup = renderToStaticMarkup(createElement(entry.icon, { size: profileGlyphSize }));
+    const document = new JSDOM(markup, { contentType: "image/svg+xml" }).window.document;
+    const svg = document.documentElement;
+    svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
+    const fill = svg.getAttribute("fill");
+    const colorHex = /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
+    const accentSelector = ".profile-account-icon-accent, .profile-account-icon-accent-fill, .profile-pane-icon-accent, .profile-pane-icon-accent-fill";
+    const hasAccent = svg.querySelector(accentSelector) !== null;
+    svg.setAttribute("style", "color:#000000");
+    for (const node of [svg, ...svg.querySelectorAll("*")]) {
+      for (const attribute of ["fill", "stroke"]) {
+        if (/^#[0-9a-f]{6}$/i.test(node.getAttribute(attribute) ?? "")) node.setAttribute(attribute, "#000000");
+      }
+    }
+    for (const layer of hasAccent ? ["base", "accent"] : ["base"]) {
+      const artwork = svg.cloneNode(true);
+      for (const node of artwork.querySelectorAll("path,circle,rect,ellipse,line,polyline,polygon")) {
+        const accented = node.matches(accentSelector);
+        if ((layer === "base" && accented) || (layer === "accent" && !accented)) node.setAttribute("opacity", "0");
+        if (node.matches(".profile-account-icon-accent-fill, .profile-pane-icon-accent-fill")) node.setAttribute("fill", "#000000");
+      }
+      const name = `HushhProfile-${entry.id}-${layer}`;
+      const directory = `ios/App/App/Assets.xcassets/${name}.imageset`;
+      const images = [];
+      for (const scale of [1, 2, 3]) {
+        const filename = `icon@${scale}x.png`;
+        await emit(`${directory}/${filename}`, await sharp(Buffer.from(artwork.outerHTML))
+          .resize(profileGlyphSize * scale, profileGlyphSize * scale).png().toBuffer());
+        images.push({ filename, idiom: "universal", scale: `${scale}x` });
+      }
+      await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({
+        images, info: { author: "xcode", version: 1 },
+        properties: { "template-rendering-intent": "template" },
+      }, null, 2) + "\n"));
+    }
+    profileAssets.push({ id: entry.id, colorHex, hasAccent });
+  }
+} finally { await profileLoader.close(); }
+await emit("ios/App/App/Plugins/NativeProfileArtwork.swift", Buffer.from(`// Generated by scripts/design/generate-hushh-brand-assets.mjs. Do not edit.
+// Source: components/profile/profile-menu-model.ts and its rendered React icons.
+import UIKit
+
+enum NativeProfileArtwork {
+    struct Artwork {
+        let base: UIImage
+        let accent: UIImage?
+        let colorHex: String?
+    }
+    static let ids = [${profileAssets.map(entry => JSON.stringify(entry.id)).join(", ")}]
+    static func resolve(_ id: String) -> Artwork? {
+        let colorHex: String?
+        let hasAccent: Bool
+        switch id {
+${profileAssets.map(entry => `        case ${JSON.stringify(entry.id)}: colorHex = ${entry.colorHex ? JSON.stringify(entry.colorHex) : "nil"}; hasAccent = ${entry.hasAccent}`).join("\n")}
+        default: return nil
+        }
+        guard let base = UIImage(named: "HushhProfile-\\(id)-base") else { return nil }
+        let accent = hasAccent ? UIImage(named: "HushhProfile-\\(id)-accent") : nil
+        guard !hasAccent || accent != nil else { return nil }
+        return Artwork(base: base.withRenderingMode(.alwaysTemplate),
+                       accent: accent?.withRenderingMode(.alwaysTemplate), colorHex: colorHex)
+    }
+}
+`));
+
 const iosAppIcon = await opaqueIcon(1024, 1024, 560, 586);
 await emit(
   "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",

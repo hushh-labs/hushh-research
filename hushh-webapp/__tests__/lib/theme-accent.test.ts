@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ACCENT_NO_FOUC_SCRIPT,
@@ -16,7 +16,7 @@ describe("app accent preference", () => {
     document.documentElement.removeAttribute("data-accent");
   });
 
-  it("defaults to iOS Blue with no data-accent attribute", () => {
+  it("defaults to Blue with no data-accent attribute", () => {
     expect(DEFAULT_ACCENT).toBe("blue");
     expect(readAccent()).toBe("blue");
     expect(document.documentElement.hasAttribute("data-accent")).toBe(false);
@@ -40,6 +40,20 @@ describe("app accent preference", () => {
     writeAccent("blue");
     expect(document.documentElement.hasAttribute("data-accent")).toBe(false);
     expect(readAccent()).toBe("blue");
+  });
+
+  it("keeps a storage-denied selection coherent until a confirmed write", () => {
+    writeAccent("blue");
+    const denied = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
+    try {
+      writeAccent("gold");
+      expect(window.localStorage.getItem(ACCENT_STORAGE_KEY)).toBe("blue");
+      expect(readAccent()).toBe("gold");
+      expect(document.documentElement.getAttribute("data-accent")).toBe("gold");
+    } finally { denied.mockRestore(); }
+    writeAccent("blue");
+    expect(readAccent()).toBe("blue");
+    expect(document.documentElement.hasAttribute("data-accent")).toBe(false);
   });
 
   it("no-FOUC script matches the storage key and only sets gold", () => {

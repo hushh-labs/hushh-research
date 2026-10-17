@@ -9,8 +9,8 @@ export interface BackgroundShareToggleProps {
 }
 
 /**
- * Opt-in switch for background location sharing. Turning it ON requests iOS
- * "Always" authorization; we only flip enabled when that is granted, otherwise
+ * Opt-in switch for background location sharing. Turning it ON requests
+ * background authorization; we only flip enabled when that is granted, otherwise
  * we keep it off and explain why. Turning it OFF is immediate.
  */
 export function BackgroundShareToggle({
@@ -57,7 +57,7 @@ export function BackgroundShareToggle({
               : "h-5 w-9 rounded-full bg-muted"
           }
         />
-        Keep sharing when the app is closed
+        Keep sharing in the background
       </button>
       {needsAlways ? (
         <p className="text-xs text-amber-600">

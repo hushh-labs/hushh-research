@@ -149,6 +149,9 @@ async function settle(page: Page, _width: number) {
   // parallel workers before the timed network even starts.
   await expect(group.locator("[data-voice-label]")).toHaveCount(6, { timeout: 30_000 });
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
+  // Circle discovery belongs to Circles, never the Connections panel.
+  await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
   // Circles now lives in an inactive pager pane, including desktop; it must
   // not expose off-screen controls while the Connections pane is selected.
   await expect(page.locator('[data-connect-surface="circles"]').getByText("Your Trusted Circle", { exact: true })).toHaveCount(1);
@@ -206,9 +209,29 @@ for (const dark of [false, true]) {
       await mutual.click();
       await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
       await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
-      // Circle creation moved to its named flow; Connect cards no longer own
-      // the retired discovery-card dialog (also asserted by the page unit contract).
-      await expect(page.getByRole("button", { name: "Create your own circle" })).toHaveCount(0);
+      await page.getByRole("tab", { name: "Circles", exact: true }).click();
+      await expect(page.getByRole("tab", { name: "Circles", exact: true })).toHaveAttribute("aria-selected", "true");
+      if (width >= 640)
+        await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeVisible();
+      await page.getByRole("button", { name: "Create your own circle" }).click();
+      const createDialog = page.getByRole("dialog", { name: "Create a Circle" });
+      await expect(createDialog).toBeVisible();
+      await expect(createDialog.getByRole("textbox")).toBeVisible();
+      const createBounds = await createDialog.boundingBox();
+      expect(createBounds).not.toBeNull();
+      expect(Math.abs(createBounds!.x + createBounds!.width / 2 - width / 2)).toBeLessThan(2);
+      expect(createBounds!.x).toBeGreaterThanOrEqual(0);
+      expect(createBounds!.x + createBounds!.width).toBeLessThanOrEqual(width);
+      await createDialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(createDialog).toHaveCount(0);
+      await page.getByRole("tab", { name: "Connections", exact: true }).click();
+      await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
+      // Unlike the initial loading state, the Circle card has now actually
+      // been presented. Returning must remove its interaction/accessibility.
+      await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
+      const circlesPanel = page.locator('[role="tabpanel"]').filter({ has: page.locator('[data-connect-surface="circles"]') });
+      await expect(circlesPanel).toHaveAttribute("aria-hidden", "true");
+      await expect(circlesPanel).toHaveAttribute("inert", "");
       const messageButtons = page.getByRole("button", { name: /^Message / });
       await expect(messageButtons).toHaveCount(6);
       const alexMessage = page.getByRole("button", { name: "Message Alex Chen", exact: true });

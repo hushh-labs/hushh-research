@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Advisory gene/operon/organ fitness report for maintained source files.
 
-This is the measurement stage of the bacterial-software ratchet. It reports
-size, dependency-direction, and import-initialization risks but exits zero for
-repository findings. Existing debt becomes blocking only after a clean,
-reviewed baseline and a successful compatibility-preserving pilot exist.
+Without --baseline this reports size, dependency-direction and import-initialization
+risks without failing on repository findings. Governance supplies the reviewed
+post-pilot baseline: new or worsened findings then fail with exit status 1.
+Retained legacy debt remains visible; a baseline update requires explicit review.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import json
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -272,23 +273,33 @@ def _representative_findings(findings: list[dict], limit: int) -> list[dict]:
 
 
 def ratchet_regressions(current: dict, baseline: dict) -> list[dict]:
-    baseline_findings = {
-        item["key"]: item for item in baseline.get("findings", [])
-    }
-    regressions = []
+    # A file may contain several same-named nested functions or initialization
+    # calls. Compare each key as a sorted multiset; a dict drops duplicates and
+    # can report a false regression when its last entry is smaller.
+    baseline_findings: dict[str, list[dict]] = defaultdict(list)
+    for item in baseline.get("findings", []):
+        baseline_findings[item["key"]].append(item)
+    for group in baseline_findings.values():
+        group.sort(key=lambda item: item.get("value") or 0, reverse=True)
+    current_findings: dict[str, list[dict]] = defaultdict(list)
     for item in current.get("findings", []):
-        previous = baseline_findings.get(item["key"])
-        if previous is None:
-            regressions.append(item | {"ratchet_reason": "new finding"})
-            continue
-        current_value = item.get("value")
-        previous_value = previous.get("value")
-        if (
-            isinstance(current_value, int)
-            and isinstance(previous_value, int)
-            and current_value > previous_value
-        ):
-            regressions.append(item | {"ratchet_reason": "finding worsened"})
+        current_findings[item["key"]].append(item)
+    regressions = []
+    for key, group in current_findings.items():
+        group.sort(key=lambda item: item.get("value") or 0, reverse=True)
+        previous_group = baseline_findings.get(key, [])
+        for index, item in enumerate(group):
+            if index >= len(previous_group):
+                regressions.append(item | {"ratchet_reason": "new finding"})
+                continue
+            current_value = item.get("value")
+            previous_value = previous_group[index].get("value")
+            if (
+                isinstance(current_value, int)
+                and isinstance(previous_value, int)
+                and current_value > previous_value
+            ):
+                regressions.append(item | {"ratchet_reason": "finding worsened"})
     return regressions
 
 
@@ -303,7 +314,12 @@ def render_text(report: dict, limit: int) -> str:
         f"class={report['budgets']['class_lines']}, "
         f"function={report['budgets']['function_lines']}",
     ]
-    selected = _representative_findings(report["findings"], limit)
+    # A blocking run must identify its regressions, rather than printing the
+    # largest unchanged legacy files and obscuring the actual reason CI stopped.
+    findings = report.get("regressions", report["findings"])
+    if "regressions" in report:
+        lines.append(f"New or worsened findings: {len(findings)}")
+    selected = _representative_findings(findings, limit)
     for finding in selected:
         symbol = f"::{finding['symbol']}" if finding["symbol"] else ""
         metric = (
@@ -314,8 +330,8 @@ def render_text(report: dict, limit: int) -> str:
         lines.append(
             f"- {finding['kind']}: {finding['path']}{symbol}{metric} — {finding['detail']}"
         )
-    if report["finding_count"] > len(selected):
-        lines.append(f"- … {report['finding_count'] - len(selected)} more advisory findings")
+    if len(findings) > len(selected):
+        lines.append(f"- … {len(findings) - len(selected)} more findings")
     return "\n".join(lines)
 
 
@@ -359,6 +375,19 @@ def oversized():
     }
     if len(ratchet_regressions(current, baseline)) != 1:
         print("architecture fitness self-test failed: ratchet comparison", file=sys.stderr)
+        return 1
+    duplicate_baseline = {"findings": [{"key": "duplicate", "value": 20}, {"key": "duplicate", "value": 10}]}
+    duplicate_current = {"findings": [{"key": "duplicate", "value": 10}, {"key": "duplicate", "value": 20}]}
+    if ratchet_regressions(duplicate_current, duplicate_baseline):
+        print("architecture fitness self-test failed: duplicate comparison", file=sys.stderr)
+        return 1
+    clean = {
+        "status": "ratchet-pass", "inspected_files": 1, "finding_count": 1,
+        "budgets": {"module_lines": 500, "class_lines": 250, "function_lines": 80},
+        "findings": [{"path": "unchanged.py"}], "regressions": [],
+    }
+    if "unchanged.py" in render_text(clean, 20) or "New or worsened findings: 0" not in render_text(clean, 20):
+        print("architecture fitness self-test failed: regression reporting", file=sys.stderr)
         return 1
     print("Architecture fitness self-test passed")
     return 0

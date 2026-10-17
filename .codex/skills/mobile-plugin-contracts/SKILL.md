@@ -45,12 +45,23 @@ Non-owned surfaces:
 1. `docs/guides/new-feature.md`
 2. `hushh-webapp/ios/App/App/MyViewController.swift`
 3. `hushh-webapp/android/app/src/main/AndroidManifest.xml`
+4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
+
+For custom native presentation changes, follow the current renderer boundaries
+in `hushh-webapp/docs/ios-native-surface-adoption.md`. Prove a feasible whole-layer
+composition first; retained hosts and ordered bridge receipts cannot synchronize
+React and native animation frames. Choose one renderer before reveal and keep it
+for that presentation lifetime. Do not reopen historical Debug flags as adoption.
 
 1. Verify the TypeScript bridge, plugin registration, and native implementation paths first.
 2. Keep plugin method names and service-layer contracts aligned across platforms.
 3. Treat service-layer native/web branching as part of the same contract, not a follow-up.
+4. Separate retained presentation, current action binding, interaction/accessibility eligibility and privacy. Capability/layout receipts are admission evidence, not rendered transition acceptance; use the adoption reference's qualification rules.
+5. Treat keyboard movement as eligibility/geometry, not automatic host retirement. Validate deliberate focus cancellation separately from uncertainty; require fresh system geometry for keyboard acceptance. Refresh compatible admission without replacing unchanged presentation. Fence superseded layout failures as well as receipts; current failures remain fail-closed. Native drawers own complete motion locally; do not synchronize them with per-frame React poses. Historical pose protocols remain rollback-only, not product qualification.
+6. Characterize renderer bootstrap against the installed SDK's final WebView creation path. Configuration hooks can be overwritten before document creation; use a host regression plus real renderer admission, not merely a mocked eligibility check. See the adoption reference's bootstrap evidence.
+7. A private editor's final committed text can arrive after coverage revokes actions. Reconcile it through the editor's owner/revision fence without reviving actions, clearing a newer draft or logging its body. Acknowledgment of a trigger is not proof that its owned popup finished dismissal.
 
 ## Handoff Rules
 
