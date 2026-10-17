@@ -24,6 +24,34 @@ baseline, **not exclusions from the approved conversion**. Qualification remains
 one build-time flag; ordinary builds, Android and web keep established renderers.
 iPad qualification is on demand and is not inherited from iPhone.
 
+Verification stays contract-focused. The current hygiene pass removes 18
+redundant or implementation-restating cases: CSS/class-name assertions,
+the weaker duplicate of emitted native UI-flow scripts, and a duplicate History
+Close case. Credential privacy and mutation authority now live in the focused
+Vault Methods component suite; drawer cancellation, scroll restoration, stale
+choices and actual dismissal remain covered. The History qualification check no
+longer assumes that independently enabled shell qualification is always off.
+Run focused automation after coherent implementation chunks; do not treat source
+strings or repeated button checks as visual or device acceptance.
+
+Existing Profile scenes now share one complete-method admission check for Apply,
+Confirm, Settle and Retire. The native stack additionally requires whole-menu,
+content-handoff and actual-completion support; Preferences requires its Writing
+style handshake, and Help requires its support handshake. A partially capable
+wrapper keeps the coherent existing detail page instead of accepting a native
+destination whose editor cannot complete or withdraw. This is admission hardening
+for implemented scenes, not completion of the remaining conversion scope.
+
+Local checks pass for the retained Profile/bridge behavior, incomplete-scene
+fallback, two hosted qualification/script cases, focused lint and documentation.
+The current UI receipt refresh is not green: its Back pack reported three
+Location-map failures, and a focused diagnostic still fails two cases. Reports
+include unfinished readiness and a five-second test timeout with late updates.
+Their cause is not confirmed;
+no Map production code, consent check, timeout or test requirement was changed.
+Temporary diagnostics were removed. Back/Search receipts remain stale rather
+than being stamped over that failure. This checkpoint is local, not release proof.
+
 Local foundation checkpoint: `599901c449`. A bounded native recovery follow-up
 now handles readmission that stays stalled: after the existing five-second
 terminal deadline it requests fresh presentation once, then after two further
@@ -44,6 +72,9 @@ existing privacy owner, native presenters and current JS consumers; adding only
 a local readiness wait would deadlock. Keep private replicas scrubbed and actions
 rejected until the authorized destination is ready. This gap blocks full native
 qualification and must not be described as fixed by the recovery escape path.
+The reviewed boundary must also declare an expected editor or rich pane before
+the parent drawer settles; an empty registry or a closed menu cannot prove that
+destination is ready. Safe lock/recovery gates supersede private preparation.
 
 Main is reconciled through `c233a2a448` in merge `3728973164`. Preserve its
 four-tab navigation and native navigation contract v3; this is independent of

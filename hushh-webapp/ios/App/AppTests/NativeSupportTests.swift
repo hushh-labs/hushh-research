@@ -1284,14 +1284,13 @@ final class NativeSupportTests: XCTestCase {
     }
 
     #if DEBUG
-    func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
+    func testNativeHistoryQualificationRequiresExplicitSupportedPhoneAdmission() {
         XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
         for arguments in [[], ["-UITestMode"], ["--hushh-native-compositor", "--hushh-native-drawer-clip"]] {
             XCTAssertFalse(NativeHistoryQualification.admits(arguments: arguments, phone: true, supported: true))
         }
         XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: false, supported: true))
         XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: false))
-        XCTAssertFalse(HushhNativePresentationPolicy.customControlsEnabled)
     }
 
     func testNativeHistoryQualificationCancellationAndRegrabRejectOldSettlement() {

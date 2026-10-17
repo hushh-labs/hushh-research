@@ -103,6 +103,18 @@ export interface HushhNativeDrawersPlugin {
 }
 export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
 
+/** Admission needs the whole scene handshake, including confirmed withdrawal.
+ * A flag alone cannot safely transfer an editor to a partially capable wrapper.
+ * Keep this mapping shared by the destination and its editor adapters. */
+export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support"): boolean {
+  const methods = scene === "account-name"
+    ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
+    : scene === "writing-style"
+      ? [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction, plugin.retireProfileStyleScene]
+      : [plugin.applyProfileSupportScene, plugin.confirmProfileSupportAction, plugin.settleProfileSupportAction, plugin.retireProfileSupportScene];
+  return methods.every(method => typeof method === "function");
+}
+
 // Public eligibility metadata only. The private presentation installs this
 // observer before admission; base adapters compare it across awaited choices.
 let isolation: NativeDrawerIsolation = { generation: 0, isolated: false };

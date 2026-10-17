@@ -1,7 +1,7 @@
 "use client";
 
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
-import { nativeDrawers, nativeDrawerAcknowledged, type NativeDrawerRow, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, hasNativeProfileScene, type NativeDrawerRow, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
@@ -80,13 +80,14 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
       if (current) {
         const completedPresentation = capability.presentationCompletion === true && typeof nativeDrawers.getPresentationState === "function";
-        setStackSupported(completedPresentation && capability.contractVersion === 1 && capability.supported &&
-          capability.profileNavigationStack === true && capability.profileNameScene === true);
-        setSettingsSupported(completedPresentation && capability.contractVersion === 1 && capability.supported &&
-          capability.profileNavigationStack === true && capability.profileSettingsPages === true);
-        setSupportSupported(completedPresentation && capability.contractVersion === 1 && capability.supported && capability.profileNavigationStack === true &&
-          capability.profileSupportScene === true && [nativeDrawers.applyProfileSupportScene, nativeDrawers.confirmProfileSupportAction,
-            nativeDrawers.settleProfileSupportAction, nativeDrawers.retireProfileSupportScene].every(method => typeof method === "function"));
+        const navigation = completedPresentation && capability.contractVersion === 1 && capability.supported &&
+          capability.wholePresentation && capability.profileMenuRows === true && capability.profileContentHandoff === true &&
+          capability.profileNavigationStack === true;
+        const stack = navigation && capability.profileNameScene === true && hasNativeProfileScene(nativeDrawers, "account-name");
+        setStackSupported(stack);
+        setSettingsSupported(stack && capability.profileSettingsPages === true && capability.profileStyleScene === true &&
+          hasNativeProfileScene(nativeDrawers, "writing-style"));
+        setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
       }
     }).catch(() => { if (current) setStackSupported(false); });
     return () => { current = false; };

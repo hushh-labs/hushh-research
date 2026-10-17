@@ -14,7 +14,7 @@ import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState 
 import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
-import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -42,6 +42,7 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+
   it("admits only closed Writing Style values and consumes a current acknowledged Save once", async () => {
     const state: NativeProfileStyleProjection = { ...publicNameScene(), destinationId: "preferences-first", scene: "writing-style", draft: { tone: "warm" },
       choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
@@ -260,6 +261,8 @@ const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknow
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
   getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+  applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
+  applyProfileStyleScene: vi.fn(), confirmProfileStyleAction: vi.fn(), settleProfileStyleAction: vi.fn(), retireProfileStyleScene: vi.fn(),
   applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
@@ -2528,7 +2531,13 @@ describe("native chrome presentation lease", () => {
     await act(async () => discovery.resolve({ contractVersion: 2, families: ["history"], independentControls: true, focusReturn: true }));
     // Use the actual authored Close while it is still settling; do not infer
     // a control from DOM or call restoreFocus directly as the interaction.
-    fireEvent.click(view.getByRole("button", { name: "Close chat history" }));
+    const close = view.getByRole("button", { name: "Close chat history" });
+    view.rerender(<OpenerJourney />);
+    expect(view.getByRole("button", { name: "Close chat history" })).toBe(close);
+    // Close is part of the React-owned drawer, not a separately installed
+    // native button. The opener may acquire its own native lease.
+    expect(bridge.prepare.mock.calls.filter(([state]) => state.kind === "close")).toHaveLength(0);
+    fireEvent.click(close);
     if (detail > 0) {
       await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
       expect(view.queryByRole("button", { name: "Open chat history" })).toBeNull();
@@ -3167,7 +3176,7 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
@@ -3241,6 +3250,27 @@ describe("native chrome presentation lease", () => {
       expect(support.revision).toBe(identity.revision);
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
       expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      for (const target of ["account", "preferences", "support"] as const) {
+        const method = target === "account" ? "settleProfileNameAction" :
+          target === "preferences" ? "retireProfileStyleScene" : "confirmProfileSupportAction";
+        const complete = nativeDrawers[method];
+        Reflect.deleteProperty(nativeDrawers, method);
+        drawerBridge.apply.mockClear();
+        const partial = render(scene(target === "account", target === "preferences" ? "preferences" : undefined, target === "support"));
+        try {
+          // A claimed scene without its full handshake keeps the coherent page.
+          // Do not enter a destination whose editor cannot settle or withdraw.
+          await waitFor(() => expect(partial.getByText("React account exception")).toBeVisible());
+          expect(drawerBridge.apply.mock.calls.some(([state]) => target === "support" ? state.profileSupportDestinationId !== undefined :
+            state.profileStack?.some(page => page.id === target))).toBe(false);
+        } finally {
+          partial.unmount();
+          Object.assign(nativeDrawers, { [method]: complete });
+          await act(async () => { await Promise.resolve(); });
+        }
+      }
     } finally {
       view.unmount(); await act(async () => { await Promise.resolve(); }); publishValidatedAuthSessionOwner(null);
     }
@@ -3434,19 +3464,6 @@ describe("native chrome presentation lease", () => {
     expect(bridge.prepare.mock.calls.filter(([p]) => ["profile-back", "close"].includes(p.kind))).toHaveLength(0);
   });
 
-  it("keeps History Close React through drawer settlement and reopening", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true, inPlaceUpdates: true });
-    const close = vi.fn();
-    const view = render(<NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />);
-    const button = view.getByRole("button", { name: "Close chat history" });
-    await act(async () => { await Promise.resolve(); });
-    view.rerender(<NativeHistoryClose owner="owner-a" context="chat-b" stationary onClose={close} />);
-    expect(view.getByRole("button", { name: "Close chat history" })).toBe(button);
-    fireEvent.click(button);
-    expect(close).toHaveBeenCalledOnce();
-    expect(bridge.prepare).not.toHaveBeenCalled();
-    expect(bridge.activate).not.toHaveBeenCalled();
-  });
   it("commits DOM isolation before activation and waits for retirement during session checks", async () => {
     measureSlot();
     const onBack = vi.fn();

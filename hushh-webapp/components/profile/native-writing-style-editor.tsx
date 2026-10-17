@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, hasNativeProfileScene, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { NativeProfileScenePresentation, type NativeProfileSceneActions } from "@/lib/capacitor/native-profile-scene-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleIdentity,
@@ -20,8 +20,7 @@ import type { useCommunicationPreferencesEditor } from "./communication-preferen
 type Model = ReturnType<typeof useCommunicationPreferencesEditor>;
 type Plugin = HushhNativeDrawersPlugin & NativeProfileStyleScenePort;
 function supported(plugin: HushhNativeDrawersPlugin): plugin is Plugin {
-  return [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction,
-    plugin.retireProfileStyleScene].every(method => typeof method === "function");
+  return hasNativeProfileScene(plugin, "writing-style");
 }
 export function NativeWritingStyleEditor({ model, eligible }: { model: Model; eligible: boolean }) {
   const [renderer, setRenderer] = useState<"checking" | "native" | "web">(() => eligible && nativeDrawersPlatformEligible() ? "checking" : "web");
