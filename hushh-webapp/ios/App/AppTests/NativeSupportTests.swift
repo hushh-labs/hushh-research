@@ -1043,6 +1043,33 @@ final class NativeSupportTests: XCTestCase {
         await requireRow("theme-selector")
         XCTAssertTrue(navigation.topViewController === preferencesPage, "Reopening a sibling page retains its hosting controller")
         XCTAssertTrue(controller.host === host)
+        func choiceMenu(in view: UIView) -> NativeDrawerMenuControl? {
+            if let menu = view as? NativeDrawerMenuControl,
+               menu.accessibilityIdentifier == "native-profile-row-theme-selector" { return menu }
+            return view.subviews.lazy.compactMap { choiceMenu(in: $0) }.first
+        }
+        let themeMenu = try XCTUnwrap(choiceMenu(in: preferencesPage.view))
+        // Force a real representable update while UIKit quarantines its page.
+        // didShow must restore touch without another settings projection.
+        navigation.navigationController(navigation, willShow: preferencesPage, animated: true)
+        var duringTransition = privateDrawerState(update: 12, backEnabled: true)
+        duringTransition.surfaceOpen = true
+        duringTransition.profileDestinationId = revisited.profileDestinationId
+        var updatedRow = revisited.profileStack![0].sections[0].rows[0]
+        updatedRow.options = [NativeDrawerOption(id: "theme-light", label: "Light", selected: false),
+                              NativeDrawerOption(id: "theme-dark", label: "Dark", selected: true)]
+        duringTransition.profileStack = [NativeProfilePage(id: "preferences", title: "Appearance & preferences", sections: [
+            NativeDrawerSection(id: "appearance-settings", title: nil, rows: [updatedRow]),
+        ])]
+        controller.update(duringTransition)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            themeMenu.accessibilityValue == "Dark"
+        }, object: nil)], timeout: 3)
+        XCTAssertFalse(preferencesPage.view.isUserInteractionEnabled)
+        navigation.navigationController(navigation, didShow: preferencesPage, animated: true)
+        XCTAssertTrue(preferencesPage.view.isUserInteractionEnabled)
+        XCTAssertTrue(themeMenu.isUserInteractionEnabled, "A transition-time render must not strand the retained menu")
+        XCTAssertFalse(themeMenu.accessibilityElementsHidden, "UIKit completion must restore menu accessibility too")
         controller.retire()
         navigation.navigationController(navigation, didShow: navigation.viewControllers[0], animated: true)
         requestBack()

@@ -1192,7 +1192,10 @@ struct NativeProfileChoiceMenu: UIViewRepresentable {
         button.accessibilityValue = configuration.subtitle
         button.accessibilityIdentifier = "native-profile-row-\(row.id)"
         button.isEnabled = row.enabled && row.pending != true && model.controlsEnabled && !model.choicePending
-        button.isUserInteractionEnabled = model.interactionEnabled && model.allowsPageInteraction
+        // UIKit gates the complete page while its push/pop is in flight and
+        // restores that ancestor in didShow. Do not copy its non-published
+        // transient flag into a retained child: no later body update is owed.
+        button.isUserInteractionEnabled = model.interactionEnabled && !model.awaitingBackAcknowledgement
         button.accessibilityElementsHidden = !button.isUserInteractionEnabled
         if !button.isEnabled || !button.isUserInteractionEnabled { button.dismissOwnedMenu {} }
         let actions = options.map { option in
