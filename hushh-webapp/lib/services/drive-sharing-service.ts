@@ -952,7 +952,6 @@ function withoutEmptySearchProgress(value: RecordValue): RecordValue {
   return result;
 }
 
-/** Absent on older servers; otherwise strictly a boolean. */
 /** Additive queue fields; a malformed pair is dropped, never a failed read. */
 function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueue {
   const { queuedAt, queueDelayed } = result;
@@ -962,6 +961,7 @@ function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueu
     : {};
 }
 
+/** Absent on older servers; otherwise strictly a boolean. */
 function optionalFlag(value: unknown): boolean | undefined {
   if (value === undefined || typeof value === "boolean") return value;
   throw new DriveSharingError("invalid_response");
