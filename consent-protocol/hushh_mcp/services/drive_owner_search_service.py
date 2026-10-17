@@ -23,6 +23,7 @@ from hushh_mcp.services.drive_owner_index_port import MAX_LOCAL_CANDIDATES, defa
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
     _legacy_single_query,
+    release_detail,
     validate_reusable_packet,
 )
 from hushh_mcp.services.drive_request_review_policy import (
@@ -2936,6 +2937,9 @@ class DriveOwnerSearchService:
                     job,
                     error=str(error),
                     retryable=str(error) == "provider_unavailable" and error.retryable,
+                    # Precise cause and Retry-After (page-token restart, quota
+                    # deferral, encrypted cause); empty when the code says all.
+                    **release_detail(error),
                 )
             )
         except DriveOAuthError as error:
