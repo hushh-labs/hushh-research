@@ -5,6 +5,7 @@
 // through <html data-*> attributes, so the page loads in the same order it
 // does for a person: shell first, then connections, then circles.
 import React, { createContext, useEffect, useMemo, useSyncExternalStore } from "react";
+import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
 import { ConnectCirclesTab as ProductionCirclesTab } from "../../components/connect/circles/connect-circles-tab";
 
 const noop = () => {};
@@ -45,6 +46,11 @@ const user = {
   email: "taylor@example.com",
   photoURL: null,
   getIdToken: async () => "fixture-token",
+};
+publishValidatedAuthSessionOwner(user.uid);
+export const AuthService = {
+  getIdTokenWithRetry: async (options?: { expectedUserId?: string }) =>
+    options?.expectedUserId === user.uid ? "fixture-token" : null,
 };
 const signedIn = {
   user,

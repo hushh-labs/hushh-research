@@ -3,7 +3,6 @@ import {
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
 import { DirectMessagesService } from "@/lib/services/direct-messages-service";
-import { AuthService } from "@/lib/services/auth-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 type Selection = { conversationId?: string | null; personRef?: string | null };
@@ -12,6 +11,7 @@ type Selection = { conversationId?: string | null; personRef?: string | null };
 export async function resolveDirectMessageHref(selection: Selection): Promise<string | null> {
   const owner = snapshotValidatedAuthSessionOwner();
   if (!owner) throw new Error("Sign in required");
+  const { AuthService } = await import("@/lib/services/auth-service");
   // Native auth can be restored before Firebase JS has a currentUser. Reuse
   // the bounded platform-aware lookup and reject another account's token.
   const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: owner.userId });
