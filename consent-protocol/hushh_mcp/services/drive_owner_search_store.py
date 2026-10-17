@@ -179,6 +179,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "fallbackReason",
                         "lastIndexedAt",
                         "periodConflict",
+                        "sharedFolderWalk",
+                        "sharedWithMeScope",
                     )
                     if key in manifest
                 },
@@ -202,11 +204,28 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "unsupportedCandidateCount",
                         "matchingFoldersDiscovered",
                         "matchingFoldersExhausted",
+                        "sharedFoldersWalked",
+                        "sharedFolderWalkCalls",
+                        "sharedFolderWalkFiles",
+                        "sharedFolderWalkCandidates",
+                        "sharedFolderWalkUnavailable",
+                        "sharedFolderWalkSkipped",
                     )
                 },
                 "workLimitReached": checkpoint.get("coverage_counts", {}).get(
                     "workLimitReached", False
                 ),
+                # A shared-folder walk cut short (budget, kill switch, Drive's
+                # incompleteSearch) or switched off: some reachable files may
+                # be unsearched. Never blocks sharing; "Files sent · N" copy.
+                "sharedFolderWalkLimitReached": checkpoint.get("coverage_counts", {}).get(
+                    "sharedFolderWalkLimitReached", False
+                )
+                is True,
+                "coveragePartial": checkpoint.get("coverage_counts", {}).get(
+                    "coveragePartial", False
+                )
+                is True,
                 "providerPagesExhausted": row["status"] == "completed"
                 and not row["incomplete_search"]
                 and not checkpoint.get("request_rank_pruned", False)

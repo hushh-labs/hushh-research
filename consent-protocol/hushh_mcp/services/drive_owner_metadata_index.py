@@ -58,7 +58,6 @@ import heapq
 import re
 import sys
 import time
-import unicodedata
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -66,6 +65,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.drive_telemetry import drive_logger
+from hushh_mcp.services.drive_text_tokens import fold, letter_runs, words
 from hushh_mcp.services.drive_title_dates import (
     RawTitleDates,
     parse_title_dates,
@@ -127,16 +127,19 @@ _STOPWORDS = frozenset(
 )
 _EXTENSION = re.compile(r"\.(?=[A-Za-z0-9]{0,4}[A-Za-z])[A-Za-z0-9]{1,5}$")
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-_NON_WORD = re.compile(r"[\W_]+")
-_ALNUM_PARTS = re.compile(r"[^\W\d_]+|\d+")
 
 
 def _fold(text: str) -> str:
-    """Lowercase and drop accents: "Résumé" and "RESUME" both become "resume"."""
-    if text.isascii():
-        return text.lower()
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+    """Lowercase and drop Latin accents: "Résumé" and "RESUME" both become "resume".
+
+    Marks of other scripts stay: they are part of a Devanagari word's spelling.
+    """
+    return fold(text)
+
+
+def _mixed(word: str) -> bool:
+    """Letters and digits in one word ("q3", "inv2026"), split into runs as well."""
+    return not word.isdigit() and any(character.isdigit() for character in word)
 
 
 def name_tokens(name: str) -> tuple[tuple[str, ...], str]:
@@ -144,24 +147,26 @@ def name_tokens(name: str) -> tuple[tuple[str, ...], str]:
 
     "Q3_BankStatement-final.PDF" gives q3, bank, statement, final, q, 3 and
     the compound bankstatement: the extension goes, camelCase, underscores and
-    hyphens split, letter/digit runs split, and accents fold.
+    hyphens split, letter/digit runs split, and Latin accents fold. Combining
+    marks are word characters, so 'हिंदी बैंक स्टेटमेंट.pdf' gives the three
+    whole words हिंदी, बैंक and स्टेटमेंट (see ``drive_text_tokens``).
     """
     stem = _EXTENSION.sub("", name) or name
     spaced = _CAMEL.sub(" ", stem)
-    words = [word for word in _NON_WORD.split(_fold(spaced)) if word]
-    tokens = dict.fromkeys(words)
-    for word in words:
-        if not word.isalpha() and not word.isdigit():
-            tokens.update(dict.fromkeys(_ALNUM_PARTS.findall(word)))
+    parts = words(_fold(spaced))
+    tokens = dict.fromkeys(parts)
+    for word in parts:
+        if _mixed(word):
+            tokens.update(dict.fromkeys(letter_runs(word)))
     if spaced != stem:
-        tokens.update(dict.fromkeys(word for word in _NON_WORD.split(_fold(stem)) if word))
-    return tuple(sys.intern(token) for token in tokens), " ".join(words)
+        tokens.update(dict.fromkeys(words(_fold(stem))))
+    return tuple(sys.intern(token) for token in tokens), " ".join(parts)
 
 
 def _concept_tokens(text: str) -> tuple[str, ...]:
-    words = [word for word in _NON_WORD.split(_fold(_CAMEL.sub(" ", text))) if word]
-    kept = [word for word in words if word not in _STOPWORDS]
-    return tuple(dict.fromkeys(kept or words))
+    parts = words(_fold(_CAMEL.sub(" ", text)))
+    kept = [word for word in parts if word not in _STOPWORDS]
+    return tuple(dict.fromkeys(kept or parts))
 
 
 def _plural_forms(token: str) -> set[str]:
@@ -757,6 +762,25 @@ class OwnerMetadataIndexer:
 
     def forget(self, owner_id: str) -> None:
         self._owners.pop(owner_id, None)
+
+    def remember(self, owner_id: str, rows: Iterable[object], *, connection_generation: int) -> int:
+        """Add rows another fenced listing returned (the shared-folder walk's).
+
+        Google's user corpus leaves out files reachable only through a folder
+        shared with the owner, so the walk's rows join this owner's names
+        under the generation that listed them. A reconnect, a new generation
+        or the periodic relist drops them with everything else; the bounds
+        on files hold. Returns how many rows were added.
+        """
+        state = self._state(owner_id, connection_generation)
+        added = 0
+        for row in rows:
+            if len(state.index) >= self._max_files:
+                state.incomplete = True
+                break
+            if state.index.upsert(row):
+                added += 1
+        return added
 
     def clear(self) -> None:
         self._owners.clear()

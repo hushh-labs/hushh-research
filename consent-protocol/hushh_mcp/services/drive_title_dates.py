@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from hushh_mcp.services.drive_text_tokens import ascii_digits
+
 _MONTHS = {
     "jan": 1,
     "january": 1,
@@ -107,9 +109,15 @@ def _mask(text: str, match: re.Match[str]) -> str:
 
 
 def parse_title_dates(name: str) -> RawTitleDates:
-    """Every date written in ``name``; earlier patterns claim their text first."""
+    """Every date written in ``name``; earlier patterns claim their text first.
+
+    Unicode digits read as ASCII ("२०२४०११०" is 2024-01-10), one character
+    for one, so an Indic-digit title date is never mistaken for an undated
+    name whose file times would decide.
+    """
     if not isinstance(name, str) or not any(character.isdigit() for character in name):
         return ()
+    name = ascii_digits(name)
     readings: list[tuple] = []
     text = name
     for pattern in (_ISO_DAY, _COMPACT_DAY):

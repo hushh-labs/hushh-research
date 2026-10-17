@@ -4081,3 +4081,141 @@ async def test_unscoped_removal_still_requires_a_request_wide_stop(request_bulk,
         )
     with pytest.raises(DriveSharingError, match="approval_superseded"):
         await removals.claim(user_id="owner", removal_id=removal_id)
+
+
+def _walk_row(identity, title, mime="application/pdf"):
+    today = datetime.now(UTC).date().isoformat()
+    return {
+        "id": identity,
+        "title": title,
+        "mimeType": mime,
+        "createdTime": today + "T00:00:00Z",
+        "modifiedTime": today + "T00:00:00Z",
+        "capabilities": {"canShare": True},
+    }
+
+
+async def _walked_request_search(request_bulk, sharing, monkeypatch, *, max_calls):
+    """A real pending request searched by Drive's pass, then the shared-folder walk."""
+    from hushh_mcp.services import drive_owner_search_service as search_module
+    from hushh_mcp.services.drive_request_brain import interpret_request
+
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    monkeypatch.setattr(search_module, "MAX_WALK_CALLS", max_calls)
+    created = await _request(sharing, purpose_text="Invoices from last 3 months")
+    request_id = created["requestId"]
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    today = datetime.now(UTC).date()
+    brain = interpret_request("invoices", now=datetime.now(UTC), timezone="UTC")
+    arguments = {"query": "name contains 'invoice'", "orderBy": "modifiedTime desc"}
+    store = DriveOwnerSearchStore(db=request_bulk.db)
+    state, _ = await store.create(
+        user_id="owner",
+        client_request_id=request_id,
+        request={"query": "Invoices from last 3 months", "timezone": "UTC"},
+        confirmed=True,
+        checkpoint={
+            "request": {"query": "Invoices from last 3 months", "timezone": "UTC"},
+            "request_origin_id": request_id,
+            "request_revision": context["revision"],
+            "request_explicit_dates": True,
+            "request_shareability_version": 1,
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": True,
+            "request_coverage_query_version": 1,
+            "request_brain": brain.as_checkpoint(),
+            "request_file_kind": "any",
+            "request_subject_terms": ["invoice"],
+            "arguments": arguments,
+            "queries": [{"arguments": arguments}],
+            "query_index": 0,
+            "requested_period": {
+                "start": (today - timedelta(days=90)).isoformat(),
+                "end": today.isoformat(),
+                "timezone": "UTC",
+            },
+            "phase": "user",
+            "page_token": None,
+            "drive_page_token": None,
+            "drives": [],
+            "drive_index": 0,
+            "seen_tokens": [],
+            "drive_tokens": [],
+            "folder_queue": [],
+            "folder_digests": [],
+            "coverage_manifest": {"corpora": ["user"], "sharedFolderWalk": "planned"},
+            "coverage_counts": {},
+            "shared_walk": {
+                "stage": "seed_folders",
+                "queue": [],
+                "visited": [],
+                "token": None,
+                "tokens": [],
+            },
+        },
+    )
+    folders = []
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id == "owner"
+        if tool_name == "list_shared_drives":
+            return ExternalMcpToolResult(False, {"drives": [], "nextPageToken": None}, False)
+        assert tool_name == "search_files"
+        query, parent = arguments.get("query", ""), arguments.get("folderId")
+        folder_mime = "application/vnd.google-apps.folder"
+        if parent:
+            folders.append(parent)
+        if parent == "shared-root":
+            files = [
+                _walk_row("walked", "Invoice walked.pdf"),
+                _walk_row("nested", "Q3", folder_mime),
+            ]
+        elif parent == "nested":
+            files = [_walk_row("deep", "Invoice deep.pdf")]
+        elif "sharedWithMe" in query:
+            files = [_walk_row("shared-root", "From a colleague", folder_mime)]
+        elif "shortcut" in query:
+            files = []
+        else:
+            files = [_walk_row("own", "Invoice own.pdf")]
+        return ExternalMcpToolResult(
+            False, {"files": files, "nextPageToken": None, "incompleteSearch": False}, False
+        )
+
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace(read_tool=read))
+    for _ in range(12):
+        if not (await store.status(user_id="owner", job_id=state["jobId"]))["canStop"]:
+            break
+        await service.run_one(user_id="owner", job_id=state["jobId"])
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    return request_id, state["jobId"], final, folders
+
+
+@pytest.mark.parametrize(("max_calls", "partial"), [(50, False), (3, True)])
+async def test_shared_folder_walk_coverage_never_blocks_owner_review(
+    request_bulk, sharing, monkeypatch, max_calls, partial
+):
+    request_id, job_id, final, folders = await _walked_request_search(
+        request_bulk, sharing, monkeypatch, max_calls=max_calls
+    )
+    # A walk cut short by its budget is partial coverage the owner can see,
+    # never an incomplete search: review, payment and sharing still proceed.
+    assert final["status"] == "completed" and final["incompleteSearch"] is False
+    coverage = final["coverage"]
+    assert coverage["coveragePartial"] is partial
+    assert coverage["sharedFolderWalkLimitReached"] is partial
+    assert coverage["sharedFolderWalk"] == ("partial" if partial else "complete")
+    assert folders == (["shared-root"] if partial else ["shared-root", "nested"])
+    assert final["matched"] == (2 if partial else 3)
+    assert "shared-root" not in json.dumps(final) and "From a colleague" not in json.dumps(final)
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=job_id,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=list(range(1, final["matched"] + 1)),
+    )
+    assert review["fileCount"] == final["matched"]

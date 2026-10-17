@@ -75,6 +75,16 @@ class OwnerIndex(Protocol):
         """Casefolded title words the owner's Drive really contains, if indexed."""
         ...
 
+    async def remember_files(
+        self, *, owner_id: str, rows: Sequence[dict], connection_generation: int | None = None
+    ) -> int:
+        """Add rows another fenced listing found (the shared-folder walk's).
+
+        ``rows`` are owner-search page rows, already projected; names stay in
+        this process only, keyed by the listing grant's generation.
+        """
+        ...
+
 
 class NoOwnerIndex:
     """No local index: Gear 2 alone, exactly the previous behaviour."""
@@ -86,6 +96,9 @@ class NoOwnerIndex:
 
     async def owner_vocabulary(self, **_: object) -> Collection[str] | None:
         return None
+
+    async def remember_files(self, **_: object) -> int:
+        return 0
 
 
 def _rest_row(file: dict) -> dict:
@@ -209,6 +222,21 @@ class MetadataOwnerIndex:
         rows.sort(key=lambda row: row["id"])
         rows.sort(key=lambda row: row.get("modifiedTime") or "", reverse=True)
         return rows
+
+    async def remember_files(
+        self,
+        *,
+        owner_id: str,
+        rows: Sequence[dict],
+        connection_generation: int | None = None,
+        **_: object,
+    ) -> int:
+        # No generation, no names: rows are keyed by the grant that listed them.
+        if type(connection_generation) is not int or not isinstance(rows, Sequence):
+            return 0
+        return self._owner_indexer().remember(
+            owner_id, rows, connection_generation=connection_generation
+        )
 
     async def owner_vocabulary(
         self, *, owner_id: str, connection_generation: int | None = None, **_: object

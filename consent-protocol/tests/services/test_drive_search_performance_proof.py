@@ -421,11 +421,15 @@ def drive_query(q):
             assert token == "mimeType"
             return lambda f: text in f["mimeType"]
         expected = value == "true" if value in {"true", "false"} else literal(value)
-        field = {"trashed": "trashed", "mimeType": "mimeType"}[token]
+        # sharedWithMe: the shared-folder walk's seed listing (no fixture is
+        # shared with the owner unless it says so).
+        field = {"trashed": "trashed", "mimeType": "mimeType", "sharedWithMe": "sharedWithMe"}[
+            token
+        ]
         if operator == "=":
-            return lambda f: f[field] == expected
+            return lambda f: f.get(field, False) == expected
         assert operator == "!="
-        return lambda f: f[field] != expected
+        return lambda f: f.get(field, False) != expected
 
     predicate = expression()
     assert cursor[0] == len(tokens), q
