@@ -107,7 +107,11 @@ async def erase_if_present(
             "success": False,
             "error_code": exc.code,
             "account_deleted": False,
-            "message": "Files deletion is pending. Access is fenced; retry to continue cleanup.",
+            "message": (
+                "Files deletion is pending. Access is fenced; retry to continue cleanup."
+                if exc.code == "FILES_ERASURE_IN_PROGRESS"
+                else "Files deletion could not be verified. Your account has not been deleted."
+            ),
         }
     except Exception:
         return {

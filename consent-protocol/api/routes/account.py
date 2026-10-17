@@ -2070,6 +2070,16 @@ async def delete_account(
     return await _perform_account_deletion(user_id, target=target)
 
 
+def _files_erasure_pending_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "Files cleanup is still in progress. Account not deleted. Try again to continue.",
+            "code": "FILES_ERASURE_IN_PROGRESS",
+        },
+    )
+
+
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2106,6 +2116,10 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 status_code=503,
                 content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
+        if result.get("error_code") == "FILES_ERASURE_IN_PROGRESS":
+            # A settled bounded batch retained the write fence and account keys.
+            # The owner may deliberately continue; this is not a lost response.
+            return _files_erasure_pending_response()
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))

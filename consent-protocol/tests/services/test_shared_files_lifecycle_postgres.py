@@ -419,8 +419,9 @@ async def test_account_cleanup_database_failure_preserves_keys_and_returns_refus
 
 
 @pytest.mark.parametrize("operation", ["reset", "delete"])
+@pytest.mark.parametrize("code", ["FILES_ERASURE_RETENTION_PENDING", "FILES_ERASURE_IN_PROGRESS"])
 async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
-    shared_storage, local_postgres, monkeypatch, operation
+    shared_storage, local_postgres, monkeypatch, operation, code
 ):
     from contextlib import contextmanager
     from unittest.mock import AsyncMock, MagicMock
@@ -452,7 +453,7 @@ async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
     monkeypatch.setattr(
         erasure,
         "erase_objects",
-        AsyncMock(side_effect=FilesRefused("FILES_ERASURE_RETENTION_PENDING", 409)),
+        AsyncMock(side_effect=FilesRefused(code, 409)),
     )
     try:
         result = (
@@ -460,7 +461,8 @@ async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
             if operation == "reset"
             else await service._delete_full_account("alice", requested_target="both")
         )
-        assert result["error_code"] == "FILES_ERASURE_RETENTION_PENDING"
+        assert result["error_code"] == code
+        assert ("Access is fenced" in result["message"]) is (code == "FILES_ERASURE_IN_PROGRESS")
         assert result["success"] is False
         assert (await registry.resource("alice"))["state"] == "erasing"
         assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1

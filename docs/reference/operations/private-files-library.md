@@ -139,6 +139,12 @@ creation-time disabled soft-delete metadata remains independently checkable. The
 conditions do not grant access to sibling buckets. If metadata changes, retained-object
 listing is mandatory; an unsupported listing is never proof of absence.
 
+Account deletion processes bounded object batches. A settled batch with remaining
+generations returns `409 FILES_ERASURE_IN_PROGRESS`; the account keys and write
+fence remain. After confirming the same account is still active, the UI preserves
+the session and offers deliberate retry. Unknown delivery, retention or identity
+failures do not authorize replay or establish completed erasure.
+
 Enable only after workload-identity storage checks, exact-SHA CI and governed deployment.
 Owner transfer, foreground consent, recovery and deletion acceptance still requires a
 live rehearsal. Admin probes alone do not qualify the application.
