@@ -155,44 +155,69 @@ def _variant_pattern(variant: str) -> re.Pattern[str]:
     words = [word for word in re.split(r"[\s\-]+", variant.casefold()) if word]
     if len(words) == 1 and words[0].isalpha():
         return _term_pattern(words[0])
+    # "pay slip" also names "Pay slips Sep.pdf".
+    suffix = "(?:e?s)?" if words[-1].isalpha() else ""
     return re.compile(
-        r"(?<!\w)" + r"[\s_\-]*".join(re.escape(word) for word in words) + r"(?!\w)", re.I
+        r"(?<!\w)" + r"[\s_\-]*".join(re.escape(word) for word in words) + suffix + r"(?!\w)",
+        re.I,
     )
 
 
 def _brain_title_has(variant: str, title: str) -> bool:
+    if variant != variant.casefold():
+        # A cased abbreviation ("MoM") is an ordinary word in lowercase
+        # ("Mom passport.pdf"), so only its own case is title evidence.
+        cased = re.compile(r"(?<![A-Za-z0-9])" + re.escape(variant) + r"s?(?![A-Za-z0-9'’])")
+        return any(cased.search(form) for form in (title, title.replace("_", " ")))
     pattern = _variant_pattern(variant)
     return any(
         pattern.search(form) for form in (title, title.replace("_", " "), _title_words(title))
     )
 
 
+def _concept_named(concept, title: str) -> bool:
+    """Only evidence spellings count: what was typed and its exact synonyms."""
+    return any(_brain_title_has(spelling, title) for spelling in concept.title_evidence)
+
+
 def _brain_title_evidence(brain, title: str) -> bool:
-    """Every topic, and one listed part, named in the title by some spelling."""
-    if not all(
-        any(_brain_title_has(variant, title) for variant in concept.variants)
-        for concept in brain.topics
-    ):
+    """Every topic, and one listed part, named in the title by an evidence spelling.
+
+    Loose discovery clues ("salary" for payslips, "call" for meetings) and
+    spelling fixes from the owner's Drive never count. A brain with no
+    subject is evidence only for an explicit listing ("all files").
+    """
+    if not brain.topics and not brain.parts:
+        return brain.listing is True
+    if not all(_concept_named(concept, title) for concept in brain.topics):
         return False
     if not brain.parts:
         return True
     return any(
         part.concepts
-        and all(
-            any(_brain_title_has(variant, title) for variant in concept.variants)
-            for concept in part.concepts
-        )
+        and all(_concept_named(concept, title) for concept in part.concepts)
         or any(_brain_title_has(item.phrase, title) for item in part.standalone)
         for part in brain.parts
+    )
+
+
+def _brain_cased_evidence(brain, title: str) -> bool:
+    """A cased abbreviation the requester typed ("MoM") in its own case."""
+    return any(
+        _brain_title_has(spelling, title)
+        for concept in brain.concepts
+        for spelling in concept.title_evidence
+        if spelling != spelling.casefold()
     )
 
 
 def _brain_topic_evidence(brain, title: str) -> bool:
     """Folder discovery keeps the request's own words, as plan terms did."""
     words = [
-        concept.canonical
+        spelling
         for concept in brain.concepts
-        if concept.canonical.casefold() not in _GENERIC_SUBJECT
+        for spelling in concept.title_evidence
+        if spelling.casefold() not in _GENERIC_SUBJECT
     ] + [item.phrase for part in brain.parts for item in part.standalone]
     return any(_brain_title_has(word, title) for word in words)
 
@@ -324,7 +349,7 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
         return exact == title
     brain = _request_brain(checkpoint)
     if brain is not None:
-        # Concept evidence: each typed word, or one of its synonyms, in the title.
+        # Each typed word, or an exact synonym of it, in the title.
         return _brain_title_evidence(brain, title)
     terms = [
         term
@@ -370,13 +395,10 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
         # Google Drive fullText may match an incidental mention inside a
         # generic document. Automatic grants need positive title evidence;
         # an owner-reviewed search can still show the broader candidates.
-        # "MoM" abbreviates "minutes of meeting" for a meeting-notes request.
+        # "MoM" abbreviates "minutes of meeting", but only when the requester
+        # typed it, and only cased: "Mom passport.pdf" is never a note.
         brain = _request_brain(checkpoint)
-        mom = (
-            brain is not None
-            and "meeting_notes" in brain.doc_types
-            and _brain_title_has("mom", name)
-        )
+        mom = brain is not None and _brain_cased_evidence(brain, name)
         return not excluded and (_title_search(_NOTE_TITLE, name) or mom)
     return not excluded and (
         not folder_scoped
@@ -399,6 +421,10 @@ def _filename_candidate(checkpoint: dict, match: dict) -> bool:
     # meeting-notes request its own title is the subject evidence.
     from hushh_mcp.services.drive_content_compilation import _GEMINI_NOTE_TITLE
 
+    if _request_brain(checkpoint) is not None:
+        # The brain already carries "Notes by Gemini" for the generic ask
+        # only; "standup notes" must not share every Gemini note.
+        return False
     return bool(
         autoshare_selection(checkpoint)
         and not checkpoint.get("request_exact_title")
@@ -1553,8 +1579,10 @@ class DriveOwnerSearchService:
                 brain=parsed_brain,
             )
         v1_statement_search = v1_live_request
-        # Gear 1 runs first when an owner index is wired and the brain has a
-        # subject; its rows commit before the first Drive page.
+        # Gear 1 runs when an owner index is wired and the brain has a subject.
+        # The create-time page stays a 25-row Drive page; Gear 1 (which may
+        # list the index from Drive) runs in the next worker slice, before
+        # any further Drive page.
         local_first = bool(
             not indexed
             and parsed_brain is not None
@@ -1682,8 +1710,6 @@ class DriveOwnerSearchService:
                 if route["kind"] == "hybrid"
                 else route["kind"]
                 if indexed
-                else "local_index"
-                if local_first
                 else "user",
                 "page_token": None,
                 "drive_page_token": None,
@@ -2141,8 +2167,10 @@ class DriveOwnerSearchService:
             checkpoint["local_offset"] = next_offset
         else:
             checkpoint.pop("local_offset", None)
-            # Gear 1 is a head start, not coverage: Drive is listed in full.
-            _phase(checkpoint, "user")
+            # Gear 1 is a head start, not coverage: Drive is listed in full,
+            # continuing from wherever its own phase and page token stand.
+            if checkpoint.get("phase") == "local_index":
+                _phase(checkpoint, "user")
         return checkpoint, files, False, False
 
     async def _indexed_page(self, job):
@@ -2274,7 +2302,11 @@ class DriveOwnerSearchService:
             # Persist the proof with the next page so legacy dated jobs can
             # continue without repeating this encrypted request read.
             checkpoint["request_explicit_dates"] = True
-        if checkpoint.get("phase") == "local_index":
+        if checkpoint.get("phase") == "local_index" or (
+            type(checkpoint.get("local_offset")) is int and page_size_override is None
+        ):
+            # Never in the create-time page: a cold index would spend that one
+            # 15-second page listing Drive instead of returning its first rows.
             return await self._local_index_page(job, checkpoint)
         listing_read = getattr(self.transport, "read_owner_search_page", None)
         if listing_read is None:
@@ -2494,6 +2526,9 @@ class DriveOwnerSearchService:
         ):
             checkpoint["coverage_counts"]["workLimitReached"] = True
             incomplete, done = True, True
+        if done:
+            # Drive, the completeness authority, has finished: no head start.
+            checkpoint.pop("local_offset", None)
         return checkpoint, files, incomplete, done
 
     @drive_operation(job_key="job_id")
@@ -2591,6 +2626,10 @@ class DriveOwnerSearchService:
                         await self.store.require_current(job)
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
+                    if type(job["checkpoint"].get("local_offset")) is int and not (
+                        pages == 0 and initial_page_size is not None
+                    ):
+                        phase = "local_index"
                     phase = (
                         phase
                         if phase

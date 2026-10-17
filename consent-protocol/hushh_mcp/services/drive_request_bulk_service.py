@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
@@ -42,7 +42,9 @@ _GENERIC_SEARCH_TERM = re.compile(
     r"|\b(?:last|past|latest|recent)\s+\d{1,2}\b",
     re.I,
 )
-_LITERAL_TITLE = re.compile(r"[\"“][^\"”]{3,}[\"”]|\S+\.(?:pdf|docx?|txt|md)\b", re.I)
+_LITERAL_TITLE = re.compile(
+    r"[\"“][^\"”]{3,}[\"”]|\S+\.(?:pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)\b", re.I
+)
 _NAMED_TITLE_CUE = re.compile(r"\b(?:file|document|doc)\s+(?:named|called|titled)\b", re.I)
 _TOPIC_NEAR_DOCUMENT = re.compile(
     r"\b([A-Za-z][A-Za-z0-9_-]*)\s+(?:docs?|documents?)\b"
@@ -92,6 +94,13 @@ _GENERIC_TOPIC = frozenset(
         "hundred",
         "thousand",
     }
+)
+# "September documents", "Q3 docs": a date names the listing, not a topic.
+_DATE_TOPIC = re.compile(
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+    r"|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|q[1-4]|fy\d*"
+    r"|yesterday|today|days?|weeks?|months?|quarters?|years?)",
+    re.I,
 )
 
 # The Gemini request planner is opt-in. By owner decision (2026-10-17) the
@@ -224,10 +233,11 @@ class DriveRequestBulkService:
             and not (explicitly_requests_file_activity(query))
         )
         near_kind = _TOPIC_NEAR_DOCUMENT.search(query)
+        near_word = next((part for part in near_kind.groups() if part), "") if near_kind else ""
         topic_required = bool(
-            near_kind
-            and next((part for part in near_kind.groups() if part), "").casefold()
-            not in _GENERIC_TOPIC
+            near_word
+            and near_word.casefold() not in _GENERIC_TOPIC
+            and not _DATE_TOPIC.fullmatch(near_word)
         )
         return bool(
             documents_only
@@ -256,12 +266,25 @@ class DriveRequestBulkService:
             vocabulary = await self.owner_index.owner_vocabulary(owner_id=user_id)
         except Exception:  # noqa: BLE001 - the spelling hint is optional
             vocabulary = None
+        try:
+            picked = (
+                date.fromisoformat(purpose["periodStart"]),
+                date.fromisoformat(purpose["periodEnd"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            picked = None
         brain = interpret_request(
             query,
             now=requested_at if isinstance(requested_at, datetime) else datetime.now(UTC),
             timezone=timezone,
             vocabulary=vocabulary,
+            picked_period=picked,
         )
+        if not (brain.concepts or brain.listing or brain.exact_title):
+            # No subject word survived ("the soft copy", "the latest one") and
+            # the request is not an explicit listing: never list the whole
+            # Drive for it, least of all for automatic sharing.
+            raise DriveReadError("narrow_selection_required")
         plan = LiveSearchPlan.model_validate(suggested_plan(brain, query))
         if self._plan_mismatch(query, plan, require_statement_coverage=require_statement_coverage):
             # Deterministic output cannot improve on a retry; fail closed.

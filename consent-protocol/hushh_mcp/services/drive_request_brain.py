@@ -1,35 +1,47 @@
 """Deterministic request brain: a Drive request phrase becomes search concepts.
 
-No model call. The brain proposes discovery literals only, the way an owner
-would type them into the Google Drive search box (with Drive's synonym and
-typo help made explicit). It never decides relevance, period membership,
-shareability or owner review: the picked request dates, kind fences, title
-evidence and the existing review policy still decide what may be shared.
+No model call. The brain proposes discovery literals the way an owner would
+type them into the Google Drive search box (with Drive's synonym and typo help
+made explicit). Discovery spellings only find candidates. A concept's evidence
+spellings are narrower: what the requester typed, its inflections and exact
+synonyms ("pay slip" for "payslip"). Only those can serve as automatic-sharing
+title evidence; loose clues ("salary", "call", "premium") and spelling fixes
+taken from the owner's own Drive never authorize a grant. The picked request
+dates, kind fences, title evidence and the existing review policy still decide
+what may be shared.
 
 Shape: every typed word or lexicon phrase is one concept (OR of variants).
 Concepts are ANDed, like Drive's own multi-word search. Document-type parts
 that the requester lists separately ("contracts and invoices") are a union,
 and a part may carry standalone alternatives that satisfy it on their own
-("MoM" is a whole "meeting notes"). Topic words always AND into every part.
-Date phrases are removed from the subject and kept only as a suggestion: the
-request's picked dates win.
+("minutes of meeting" is a whole "meeting notes"). Topic words always AND into
+every part; separately listed topics ("Acme or Globex invoices") are one
+either-or topic. Date phrases inside the picked dates are removed from the
+subject and kept only as a suggestion: the request's picked dates win.
+
+A request with no subject word left is searched only when it explicitly asks
+for a listing ("all files", "September documents"); otherwise planning fails
+closed instead of listing the whole Drive.
 """
 
 from __future__ import annotations
 
 import re
 from calendar import monthrange
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-BRAIN_VERSION = 1
+BRAIN_VERSION = 2
 MAX_TOPICS = 4
 MAX_PARTS = 3
 MAX_CONCEPTS = 6
 MAX_VARIANTS = 10
+MAX_EVIDENCE = 16
 MAX_TERM_CHARS = 50
+MAX_EXACT_TITLE_CHARS = 200
+MAX_RESULT_LIMIT = 1000
 PLAN_VARIANTS = 4
 
 KINDS = ("document", "spreadsheet", "presentation", "pdf", "image", "video", "audio", "folder")
@@ -38,10 +50,21 @@ KINDS = ("document", "spreadsheet", "presentation", "pdf", "image", "video", "au
 @dataclass(frozen=True)
 class Concept:
     canonical: str
-    variants: tuple[str, ...]  # priority order; canonical first; casefolded literals
+    variants: tuple[str, ...]  # discovery spellings; priority order; canonical first
+    # Spellings that count as automatic-sharing title evidence. A cased one
+    # ("MoM") must match its case: lowercased it is an ordinary word.
+    evidence: tuple[str, ...] = ()
+
+    @property
+    def title_evidence(self) -> tuple[str, ...]:
+        return self.evidence or (self.canonical,)
 
     def as_json(self) -> dict:
-        return {"canonical": self.canonical, "variants": list(self.variants)}
+        return {
+            "canonical": self.canonical,
+            "variants": list(self.variants),
+            "evidence": list(self.title_evidence),
+        }
 
 
 @dataclass(frozen=True)
@@ -74,6 +97,12 @@ class RequestBrain:
     file_kind: str
     suggested_period: dict | None
     corrected: bool
+    # An explicit listing ("all files from last week"): no subject words.
+    listing: bool = False
+    # An explicit count ("latest 3 payslips"): the newest N matches only.
+    result_limit: int | None = None
+    # A literal file name ("Contract.pdf"): the title must equal it.
+    exact_title: str | None = None
 
     @property
     def concepts(self) -> tuple[Concept, ...]:
@@ -93,6 +122,9 @@ class RequestBrain:
             "fileKind": self.file_kind,
             "suggestedPeriod": self.suggested_period,
             "corrected": self.corrected,
+            "listing": self.listing,
+            "resultLimit": self.result_limit,
+            "exactTitle": self.exact_title,
         }
 
 
@@ -103,14 +135,18 @@ def brain_from_checkpoint(value: object) -> RequestBrain | None:
 
     def concept(item) -> Concept:
         variants = tuple(item["variants"])
+        evidence = tuple(item["evidence"])
         if (
             not variants
             or len(variants) > MAX_VARIANTS
             or not all(_valid_literal(term) for term in variants)
             or item["canonical"] != variants[0]
+            or not evidence
+            or len(evidence) > MAX_EVIDENCE
+            or not all(_valid_literal(term) for term in evidence)
         ):
             raise ValueError("invalid concept")
-        return Concept(variants[0], variants)
+        return Concept(variants[0], variants, evidence)
 
     try:
         topics = tuple(concept(item) for item in value["topics"])
@@ -127,10 +163,29 @@ def brain_from_checkpoint(value: object) -> RequestBrain | None:
             for part in value["parts"]
         )
         kind = value.get("fileKind", "any")
-        if len(topics) > MAX_TOPICS or len(parts) > MAX_PARTS or kind not in {"any", *KINDS}:
+        listing = value.get("listing", False)
+        limit = value.get("resultLimit")
+        exact = value.get("exactTitle")
+        if (
+            len(topics) > MAX_TOPICS
+            or len(parts) > MAX_PARTS
+            or kind not in {"any", *KINDS}
+            or type(listing) is not bool
+            or limit is not None
+            and (type(limit) is not int or not 1 <= limit <= MAX_RESULT_LIMIT)
+            or exact is not None
+            and not _valid_exact_title(exact)
+        ):
             return None
         return RequestBrain(
-            topics, parts, kind, value.get("suggestedPeriod"), bool(value.get("corrected"))
+            topics,
+            parts,
+            kind,
+            value.get("suggestedPeriod"),
+            bool(value.get("corrected")),
+            listing,
+            limit,
+            exact,
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -144,9 +199,20 @@ def _valid_literal(term: object) -> bool:
     )
 
 
+def _valid_exact_title(term: object) -> bool:
+    return (
+        isinstance(term, str)
+        and 1 <= len(term.strip()) <= MAX_EXACT_TITLE_CHARS
+        and not any(ord(char) < 32 or ord(char) == 127 for char in term)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lexicon. Each entry is one concept: the phrases a requester types, and the
-# literal spellings an owner's files use for the same thing.
+# literal spellings an owner's files use for the same thing. ``strict`` lists
+# the exact synonyms that are title evidence whichever trigger was typed; the
+# typed trigger itself (and its plural/singular) always is. Other variants are
+# discovery clues only. ``cased`` is evidence that must match its case.
 
 
 @dataclass(frozen=True)
@@ -155,9 +221,16 @@ class _Entry:
     triggers: tuple[str, ...]
     variants: tuple[str, ...]
     family: str
+    strict: tuple[str, ...] = ()
+    cased: tuple[str, ...] = ()
 
 
-_MEETING_NOTE_VARIANTS = ("notes", "note", "minutes", "mom", "transcript", "recap", "summary")
+_MEETING_NOTE_VARIANTS = ("notes", "note", "minutes", "transcript", "recap", "summary")
+_MEETING_NOTE_EVIDENCE = ("notes", "note", "minutes")
+# "MoM" (minutes of meeting) is "mom" once casefolded: lowercase it is never
+# title evidence, only the cased abbreviation is.
+_MOM_CASED = ("MoM", "MOM", "M.O.M")
+_CASED_ONLY = frozenset({"mom", "moms"})
 _ENTRIES = (
     # Meeting notes: the request kinds owners use most.
     _Entry(
@@ -165,25 +238,36 @@ _ENTRIES = (
         ("minutes of meeting", "minutes of the meeting", "mom", "moms", "meeting minutes"),
         ("minutes of meeting", "mom", "meeting minutes", "minutes"),
         "meeting_notes",
+        strict=("minutes of meeting", "meeting minutes", "minutes"),
+        cased=_MOM_CASED,
     ),
     _Entry(
         "notes by gemini",
         ("notes by gemini", "gemini notes", "gemini meeting notes"),
         ("notes by gemini",),
         "meeting_notes",
+        strict=("notes by gemini",),
     ),
-    _Entry("minutes", ("minutes",), ("minutes", "mom", "minutes of meeting"), "meeting_notes"),
+    _Entry(
+        "minutes",
+        ("minutes",),
+        ("minutes", "minutes of meeting"),
+        "meeting_notes",
+        strict=("minutes", "minutes of meeting"),
+    ),
     _Entry(
         "meeting",
         ("meeting", "meetings", "mtg", "mtgs"),
-        ("meeting", "meetings", "standup", "sync", "1:1", "huddle", "call"),
+        ("meeting", "meetings", "mtg", "mtgs", "standup", "sync", "1:1", "huddle", "call"),
         "meeting",
+        strict=("meeting", "mtg"),
     ),
     _Entry(
         "standup",
         ("standup", "standups", "stand-up", "stand up", "daily standup", "scrum"),
         ("standup", "stand-up", "stand up", "scrum"),
         "meeting",
+        strict=("standup", "stand-up", "stand up"),
     ),
     _Entry(
         "sync",
@@ -194,12 +278,21 @@ _ENTRIES = (
     _Entry(
         "1:1",
         ("1:1", "1-1", "1on1", "one on one", "one-on-one"),
-        ("1:1", "one on one", "one-on-one", "1on1"),
+        ("1:1", "1-1", "one on one", "one-on-one", "1on1"),
         "meeting",
+        strict=("1:1", "1-1", "one on one", "one-on-one", "1on1"),
     ),
-    _Entry("notes", ("notes", "note"), ("notes", "note"), "notes"),
-    _Entry("transcript", ("transcript", "transcripts"), ("transcript", "transcripts"), "notes"),
-    _Entry("recap", ("recap", "recaps"), ("recap", "recaps", "summary"), "notes"),
+    _Entry("notes", ("notes", "note"), ("notes", "note"), "notes", strict=("notes",)),
+    _Entry(
+        "transcript",
+        ("transcript", "transcripts"),
+        ("transcript", "transcripts"),
+        "notes",
+        strict=("transcript",),
+    ),
+    _Entry(
+        "recap", ("recap", "recaps"), ("recap", "recaps", "summary"), "notes", strict=("recap",)
+    ),
     # Financial statements.
     _Entry(
         "credit card",
@@ -207,18 +300,26 @@ _ENTRIES = (
         ("credit card", "card"),
         "card",
     ),
-    _Entry("bank", ("bank", "banking", "bank account"), ("bank", "banking"), "bank"),
+    _Entry(
+        "bank",
+        ("bank", "banking", "bank account"),
+        ("bank", "banking"),
+        "bank",
+        strict=("bank", "banking"),
+    ),
     _Entry(
         "account",
         ("account", "accounts", "savings account", "current account"),
         ("account", "accounts"),
         "bank",
+        strict=("account",),
     ),
     _Entry(
         "statement",
         ("statement", "statements", "e-statement", "estatement", "passbook"),
         ("statement", "statements", "estatement", "e-statement", "passbook"),
         "statement",
+        strict=("statement", "estatement", "e-statement"),
     ),
     # Invoices, bills and receipts.
     _Entry(
@@ -232,6 +333,7 @@ _ENTRIES = (
         ("receipt", "receipts"),
         ("receipt", "receipts", "invoice", "invoices", "bill"),
         "invoice",
+        strict=("receipt",),
     ),
     # Salary.
     _Entry(
@@ -249,32 +351,56 @@ _ENTRIES = (
             "paystubs",
             "salary statement",
             "wage slip",
+            "wage slips",
         ),
-        ("payslip", "payslips", "pay slip", "salary slip", "pay stub", "paystub", "salary"),
+        (
+            "payslip",
+            "payslips",
+            "pay slip",
+            "salary slip",
+            "pay stub",
+            "paystub",
+            "wage slip",
+            "salary",
+        ),
         "payslip",
+        strict=("payslip", "pay slip", "salary slip", "pay stub", "paystub", "wage slip"),
     ),
     # Tax.
-    _Entry("form 16", ("form 16", "form16", "form-16"), ("form 16", "form16", "form-16"), "tax"),
+    _Entry(
+        "form 16",
+        ("form 16", "form16", "form-16"),
+        ("form 16", "form16", "form-16"),
+        "tax",
+        strict=("form 16", "form16", "form-16"),
+    ),
     _Entry(
         "26as",
         ("26as", "form 26as", "annual tax statement"),
         ("26as", "form 26as", "annual tax statement"),
         "tax",
+        strict=("26as", "form 26as", "annual tax statement"),
     ),
     _Entry(
         "itr",
         ("itr", "itrs", "income tax return", "income tax returns", "tax return", "tax returns"),
         ("itr", "income tax return", "tax return", "itr-v"),
         "tax",
+        strict=("itr", "income tax return", "tax return", "itr-v"),
     ),
     _Entry(
-        "gst", ("gst", "gstr", "gst return", "gst returns"), ("gst", "gstr", "gst return"), "tax"
+        "gst",
+        ("gst", "gstr", "gst return", "gst returns"),
+        ("gst", "gstr", "gst return"),
+        "tax",
+        strict=("gst", "gstr", "gst return"),
     ),
     _Entry(
         "tax",
         ("tax", "taxes", "tax document", "tax documents", "income tax"),
         ("tax", "itr", "form 16", "26as", "gst"),
         "tax",
+        strict=("tax",),
     ),
     # Agreements.
     _Entry(
@@ -290,18 +416,29 @@ _ENTRIES = (
         "offer_letter",
     ),
     # Identity documents.
-    _Entry("passport", ("passport", "passports"), ("passport",), "id"),
+    _Entry("passport", ("passport", "passports"), ("passport",), "id", strict=("passport",)),
     _Entry(
-        "aadhaar", ("aadhaar", "aadhar", "aadhaar card", "aadhar card"), ("aadhaar", "aadhar"), "id"
+        "aadhaar",
+        ("aadhaar", "aadhar", "aadhaar card", "aadhar card"),
+        ("aadhaar", "aadhar"),
+        "id",
+        strict=("aadhaar", "aadhar"),
     ),
-    _Entry("pan card", ("pan card", "pan"), ("pan card", "pan"), "id"),
+    _Entry("pan card", ("pan card", "pan"), ("pan card", "pan"), "id", strict=("pan card",)),
     _Entry(
         "driving licence",
         ("driving licence", "driving license", "driver license", "drivers license", "dl"),
         ("driving licence", "driving license", "driver license"),
         "id",
+        strict=("driving licence", "driving license", "driver license"),
     ),
-    _Entry("voter id", ("voter id", "voter card", "epic card"), ("voter id", "voter card"), "id"),
+    _Entry(
+        "voter id",
+        ("voter id", "voter card", "epic card"),
+        ("voter id", "voter card"),
+        "id",
+        strict=("voter id", "voter card"),
+    ),
     _Entry(
         "identity",
         (
@@ -326,9 +463,10 @@ _ENTRIES = (
         ("insurance", "insurance policy", "insurance policies", "policy document"),
         ("insurance", "policy schedule", "premium"),
         "insurance",
+        strict=("insurance",),
     ),
     # Reports.
-    _Entry("report", ("report", "reports"), ("report", "reports"), "report"),
+    _Entry("report", ("report", "reports"), ("report", "reports"), "report", strict=("report",)),
 )
 
 # Which families form one document part, its default kind and alternatives.
@@ -386,6 +524,27 @@ _KIND_WORDS = {
     "folder": "folder",
     "folders": "folder",
 }
+# File-type words that are also ordinary nouns. Before another subject word
+# they modify it ("photo ID", "video production invoice") and stay search
+# words; only at the head of a phrase ("receipt photos") are they a file type.
+_NOUN_KINDS = frozenset(
+    """
+    sheet sheets excel slide slides deck decks image images photo photos picture pictures
+    screenshot screenshots video videos recording recordings audio audios
+    """.split()
+)
+# Named documents whose head is a file-type word: "Balance Sheet FY24.pdf" is
+# a balance sheet whatever its type, so both words stay search words.
+_KIND_COMPOUNDS = frozenset(
+    {
+        *(
+            (left, "sheet")
+            for left in "balance term cheat rate fact time data date mark cost spec call tally".split()
+        ),
+        *((left, "deck") for left in "pitch slide investor sales board".split()),
+    }
+)
+_DOCUMENT_WORDS = frozenset({"doc", "docs", "document", "documents"})
 
 _STOPWORDS = frozenset(
     """
@@ -396,17 +555,39 @@ _STOPWORDS = frozenset(
     ours out over own please per related relevant regarding same send share shared she should
     show so some such than that the their theirs them then there these they this those through
     till to too under until up upto us very via want was we were what when where which while who
-    whom why will with within would you your yours copy copies file files item items stuff thing
+    whom why with within would you your yours copy copies file files item items stuff thing
     things latest recent recently newest new old older oldest previous last past current next
     every everything entire full whole complete period dated date dates during since
-    lot lots bunch set sets list find search look fetch pull grab provide attach upload
+    lot lots bunch set sets find search look fetch pull grab provide attach upload
     one two three four five six seven eight nine ten eleven twelve twenty thirty forty fifty
     hundred thousand first second third fourth fifth
     day days week weeks month months year years quarter quarters fy
-    scan scans scanned soft photocopy
+    scanned soft photocopy
+    hi hello hey dear thanks thank thankyou thx ty pls plz asap urgent urgently
+    request requests requesting requested require required requires available
+    google drive gdrive email emails mail may might must shall regards sir madam
     """.split()
 )
 _COORDINATORS = frozenset({"and", "or", "&", ",", "plus", "/"})
+# Words that make a subject-free request an explicit listing.
+_LISTING_CUES = frozenset({"all", "every", "everything", "entire", "whole", "anything"})
+_FILE_NOUNS = frozenset({"file", "files", "item", "items", *_KIND_WORDS})
+# A trailing "for <purpose>" clause is context, not a search requirement:
+# "bank statements for visa application", "payslips for home loan processing".
+_PURPOSE_WORDS = frozenset(
+    """
+    visa visas loan loans mortgage audit audits auditing verification reimbursement
+    reimbursements claim claims filing renewal onboarding admission admissions immigration
+    application applications processing submission records reference approval compliance
+    purpose purposes
+    """.split()
+)
+_PURPOSE_MODIFIERS = frozenset(
+    """
+    home car auto vehicle personal education student business tourist travel work job bank tax
+    income uk usa schengen canada australia
+    """.split()
+)
 
 _NUMBER_WORDS = {
     "a": 1,
@@ -480,7 +661,20 @@ _YEAR = re.compile(
     r"|\bfy\s*(?P<short>\d{2})\s*[-/]\s*(?P<short_end>\d{2})\b",
     re.I,
 )
+# An explicit file count: "latest 3 payslips", "2 invoices". "Form 16 docs"
+# and "1:1 notes" are names, not counts.
+_COUNT_NUMBER = r"\d{1,3}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+_TIME_UNIT = r"(?:days?|weeks?|months?|quarters?|years?)\b"
+_FILE_COUNT = re.compile(
+    rf"\b(?:latest|last|recent|newest|first|top)\s+(?P<lead>{_COUNT_NUMBER})\b(?![:\-/.]\d)"
+    rf"(?!\s+{_TIME_UNIT})"
+    rf"|(?<!form )(?<!form-)(?<!gstr )(?<![:/.\-])\b(?P<bare>{_COUNT_NUMBER})\s+(?!{_TIME_UNIT})"
+    r"(?=(?:[^\W\d_]+\s+)?[^\W\d_]{2,}s\b)",
+    re.I,
+)
 _QUOTED = re.compile(r"[\"“”]([^\"“”]{2,50})[\"“”]")
+_FILE_EXTENSION = r"\.(?:pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)"
+_FILE_NAME = re.compile(rf"[^\s\"“”,;()]+{_FILE_EXTENSION}(?![\w.])", re.I)
 _TOKEN = re.compile(r"[^\W_]+(?:[:'’\-][^\W_]+)*|[,&/]", re.UNICODE)
 _DOTTED_MOM = re.compile(r"\bm\.\s?o\.\s?m\b\.?", re.I)
 
@@ -502,9 +696,19 @@ def _month_span(year: int, month: int) -> tuple[date, date]:
     return date(year, month, 1), date(year, month, monthrange(year, month)[1])
 
 
-def _strip_dates(text: str, today: date) -> tuple[str, list[tuple[date, date]]]:
-    """Remove date phrases from the subject and return the spans they named."""
+def _strip_dates(
+    text: str, today: date, picked: tuple[date, date] | None = None
+) -> tuple[str, list[tuple[date, date]]]:
+    """Remove date phrases from the subject and return the spans they named.
+
+    picked: the request's picked dates. A month or quarter wholly outside them
+    names something ("Project June roadmap", "Q3 board deck") and stays in the
+    subject as a search word.
+    """
     spans: list[tuple[date, date]] = []
+
+    def names_something(span: tuple[date, date]) -> bool:
+        return picked is not None and (span[1] < picked[0] or span[0] > picked[1])
 
     def relative(match: re.Match) -> str:
         count_text = (match["count"] or match["count2"]).lower()
@@ -567,7 +771,10 @@ def _strip_dates(text: str, today: date) -> tuple[str, list[tuple[date, date]]]:
         first = date(year, 3 * number - 2, 1)
         if not match["year"] and first > today:
             first = date(year - 1, 3 * number - 2, 1)
-        spans.append((first, _shift_months(first, 3) - timedelta(days=1)))
+        span = (first, _shift_months(first, 3) - timedelta(days=1))
+        if names_something(span):
+            return match.group(0)
+        spans.append(span)
         return " "
 
     def month(match: re.Match) -> str:
@@ -579,7 +786,10 @@ def _strip_dates(text: str, today: date) -> tuple[str, list[tuple[date, date]]]:
         year = int(match["year"]) if match["year"] else today.year
         if not match["year"] and date(year, number, 1) > today:
             year -= 1
-        spans.append(_month_span(year, number))
+        span = _month_span(year, number)
+        if names_something(span):
+            return match.group(0)
+        spans.append(span)
         return " "
 
     def year(match: re.Match) -> str:
@@ -604,6 +814,54 @@ def _strip_dates(text: str, today: date) -> tuple[str, list[tuple[date, date]]]:
     ):
         text = pattern.sub(replace, text)
     return text, spans
+
+
+def _strip_count(text: str) -> tuple[str, int | None]:
+    """Remove one explicit file count from the subject and return it."""
+    match = _FILE_COUNT.search(text)
+    if match is None:
+        return text, None
+    value = (match["lead"] or match["bare"]).lower()
+    count = _NUMBER_WORDS.get(value) or int(value)
+    if not 1 <= count <= MAX_RESULT_LIMIT:
+        return text, None
+    return text[: match.start()] + " " + text[match.end() :], count
+
+
+def _literal_file_name(text: str) -> str | None:
+    """A literal file name the requester typed, as Drive shows it.
+
+    A quoted name with a file extension, or one unquoted name such as
+    "send me Contract.pdf" (the words right before the extension belong to
+    it). Mixed with other subject words it is ambiguous and stays a search.
+    """
+    for match in _QUOTED.finditer(text):
+        name = " ".join(match.group(1).split())
+        if re.search(rf"{_FILE_EXTENSION}$", name, re.I) and _valid_exact_title(name):
+            return name
+    found = list(_FILE_NAME.finditer(text))
+    if len(found) != 1:
+        return None
+    match = found[0]
+    words = text[: match.start()].split()
+    run: list[str] = []
+    while words and words[-1][-1:].isalnum():
+        word = words[-1]
+        folded = word.casefold()
+        if folded in _STOPWORDS or folded in _COORDINATORS or folded in _KIND_WORDS:
+            break
+        run.insert(0, words.pop())
+    name = " ".join([*run, match.group(0)])
+    rest = " ".join([*words, text[match.end() :]])
+    leftover = [
+        token
+        for token in _tokens(rest)
+        if token not in _STOPWORDS
+        and token not in _COORDINATORS
+        and token not in _KIND_WORDS
+        and not token.isdigit()
+    ]
+    return name if not leftover and _valid_exact_title(name) else None
 
 
 def _osa(left: str, right: str, limit: int) -> int:
@@ -648,6 +906,26 @@ def _number_variants(word: str) -> tuple[str, ...]:
     return (word, other)
 
 
+def _word_variants(word: str) -> tuple[str, ...]:
+    """A typed word's own spellings: plural/singular, or a month's short forms."""
+    if word in _MONTHS:
+        return (word, *(name for name, number in _MONTHS.items() if number == _MONTHS[word]))
+    return _number_variants(word)
+
+
+def _phrase_forms(phrase: str) -> tuple[str, ...]:
+    """A typed phrase with its last word's plural/singular spelling."""
+    words = phrase.split()
+    if not words:
+        return ()
+    return tuple(" ".join([*words[:-1], form]) for form in _number_variants(words[-1]))
+
+
+def _singular(word: str) -> str:
+    forms = _number_variants(word)
+    return forms[1] if word.endswith("s") and len(forms) > 1 else word
+
+
 _TRIGGERS = sorted(
     ((tuple(trigger.split()), entry) for entry in _ENTRIES for trigger in entry.triggers),
     key=lambda item: -len(item[0]),
@@ -680,6 +958,11 @@ _CORRECTION_PHRASES = sorted(
 def _tokens(text: str) -> list[str]:
     text = _DOTTED_MOM.sub(" mom ", text)
     return [token.replace("’", "'") for token in _TOKEN.findall(text.casefold())]
+
+
+def _bare(token: str) -> str:
+    """A possessive is its owner's name: "rahul's" searches "rahul"."""
+    return token[:-2] if token.endswith("'s") and len(token) > 2 else token
 
 
 def _phrase_correction(tokens: list[str], start: int, words: tuple[str, ...]) -> bool:
@@ -715,13 +998,74 @@ def _vocabulary_correction(token: str, vocabulary: Collection[str] | None) -> st
     return best if best_distance <= limit else None
 
 
-def _unique(values) -> tuple[str, ...]:
+def _unique(values: Iterable[str], limit: int = MAX_VARIANTS) -> tuple[str, ...]:
     seen: dict[str, None] = {}
     for value in values:
         value = " ".join(value.split()).casefold()
         if _valid_literal(value) and value not in seen:
             seen[value] = None
-    return tuple(seen)[:MAX_VARIANTS]
+    return tuple(seen)[:limit]
+
+
+def _evidence(values: Iterable[str]) -> tuple[str, ...]:
+    """Evidence spellings: casefolded and unique, except cased abbreviations."""
+    values = list(values)
+    cased = [value for value in values if value != value.casefold() and _valid_literal(value)]
+    plain = _unique((value for value in values if value == value.casefold()), MAX_EVIDENCE)
+    return (*plain, *dict.fromkeys(cased))[:MAX_EVIDENCE]
+
+
+def _word_concept(word: str) -> Concept:
+    literal = _unique(_word_variants(word))
+    return Concept(literal[0], literal, _evidence(literal))
+
+
+def _entry_concept(entry: _Entry, words: tuple[str, ...], typos: list[str]) -> Concept:
+    """A lexicon concept: the typed trigger is always searched and is evidence."""
+    typed = [form for form in _phrase_forms(" ".join(words)) if form not in _CASED_ONLY]
+    covered = {form for variant in entry.variants for form in _phrase_forms(variant)}
+    # "dl", "mtg" or "epic card" as typed reaches files named that way.
+    searched = [
+        form
+        for form in typed
+        if not _DOCUMENT_WORDS & set(form.split()) and not covered & set(_phrase_forms(form))
+    ]
+    first = entry.canonical if entry.canonical in entry.variants else entry.variants[0]
+    variants = _unique((first, *searched, *entry.variants, *typos))
+    evidence = _evidence((*typed, *entry.strict, *typos, *entry.cased))
+    return Concept(variants[0], variants, evidence)
+
+
+def _content_token(token: str) -> bool:
+    return not (
+        token in _STOPWORDS
+        or token in _COORDINATORS
+        or token in _KIND_WORDS
+        or token.isdigit()
+        or len(token) < 2
+    )
+
+
+def _purpose_clause(tokens: list[str]) -> set[int]:
+    """Token positions of "for <purpose>" clauses: context, never search words."""
+    skipped: set[int] = set()
+    for index, word in enumerate(tokens):
+        if word != "for":
+            continue
+        clause = []
+        for position in range(index + 1, len(tokens)):
+            if tokens[position] in _COORDINATORS:
+                break
+            clause.append(position)
+        words = [tokens[position] for position in clause if tokens[position] not in _STOPWORDS]
+        if (
+            words
+            and len(words) <= 4
+            and all(word in _PURPOSE_WORDS or word in _PURPOSE_MODIFIERS for word in words)
+            and any(word in _PURPOSE_WORDS for word in words)
+        ):
+            skipped.update(clause)
+    return skipped
 
 
 @dataclass
@@ -737,17 +1081,25 @@ def interpret_request(
     now: datetime | None = None,
     timezone: str = "UTC",
     vocabulary: Collection[str] | None = None,
+    picked_period: tuple[date, date] | None = None,
 ) -> RequestBrain:
-    """Turn the requester's phrase into concepts, deterministically and offline."""
+    """Turn the requester's phrase into concepts, deterministically and offline.
+
+    vocabulary: the owner's title words. A spelling fix toward one of them is
+    a discovery variant only; the typed word stays the concept and evidence.
+    picked_period: the request's picked dates (see ``_strip_dates``).
+    """
     if not isinstance(text, str):
         raise ValueError("request text required")
     current = now if isinstance(now, datetime) and now.tzinfo is not None else None
     today = (
         current.astimezone(_zone(timezone)) if current else datetime.now(_zone(timezone))
     ).date()
+    exact_title = _literal_file_name(text)
     quoted = [match.group(1).strip().casefold() for match in _QUOTED.finditer(text)]
     remainder = _QUOTED.sub(" , ", text)
-    remainder, spans = _strip_dates(remainder, today)
+    remainder, spans = _strip_dates(remainder, today, picked_period)
+    remainder, result_limit = _strip_count(remainder)
     tokens = _tokens(remainder)
     kinds: list[str] = []
     units: list[_Unit] = []
@@ -763,12 +1115,23 @@ def interpret_request(
                         tokens[start + offset] = word
                 corrected = True
                 break
+    skipped = _purpose_clause(tokens)
     position = 0
     while position < len(tokens):
         token = tokens[position]
+        if position in skipped:
+            position += 1
+            continue
         if token in _COORDINATORS:
             units.append(_Unit(position, Concept(",", (",",)), "coordinator"))
             position += 1
+            continue
+        following = tokens[position + 1] if position + 1 < len(tokens) else None
+        if following is not None and (token, _singular(following)) in _KIND_COMPOUNDS:
+            # "balance sheet", "pitch deck": a named document, not a file type.
+            units.append(_Unit(position, _word_concept(token), None))
+            units.append(_Unit(position + 1, _word_concept(following), None))
+            position += 2
             continue
         matched = None
         for words, entry in _TRIGGERS:
@@ -780,39 +1143,112 @@ def interpret_request(
             typed = [
                 typos[index] for index in range(position, position + len(words)) if index in typos
             ]
-            variants = _unique((*entry.variants, *typed))
-            units.append(_Unit(position, Concept(variants[0], variants), entry.family))
+            units.append(_Unit(position, _entry_concept(entry, words, typed), entry.family))
+            if _DOCUMENT_WORDS & set(words):
+                # "tax documents" consumed the document noun: still documents.
+                kinds.append("document")
             position += len(words)
             continue
         position += 1
         if token in _KIND_WORDS:
-            kinds.append(_KIND_WORDS[token])
+            if (
+                token in _NOUN_KINDS
+                and following is not None
+                and position not in skipped
+                and _content_token(following)
+            ):
+                # "photo ID", "video production invoice": a modifier stays a word.
+                units.append(_Unit(position - 1, _word_concept(token), None))
+            else:
+                kinds.append(_KIND_WORDS[token])
             continue
-        if token in _STOPWORDS or token.isdigit() or len(token) < 2:
+        word = _bare(token)
+        if word in _STOPWORDS or len(word) < 2 or word.isdigit() and len(word) < 3:
+            # One- and two-digit numbers are counts or dates; longer ones
+            # (account, invoice and form numbers) narrow the search.
             continue
-        variants = list(_number_variants(token))
-        fix = _vocabulary_correction(token, vocabulary)
+        variants = list(_word_variants(word))
+        evidence = _evidence(variants)
+        fix = _vocabulary_correction(word, vocabulary)
         if fix is not None:
             corrected = True
             entry = _SINGLE_TRIGGERS.get(fix)
             if entry is not None:
-                # The owner's corrected word is a known kind: use its synonyms.
-                literal = _unique((*entry.variants, token))
-                units.append(_Unit(position - 1, Concept(literal[0], literal), entry.family))
+                # The owner's word is a known kind: search its spellings too.
+                literal = _unique((word, *entry.variants))
+                units.append(
+                    _Unit(position - 1, Concept(literal[0], literal, evidence), entry.family)
+                )
                 continue
-            variants = [fix, *_number_variants(fix)[1:], *variants]
+            variants = [*variants, fix, *_number_variants(fix)[1:]]
         literal = _unique(variants)
         if literal:
-            units.append(_Unit(position - 1, Concept(literal[0], literal), None))
+            units.append(_Unit(position - 1, Concept(literal[0], literal, evidence), None))
     for phrase in quoted:
         literal = _unique([phrase])
         if literal:
-            units.append(_Unit(-1, Concept(literal[0], literal), None))
-    return _assemble(units, kinds, spans, corrected)
+            units.append(_Unit(-1, Concept(literal[0], literal, literal), None))
+    if exact_title is not None:
+        # The literal file name is the whole subject: its title must equal it.
+        units = []
+    # "all files", "September documents", "latest 5 files": a listing on
+    # purpose. Words dropped as a purpose clause still carry a subject.
+    listing_cue = (
+        exact_title is None
+        and not skipped
+        and (
+            any(token in _LISTING_CUES for token in tokens)
+            or (bool(spans) or result_limit is not None)
+            and any(token in _FILE_NOUNS for token in tokens)
+        )
+    )
+    return _assemble(
+        units,
+        kinds,
+        spans,
+        corrected,
+        listing_cue=listing_cue,
+        result_limit=result_limit,
+        exact_title=exact_title,
+    )
+
+
+def _either(concepts: list[Concept]) -> Concept:
+    """Separately listed topics ("Acme or Globex") as one either-or concept."""
+    variants = _unique(
+        (
+            *(concept.canonical for concept in concepts),
+            *(variant for concept in concepts for variant in concept.variants),
+        )
+    )
+    evidence = _evidence(literal for concept in concepts for literal in concept.title_evidence)
+    return Concept(variants[0], variants, evidence)
+
+
+def _most_specific(concepts: list[Concept]) -> list[Concept]:
+    """At most MAX_TOPICS topics: numbers and longer words first, in typed order."""
+    if len(concepts) <= MAX_TOPICS:
+        return concepts
+    ranked = sorted(
+        range(len(concepts)),
+        key=lambda index: (
+            not any(character.isdigit() for character in concepts[index].canonical),
+            -len(concepts[index].canonical),
+            index,
+        ),
+    )
+    return [concepts[index] for index in sorted(ranked[:MAX_TOPICS])]
 
 
 def _assemble(
-    units: list[_Unit], kinds: list[str], spans: list[tuple[date, date]], corrected: bool
+    units: list[_Unit],
+    kinds: list[str],
+    spans: list[tuple[date, date]],
+    corrected: bool,
+    *,
+    listing_cue: bool = False,
+    result_limit: int | None = None,
+    exact_title: str | None = None,
 ) -> RequestBrain:
     # Split document-type words into separately listed parts at coordinators.
     groups: list[list[_Unit]] = [[]]
@@ -827,14 +1263,19 @@ def _assemble(
         else:
             groups[-1].append(unit)
     lexical = [group for group in groups if group]
-    raw = [unit for group in raw_groups for unit in group]
-    if not lexical and len([group for group in raw_groups if group]) > 1:
+    listed = [group for group in raw_groups if group]
+    if not lexical and len(listed) > 1:
         # "falcon or eagle": separately listed subjects are a union.
-        parts = tuple(
-            DocPart("terms", tuple(unit.concept for unit in group)) for group in raw_groups if group
-        )[:MAX_PARTS]
+        parts = tuple(DocPart("terms", tuple(unit.concept for unit in group)) for group in listed)[
+            :MAX_PARTS
+        ]
     else:
-        topics = [unit.concept for unit in raw][:MAX_TOPICS]
+        if len(listed) > 1 and all(len(group) == 1 for group in listed):
+            # "Acme or Globex invoices": (Acme OR Globex) AND invoices.
+            raw = [_either([group[0].concept for group in listed])]
+        else:
+            raw = [unit.concept for group in listed for unit in group]
+        topics = _most_specific(raw)
         # "meeting notes and minutes": each listed kind is its own alternative.
         parts = tuple(_doc_part(group) for group in lexical)[:MAX_PARTS]
     # Bound the total concept count; topic words are the most specific.
@@ -859,28 +1300,40 @@ def _assemble(
             "start": min(start for start, _ in spans).isoformat(),
             "end": max(end for _, end in spans).isoformat(),
         }
-    return RequestBrain(tuple(topics), parts, file_kind, period, corrected)
+    return RequestBrain(
+        tuple(topics),
+        parts,
+        file_kind,
+        period,
+        corrected,
+        listing=bool(listing_cue and not topics and not parts),
+        result_limit=result_limit,
+        exact_title=exact_title,
+    )
 
 
 def _doc_part(group: list[_Unit]) -> DocPart:
     families = {unit.family for unit in group}
     concepts = [unit.concept for unit in group]
-    generic_notes = {"meeting", "notes"} <= families
-    if generic_notes or "meeting_notes" in families:
+    # Only the literal generic ask ("meeting notes", "mtg notes") is satisfied
+    # by each named kind on its own; "standup notes" stays standups, and
+    # "Notes by Gemini" or "MoM" stays that specific kind.
+    generic_notes = "notes" in families and any(
+        unit.family == "meeting" and unit.concept.canonical == "meeting" for unit in group
+    )
+    if "meeting" in families and "notes" in families or "meeting_notes" in families:
         concepts = [
-            Concept(concept.canonical, _unique((*concept.variants, *_MEETING_NOTE_VARIANTS)))
+            Concept(
+                concept.canonical,
+                _unique((*concept.variants, *_MEETING_NOTE_VARIANTS)),
+                _evidence((*concept.title_evidence, *_MEETING_NOTE_EVIDENCE)),
+            )
             if any(unit.family == "notes" and unit.concept == concept for unit in group)
             else concept
             for concept in concepts
         ]
-        # Only the generic "meeting + notes" ask is satisfied by each named
-        # kind on its own; "Notes by Gemini" or "MoM" stays that specific kind.
         standalone = (
-            [
-                Standalone("minutes of meeting", False),
-                Standalone("notes by gemini", False),
-                Standalone("mom", True),
-            ]
+            [Standalone("minutes of meeting", False), Standalone("notes by gemini", False)]
             if generic_notes
             else []
         )
@@ -914,14 +1367,17 @@ def _doc_part(group: list[_Unit]) -> DocPart:
 
 
 def suggested_plan(brain: RequestBrain, query: str) -> dict:
-    """A LiveSearchPlan-shaped dict; the full concept set stays in the brain."""
+    """A LiveSearchPlan-shaped dict; the full concept set stays in the brain.
+
+    A brain with no subject is a complete plan only as an explicit listing
+    or a literal file name; anything else is left incomplete (invalid).
+    """
     from hushh_mcp.services.drive_suggestion_service import explicitly_requests_file_activity
 
-    concepts = list(brain.concepts)
     terms: list[str] = []
     groups: list[list[str]] = []
     used: set[str] = set()
-    for concept in concepts:
+    for concept in [] if brain.exact_title else list(brain.concepts):
         if len(terms) == 3:
             break
         variants = [
@@ -944,12 +1400,18 @@ def suggested_plan(brain: RequestBrain, query: str) -> dict:
         "semantic_intent": "institutional_statement"
         if any(part.key.endswith("statement") for part in brain.parts)
         else "other",
-        "subject_scope": "specific_records" if terms else "metadata_listing",
-        "subject_complete": True,
+        "subject_scope": "specific_records" if terms or brain.exact_title else "metadata_listing",
+        "subject_complete": bool(terms or brain.exact_title or brain.listing),
     }
+    if brain.exact_title:
+        plan["exact_title"] = brain.exact_title
     if file_activity and re.search(r"\b(?:created|uploaded|added)\b", query, re.I):
         plan["file_time_field"] = "createdTime"
-    if not terms and brain.file_kind == "any":
+    if brain.result_limit is not None:
+        # "latest 3 payslips": only the newest N matches are selected.
+        plan["result_limit"] = brain.result_limit
+        plan["sort"] = "recent"
+    elif not terms and not brain.exact_title and brain.file_kind == "any":
         plan["sort"] = "recent"
     return plan
 

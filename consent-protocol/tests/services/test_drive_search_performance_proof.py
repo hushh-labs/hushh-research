@@ -1196,7 +1196,11 @@ PARITY_FILES = {
         _fixture("settings", "Settings notes.pdf"),
     ]
 }
-TITLE_EVIDENCE = {"plain", "mom", "minutes", "camel", "gemini", "typo_title", "standup"}
+TITLE_EVIDENCE = {"plain", "minutes", "camel", "gemini", "typo_title"}
+# "Standup minutes" is found through a loose synonym ("standup" for
+# "meeting"): an owner-review candidate, never an automatic grant for
+# "meeting notes". "MoM" is searched only when the requester typed it.
+LOOSE_ONLY = {"standup", "mom"}
 NEVER_FOUND = {"video", "image", "invoice", "settings"}
 
 
@@ -1248,6 +1252,12 @@ async def run_brain_search(
         plan_source="deterministic_brain",
         **({"autoshare": True} if autoshare else {}),
     )
+    # What the create-time page (one 15 s page) committed and asked Drive.
+    store.after_create = {
+        "matched": len(store.results),
+        "events": list(drive.events),
+        "page_sizes": list(drive.page_sizes),
+    }
     for _ in range(50):
         if store.row["status"] not in {"queued", "running"}:
             break
@@ -1275,12 +1285,12 @@ async def test_drive_app_parity_for_meeting_notes_without_a_model(monkeypatch, t
     # including a PDF that only mentions the words in its body.
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text)
     found = set(store.results)
-    assert expected | {"body", "old"} <= found
-    assert not found & NEVER_FOUND
+    assert expected | {"body", "old", "standup"} <= found
+    assert not found & (NEVER_FOUND | {"mom"})
     # Automatic sharing: title evidence and the picked dates still decide.
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
     assert _shareable(store) == expected
-    assert not set(store.results) & (NEVER_FOUND | {"old", "body"})
+    assert not set(store.results) & (NEVER_FOUND | LOOSE_ONLY | {"old", "body"})
 
 
 @pytest.mark.asyncio
@@ -1288,6 +1298,60 @@ async def test_drive_app_parity_for_meeting_notes_without_a_model(monkeypatch, t
 async def test_drive_app_parity_for_minutes_of_meeting(monkeypatch, text):
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
     assert _shareable(store) == {"mom", "minutes", "standup"}
+
+
+# A mother's documents: Drive's prefix match finds them for a typed "MoM",
+# and they must never become meeting notes for an automatic grant.
+MOM_FILES = {
+    item["id"]: item
+    for item in [
+        _fixture("mom_aadhaar", "Mom's Aadhaar.pdf"),
+        _fixture("mom_medical", "Mom medical report.pdf"),
+        _fixture("mom_passport", "Mom passport scan.pdf"),
+        _fixture("mom_notes", "Mom medical notes.pdf"),
+        _fixture("momentum", "Momentum strategy.docx", mime=DOCX),
+    ]
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,cased",
+    [
+        ("meeting notes", False),
+        ("meeting recap", False),
+        ("minutes of meeting", True),
+        ("MoM", True),
+        ("send MoM of last week", True),
+    ],
+)
+async def test_personal_mom_files_are_never_shared_as_meeting_notes(monkeypatch, text, cased):
+    files = {**PARITY_FILES, **MOM_FILES}
+    store, _ = await run_brain_search(monkeypatch, files, text, autoshare=True)
+    assert not _shareable(store) & set(MOM_FILES)
+    assert not set(store.results) & set(MOM_FILES)
+    # Positive control: the cased abbreviation counts only when typed.
+    assert ("mom" in _shareable(store)) is cased
+
+
+@pytest.mark.asyncio
+async def test_specific_meeting_kinds_never_share_every_gemini_note(monkeypatch):
+    files = {
+        **PARITY_FILES,
+        "board": _fixture(
+            "board", "Board review - 2026/09/15 10:00 IST - Notes by Gemini", mime=GDOC
+        ),
+        "daily": _fixture(
+            "daily", "Daily standup - 2026/09/16 10:00 IST - Notes by Gemini", mime=GDOC
+        ),
+    }
+    store, _ = await run_brain_search(monkeypatch, files, "standup notes", autoshare=True)
+    shared = _shareable(store)
+    assert {"daily", "standup"} <= shared
+    assert not shared & {"board", "gemini", "mom", "plain"}
+    # Negative control: the generic ask still shares each Gemini note.
+    store, _ = await run_brain_search(monkeypatch, files, "meeting notes", autoshare=True)
+    assert {"board", "daily", "gemini"} <= _shareable(store)
 
 
 class FakeOwnerIndex:
@@ -1326,11 +1390,13 @@ async def test_gear_one_candidates_commit_first_and_dedupe_with_drive(monkeypatc
     store, drive = await run_brain_search(
         monkeypatch, PARITY_FILES, "meeting notes", autoshare=True, owner_index=index
     )
-    # Gear 1 rows are the first committed positions, before any Drive page.
-    first = sorted(store.results.items(), key=lambda pair: pair[1][0])
-    assert [identity for identity, _ in first[:2]] == ["indexed_only", "plain"]
-    assert drive.events[0] == ("commit", 2)
-    # Drive's own copy of "plain" deduplicated; Drive still found the rest.
+    # The create-time page is Drive's own first page. Gear 1 rows commit in
+    # the next page, before any further Drive listing.
+    assert store.after_create["events"][0][0] == "list" and store.after_create["matched"] > 0
+    commits = [position for position, event in enumerate(drive.events) if event[0] == "commit"]
+    assert drive.events[commits[1]] == ("commit", 1)  # indexed_only; "plain" already found
+    assert all(event[0] != "list" for event in drive.events[commits[0] + 1 : commits[1]])
+    # Gear 1's copy of "plain" deduplicated; Drive still found the rest.
     assert store.view()["coverage"]["deduplicatedCount"] >= 1
     assert _shareable(store) == TITLE_EVIDENCE - {"typo_title"} | {"indexed_only"}
     assert store.results["camel"][1]["shareable"] is True
@@ -1401,13 +1467,19 @@ async def test_worker_owner_index_adds_titles_drive_search_cannot_match(monkeypa
     assert reached == []
     if worker:
         # Gear 1 found the camelCase title, and it passed the same title,
-        # period and kind checks as Drive's rows before any Drive page.
+        # period and kind checks as Drive's rows.
         assert _shareable(store) == drive_only | {"camel_only"}
         assert checkpoint["coverage_manifest"]["localIndexFirst"] is True
         assert checkpoint["coverage_counts"]["localIndexCandidates"] >= 1
-        assert drive.events[0] == ("changes_cursor", None)
         assert 1000 in drive.page_sizes  # the fenced owner-search listing page
         assert not set(store.results) & (NEVER_FOUND | {"old", "body"})
+        # The cold index never takes the create-time page: that page is
+        # Drive's 25-row search, and its rows are committed at once. The
+        # index lists Drive only in the following worker slice.
+        assert store.after_create["page_sizes"] == [25]
+        assert store.after_create["matched"] >= len(drive_only)
+        assert ("changes_cursor", None) not in store.after_create["events"]
+        assert ("changes_cursor", None) in drive.events
     else:
         # Negative control: the API process never lists an index; Drive
         # alone cannot reach the camelCase title, exactly as before.

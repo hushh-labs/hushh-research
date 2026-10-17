@@ -1,7 +1,9 @@
 """Seam between request search and the owner's local metadata index (Gear 1).
 
-Gear 1 answers from the owner's file names held by this process, so a request
-can show its first matches before Drive is asked. It is only an accelerator:
+Gear 1 answers from the owner's file names held by this process. It runs in
+the first worker slice after a search's create-time Drive page (a cold index
+must not spend that one short page listing Drive), before any further Drive
+page, and finds titles Drive's own search cannot. It is only an accelerator:
 Gear 2 (the Drive pass-through) still runs to completion and stays the
 completeness authority, and every Gear 1 row passes the same kind, period,
 title-evidence and shareability checks as a Drive page.
@@ -22,8 +24,10 @@ from typing import Any, Protocol
 # One Gear 1 lookup per search; its rows are committed in 100-row pages.
 MAX_LOCAL_CANDIDATES = 500
 OWNER_INDEX_FLAG = "DRIVE_OWNER_INDEX_ENABLED"
-# Index listing one search's first page may spend, so the slice keeps most of
-# its deadline for Drive. The index keeps its progress between searches.
+# Index listing one search's first Gear 1 page may spend, so the slice keeps
+# most of its deadline for Drive. The index keeps its progress between
+# searches in this process only; on a large Drive it stays partial for many
+# searches (see drive_owner_metadata_index), so Gear 1 helps small Drives most.
 INDEX_LISTING_PAGES = 2
 INDEX_LISTING_SECONDS = 3.0
 # The metadata index's per-call bounds.
