@@ -27,18 +27,31 @@ approval. Both reviewers' signed funding settlements and platform capital on
 shared Dev are separately verified below; they do not prove a consumer purchase
 or payout.
 
-### Current Dev evidence — 2026-10-16 UTC
+### Current Dev evidence — 2026-10-17 UTC
 
-The read-only ledger/provider check at `09:35:50Z` confirms $10.50 funded per
-reviewer, $15 cumulative capital, both information-access payout accounts ready
-and **zero scope purchases**. Funding, backing and fee checks pass; no paid
-delivery, purchase refund, earnings withdrawal or bank payout is established.
-The last serving-source observation (`08:20:50Z`) is backend `439f181304` and
-frontend `5c2d1483aa`. The exact-scope registry-handle correction awaits a verified
-release. The current integration preserves main and both developers' BYOC fixes
-on the original branch. Core/CI, Dev promotion and the first one-cent exchange
-remain required. Rehearsals use isolated headless sessions; shared Chrome is
-untouched. Existing settled funding and capital must not be repeated.
+Shared Dev serves `f378a75b55880c67dcc112d75445b46bf2e53e31` on both
+services after successful hosted CI and deployment. Memory → Saved exposes
+category-level **Sharing & price** and eligible whole-bundle prices. Both
+reviewers reached those controls at phone width with vault continuity; the
+counterpart's separate Memory-edit check retains an unresolved legacy free-grant
+lineage failure.
+
+The renewed Dashboard/SDK proof confirms the dedicated Sandbox and test mode.
+Existing funding is $10.50 per reviewer and cumulative tagged capital is $15;
+these receipts must not be repeated. **No completed paid scope exchange is yet
+established.** The corrected Dev rehearsal passed its canonical 238-table /
+97-function schema check, both reviewer unlocks and Sandbox pins, then observed
+a deployed 401 at the public recipient-key registry before any tariff or purchase
+write. Its locally verified fix restores that endpoint's documented vault-owner
+contract and preserves owner-mismatch/revocation denial. Core/CI and Dev promotion
+of the correction remain required before retrying the one-cent purchase.
+
+The private agent's latest authenticated read-only connector observation
+(`2026-10-17T08:48Z`) still has no verified Stripe OAuth account/balance connection.
+Dashboard sign-in, SDK configuration and this owner tool connection are separate.
+Refunds, maturity, withdrawals, bank payouts and the synthetic PII story remain
+unaccepted. Physical iOS acceptance remains with the device lane. Shared Chrome
+and other agents' tabs remain open; no new debugger transport was opened.
 
 ### Historical Dev evidence — 2026-10-15 UTC
 
