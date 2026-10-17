@@ -14,8 +14,8 @@ export function cardCameraCaptureBox(width: number, height: number, viewWidth: n
 }
 
 /** Read dimensions before decoding: compressed byte limits alone are insufficient. */
-export async function validateCardImage(file: Blob): Promise<void> {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024) throw new Error("Choose a JPG, PNG or WebP photo smaller than 15 MB.");
+export async function validateCardImage(file: Blob, budget = { maxBytes: 15 * 1024 * 1024, maxDimension: 10000, maxPixels: 24_000_000 }): Promise<void> {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > budget.maxBytes) throw new Error("Choose a JPG, PNG or WebP photo smaller than 15 MB.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const view = new DataView(bytes.buffer);
   let width = 0, height = 0;
@@ -46,7 +46,7 @@ export async function validateCardImage(file: Blob): Promise<void> {
       width = view.getUint16(26, true) & 16383; height = view.getUint16(28, true) & 16383;
     }
   }
-  if (!width || !height || width > 10000 || height > 10000 || width * height > 24_000_000) throw new Error("Choose a smaller, supported photo (up to 24 megapixels).");
+  if (!width || !height || width > budget.maxDimension || height > budget.maxDimension || width * height > budget.maxPixels) throw new Error("Choose a smaller, supported photo (up to 24 megapixels).");
 }
 
 export function validCardCorners(points: CardCorners): boolean {

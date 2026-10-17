@@ -2,6 +2,14 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
+    /// One authored credential-field locator across current Password copy and
+    /// older wrappers. Never substitute the first unrelated secure field.
+    private var authoredVaultPassphraseField: NSPredicate {
+        NSPredicate(format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
+            ["Vault password", "Vault passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
+            ["Enter password", "Enter passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
+            ["unlock-passphrase", "vault-key"])
+    }
     /// Use the authored software-keyboard interruption, not an unqualified
     /// hardware Escape injection. This does not reset or navigate the session.
     private func dismissDockKeyboardThroughProfile(_ app: XCUIApplication, requireInterruption: Bool = false) -> Bool {
@@ -318,6 +326,11 @@ final class AppUITests: XCTestCase {
             let location = issue.sourceCodeContext.location
             let line = location?.fileURL.lastPathComponent == "AppUITests.swift" ? location?.lineNumber ?? 0 : 0
             print("PROFILE_RUNNER_ISSUE type=\(issue.type.rawValue) line=\(min(100_000, max(0, line)))")
+            let text = issue.compactDescription.lowercased()
+            let reason = text.contains("scroll") ? "scroll" : text.contains("snapshot") ? "snapshot" :
+                text.contains("matching") || text.contains("no matches") ? "matching" : text.contains("hittable") ? "hit" :
+                text.contains("timed out") || text.contains("timeout") ? "timeout" : text.contains("assert") ? "assertion" : "other"
+            print("PROFILE_RUNNER_REASON kind=\(reason)")
         }
         super.record(issue)
     }
@@ -751,7 +764,7 @@ final class AppUITests: XCTestCase {
         // rejection. Never inspect field values or dump the private hierarchy.
         print("VAULT_GATE_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists)")
         for (name, control) in [("method", web.buttons["Passphrase"].firstMatch),
-                                ("entry", web.secureTextFields["Vault passphrase"].firstMatch)] {
+                                ("entry", web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch)] {
             let bounds = control.exists ? control.frame : .zero
             print("VAULT_GATE_CONTROL name=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded()))")
         }
@@ -768,9 +781,7 @@ final class AppUITests: XCTestCase {
         if unlock.exists {
             // Credential-free clipping diagnosis: public geometry only, no
             // screenshots, field values, account text or accessibility dump.
-            let entry = web.secureTextFields.matching(NSPredicate(
-                format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
-            )).firstMatch
+            let entry = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
             for (name, element) in [("window", app), ("web", web), ("keyboard", app.keyboards.firstMatch), ("entry", entry), ("unlock", unlock)] {
                 let bounds = element.exists ? element.frame : .zero
                 print("VAULT_GATE_GEOMETRY control=\(name) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded())) hittable=\(element.exists && element.isHittable)")
@@ -787,9 +798,7 @@ final class AppUITests: XCTestCase {
         else { throw XCTSkip("Requires the existing app session") }
         app.activate()
         returnToRehearsalChat(app)
-        let field = app.webViews.secureTextFields.matching(NSPredicate(
-            format: "label == %@ OR identifier == %@", "Vault passphrase", "unlock-passphrase"
-        )).firstMatch
+        let field = app.webViews.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
         let unlock = app.buttons.matching(NSPredicate(format: "label == %@", "Unlock"))
         guard waitForAdmittedControl(field), unlock.count == 1,
               !app.otherElements["session-privacy-shield"].exists else {
@@ -925,13 +934,11 @@ final class AppUITests: XCTestCase {
         app.activate()
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "VAULT_LAYOUT_HOST_UNAVAILABLE")
-        let entry = web.secureTextFields.matching(NSPredicate(
-            format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
-        )).firstMatch
+        let entry = web.secureTextFields.matching(authoredVaultPassphraseField).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
         func assertFieldHitRegions() {
             XCTAssertGreaterThanOrEqual(entry.frame.height, 44, "VAULT_LAYOUT_ENTRY_TARGET_TOO_SMALL")
-            let visibility = web.buttons["Show passphrase"].firstMatch
+            let visibility = web.buttons.matching(NSPredicate(format: "label IN %@", ["Show password", "Show passphrase"])).firstMatch
             XCTAssertTrue(visibility.exists && visibility.isHittable, "VAULT_LAYOUT_VISIBILITY_CLIPPED")
             XCTAssertGreaterThanOrEqual(visibility.frame.width, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_NARROW")
             XCTAssertGreaterThanOrEqual(visibility.frame.height, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_SHORT")
@@ -4353,7 +4360,7 @@ final class AppUITests: XCTestCase {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
         }
-        let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        let destinations = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
         if let requestedStart, !destinations.contains(requestedStart) {
             XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
@@ -4367,6 +4374,8 @@ final class AppUITests: XCTestCase {
         guard startIndex <= endIndex else { XCTFail("PROFILE_BATCH_RANGE_UNADMITTED"); return }
         let admittedDestinations = Array(destinations[startIndex...endIndex])
         let legalReturnOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_LEGAL_RETURN_ONLY"] == "true"
+        let phoneOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_PHONE_ONLY"] == "true"
+        guard !phoneOnly || admittedDestinations == ["account"] else { XCTFail("PROFILE_PHONE_RANGE_UNADMITTED"); return }
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
         func publicPaneLevel() -> Int? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -4474,18 +4483,22 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(panel.frame.width, app.frame.width, accuracy: 1, "PROFILE_PHONE_FRAME_INSET")
         }
         print("PROFILE_OUTER_FRAME full_height=true phone=\(UIDevice.current.userInterfaceIdiom == .phone)")
+        print("PROFILE_BATCH_STEP stage=groups")
         for group in ["settings", "legal", "account-access"] {
             XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
                 "PROFILE_SHARED_GROUP_MISSING")
         }
         for _ in 0..<5 {
-            if root("account").isHittable { break }
-            menu.swipeDown()
+            let account = root("account")
+            if account.exists && account.isHittable { break }
+            if account.exists && account.frame.midY < menu.frame.minY { menu.swipeDown() }
+            else { menu.swipeUp() }
         }
         guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
         XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
         XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
         XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
+        print("PROFILE_BATCH_STEP stage=root_ready")
         for id in admittedDestinations {
             let destination = root(id)
             for _ in 0..<5 {
@@ -4495,6 +4508,7 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             let originHistoryDepth = publicPaneHistoryDepth()
+            print("PROFILE_BATCH_STEP stage=destination_tap")
             destination.tap()
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
                 print("PROFILE_LEGAL_STEP phase=reader_admitted")
@@ -4610,7 +4624,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
                 }
                 XCTAssertTrue(close.exists && close.isHittable)
-                if id == "account", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                if id == "account", !phoneOnly, ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                     for actionID in ["account-reset", "account-delete"] {
                         let action = app.buttons["native-profile-row-\(actionID)"].firstMatch
                         guard waitForAdmittedControl(action) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
@@ -4653,6 +4667,7 @@ final class AppUITests: XCTestCase {
                 for childID in children {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
                     guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
+                    print("PROFILE_BATCH_STEP stage=child_tap")
                     child.tap()
                     if childID == "account-phone", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let number = app.textFields["native-phone-number"].firstMatch
@@ -4775,6 +4790,7 @@ final class AppUITests: XCTestCase {
             // The real dialog is named by its current title. Do not infer
             // full-pane bounds from a clipped descendant's AX rectangle.
             let detailTitles = ["account": "Account", "preferences": "Appearance & preferences",
+                "payouts": "Payouts", "request-pricing": "Request pricing", "my-data": "Memory", "world-model": "Personal World Model",
                 "security": "Security & privacy", "devices": "Trusted devices", "connectors": "Connectors",
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
             let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
@@ -4846,7 +4862,7 @@ final class AppUITests: XCTestCase {
             // not force Your account into view after a lower Legal destination.
             XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
             XCTAssertFalse(web.buttons["Unlock"].exists)
-            print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
+            print("PROFILE_RETAINED_DESTINATION family=\(id) warm=true single_host=true")
         }
         XCTAssertTrue(waitForAdmittedControl(close))
         printCoherentPresentationAdmission(app)
@@ -5838,12 +5854,7 @@ final class AppUITests: XCTestCase {
             owningWebView.secureTextFields,
             owningWebView.textFields,
         ]
-        let authoredField = NSPredicate(
-            format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
-            ["Vault password", "Vault passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
-            ["Enter password", "Enter passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
-            ["unlock-passphrase", "vault-key"]
-        )
+        let authoredField = authoredVaultPassphraseField
         let hasAuthoredField = {
             fieldQueries.contains { $0.matching(authoredField).firstMatch.exists }
         }

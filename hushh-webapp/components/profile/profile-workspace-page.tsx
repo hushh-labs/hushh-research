@@ -52,7 +52,8 @@ import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
-import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
+import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
+import { useNativeProfilePortrait } from "./use-native-profile-portrait";
 
 import {
   SettingsGroup,
@@ -240,11 +241,7 @@ import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
-import {
-  VaultMethodService,
-  type VaultCapabilityMatrix,
-  type VaultMethod,
-} from "@/lib/services/vault-method-service";
+import type { VaultMethod } from "@/lib/services/vault-method-service";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
@@ -590,6 +587,7 @@ function ProfilePageContent({
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
+  const nativePortrait = useNativeProfilePortrait(user?.uid ?? null, presentation === "native-page" && nativeMenuOpen);
   const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
@@ -673,54 +671,6 @@ function ProfilePageContent({
     null,
   );
   const [initialized, setInitialized] = useState(false);
-  const [vaultMethod, setVaultMethod] = useState<VaultMethod | null>(null);
-  const [capabilityMatrix, setCapabilityMatrix] =
-    useState<VaultCapabilityMatrix | null>(null);
-  const [enrolledVaultWrappers, setEnrolledVaultWrappers] = useState<
-    VaultWrapper[]
-  >([]);
-  const [primaryVaultWrapperId, setPrimaryVaultWrapperId] = useState<
-    string | null
-  >(null);
-  const [effectiveVaultMethod, setEffectiveVaultMethod] =
-    useState<VaultMethod | null>(null);
-  const [loadingVaultMethod, setLoadingVaultMethod] = useState(false);
-  const [vaultMethodsNeedRefresh, setVaultMethodsNeedRefresh] = useState(false);
-  const [vaultMethodsOwner, setVaultMethodsOwner] = useState<string | null>(null);
-  const [localBiometricWrapperId, setLocalBiometricWrapperId] = useState<string | null>(null);
-  const vaultMethodRequestRef = useRef(0);
-  const vaultMethodMutationRef = useRef<{ epoch: number; toastId: string | number; controller: AbortController; committed: boolean } | null>(null);
-  const vaultMethodOwnerRef = useRef(user?.uid);
-  const vaultMethodSessionRef = useRef({ key: vaultKey, epoch: 0 });
-  useLayoutEffect(() => {
-    if (vaultMethodOwnerRef.current !== user?.uid || vaultMethodSessionRef.current.key !== vaultKey) {
-      vaultMethodRequestRef.current += 1;
-      vaultMethodSessionRef.current = { key: vaultKey, epoch: vaultMethodSessionRef.current.epoch + 1 };
-    }
-    vaultMethodOwnerRef.current = user?.uid;
-  }, [user?.uid, vaultKey]);
-  const [switchingVaultMethod, setSwitchingVaultMethod] = useState(false);
-  useEffect(() => () => {
-    vaultMethodSessionRef.current.epoch += 1;
-    vaultMethodMutationRef.current?.controller.abort();
-  }, []);
-  useLayoutEffect(() => {
-    const pending = vaultMethodMutationRef.current;
-    if (pending && pending.epoch !== vaultMethodSessionRef.current.epoch) {
-      pending.controller.abort();
-      if (!pending.committed) toast.dismiss(pending.toastId);
-      vaultMethodMutationRef.current = null;
-      setSwitchingVaultMethod(false);
-    }
-    return () => {
-      if (vaultMethodMutationRef.current && !vaultMethodMutationRef.current.committed) toast.dismiss(vaultMethodMutationRef.current.toastId);
-    };
-  }, [user?.uid, vaultKey]);
-  const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
-  const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
-    useState<VaultWrapper | null>(null);
-  const [newPassphrase, setNewPassphrase] = useState("");
-  const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
@@ -994,6 +944,15 @@ function ProfilePageContent({
       vaultOwnerToken,
     ],
   );
+  const vaultMethods = useProfileVaultMethodsModel({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    hasVault, authLoading, canMutate: vaultAccess.canMutateSecureData,
+    active: activePanel === "security" && activeDetail === "vault" && (presentation !== "native-page" || nativeMenuOpen),
+    displayName: user?.displayName || user?.email || "Hussh User", requestUnlock: () => requestVaultUnlock("profile_data") });
+  const { primaryMethod: vaultMethod, capability: capabilityMatrix, wrappers: enrolledVaultWrappers,
+    primaryWrapperId: primaryVaultWrapperId, effectiveMethod: effectiveVaultMethod, loading: loadingVaultMethod,
+    needsRefresh: vaultMethodsNeedRefresh, owner: vaultMethodsOwner, localBiometricId: localBiometricWrapperId,
+    busy: switchingVaultMethod, passphraseOpen: passphraseDialogOpen, removal: passkeyRemovalTarget,
+    password: newPassphrase, confirmation: confirmPassphrase } = vaultMethods;
   const routeBlockedByVault =
     hasVault === true &&
     vaultAccess.needsUnlock &&
@@ -1251,78 +1210,6 @@ function ProfilePageContent({
     };
   }, [authLoading, user?.uid]);
 
-  async function refreshVaultMethodState(targetUserId: string) {
-    const request = ++vaultMethodRequestRef.current;
-    const isCurrent = () => request === vaultMethodRequestRef.current && vaultMethodOwnerRef.current === targetUserId;
-    try {
-      setLoadingVaultMethod(true);
-      const [capability, vaultState, localWrapperId] = await Promise.all([
-        VaultMethodService.getCapabilityMatrix(),
-        VaultService.getVaultState(targetUserId),
-        VaultBootstrapService.getDeviceBiometricWrapperId(targetUserId),
-      ]);
-      if (!isCurrent()) return false;
-      const nextRecommendedMethod =
-        capability.recommendedMethod !== "passphrase"
-          ? capability.recommendedMethod
-          : null;
-      const quickWrapper =
-        nextRecommendedMethod !== null
-          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod,
-              nextRecommendedMethod === "generated_default_native_biometric" ? { wrapperId: localWrapperId } : undefined)
-          : null;
-      const primaryPrefersQuickMethod =
-        vaultState.primaryMethod === "generated_default_native_biometric" ||
-        vaultState.primaryMethod === "generated_default_web_prf" ||
-        vaultState.primaryMethod === "generated_default_native_passkey_prf";
-      const primaryWrapper = VaultService.getPrimaryWrapper(vaultState);
-      const nextEffectiveMethod =
-        primaryPrefersQuickMethod && quickWrapper
-          ? quickWrapper.method
-          : primaryPrefersQuickMethod && !quickWrapper
-            ? "passphrase"
-            : primaryWrapper.method;
-
-      setCapabilityMatrix(capability);
-      setVaultMethodsOwner(targetUserId);
-      setVaultMethod(vaultState.primaryMethod);
-      setLocalBiometricWrapperId(localWrapperId);
-      setEnrolledVaultWrappers(vaultState.wrappers);
-      setPrimaryVaultWrapperId(vaultState.primaryWrapperId ?? "default");
-      setEffectiveVaultMethod(nextEffectiveMethod);
-      setVaultMethodsNeedRefresh(false);
-      return true;
-    } catch {
-      if (!isCurrent()) return false;
-      console.warn("VAULT_METHOD_REFRESH_FAILED");
-      // A failed read is not an empty vault and cannot undo a confirmed write.
-      setVaultMethodsNeedRefresh(true);
-      return false;
-    } finally {
-      if (isCurrent()) setLoadingVaultMethod(false);
-    }
-  }
-
-  useEffect(() => {
-    if (authLoading || !user?.uid) return;
-    if (hasVault !== true) {
-      vaultMethodRequestRef.current += 1;
-      setVaultMethod(null);
-      setEnrolledVaultWrappers([]);
-      setPrimaryVaultWrapperId(null);
-      setEffectiveVaultMethod(null);
-      return;
-    }
-
-    void refreshVaultMethodState(user.uid);
-    return () => { vaultMethodRequestRef.current += 1; };
-  }, [authLoading, hasVault, user?.uid]);
-
-  useEffect(() => {
-    setPasskeyRemovalTarget(null);
-    setPassphraseDialogOpen(false);
-    setNewPassphrase(""); setConfirmPassphrase("");
-  }, [user?.uid, vaultAccess.canMutateSecureData]);
 
   useEffect(() => {
     if (!user) {
@@ -2085,157 +1972,6 @@ function ProfilePageContent({
       toast.error(message);
     } finally {
       setGmailActionBusy(null);
-    }
-  }
-  async function switchToQuickMethod(targetMethod: VaultMethod) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    await runVaultMethodChange(async (isCurrent, signal) => {
-      const result = await VaultMethodService.switchMethod({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        displayName: user.displayName || user.email || "Hussh User",
-        targetMethod,
-        signal,
-      });
-
-      if (isCurrent()) { setVaultMethod(result.method); setPrimaryVaultWrapperId(null); }
-    }, "Unlock method added.", "We couldn't add this unlock method. Your existing methods still work.");
-  }
-
-  async function setQuickMethodAsDefault(
-    targetMethod: VaultMethod,
-    wrapperId?: string | null,
-  ) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    await runVaultMethodChange(async (isCurrent) => {
-      await VaultService.setPrimaryVaultMethod(
-        user.uid,
-        targetMethod,
-        wrapperId ?? "default",
-        vaultOwnerToken ?? undefined,
-      );
-      if (isCurrent()) {
-        setVaultMethod(targetMethod);
-        setPrimaryVaultWrapperId(wrapperId ?? "default");
-        setEffectiveVaultMethod(targetMethod === "generated_default_native_biometric" &&
-          (wrapperId ?? "default") !== localBiometricWrapperId ? "passphrase" : targetMethod);
-      }
-    }, "Default unlock updated.", "We couldn't change your default unlock.");
-  }
-
-  async function removePasskeyWrapper(wrapper: VaultWrapper) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to remove a passkey.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-    if (!vaultOwnerToken) {
-      toast.info("Unlock your vault to remove a passkey.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    await runVaultMethodChange(async (isCurrent) => {
-      const result = await VaultMethodService.removeMethod({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        vaultOwnerToken,
-        method: wrapper.method,
-        wrapperId: wrapper.wrapperId ?? "default",
-        fallbackPrimaryMethod: "passphrase",
-        fallbackPrimaryWrapperId: "default",
-      });
-      if (isCurrent()) {
-        setVaultMethod(result.primaryMethod);
-        const removedPrimary = vaultMethod === wrapper.method && (primaryVaultWrapperId ?? "default") === (wrapper.wrapperId ?? "default");
-        if (removedPrimary) { setPrimaryVaultWrapperId("default"); setEffectiveVaultMethod("passphrase"); }
-        setEnrolledVaultWrappers((current) => current.filter((candidate) => candidate.method !== wrapper.method ||
-          (candidate.wrapperId ?? "default") !== (wrapper.wrapperId ?? "default")));
-        setPasskeyRemovalTarget(null);
-      }
-    }, "Passkey removed. Passphrase is still available.", "We couldn't remove this passkey.");
-  }
-
-  async function changePassphrase() {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change password.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    await runVaultMethodChange(async (isCurrent, signal, acknowledgeCommit) => {
-      await VaultMethodService.changePassphrase({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        newPassphrase,
-        keepPrimaryMethod: true,
-        signal,
-        onCommitted: (result) => {
-          if (!isCurrent()) return;
-          setVaultMethod(result.primaryMethod);
-          setPassphraseDialogOpen(false);
-          setNewPassphrase(""); setConfirmPassphrase("");
-          // The service acknowledges before its intentional vault-rekey lock.
-          acknowledgeCommit();
-        },
-      });
-    }, "Passphrase updated.", "We couldn't change your passphrase.");
-  }
-
-  async function runVaultMethodChange(operation: (isCurrent: () => boolean, signal: AbortSignal, acknowledgeCommit: () => void) => Promise<void>, success: string, failure: string) {
-    if (!user?.uid || vaultMethodMutationRef.current || vaultMethodsNeedRefresh) return;
-    if (!vaultAccess.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
-      toast.info("Unlock your vault to change methods.");
-      requestVaultUnlock("profile_data"); return;
-    }
-    const owner = user.uid;
-    const epoch = vaultMethodSessionRef.current.epoch;
-    const isCurrent = () => vaultMethodOwnerRef.current === owner && vaultMethodSessionRef.current.epoch === epoch;
-    const operationId = { epoch, toastId: toast.loading("Updating unlock methods…"), controller: new AbortController(), committed: false };
-    const acknowledgeCommit = () => {
-      if (!isCurrent() || operationId.committed) return;
-      operationId.committed = true;
-      toast.success(success, { id: operationId.toastId });
-    };
-    vaultMethodMutationRef.current = operationId;
-    setSwitchingVaultMethod(true);
-    try {
-      vaultMethodRequestRef.current += 1;
-      await operation(isCurrent, operationId.controller.signal, acknowledgeCommit);
-      if (operationId.committed) return;
-      if (!isCurrent()) return;
-      setVaultMethodsNeedRefresh(true);
-      const refreshed = await refreshVaultMethodState(owner);
-      if (isCurrent()) toast.success(refreshed ? success : `${success} Refresh methods to check the latest state.`, { id: operationId.toastId });
-    } catch {
-      if (operationId.committed) { console.warn("VAULT_METHOD_POST_COMMIT_FAILED"); return; }
-      console.warn("VAULT_METHOD_CHANGE_FAILED");
-      if (isCurrent()) toast.error(failure, { id: operationId.toastId });
-    }
-    finally {
-      if (vaultMethodMutationRef.current === operationId) {
-        vaultMethodMutationRef.current = null;
-        setSwitchingVaultMethod(false);
-      }
-      if (!isCurrent() && !operationId.committed) toast.dismiss(operationId.toastId);
     }
   }
 
@@ -3613,7 +3349,7 @@ function ProfilePageContent({
         isPanePresentation && accountStyles.paneAccountContent,
       )}
     >
-      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"}
+      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"} optionsOnMount
         onPresentationClose={() => setNativeAccountException(null)} /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
@@ -4030,12 +3766,12 @@ function ProfilePageContent({
               primaryMethod={vaultMethodsOwner === user?.uid ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
               biometricLabel={capabilityMatrix?.biometricLabel} localBiometricId={localBiometricWrapperId}
               mutable={vaultAccess.canMutateSecureData} busy={switchingVaultMethod} needsRefresh={vaultMethodsNeedRefresh}
-              onSelect={(wrapper) => void setQuickMethodAsDefault(wrapper.method, wrapper.wrapperId)}
-              onRemove={setPasskeyRemovalTarget}
-              onAdd={vaultAccess.canMutateSecureData && recommendedQuickMethod ? () => void switchToQuickMethod(recommendedQuickMethod) : undefined}
+              onSelect={(wrapper) => void vaultMethods.select(wrapper)}
+              onRemove={vaultMethods.requestRemove}
+              onAdd={vaultAccess.canMutateSecureData && recommendedQuickMethod ? () => void vaultMethods.add(recommendedQuickMethod) : undefined}
               addLabel={recommendedQuickMethod === "generated_default_native_biometric"
                 ? `Add ${capabilityMatrix?.biometricLabel || "biometrics"}` : enrolledPasskeyWrappers.length ? "Add another passkey" : "Add passkey"}
-              onChangePassphrase={() => setPassphraseDialogOpen(true)} onRefresh={() => { if (user?.uid) void refreshVaultMethodState(user.uid); }} />
+              onChangePassphrase={vaultMethods.openPassword} onRefresh={() => void vaultMethods.refresh()} />
 
           </>
         ) : null}
@@ -4765,7 +4501,7 @@ function ProfilePageContent({
 
       <Dialog
         open={passphraseDialogOpen}
-        onOpenChange={setPassphraseDialogOpen}
+        onOpenChange={(open) => { if (!open) vaultMethods.closePassword(); }}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
           <DialogTitle>Change password</DialogTitle>
@@ -4779,14 +4515,14 @@ function ProfilePageContent({
               placeholder="New password (min 8 characters)"
               autoComplete="new-password"
               value={newPassphrase}
-              onChange={(event) => setNewPassphrase(event.target.value)}
+              onChange={(event) => vaultMethods.editPassword("password", event.target.value)}
             />
             <Input
               type="password"
               placeholder="Confirm password"
               autoComplete="new-password"
               value={confirmPassphrase}
-              onChange={(event) => setConfirmPassphrase(event.target.value)}
+              onChange={(event) => vaultMethods.editPassword("confirmation", event.target.value)}
             />
             <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
               <Button
@@ -4794,7 +4530,7 @@ function ProfilePageContent({
                 effect="fade"
                 size="default"
                 className="w-full sm:w-auto"
-                onClick={() => setPassphraseDialogOpen(false)}
+                onClick={vaultMethods.closePassword}
                 disabled={switchingVaultMethod}
               >
                 Cancel
@@ -4807,7 +4543,7 @@ function ProfilePageContent({
                   newPassphrase.length < 8 ||
                   newPassphrase !== confirmPassphrase
                 }
-                onClick={() => void changePassphrase()}
+                onClick={() => void vaultMethods.savePassword()}
               >
                 {switchingVaultMethod ? "Saving..." : "Save new password"}
               </Button>
@@ -4819,7 +4555,7 @@ function ProfilePageContent({
       <AlertDialog
         open={Boolean(passkeyRemovalTarget)}
         onOpenChange={(open) => {
-          if (!open) setPasskeyRemovalTarget(null);
+          if (!open) vaultMethods.cancelRemove();
         }}
       >
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
@@ -4849,7 +4585,7 @@ function ProfilePageContent({
               onClick={(event) => {
                 event.preventDefault();
                 if (passkeyRemovalTarget) {
-                  void removePasskeyWrapper(passkeyRemovalTarget);
+                  void vaultMethods.remove();
                 }
               }}
             >
@@ -4950,8 +4686,11 @@ function ProfilePageContent({
   const nativeLegal = projectNativeProfileLegal(activeDetail === "privacy" || activeDetail === "terms" ? activeDetail : null,
     (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT), legalParent === true);
   const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
+    { id: "account-portrait", rows: [
+      { id: "account-photo", label: user.displayName || "Your account", enabled: true, portrait: true,
+        ...(nativePortrait ? { portraitData: nativePortrait } : {}) },
+    ] },
     { id: "account-identity", title: "Identity", rows: [
-      { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
       { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
       { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
       { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: true, artworkId: "account-phone", trailing: phoneNumber ? "Change" : "Add", chevron: true },
@@ -5051,7 +4790,7 @@ function ProfilePageContent({
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy),
-      name: user.displayName || "Your account", email: user.email, onClose: closeNativeProfile,
+      name: user.displayName || "Your account", email: user.email, portrait: nativePortrait, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",

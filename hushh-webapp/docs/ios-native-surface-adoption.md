@@ -16,6 +16,52 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Profile height, photo header and current physical checks — 2026-10-17
+
+The installed UAT-backed `6e24a47dbf` candidate, Agent One 1.4.0 (69), passes
+the bounded native Account → Phone → country choice → Back/cancel journey with
+the software keyboard, one WebView and the warm draft/session; no SMS was sent.
+The same installed candidate passes three real Feed scroll hide/reveal cycles
+with navigation and dock moving together, then restores Chat and its keyboard.
+These are functional receipts, not visual/accessibility or Release-performance
+acceptance. Its canonical local core passed; no current-head CI or release is
+inferred.
+
+The new source fixes a separately reproduced Profile-height defect: the outer
+panel was full height, but its SwiftUI-hosted UIKit navigation envelope respected
+an extra safe area. The nearest native regression observes a 47pt top/34pt bottom
+gap on the old code and passes with vertical safe-area expansion. UIKit retains
+content and navigation-bar insets; no outer-frame or global-padding workaround.
+
+The capability-negotiated `profilePortrait` header replaces the Account photo
+list row with an image above its photo-action button, and supplies the same
+effective photo to the root identity header. Native receives bounded JPEG bytes
+only, decoded with bounded ImageIO dimensions; there is no native URL fetch or
+image persistence. The existing provider fallback can request a larger Google
+avatar using its documented FIFE size option; uploaded images remain unchanged.
+Apple sign-in supplies no photo field, so absent media keeps the real fallback.
+Provider evidence: [Google image dimensions](https://developers.google.com/identity/sign-in/ios/reference/Classes/GIDProfileData),
+[Apple identity credential](https://developer.apple.com/documentation/authenticationservices/asauthorizationappleidcredential).
+Media preparation caps source bytes and dimensions before browser decode, uses
+the SDK-preserved WebKit fetch rather than CapacitorHttp's buffering proxy, and
+aborts on timeout, owner/privacy change or retirement. The nearest transport
+regression fails against patched fetch and passes with that boundary restored.
+Photo preview/actions still use the existing React exception and are **not**
+counted as complete native photo-operation conversion. This source is not yet
+installed/physically qualified. Unsupported wrappers retain their ordinary row.
+
+Vault methods now have one extracted React feature model for reads, enrollment,
+default/removal and password changes. Existing services and owner authorization
+remain authoritative. Its nearest regressions cover canceled/replaced removals,
+first-read errors, uncertain writes requiring fresh reconciliation, secret
+cleanup and acknowledged rekey outcomes. Native protected scenes are not enabled
+by this extraction.
+
+Coverage proceeds through every shared Profile roster item and its nested states;
+a passing Account or Appearance journey never qualifies the other destinations.
+Rollback: revert the bounded family change or disable the existing single
+qualification switch. Ordinary builds remain on their established renderers.
+
 ### Native Phone/OTP and current-visit admission — 2026-10-17
 
 The qualified iPhone wrapper negotiates `profilePhoneScene`: a complete owned

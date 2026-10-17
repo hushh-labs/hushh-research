@@ -28,23 +28,41 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, groups, actions, onClose, onPresented, stack }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, portrait, groups, actions, onClose, onPresented, stack }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   enabled?: boolean;
+  portrait?: string;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
   stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; supportDestinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void; root?: () => void; ancestor?: NativeDrawerActions["ancestor"] };
 }) {
-  const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
+  const [portraitSupported, setPortraitSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    let current = true;
+    void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(value => {
+      if (current) setPortraitSupported(value.contractVersion === 1 && value.profilePortrait === true);
+    }).catch(() => { if (current) setPortraitSupported(false); });
+    return () => { current = false; };
+  }, []);
+  const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready: ready && portraitSupported !== null, open,
     title: "Profile", profileMenuRows: true, surfaceOpen, enabled, onPresented: state => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
       onPresented?.(state.profileDestinationId ?? state.profileSupportDestinationId, state.privacyGeneration);
     },
     project: () => {
       const projected = projectNativeProfileMenu(name, email, ready, groups, actions, onClose);
-      if (!stack) return projected;
-      return { ...projected, profileStack: stack.pages, profileDestinationId: stack.destinationId,
+      const sections = portraitSupported ? projected.sections.map(section => ({ ...section,
+        rows: section.rows.map(row => row.id === "identity" ? { ...row, portrait: true,
+          ...(portrait ? { portraitData: portrait } : {}) } : row),
+      })) : projected.sections;
+      if (!stack) return { ...projected, sections };
+      // Additive capability: old wrappers keep their established ordinary row.
+      const pages = portraitSupported ? stack.pages : stack.pages.map(page => ({ ...page, sections: page.sections.map(section => ({
+        ...section, rows: section.rows.map(({ portrait: _portrait, portraitData: _data, ...row }) => row.id === "account-photo"
+          ? { ...row, label: "Profile photo", artworkId: "account", chevron: true } : row),
+      })) }));
+      return { ...projected, sections, profileStack: pages, profileDestinationId: stack.destinationId,
         profileSupportDestinationId: stack.supportDestinationId, actions: { ...projected.actions,
         rows: new Map([...projected.actions.rows, ...stack.rows]), ...(stack.pages.length ? { back: stack.back } : {}), ...(stack.root ? { root: stack.root } : {}), ...(stack.ancestor ? { ancestor: stack.ancestor } : {}) } };
     } });

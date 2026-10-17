@@ -502,6 +502,26 @@ describe("private native drawer action boundary", () => {
     expect(validNativeDrawerProjection({ ...menu, open: false, surfaceOpen: false })).toBe(true);
   });
 
+  it("admits bounded raster portraits only in authored private Profile headers", () => {
+    const row = { id: "identity", label: "Public sample", enabled: true, portrait: true,
+      portraitData: "data:image/jpeg;base64,/9j/2Q==" };
+    const portrait = { ...state(), family: "profile" as const,
+      sections: [{ id: "identity-section", rows: [row] }] };
+    expect(validNativeDrawerProjection(portrait)).toBe(true);
+    for (const change of [{ portraitData: "https://provider.example.test/photo.jpg" },
+      { portraitData: "data:image/svg+xml;base64,PHN2Zy8+" }, { portraitData: "x".repeat(100_001) },
+      { portraitData: 42 }, { portrait: false }, { options: [] }]) {
+      expect(validNativeDrawerProjection({ ...portrait,
+        sections: [{ id: "identity-section", rows: [{ ...row, ...change }] }] } as never)).toBe(false);
+    }
+    expect(validNativeDrawerProjection({ ...portrait, family: "history" })).toBe(false);
+    expect(validNativeDrawerProjection({ ...portrait, sections: [{ id: "arbitrary", rows: [row] }] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...portrait, sections: [{ id: "account-portrait", rows: [{ ...row, id: "account-photo" }] }] })).toBe(true);
+    const fence = new NativeDrawerChoiceFence(portrait);
+    fence.retire();
+    expect(fence.allows({ ...choice(), family: "profile", rowId: "identity" })).toBe(false);
+  });
+
   it("admits only the active native Profile destination and fences an Account round trip", async () => {
     const root = { ...state(), family: "profile" as const, surfaceOpen: true, backEnabled: true };
     const account: NativeDrawerProjection = { ...root, profileDestinationId: "account-first", profileStack: [

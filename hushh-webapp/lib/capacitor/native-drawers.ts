@@ -27,6 +27,9 @@ export type NativeDrawerRow = {
   pending?: boolean;
   readOnly?: boolean;
   artworkId?: string;
+  /** Private raster-only Profile header; never a URL or public chrome field. */
+  portrait?: boolean;
+  portraitData?: string;
   renameActionId?: string;
   deleteActionId?: string;
 };
@@ -79,7 +82,7 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean }>;
   getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
   applyProfilePhoneScene?(options: Parameters<NativePhoneScenePort["applyProfilePhoneScene"]>[0]): ReturnType<NativePhoneScenePort["applyProfilePhoneScene"]>;
   confirmProfilePhoneAction?(options: Parameters<NativePhoneScenePort["confirmProfilePhoneAction"]>[0]): ReturnType<NativePhoneScenePort["confirmProfilePhoneAction"]>;
@@ -240,7 +243,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
@@ -249,6 +252,11 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
           (row.artworkId !== undefined && !validIdentifier(row.artworkId)) ||
           (row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex)) ||
           (row.trailing !== undefined && !validText(row.trailing, 32))) return false;
+      if (row.portrait !== undefined && (row.portrait !== true || value.family !== "profile" ||
+          !(section.id === "identity-section" && row.id === "identity" || section.id === "account-portrait" && row.id === "account-photo")) ||
+          row.portrait === true && (row.readOnly || row.options || row.toggle || row.renameActionId || row.deleteActionId) ||
+          row.portraitData !== undefined && (row.portrait !== true || typeof row.portraitData !== "string" || row.portraitData.length > 100_000 ||
+            !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(row.portraitData))) return false;
       ids.add(row.id);
       if (row.options !== undefined) {
         if (value.family !== "profile" || !Array.isArray(row.options) || row.options.length < 2 || row.options.length > 8 ||

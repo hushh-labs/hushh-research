@@ -42,6 +42,8 @@ struct NativeDrawerRow: Codable, Identifiable {
     var trailing: String? = nil
     var options: [NativeDrawerOption]? = nil
     var toggle: Bool? = nil
+    var portrait: Bool? = nil
+    var portraitData: String? = nil
 }
 
 struct NativeDrawerSection: Codable, Identifiable {
@@ -102,7 +104,7 @@ struct NativeDrawerProjection: Codable {
         for section in allSections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) else { return false }
                 if let options = row["options"] {
                     guard let choices = options as? [[String: Any]], choices.allSatisfy({ Set($0.keys).isSubset(of: ["id", "label", "selected", "symbol", "colorHex"]) }) else { return false }
                 }
@@ -151,6 +153,16 @@ struct NativeDrawerProjection: Codable {
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
                       row.trailing == nil || Self.text(row.trailing!, 32),
                       row.toggle != true || row.options?.count == 2 else { return false }
+                if let portrait = row.portrait {
+                    guard portrait, family == "profile",
+                          section.id == "identity-section" && row.id == "identity" || section.id == "account-portrait" && row.id == "account-photo",
+                          row.readOnly != true, row.options == nil, row.toggle != true,
+                          row.renameActionId == nil, row.deleteActionId == nil else { return false }
+                }
+                if let image = row.portraitData {
+                    guard row.portrait == true, image.utf16.count <= 100_000,
+                          image.range(of: "^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$", options: .regularExpression) != nil else { return false }
+                }
                 for action in [row.renameActionId, row.deleteActionId].compactMap({ $0 }) {
                     guard NativeDrawerIdentity.identifier(action), ids.insert(action).inserted else { return false }
                 }

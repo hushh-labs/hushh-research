@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 enum NativeDrawerLayout {
     static func travel(family: String, frame: CGRect, in bounds: CGRect) -> CGFloat {
@@ -868,6 +869,9 @@ struct NativeDrawerContent: View {
     }
     private var profileNavigation: some View {
         NativeProfileNavigation(model: model, observer: profileRowObserver)
+            // The navigation envelope fills the panel, just like History.
+            // UIKit still owns its navigation-bar and scroll content insets.
+            .ignoresSafeArea(.container, edges: .vertical)
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
             .allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)
@@ -1009,10 +1013,8 @@ struct NativeDrawerContent: View {
                         ForEach(section.rows) { row in
                             Button { model.choice("row", row: row.id) } label: {
                                 HStack(spacing: 12) {
-                                    Text(profileInitials(row.label)).font(.title3.weight(.medium))
-                                        .frame(width: 56, height: 56)
-                                        .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                                        .accessibilityHidden(true)
+                                    NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
+                                        .frame(width: 56, height: 56).accessibilityHidden(true)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(row.label).font(.system(size: profileNameFont, weight: .bold))
                                             .foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
@@ -1029,6 +1031,17 @@ struct NativeDrawerContent: View {
                                 .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
+                    } else if section.id == "account-portrait", let row = section.rows.first, row.portrait == true {
+                        VStack(spacing: 8) {
+                            Button { model.choice("row", row: row.id) } label: {
+                                NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
+                                    .frame(width: 88, height: 88)
+                            }.buttonStyle(.plain).accessibilityLabel("Profile photo options")
+                            Button("Photo options") { model.choice("row", row: row.id) }
+                                .frame(minWidth: 44, minHeight: 44)
+                                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                        }.frame(maxWidth: .infinity)
+                            .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             if let title = section.title {
@@ -1157,6 +1170,40 @@ struct NativeDrawerContent: View {
                 .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// Bounded raster replica; no URLSession, disk cache or provider authority.
+private struct NativeProfilePortraitImage: View {
+    let data: String?
+    let initials: String
+    @State private var decoded: UIImage?
+    @State private var decodedSource: String?
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(uiColor: .tertiarySystemFill))
+            if decodedSource == data, let decoded {
+                Image(uiImage: decoded).resizable().scaledToFill()
+            } else { Text(initials).font(.title3.weight(.medium)) }
+        }.clipShape(Circle())
+            .onAppear(perform: decode)
+            .onChange(of: data) { _, _ in decode() }
+    }
+    private func decode() {
+        decoded = nil; decodedSource = nil
+        guard let data, data.utf16.count <= 100_000, data.hasPrefix("data:image/jpeg;base64,"),
+              let bytes = Data(base64Encoded: String(data.dropFirst("data:image/jpeg;base64,".count))),
+              let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0, width <= 1024, height <= 1024,
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 256,
+              ] as CFDictionary) else { return }
+        decoded = UIImage(cgImage: image); decodedSource = data
     }
 }
 
