@@ -26,13 +26,9 @@ describe("Navbar bottom chrome contract", () => {
 
   it("keeps voice owned by the persistent AgentBar while Chat belongs to navigation", () => {
     const navbar = read("components/navbar.tsx");
-    const searchBar = read("components/kai/kai-command-bar-global.tsx");
     const agentBar = read("components/agent/command-agent-bar.tsx");
     const providers = read("app/providers.tsx");
-    // Chat has no top shell, but Search still needs its global receiver.
-    expect(providers).toMatch(
-      /!hidesPersistentChrome\s*&&\s*!effectiveHideCommandBar\s*\?\s*\(\s*<KaiCommandBarGlobal/,
-    );
+    expect(providers).not.toContain("KaiCommandBarGlobal");
 
     // One column for both bars: the pill fills the shared bottom chrome
     // column and carries no viewport or route arithmetic of its own.
@@ -40,11 +36,6 @@ describe("Navbar bottom chrome contract", () => {
     expect(navbar).not.toContain("100vw");
     expect(navbar).not.toContain("45rem");
     expect(navbar).not.toContain('data-testid="bottom-agent-trigger"');
-
-    // The Kai search chrome must no longer render its own Agent launcher; the
-    // persistent AgentBar is the single agent entry point.
-    expect(searchBar).not.toContain("kai-bottom-agent-action");
-    expect(searchBar).not.toContain('aria-label="Open Agent"');
 
     // Command capture owns voice; Chat is a distinct navigation destination.
     expect(navbar).toContain('label: "Chat"');

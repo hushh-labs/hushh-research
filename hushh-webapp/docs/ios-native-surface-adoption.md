@@ -34,9 +34,9 @@ another navigation stack, WebView, session, or information store.
   with another native content container. Physical acceptance checks both entry
   points; source-derived Chromium/WebKit fixtures independently measure the
   target and photo across 360–1280px widths.
-- [The global Search host](../components/kai/kai-command-bar-global.tsx) is mounted
-  on Chat by [Providers](../app/providers.tsx). Native Search opens that existing
-  palette; it is not an independent search route or native result engine.
+- App-wide Search is disabled and [archived](../../archive/app-wide-search/README.md).
+  Navigation capability version 3 exposes Chat, One, Connect, Feed. Older native
+  wrappers retain the four-tab DOM fallback; there is no global palette receiver.
 - [HushhNativeChrome](../ios/App/App/Plugins/HushhNativeChromePlugin.swift) and its
   [typed bridge](../lib/capacitor/native-chrome.ts) implement a **Debug-only iPhone
   Back pilot** on iOS 26+. [NativeShellBack](../components/app-ui/native-shell-back.tsx)
@@ -154,7 +154,6 @@ than acquire separate native implementations.
 | Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Unused candidate, not shipped reuse: the dropdown has no production caller, and the popover's AgentSectionDropdown caller is itself unreferenced. Do not add a native family solely for this abstraction. |
 | Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Next menu candidate: the reachable People actions in LocationRedesignHub. Use serializable item IDs and labels; arbitrary React labels stay DOM. Preserve disabled/busy state and separate destructive confirmation. The named-circle-flows instance is not current adoption evidence because its enclosing CirclesSection has no production caller. |
 | Agent/voice controls — [AgentBar](../components/agent/agent-bar.tsx), [OneVoiceControl](../components/one-voice/one-voice-control.tsx) | DOM controls over existing runtime providers | Conditional: launcher/cancel chrome only. Keep tap/hold, slide-to-cancel, recording, readiness and task state with existing owners; retain transcript/waveform content. |
-| Search field and close — [KaiCommandPalette](../components/kai/kai-command-palette.tsx), [SearchClearButton](../components/app-ui/search-clear-button.tsx) | DOM controlled palette | Conditional: native search chrome. Existing query, results and action runtime remain authoritative; prove IME, keyboard and dismissal before replacing the field. |
 | Chat history and connectors — [AgentHistorySidebar](../components/agent/agent-history-sidebar.tsx), [AgentConnectionsDrawer](../components/agent/agent-connections-drawer.tsx) | DOM panels and shared overlays | Conditional: header/close/action controls first. Keep chat list, connector forms, tools and credential handling in existing owners. Do not remount the conversation. |
 | Profile and photo preview — [ProfilePane](../components/app-ui/profile-pane.tsx), [ProfileAvatarEditor](../components/profile/profile-avatar-editor.tsx) | DOM Sheet / Dialog | Conditional: header/back/close/options chrome. Retain URL-backed Profile state and photo content; picker authority already has a native adapter. |
 | Record detail — [AdaptiveDetailSurface / SettingsDetailPanel](../components/app-ui/settings-ui.tsx) | Responsive DOM Sheet/Drawer/Dialog | Conditional: shared header controls. Arbitrary body/footer, editing and scrolling prevent a mechanical native transport replacement. |

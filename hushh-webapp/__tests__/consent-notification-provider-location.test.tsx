@@ -252,6 +252,31 @@ beforeEach(() => {
 });
 
 describe("global One Location Feed-first notification policy", () => {
+  it("repairs a transient startup registration failure without prompting again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    mocks.initializeFCM.mockResolvedValueOnce({ status: "push_failed", detail: "temporary_network_error" });
+    const view = renderProvider();
+    try {
+      await act(async () => { await Promise.resolve(); });
+      expect(mocks.initializeFCM).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(mocks.initializeFCM).toHaveBeenCalledTimes(2);
+      expect(mocks.initializeFCM).toHaveBeenLastCalledWith("recipient-user", "firebase-token", { requestPermission: false });
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
+
+  it("cancels a pending registration retry when the account signs out", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    mocks.initializeFCM.mockResolvedValue({ status: "push_failed" });
+    const view = renderProvider();
+    try {
+      await act(async () => { await Promise.resolve(); });
+      mocks.auth.user = null;
+      view.rerender(<ConsentNotificationProvider><div /></ConsentNotificationProvider>);
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(mocks.initializeFCM).toHaveBeenCalledTimes(1);
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
   function PermissionRequestButton() {
     const notificationState = useConsentNotificationState();
     return (

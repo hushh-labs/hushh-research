@@ -62,11 +62,63 @@ describe("projectFeedDriveProgress", () => {
   it("routes sent pending requests through the sent view", () => {
     const rows = projectFeedDriveProgress([entry({
       kind: "outgoing_request",
-      metadata: { ...entry().metadata, direction: "outgoing", automatic_progress_stage: "preparing" },
+      metadata: { ...entry().metadata, direction: "outgoing" },
     })]);
 
     expect(rows[0]?.href).toContain("requestView=sent");
     expect(rows[0]?.description).toContain("your Trusted Circle request");
+  });
+
+  // 2026-10-17: "One is preparing the document request" showed for an hour while nothing ran.
+  it.each([
+    ["owner-allowed", true, "Request allowed. The Drive search starts soon."],
+    ["Trusted", false, "Trusted Circle request. The Drive search starts soon."],
+  ])("shows a queued %s request as waiting, with when it entered the queue", (_kind, ownerAllowed, description) => {
+    for (const direction of ["incoming", "outgoing"] as const) {
+      const [row] = projectFeedDriveProgress([entry({
+        kind: direction === "incoming" ? "incoming_request" : "outgoing_request",
+        metadata: { ...entry().metadata, direction, owner_allowed: ownerAllowed,
+          automatic_progress_stage: "preparing", automatic_progress_state: "queued",
+          automatic_queued_at: "2026-10-17T02:32:50+00:00" },
+      })]);
+      expect(row).toMatchObject({ title: "Waiting to start", description, waiting: true,
+        queuedAt: Date.parse("2026-10-17T02:32:50Z") });
+      expect(JSON.stringify(row)).not.toMatch(/preparing|finding|sharing documents|paused/i);
+    }
+  });
+
+  it("says a delayed request takes longer than usual and is saved, never paused", () => {
+    const delayed = (direction: "incoming" | "outgoing") => projectFeedDriveProgress([entry({
+      kind: direction === "incoming" ? "incoming_request" : "outgoing_request",
+      metadata: { ...entry().metadata, direction, owner_allowed: true,
+        automatic_progress_stage: "preparing", automatic_progress_state: "delayed",
+        automatic_queued_at: "2026-10-17T02:32:50Z" },
+    })])[0];
+    expect(delayed("outgoing")).toMatchObject({ title: "Taking longer than usual",
+      description: "Your request is saved and continues automatically.", waiting: true });
+    expect(delayed("incoming")).toMatchObject({ title: "Taking longer than usual",
+      description: "This request is saved and continues automatically.", waiting: true });
+    expect(JSON.stringify([delayed("incoming"), delayed("outgoing")])).not.toMatch(/paused/i);
+    // Started work that no worker moves keeps its legacy stage but no working copy.
+    const [stalled] = projectFeedDriveProgress([entry({ metadata: { ...entry().metadata,
+      automatic_progress_stage: "finding", automatic_progress_state: "delayed",
+      automatic_queued_at: "2026-10-17T02:40:00Z" } })]);
+    expect(stalled).toMatchObject({ title: "Taking longer than usual", waiting: true,
+      queuedAt: Date.parse("2026-10-17T02:40:00Z") });
+    expect(JSON.stringify(stalled)).not.toMatch(/finding documents|Sharing is automatic/);
+  });
+
+  it("keeps working copy only for started work, and reads an older server's preparing as waiting", () => {
+    const row = (metadata: Record<string, unknown>) =>
+      projectFeedDriveProgress([entry({ metadata: { ...entry().metadata, ...metadata } })])[0];
+    expect(row({ automatic_progress_state: "searching" })).toMatchObject({
+      title: "One is finding documents" });
+    expect(row({ automatic_progress_state: "searching" })?.waiting).toBeUndefined();
+    expect(row({ automatic_progress_stage: "sharing", automatic_progress_state: "sharing" })?.title)
+      .toBe("One is sharing documents");
+    // No state field (older server): its "preparing" never meant work had started.
+    expect(row({ automatic_progress_stage: "preparing" })).toMatchObject({
+      title: "Waiting to start", waiting: true, queuedAt: null });
   });
 
   it("shows Trusted V1 content checking without claiming owner review or sharing", () => {

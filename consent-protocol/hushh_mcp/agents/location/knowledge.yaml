@@ -122,6 +122,10 @@ capabilities:
   - { capability_id: location.open_sos, kind: action, feature_group_id: safety }
   - { capability_id: location.open_sms_contacts, kind: action, feature_group_id: safety }
   - { capability_id: location.open_settings, kind: action, feature_group_id: safety }
+  - capability_id: location.review_notifications
+    kind: action
+    feature_group_id: safety
+    semantic_boundary: Opens Location settings to review device notification readiness. The person must explicitly choose Turn on, Retry, or Open settings; navigation never requests permission, changes a phone setting, or proves physical alert delivery.
   - { capability_id: location.add_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.remove_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.trigger_sos, kind: action, feature_group_id: safety }

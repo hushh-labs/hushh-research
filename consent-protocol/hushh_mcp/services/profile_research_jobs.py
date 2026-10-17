@@ -20,6 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from openai import APIStatusError
 from starlette.concurrency import run_in_threadpool
 
 from db.connection import get_pool
@@ -67,6 +68,8 @@ def provider_error(error: BaseException) -> tuple[int | None, str | None]:
         if seen is None:
             break
         code = getattr(seen, "code", None)
+        if not (type(code) is int and 100 <= code < 600) and isinstance(seen, APIStatusError):
+            code = seen.status_code
         if type(code) is int and 100 <= code < 600:
             status = getattr(seen, "status", None)
             safe = isinstance(status, str) and re.fullmatch(r"[A-Z][A-Z_]{0,63}", status)
@@ -83,6 +86,21 @@ def provider_rejected(code: int | None, status: str | None) -> bool:
 def provider_throttled(code: int | None, status: str | None) -> bool:
     """A provider quota refusal is owner-retryable after a bounded wait."""
     return code == 429 or status == "RESOURCE_EXHAUSTED"
+
+
+def _azure_search_without_receipt(work: Any) -> bool:
+    """No received search can be resumed after an unknown Azure Bing charge."""
+    if not isinstance(work, dict) or type(work.get("azure_work_version")) is not int:
+        return False
+    attempts = work.get("attempts")
+    if not isinstance(attempts, dict) or not attempts:
+        return False
+    rows = list(attempts.values())
+    return (
+        all(isinstance(row, dict) for row in rows)
+        and not any(row.get("observed") is True for row in rows)
+        and any(row.get("state") == "started" and row.get("bing_requests") is None for row in rows)
+    )
 
 
 class ProviderBreaker:
@@ -222,6 +240,7 @@ class ProfileResearchJobs:
         return state["status"] == "unavailable" and (
             state.get("result", {}).get("retry_exhausted") is True
             or state.get("result", {}).get("research_exhausted") is True
+            or _azure_search_without_receipt(state.get("work"))
         )
 
     @staticmethod
@@ -235,7 +254,14 @@ class ProfileResearchJobs:
     def reported(self, state: dict[str, Any]) -> dict[str, Any]:
         """A finished run's result; a cooling failure also says when a retry is accepted."""
         result = state["result"]
-        if state["status"] != "unavailable" or self.exhausted(state):
+        if state["status"] != "unavailable":
+            return result
+        if _azure_search_without_receipt(state.get("work")):
+            # Older UAT checkpoints persisted a generic unavailable result
+            # before the SDK 429 was recognized. Correct the public readout
+            # without changing the sealed ledger or dispatching another search.
+            return {**result, "research_exhausted": True}
+        if self.exhausted(state):
             return result
         remaining = state["finished_at"] + self.cooldown(state) - self.clock()
         return {**result, "retry_after_s": math.ceil(remaining)} if remaining > 0 else result
@@ -319,7 +345,7 @@ class ProfileResearchJobs:
         if not one_profile_research_enabled():
             return {"status": "disabled", "pkm_written": False}
         context = await self.job_context(user_id, consent_token)
-        state = await self.store.get(user_id)
+        state = self.prepare_start_state(await self.store.get(user_id))
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         if state and same_context and self.reusable(state):
             if state["status"] == "pending":
@@ -489,6 +515,14 @@ class ProfileResearchJobs:
 
     async def job_context(self, user_id, consent_token):
         return {}
+
+    def prepare_start_state(self, state: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Allow a feature to translate an older checkpoint before budget validation.
+
+        The returned state retains its revision and fence for the store's CAS.
+        Generic research never changes its paid attempt ledger.
+        """
+        return state
 
     def committed(self):
         pass
@@ -683,6 +717,11 @@ class ProfileResearchJobs:
                     # 429 may arrive after a partial response; keep every paid
                     # provider slot unless the provider proved it did no work.
                     result["reason"] = "provider_throttled"
+                    if _azure_search_without_receipt(state.get("work")):
+                        # The unknown Bing spend uses the entire search cap.
+                        # Retain the checkpoint, but do not promise a retry
+                        # that can only return unavailable again.
+                        result["research_exhausted"] = True
             # Never persist token/key. A lost CAS means a new lease superseded
             # this run; discard the draft rather than overwriting its result.
             if self.review_ids and (

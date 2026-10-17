@@ -11,7 +11,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, ArrowUpRight } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
@@ -31,6 +31,7 @@ import {
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { RequestScopeButton } from "@/components/consent/request-scope-button";
 import { RequestCardsButton } from "@/components/wallet/request-cards-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
@@ -123,11 +124,38 @@ function historyTitle(
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
 }
 
+function actionCardContent(label: string, Icon: typeof FileText) {
+  return (
+    <span className={styles.actionCardContent}>
+      <Icon className={styles.actionIcon} aria-hidden="true" />
+      <ArrowUpRight className={styles.actionArrow} aria-hidden="true" />
+      <span className={styles.actionLabel}>{label}</span>
+    </span>
+  );
+}
+
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const [packetCatalogAvailable, setPacketCatalogAvailable] = useState(false);
+  useEffect(() => {
+    if (!isVaultUnlocked || !vaultOwnerToken) {
+      setPacketCatalogAvailable(false);
+      return;
+    }
+    let current = true;
+    setPacketCatalogAvailable(false);
+    void ExternalConnectorService.overview(vaultOwnerToken)
+      .then((overview) => {
+        if (current) setPacketCatalogAvailable(overview.driveAgentPackagesEnabled === true);
+      })
+      .catch(() => {
+        if (current) setPacketCatalogAvailable(false);
+      });
+    return () => { current = false; };
+  }, [isVaultUnlocked, vaultOwnerToken]);
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
@@ -651,12 +679,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return { status: "started", summary: "Opening the Consent Center." };
   }, { enabled: Boolean(viewerProfile) });
   useLocalOnboardingActionHandler("people.profile.browse_packets", async () => {
-    if (!packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
+    if (!packetCatalogAvailable || !packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
       return { status: "blocked", summary: "Connect with this person and unlock to view available packets." };
     }
     packetsSectionRef.current.scrollIntoView({ block: "start", behavior: "auto" });
     return { status: "succeeded", summary: "Showing available document packets." };
-  }, { enabled: viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
+  }, { enabled: packetCatalogAvailable && viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
 
   const surfaceActions = useMemo(() => {
     if (!viewerProfile) return [];
@@ -681,10 +709,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
-      if (isVaultUnlocked) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
+      if (isVaultUnlocked && packetCatalogAvailable) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
     return actions;
-  }, [isVaultUnlocked, viewerProfile]);
+  }, [isVaultUnlocked, packetCatalogAvailable, viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -807,7 +835,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               {viewerProfile.contactPhoneNumber}
             </a>
           ) : null}
-          <div className={styles.actions} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
+          <div className={styles.actions} data-share-only={!viewerProfile} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
             {viewerProfile ? (
               <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
@@ -831,11 +859,42 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <span>Share</span>
               </span>
             </Button>
+            {user ? (
+              <div className={styles.actionCards}>
+                {viewerProfile?.relationship.status === "connected" ? (
+                  <DocumentRequestButton
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle)}
+                  />
+                ) : null}
+                {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
+                <RequestScopeButton
+                  key={`question:${user.uid}:${resolvedPersonRef}`}
+                  personRef={resolvedPersonRef}
+                  personName={profile.displayName || "this person"}
+                  canRequest={viewerProfile?.relationship.status === "connected"}
+                  returnFocusRef={requestScopeReturnFocusRef}
+                  renderTrigger={(label) => actionCardContent(label, ShieldCheck)}
+                />
+                {viewerProfile?.relationship.status === "connected" ? (
+                  <RequestCardsButton
+                    key={`card:${user.uid}:${resolvedPersonRef}`}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, CreditCard)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable ? (
+              <Button type="button" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>
+            ) : null}
             {viewerProfile ? (
               <>
                 <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   <Settings className="h-5 w-5" aria-hidden="true" />
-                  Manage access
+                  <span>Manage access</span>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
                 {viewerProfile.relationship.status === "none" ? (
@@ -864,29 +923,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     Cancel request
                   </Button>
                 ) : null}
-                {viewerProfile.relationship.status === "connected" ? <><DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} />
-                  <RequestCardsButton key={`${user?.uid}:${resolvedPersonRef}`} personRef={resolvedPersonRef} personName={profile.displayName || "this person"} className={styles.requestCards} />
-                  {isVaultUnlocked && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
-                </> : null}
               </>
-            ) : null}
-            {/* Preserve accepted confirmation while profile authority refreshes. */}
-            {user ? (
-              <RequestScopeButton
-                key={`${user.uid}:${resolvedPersonRef}`}
-                personRef={resolvedPersonRef}
-                personName={profile.displayName || "this person"}
-                className={styles.requestScope}
-                canRequest={viewerProfile?.relationship.status === "connected"}
-                returnFocusRef={requestScopeReturnFocusRef}
-              />
             ) : null}
 
           </div>
         </SectionCard>
 
         {/* Their listed packets read like Payouts history: the list is its own group, not a card in a card. */}
-        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
+        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
 
         {!user && !authLoading ? (
           <SectionCard>

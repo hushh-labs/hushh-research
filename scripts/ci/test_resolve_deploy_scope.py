@@ -149,7 +149,9 @@ def test_auto_backend_only_change() -> None:
     tempdir, repo = with_git_repo()
     with tempdir:
         base = commit_file(repo, "README.md", "base\n")
-        target = commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "deploy/email-auth/bind_secrets.sh", "backend\n")
+        target = commit_file(repo, "scripts/ops/email_auth_uat_release.py", "backend\n")
         previous_cwd = Path.cwd()
         try:
             import os
@@ -165,6 +167,7 @@ def test_auto_backend_only_change() -> None:
     assert decision.scope == "backend"
     assert decision.deploy_backend is True
     assert decision.deploy_frontend is False
+    assert not decision.shared_changed_files
 
 
 def test_auto_mixed_change_deploys_all() -> None:

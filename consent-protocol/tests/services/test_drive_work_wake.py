@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
+import httpx
 import pytest
 
 from hushh_mcp.services import drive_work_wake as wake
@@ -179,3 +185,146 @@ async def test_prompt_wake_rejects_adc_project_substitution(monkeypatch):
         wake.httpx, "AsyncClient", lambda **_: pytest.fail("must not call scheduler")
     )
     assert not await wake.wake_drive_work("sharing")
+
+
+def _uat_lane(monkeypatch, enabled="true"):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", enabled)
+    monkeypatch.setattr(wake, "default_credentials", lambda **_: (_Credentials(), "hushh-pda-uat"))
+
+
+def _wake_records(caplog):
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == wake.__name__
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "outcome"), [(403, "permission_denied"), (500, "http_500"), (401, "http_401")]
+)
+async def test_failed_wake_logs_one_warning_with_stage_and_outcome_only(
+    monkeypatch, caplog, status, outcome
+):
+    _uat_lane(monkeypatch)
+    _scheduler(monkeypatch, status)
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    assert not await wake.wake_drive_work("sharing")
+    assert _wake_records(caplog) == [
+        (logging.WARNING, f"drive_work_wake.failed stage=sharing outcome={outcome}")
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "outcome"),
+    [(TimeoutError(), "timeout"), (httpx.ConnectTimeout("t"), "timeout"), (OSError(), "error")],
+)
+async def test_raising_wake_logs_timeout_or_error_class(monkeypatch, caplog, error, outcome):
+    _uat_lane(monkeypatch)
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+        async def post(self, _url, **_kwargs):
+            raise error
+
+    monkeypatch.setattr(wake.httpx, "AsyncClient", Client)
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    assert not await wake.wake_drive_work("v1")
+    assert _wake_records(caplog) == [
+        (logging.WARNING, f"drive_work_wake.failed stage=v1 outcome={outcome}")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_expected_skips_never_warn(monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    _uat_lane(monkeypatch, enabled="false")
+    assert not await wake.wake_drive_work("sharing")
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    assert not await wake.wake_drive_work("sharing")
+    assert _wake_records(caplog) == [
+        (logging.DEBUG, "drive_work_wake.skipped stage=sharing outcome=disabled"),
+        (logging.DEBUG, "drive_work_wake.skipped stage=sharing outcome=not_configured"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reads_of_a_stalled_request_never_run_scheduler_jobs(monkeypatch):
+    """2026-10-17: the jobs were paused and the jobRunner grant withdrawn.
+
+    jobs.run still runs a paused job, so a status, review or Consent Center
+    read that sees a delayed request must never call it, even with the API's
+    drain flag on and after a denied wake.
+    """
+    from hushh_mcp.services.drive_sharing_center_contributor import (
+        DriveSharingCenterContributor,
+        entry,
+    )
+    from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+    _uat_lane(monkeypatch)
+    calls = _scheduler(monkeypatch, 403)
+    assert not await wake.wake_drive_work("v1")  # The committed action's own wake.
+    assert len(calls) == 1
+
+    now = datetime.now(UTC)
+    request_id = str(uuid4())
+    delayed = entry(
+        {
+            "source": "share",
+            "id": f"document_share_request:{request_id}",
+            "request_id": request_id,
+            "bucket": "incoming_requests",
+            "status": "pending",
+            "issued_at": 0,
+            "direction": "incoming",
+            "state": "pending",
+            "revision": 1,
+            "preparation_error_code": "trusted_auto_queued",
+            "owner_search_state": None,
+            "trusted_authority_ready": True,
+            "owner_allowed": True,
+            "automatic_queued_at": now - timedelta(minutes=10),
+        },
+        now=now,
+    )
+    assert delayed["metadata"]["automatic_progress_state"] == "delayed"
+    store = DriveSharingStore.__new__(DriveSharingStore)
+    store._transaction = AsyncMock(
+        return_value={"status": "pending", "queuedAt": now.isoformat(), "queueDelayed": True}
+    )
+    center = DriveSharingCenterContributor.__new__(DriveSharingCenterContributor)
+    center._supports_projection = lambda: True
+    center._transaction = AsyncMock(
+        side_effect=lambda _operation: {
+            "total": 1,
+            "items": [delayed],
+            "buckets": {"incoming_requests": [delayed]},
+            "schema_available": True,
+        }
+    )
+
+    before = asyncio.all_tasks()
+    for _ in range(25):
+        assert (await store.request_status(user_id="recipient", request_id=request_id))[
+            "queueDelayed"
+        ]
+        await store.owner_review(user_id="owner", request_id=request_id)
+        await center.page("owner", bucket="incoming_requests", limit=20)
+        await center.preview("owner")
+    # Let anything a read scheduled in the background finish before counting.
+    spawned = asyncio.all_tasks() - before - {asyncio.current_task()}
+    await asyncio.wait_for(asyncio.gather(*spawned), timeout=5)
+    assert len(calls) == 1

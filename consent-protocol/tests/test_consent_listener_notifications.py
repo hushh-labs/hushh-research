@@ -22,6 +22,23 @@ def _pending_payload(*, issued_at: int = 0, approval_timeout_at: int) -> dict:
     }
 
 
+def test_live_sms_payload_survives_authenticated_sse_without_push_registration():
+    from api.consent_listener import _is_user_state_event_type
+    from api.routes.sse import _sse_payload_from_event_payload
+
+    payload = {
+        "type": "location_share_created",
+        "message_id": "stable-event-id",
+        "user_id": "recipient",
+        "grant_id": "grant-id",
+        "share_kind": "sos",
+        "notification_profile": "one_location_sms_emergency",
+    }
+    assert _is_user_state_event_type(payload["type"])
+    assert _sse_payload_from_event_payload(payload) == payload
+    assert not _is_user_state_event_type("unreviewed_domain_payload")
+
+
 def test_next_pending_notification_sends_initial_request_first():
     next_delivery = next_pending_notification(
         _pending_payload(issued_at=0, approval_timeout_at=3 * 60 * 60 * 1000),

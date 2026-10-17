@@ -16,6 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_NAME = "174_hushh_tech_uat_client_foundation.sql"
+DRIVE_RETIREMENT_MIGRATION_NAME = "360_uat_drive_collection_retirement.sql"
 ROLLBACK_NAME = "174_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME
@@ -123,8 +124,9 @@ def test_migration_is_registered_only_in_the_uat_overlay() -> None:
     assert MIGRATION.exists()
     assert ROLLBACK.exists()
     assert MIGRATION_NAME not in ordered
-    assert overlay == [MIGRATION_NAME]
+    assert overlay == [MIGRATION_NAME, DRIVE_RETIREMENT_MIGRATION_NAME]
     assert MIGRATION_NAME not in manifest["groups"]["iam"]
+    assert DRIVE_RETIREMENT_MIGRATION_NAME not in ordered
     assert len(ordered) == len(set(ordered))
     assert "161_atomic_pkm_scope_exposure.sql" in ordered
     assert not set(ordered).intersection(overlay)
@@ -169,7 +171,12 @@ def test_release_runner_selects_the_safe_base_or_explicit_uat_overlay(
 
     assert production == migrate.BASE_RELEASE_MIGRATION_FILES
     assert MIGRATION_NAME not in production
-    assert uat == tuple(sorted(production + (MIGRATION_NAME,), key=_migration_version))
+    assert uat == tuple(
+        sorted(
+            production + (MIGRATION_NAME, DRIVE_RETIREMENT_MIGRATION_NAME),
+            key=_migration_version,
+        )
+    )
     assert uat.index(MIGRATION_NAME) < uat.index("175_contact_sync_connection_provenance.sql")
     with pytest.raises(RuntimeError, match="migration versions must be unique"):
         migrate._merge_release_migration_files(

@@ -13,14 +13,17 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const fixture = vi.hoisted(() => {
   const user = { uid: "owner", email: "owner@example.com", displayName: "Owner", getIdToken: async () => "test-id-token" };
+  const tokenAccess = { available: true };
   return {
+    tokenAccess,
     captureReady: false,
     nameOnboarding: false,
     auth: { user, loading: false, sessionVerificationRequired: false },
-    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => "test-owner-token" },
+    vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: (): string | null => tokenAccess.available ? "test-owner-token" : null },
     persona: { activePersona: "investor", primaryNavPersona: "investor", personaTransitionTarget: null, riaSetupAvailable: false, riaSwitchAvailable: false, riaOnboardingStatus: null, switchPersona: vi.fn() },
     onboarding: { turns: [], shownTurns: new Map(), shownTurnTimes: new Map(), captureComposerText: () => false, dailyTip: null },
     memory: { text: "", domains: [], totalAttributes: 0, updatedAt: null },
@@ -73,6 +76,7 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
   fixture.captureReady = false;
+  fixture.tokenAccess.available = true;
   fixture.nameOnboarding = false;
   useChatOnboardingSession.getState().reset(null);
   vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockReset().mockResolvedValue({ success: true, saveState: "saved" } as never);
@@ -571,7 +575,7 @@ it("interprets a selected Live request in the same existing chat and preserves p
   expect(second.messages.at(-1).content).toContainEqual({ type: "text", text: "Ask for next Friday after 3 PM" });
   expect(await screen.findByLabelText("Alternative date")).toHaveValue("2030-10-18");
   expect(screen.getByLabelText("Alternative start time")).toHaveValue("15:00");
-  expect(screen.getByLabelText("Alternative duration in minutes")).toHaveValue(45);
+  expect(screen.queryByLabelText("Alternative duration in minutes")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Message to organiser" })).toHaveValue("Could we meet Friday after 3 PM?");
   expect(screen.getByText("Earlier conversation")).toBeInTheDocument();
   expect(review).not.toHaveBeenCalled();
@@ -590,6 +594,69 @@ it("rejects a changed Google account even if the model returns the same invitati
   expect(confirm).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Close invitations" }));
   expect(screen.queryByText(/The connected Calendar account changed/)).toBeNull();
+});
+
+it.each(["navigation", "vault lock", "owner change", "verification required"])(
+  "finishes pasted-profile capture after %s only while its original vault session is authorized",
+  async boundary => {
+    const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+    const markdown = await import("@/lib/pkm/markdown-memory");
+    fixture.captureReady = true;
+    const profile = Array.from({ length: 33 }, (_, index) =>
+      `Synthetic profile line ${index}: I study mechanical engineering and build robots.`).join("\n");
+    let finish!: (value: Awaited<ReturnType<typeof ingestion.prepareNaturalLanguagePkm>>) => void;
+    const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockImplementation(
+      () => new Promise(resolve => { finish = resolve; }),
+    );
+    const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts").mockImplementation(async params => {
+      await params.beforeEffect?.();
+      return { success: true, saved: 1, markdown: "## Facts\n- I build robots.\n" };
+    });
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+    const view = workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Save this about me" } });
+    fireEvent.paste(composer, { clipboardData: { getData: () => profile } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(preparation).toHaveBeenCalledOnce());
+    await waitFor(() => expect(stream).toHaveBeenCalledOnce());
+    expect(preparation.mock.calls[0][0].message).toBe(`Save this about me\n\n${profile}`);
+    // The answer can finish while the independent semantic preparation is pending.
+    await screen.findByRole("button", { name: "Schedule meeting" });
+    view.unmount();
+    if (boundary === "vault lock") advanceVaultSessionEpoch();
+    if (boundary === "owner change") publishValidatedAuthSessionOwner("replacement");
+    if (boundary === "verification required") fixture.tokenAccess.available = false;
+    await act(async () => finish({ cards: [{
+      card_id: "robotics", source_text: "I build robots.", write_mode: "can_save",
+      candidate_payload: { soul_section: "Facts", soul_text: "I build robots." },
+    }] } as never));
+    expect(stage).toHaveBeenCalledTimes(boundary === "navigation" ? 1 : 0);
+  },
+  15_000,
+);
+
+it("reports incomplete memory preparation instead of silently treating it as no new facts", async () => {
+  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+  const markdown = await import("@/lib/pkm/markdown-memory");
+  const { morphyToast } = await import("@/lib/morphy-ux/morphy");
+  const failure = vi.spyOn(morphyToast, "error");
+  fixture.captureReady = true;
+  vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({
+    cards: [], previews: [], sourceCoverage: [{
+      sourceBlockId: "profile", preparationIssue: "preparation_timeout",
+      disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0,
+    }],
+  } as never);
+  const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts");
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: "I study robotics at Example University." } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByRole("button", { name: "Schedule meeting" });
+  expect(stage).not.toHaveBeenCalled();
+  expect(failure).toHaveBeenCalledWith("One couldn't update memory.md. Your message is still in chat; try saving it again.");
 });
 
 it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
@@ -743,4 +810,26 @@ it("does not borrow an active Mail reply workflow for a meeting turn", async () 
   expect(next.threadId).toBe(first.threadId);
   expect(JSON.stringify(next.context)).not.toContain("mail-workflow");
   expect(next.gmailInformationRequestWorkflowId).toBeUndefined();
+});
+
+
+it.each([false, true])("reports authorized Calendar/Mail settlement without repeating effects (history retry: %s)", async retryHistory => {
+  const { snapshotVaultSessionEpoch } = await import("@/lib/vault/session-epoch");
+  let settle!: (value: { result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }) => void;
+  const outcome = new Promise<{ result: { calendar: "declined"; email: "sent"; calendar_error: null; email_error: null } }>(resolve => { settle = resolve; });
+  if (retryHistory) {
+    clearAgentChatHistoryCache("owner");
+    vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));
+  }
+  const stream = vi.spyOn(ApiService, "apiFetchStream");
+  const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance");
+  useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarAttendance: { ownerId: "owner", epoch: snapshotVaultSessionEpoch(), title: "Client Sync", recipient: "organizer@example.com", outcome } });
+  workspace();
+  if (retryHistory) fireEvent.click(await screen.findByRole("button", { name: "Retry conversation" }));
+  await screen.findByText(/Declining Client Sync and sending your email/);
+  await act(async () => { settle({ result: { calendar: "declined", email: "sent", calendar_error: null, email_error: null } }); });
+  await screen.findByText(/Your email was sent to the organizer/);
+  expect(stream).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+  expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
 });

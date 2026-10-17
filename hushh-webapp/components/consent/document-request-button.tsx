@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -72,10 +72,12 @@ export function DocumentRequestButton({
   personRef,
   personName,
   draft,
+  renderTrigger,
 }: {
   personRef: string;
   personName: string;
   draft?: RequestDraft;
+  renderTrigger?: (label: string) => ReactNode;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
@@ -87,6 +89,7 @@ export function DocumentRequestButton({
       personRef={personRef}
       personName={personName}
       draft={draft}
+      renderTrigger={renderTrigger}
       getToken={getVaultOwnerToken}
     />
   );
@@ -98,14 +101,17 @@ function UnlockedRequestButton({
   personName,
   draft,
   getToken,
+  renderTrigger,
 }: {
   userId: string;
   personRef: string;
   personName: string;
   draft?: RequestDraft;
+  renderTrigger?: (label: string) => ReactNode;
   getToken: () => string | null;
 }) {
   const [enabled, setEnabled] = useState(false);
+  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
@@ -161,8 +167,10 @@ function UnlockedRequestButton({
             alive.current &&
             isVaultSessionEpochCurrent(epoch) &&
             getToken() === token
-          )
+          ) {
             setEnabled(result.features.drive_document_sharing === true);
+            setAgentPackagesEnabled(result.driveAgentPackagesEnabled === true);
+          }
         })
         .catch(() => {
           /* A rollout-status failure cannot enable a new action. */
@@ -332,9 +340,11 @@ function UnlockedRequestButton({
         personRef={personRef}
         personName={personName}
         getToken={getToken}
+        agentPackagesEnabled={agentPackagesEnabled}
+        renderTrigger={renderTrigger}
       />
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>
-        Ask about files
+        {renderTrigger?.("Ask about files") ?? "Ask about files"}
       </Button>
       <Dialog
         open={open}

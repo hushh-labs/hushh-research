@@ -9,10 +9,7 @@ import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
-import {
-  SEMANTIC_ROLE_CLASSES,
-  SEMANTIC_ROLE_SOLID,
-} from "@/lib/morphy-ux/tokens/semantic-roles";
+import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
@@ -33,11 +30,11 @@ const DANGER_REST_CLASS = cn(
   "hover:bg-[color:var(--app-destructive-surface)]",
 );
 
-/** A green fill with the role's dark, accessible label (not white on green). */
+/** Quiet success wash with a legible label in either theme. */
 const SUCCESS_CLASS = cn(
-  SEMANTIC_ROLE_SOLID.success.fill,
-  SEMANTIC_ROLE_SOLID.success.fg,
-  "hover:bg-[color:color-mix(in_srgb,var(--app-success)_88%,black_12%)]",
+  SEMANTIC_ROLE_CLASSES.success.tile,
+  SEMANTIC_ROLE_CLASSES.success.glyph,
+  "hover:bg-[color:var(--app-success-surface)]",
 );
 
 /** Success is a decision's positive answer, so it takes the primary slot too. */

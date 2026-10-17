@@ -340,9 +340,6 @@ describe("requesting exact files from a connection", () => {
           ownerPersonRef: personRef,
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
           expectedQuoteVersion: 1,
-          accessDays: 30,
-          requesterActorType: "person",
-          reason: "",
           purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
@@ -350,10 +347,6 @@ describe("requesting exact files from a connection", () => {
       expect(reconcile).toHaveBeenCalledOnce();
       expect(state.invalidate).toHaveBeenCalledWith("b");
       expect(screen.getByText("Request sent.")).toHaveAttribute("role", "status");
-      const sent = screen.getByText("Files modified in the last two days").closest("[data-testid='settings-row']");
-      expect(sent).toHaveTextContent("Waiting for A · Sep 29 – Oct 1, 2026");
-      // The quote is an estimate: the sent row shows no price.
-      expect(sent?.textContent).not.toContain("$");
       expect(screen.getByRole("button", { name: "Request more files" })).toHaveClass("h-[50px]");
       const link = screen.getByRole("link", { name: "View request" }).getAttribute("href");
       expect(link).toContain(encodeURIComponent(`document_share_request:${requestId}`));
@@ -363,18 +356,34 @@ describe("requesting exact files from a connection", () => {
     }
   });
 
-  it("sends a verified-RIA request with a separate reason and seven-day access term", async () => {
+  it("sends a plain file request with only the purpose and selected dates", async () => {
     mount();
     await openFiles("Bank statements");
-    fireEvent.change(screen.getByLabelText("Requesting as"), { target: { value: "ria" } });
-    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Review holdings for advice" } });
-    fireEvent.change(screen.getByLabelText("Access period"), { target: { value: "7" } });
+    expect(screen.queryByLabelText("Requesting as")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Access period")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(state.create).toHaveBeenCalledWith(
-      "owner-b", firebaseProof, expect.objectContaining({ requesterActorType: "ria",
-        reason: "Review holdings for advice", accessDays: 7,
+      "owner-b", firebaseProof, expect.objectContaining({
         purpose: expect.objectContaining({ purpose: "Bank statements" }) }), expect.any(Function),
+    ));
+    expect(state.create.mock.calls[0][2]).not.toHaveProperty("accessDays");
+    expect(state.create.mock.calls[0][2]).not.toHaveProperty("requesterActorType");
+    expect(state.create.mock.calls[0][2]).not.toHaveProperty("reason");
+  });
+
+  it("keeps V1 request terms available when agent packages are enabled", async () => {
+    state.overview.mockResolvedValue({
+      features: { drive_document_sharing: true }, connectors: [], driveAgentPackagesEnabled: true,
+    });
+    mount();
+    await openFiles("Bank statements");
+    fireEvent.change(screen.getByLabelText("Access period"), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Financial review" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(state.create).toHaveBeenCalledWith(
+      "owner-b", firebaseProof, expect.objectContaining({
+        accessDays: 7, requesterActorType: "person", reason: "Financial review",
+      }), expect.any(Function),
     ));
   });
 
@@ -454,7 +463,7 @@ describe("requesting exact files from a connection", () => {
   it("refuses an incomplete period before sending or linking anything", async () => {
     mount();
     await openFiles(undefined, false);
-    expect(screen.getByRole("group", { name: "Dates" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Period (required)" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
     expect(screen.getByText("Choose a start and end date.")).toBeVisible();
     expect(screen.queryByText("The end date must be on or after the start date.")).not.toBeInTheDocument();
@@ -579,9 +588,6 @@ describe("chat draft question card", () => {
         ownerPersonRef: personRef,
         clientRequestId,
         expectedQuoteVersion: 1,
-        accessDays: 30,
-        requesterActorType: "person",
-        reason: "",
         purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       },
       expect.any(Function),

@@ -384,10 +384,10 @@ Rules:
    - `Thinking` only for optional provider telemetry when available.
    - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
 3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
-4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it.
+4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it. Chat Activity is a plain disclosure without a permanent fill, border or elevation. Keep its count, event list, keyboard focus and 44px target; preserve the shared surface default for other progress sections.
 5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
-7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
+7. Mobile chat history and Profile use the opaque theme canvas for their reading surfaces, with shared pane geometry and flat bottom-nav/top-bar control recipes. Keep the modal scrim behind the pane; do not let it tint the reading background or show desktop collapse controls in mobile mode. New chat is a plain action with no resting fill, border or elevation; retain its 44px target, press feedback and keyboard focus.
 8. Agent Chat session continuity is a surface contract: a cold app launch opens
    a blank Chat without selecting the latest saved conversation. In-app route
    navigation resumes the selected `conversationId` for that browser runtime;
@@ -407,6 +407,13 @@ Rules:
 11. An AG-UI interrupt is an awaiting-review lifecycle, not completion. Keep
     the turn and its Activity visible until the person resolves or cancels the
     authored HITL surface and the resumed run reaches a terminal event.
+
+12. Puppy One shares One's opening-copy recipe, message bubble primitive,
+    768px reading measure, 20px turn gap, and compact composer field typography.
+    Keep connection-state copy at the opening chat scale and its paragraph gap
+    at 12px. Verify computed fonts, line heights and insets in Chromium and
+    WebKit; class-name checks cannot prove visual parity. Conversations, device
+    authority and streaming state remain owned by their existing runtimes.
 
 ## Page Header Contract
 
@@ -449,13 +456,14 @@ Rules:
 
 ## Search and Filter Surface Contract
 
-Use the shared command/search surface for app-wide agent search and route action discovery.
+App-wide Search is disabled and archived under `archive/app-wide-search/`.
+Existing page-local filters remain available.
 
 Rules:
 
-1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal`, not route-local floating search bars.
+1. Do not mount the archived global palette or add replacement app-wide Search launchers.
 2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
-3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
+3. Local filters must stay inside the surface they filter.
 4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
 5. Search empty/loading/error states should use existing list/table/surface primitives and Sonner for transient failures, not page-level banners that shift layout.
 6. Mobile search overlays must respect `--top-shell-reserved-height`, bottom command chrome, and the shared scroll root; do not add raw viewport or safe-area math in route files.
@@ -467,7 +475,7 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 The iOS 26+ native wrapper is the presentation exception: Apple's standard
 `UITabBar` replaces the DOM segments only after native acknowledgement. The
-same React action resolver and five-item sequence remain authoritative; web,
+same React action resolver and four-item sequence remain authoritative; web,
 Android and older wrappers retain the segmented control. The native bar and
 web voice slot remain pinned, with measured bottom clearance and one home
 inset. Shared overlay mounts, vault/session gates, keyboard and native privacy
@@ -476,7 +484,7 @@ state must isolate native controls as well as DOM controls. See the
 
 Rules:
 
-1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.
+1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, and `Feed`, in that order. `Chat` is the canonical `/` route. App-wide Search is disabled: no palette mount, Search segment, keyboard/event launcher, or URL-based activation remains. Inert source snapshots live in `archive/app-wide-search/`.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`,
    `Clients`, and `Picks`. The central route registry remains the selection
@@ -671,7 +679,7 @@ Rules:
    action below it on phone and desktop: Confirm pin, then Skip for now; Save
    location, then Skip for now. The surface or pinned footer owns the bottom
    safe-area padding once; action groups do not add another inset.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. Both frames share Profile's translucent light/dark material, backdrop filter, sheen, and row hover/focus feedback. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android uses the same solid pane/card tokens for both surfaces under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. Both frames share an opaque light/dark theme canvas and Profile's border, sheen, and row hover/focus feedback. The canvas stays opaque so the dimmed page cannot wash through it. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android keeps the same theme canvas and solid card tokens under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
    transform and scrim opacity follow the finger; release settles through the
@@ -928,14 +936,14 @@ Rules:
 8. Empty or single-page list views must not render pagination chrome.
 9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
 10. A stock-analysis preview is a reversible decision state. It must retain a
-    visible path to the recommendations/history view and to the shared stock
-    search; a selected ticker must never trap a person in a preview or require
+    visible path to the recommendations/history view and research starters;
+    a selected ticker must never trap a person in a preview or require
     browser navigation to research a different stock.
 
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed / Search`; Profile remains the rightmost top-bar action.
+2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed`; Profile remains the rightmost top-bar action.
 3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
 5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.

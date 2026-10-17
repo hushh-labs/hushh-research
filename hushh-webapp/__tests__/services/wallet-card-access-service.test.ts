@@ -84,3 +84,11 @@ it("passes the final effect fence through the platform transport and never sends
   expect(options.isEffectCurrent).toBe(context.isCurrent);
   expect(JSON.stringify(options)).not.toContain(context.vaultKey);
 });
+
+it.each(["WALLET_CARD_ACCESS_DISABLED", "WALLET_CARD_ACCESS_NOT_READY", "private_diagnostic"])("keeps only allowlisted readiness reason %s", async code => {
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ detail: { code } }), { status: 503 }));
+  await expect(WalletCardAccessService.history(context)).rejects.toMatchObject({
+    code: code === "private_diagnostic" ? "WALLET_CARD_ACCESS_UNAVAILABLE" : code,
+    readinessUnavailable: code !== "private_diagnostic",
+  });
+});

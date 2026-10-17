@@ -19,3 +19,12 @@ export function calendarInvitationInstruction(selection: CalendarInvitationHando
     "Interpret the owner's original request as written. Read calendar_invitations for this window with these selected IDs and expected_account_email, then resolve its exact ordinal before opening its review. Preserve the requested decision, alternative date/window, duration and organizer message in the review inputs. Ask when required terms are missing. Do not create, reschedule or cancel the organizer's event. The browser confirmation owns every provider effect.",
   ].join("\n");
 }
+
+/** Settlement of an explicit browser-confirmed action; never model input or persisted. */
+export type CalendarAttendanceHandoff = {
+  ownerId: string;
+  epoch: number;
+  title: string;
+  recipient: string;
+  outcome: Promise<{ result: import("@/lib/services/google-calendar-service").CalendarAttendanceResult } | { error: string }>;
+};

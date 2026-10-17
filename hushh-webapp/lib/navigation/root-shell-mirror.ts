@@ -40,7 +40,6 @@ export const ROOT_MIRRORED_SHELL_VARS = [
   "--app-top-offset-mode",
   "--bottom-chrome-stack-height",
   "--bottom-chrome-full-height",
-  "--bottom-chrome-search-height",
   "--bottom-chrome-visual-height",
   "--bottom-chrome-hide-distance",
 ] as const;

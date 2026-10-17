@@ -180,6 +180,7 @@ import {
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
@@ -643,7 +644,9 @@ export type LocationHubViewModel = {
   onCreateNamedCircle: (
     name: string,
     kind: OneLocationCircleKind,
+    existingCircleId?: string,
   ) => Promise<OneLocationCircleDetail>;
+  circleSessionScope: string | null;
   onRenameNamedCircle: (
     circleId: string,
     name: string,
@@ -1749,12 +1752,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
-            busy={vm.busy === "namedCircle"}
+            key={`${vm.userId}:${vm.circleSessionScope}`}
+            busy={vm.busy === "namedCircle" || vm.busy === "circleMemberInvite"}
             showCircleType={false}
-            onSubmit={async (name, kind) => {
-              const circle = await vm.onCreateNamedCircle(name, kind);
-              openCircleDetail(circle.id, "replace");
-            }}
+            onSubmit={vm.onCreateNamedCircle}
+            onLoadPeople={vm.onLoadNamedCircleEligibleConnectionsPage}
+            onAddPeople={vm.onInviteNamedCircleConnections}
+            onComplete={(circleId) => openCircleDetail(circleId, "replace")}
           />
         ) : flow === "join-circle" ? (
           <JoinCircleFlow
@@ -1989,6 +1993,7 @@ function LocationFeatureRoot({
   return (
     <>
       <SettingsPresentationProvider density="compact">
+        <FeedPushPrompt context="location" />
         {children}
         <LiveShareDurationDialog
           vm={vm}

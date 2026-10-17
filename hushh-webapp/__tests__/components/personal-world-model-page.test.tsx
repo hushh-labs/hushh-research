@@ -794,14 +794,28 @@ describe("Personal World Model page", () => {
     );
     mock.research.reload = reload;
     render(<PersonalWorldModelPage embedded />);
-    expect(await screen.findByText("Preparing your model")).toBeInTheDocument();
+    expect(await screen.findByText("Research hasn't updated")).toBeInTheDocument();
     // The quiet spell wins over the promise of picking up again.
     expect(screen.getByTestId("pwm-freshness")).toHaveTextContent(
-      "Taking longer than usual. Your private agent is still working.",
+      "Taking longer than usual. No new research update.",
     );
     expect(screen.queryByText(/Picking up where it left off/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops showing a counting bar when bare pending research has gone quiet", async () => {
+    research(
+      { status: "pending", pkm_written: false, restart_required: true },
+      undefined,
+      { progress: null, live: true, lastActivityAt: Date.now() - 10 * 60_000 },
+    );
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText("Research hasn't updated")).toBeInTheDocument();
+    expect(screen.getByText("Try again to check for new results.")).toBeInTheDocument();
+    expect(screen.queryByText("Counting what we find")).toBeNull();
+    expect(screen.queryByTestId("pwm-progress-bar")).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("moves focus to the status region when Try again or Turn on is used", async () => {
@@ -852,7 +866,7 @@ describe("Personal World Model page", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     advance(4 * 60_000);
     expect(line).toHaveTextContent(
-      "Taking longer than usual. Your private agent is still working.",
+      "Taking longer than usual. No new research update.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(reload).toHaveBeenCalledTimes(1);

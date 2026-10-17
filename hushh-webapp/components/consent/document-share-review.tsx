@@ -283,10 +283,10 @@ function errorCopy(cause: unknown): string {
 }
 
 /** Why the price sheet could not allow the request. */
-function allowErrorCopy(cause: unknown): string {
+function allowErrorCopy(cause: unknown, allowCents: boolean): string {
   const code = cause instanceof DriveSharingError ? cause.code : "request_failed";
   if (code === "invalid_payment_amount" || code === "invalid_argument")
-    return DOCUMENT_REQUEST_PRICE_RULE;
+    return allowCents ? DOCUMENT_REQUEST_PRICE_RULE : "Choose a whole-dollar price from $1 to $500.";
   if (code === "review_changed" || code === "request_already_decided")
     return "This request changed. Check it and try again.";
   return errorCopy(cause);
@@ -321,12 +321,37 @@ function isOwnerDecision(snapshot: Snapshot | null): boolean {
     (setup === null || setup === "price");
 }
 
+/**
+ * A failed, limited, stopped or incomplete search never shares more by itself:
+ * the server resumes automatic batches only for a complete search. The owner
+ * reviews it like a manual request, where Search again is the next step.
+ */
+function automaticSearchEnded(review: SharingReview | undefined): boolean {
+  const search = review?.search;
+  return !!search && (["failed", "limited", "stopped"].includes(search.status) || search.incompleteSearch);
+}
+
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
   return !review?.agentPackage && review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
     review.search?.coverage?.ownerReviewRequired !== true &&
+    !automaticSearchEnded(review) &&
     documentRequestSetupState(review) === null &&
     review.preparationError !== "trusted_relationship_changed" &&
     review.preparationError !== "preparation_unavailable";
+}
+
+/** Waiting in the durable queue; past the server's threshold it says so plainly. */
+function queueLabel(queue: { queuedAt?: string; queueDelayed?: boolean } | undefined, now: number): string {
+  if (queue?.queueDelayed !== true) return "Waiting to start";
+  const waited = queue.queuedAt ? Math.floor((now - Date.parse(queue.queuedAt)) / 60_000) : NaN;
+  return Number.isFinite(waited) && waited >= 1
+    ? `Taking longer than usual · ${waited < 60 ? `${waited} min` : `${Math.floor(waited / 60)} hr`}`
+    : "Taking longer than usual";
+}
+
+/** Confirmed access so far across this request's batches. */
+function sharingProgressLabel(counts: DriveBulkShareCounts): string {
+  return `Sharing files · ${(counts.shared + counts.alreadyShared).toLocaleString()} shared so far`;
 }
 
 function needsSearchRefresh(review: SharingReview | undefined): boolean {
@@ -426,6 +451,25 @@ function UnlockedDocumentReview({
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
+  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAgentPackagesEnabled(false);
+      return;
+    }
+    let current = true;
+    setAgentPackagesEnabled(false);
+    void ExternalConnectorService.overview(token)
+      .then((overview) => {
+        if (current && getToken() === token)
+          setAgentPackagesEnabled(overview.driveAgentPackagesEnabled === true);
+      })
+      .catch(() => {
+        if (current) setAgentPackagesEnabled(false);
+      });
+    return () => { current = false; };
+  }, [getToken]);
   const [ownerAccessDays, setOwnerAccessDays] = useState<number | null>(null);
   const openedPricePackageKey = useRef<string | null>(null);
   const [allowError, setAllowError] = useState<string | null>(null);
@@ -437,6 +481,7 @@ function UnlockedDocumentReview({
     ids: [],
   });
   const [excluded, setExcluded] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
+  const [reviewSelected, setReviewSelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   // Recovery requires an affirmative tick; fresh unclaimed files retain their default selection.
   const [recoverySelected, setRecoverySelected] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
   const [unshareableSeen, setUnshareableSeen] = useState<{ jobId: string; positions: number[] }>({ jobId: "", positions: [] });
@@ -814,6 +859,13 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
+  // A whole-dollar request refuses cents (the 2026-10-17 first-Allow 422),
+  // so its own sealed rule wins over the feature heuristic.
+  const allowCents = review?.wholeDollarPrice !== true && (
+    agentPackagesEnabled || review?.agentPackage !== undefined ||
+    review?.v1ManualReview === true ||
+    (review?.estimateCents != null && review.estimateCents % 100 !== 0) ||
+    (review?.priceCents != null && review.priceCents % 100 !== 0));
   const v1ManualReview = review?.v1ManualReview === true;
   const requestedAccessDays = review?.requestedAccessDays ?? 30;
   const accessDayChoices = [7, 30, 90].filter(days => days <= requestedAccessDays);
@@ -1011,12 +1063,15 @@ function UnlockedDocumentReview({
     .filter((id) => !unselectedIds.includes(id));
   const allSelected = !!review && selectedIds.length === review.files.length;
   const excludedPositions = search && excluded.jobId === search.jobId ? excluded.positions : [];
+  const reviewSelectedPositions = search && reviewSelected.jobId === search.jobId ? reviewSelected.positions : [];
   const selectedRecoveryPositions = search && recoverySelected.jobId === search.jobId ? recoverySelected.positions : [];
   const blockedPositions = search && unshareableSeen.jobId === search.jobId ? unshareableSeen.positions : [];
   const manualExcludedCount = excludedPositions.filter(position => !blockedPositions.includes(position)).length;
   const selectedPositions = progressive && searchPage && search
     ? searchPage.files.filter(file => file.shareable === true &&
-        (recoverablePositions.includes(file.position)
+        (ownerReviewRequired
+          ? !claimedPositions.includes(file.position) && reviewSelectedPositions.includes(file.position)
+          : recoverablePositions.includes(file.position)
           ? selectedRecoveryPositions.includes(file.position)
           : !claimedPositions.includes(file.position) && !excludedPositions.includes(file.position)))
       .map(file => file.position)
@@ -1080,7 +1135,7 @@ function UnlockedDocumentReview({
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
-          setAllowError(allowErrorCopy(cause));
+          setAllowError(allowErrorCopy(cause, allowCents));
           return load(token, guard, report);
         }
         guard();
@@ -1150,6 +1205,17 @@ function UnlockedDocumentReview({
     );
   };
 
+  // Allowed (or Trusted) and waiting in the durable queue: nothing has
+  // started, so the sheet says so and never spins. Never "paused".
+  const automaticQueued = automaticSharing && !search && !bulkShare &&
+    review?.preparationError !== "date_range_required" &&
+    review?.preparationError !== "background_preparation_required" &&
+    !["completed", "partial", "no_match"].includes(snapshot?.status.status ?? "");
+  // Started work that no worker has moved past the server's threshold (for
+  // example while the drains are paused): stop claiming work, never spin.
+  const automaticDelayed = automaticSharing && typeof review?.workDelayedSince === "string" &&
+    review?.preparationError !== "date_range_required" &&
+    review?.preparationError !== "background_preparation_required";
   const durableStatus = snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "no_match"
     ? "No file candidates in this search"
@@ -1158,13 +1224,16 @@ function UnlockedDocumentReview({
       ? "Exact dates needed"
       : review?.preparationError === "background_preparation_required"
       ? "Background Drive access needed"
+      : automaticDelayed
+        ? queueLabel({ queuedAt: review?.workDelayedSince, queueDelayed: true }, now)
       : bulkShare && ["queued", "running"].includes(bulkShare.status)
-        ? "Sharing selected files"
+        ? sharingProgressLabel(review?.aggregateCounts ?? bulkShare.counts)
         : search && ["queued", "running"].includes(search.status)
           ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
           : bulkShare ? BULK_STATUS_LABELS[bulkShare.status]
             : ["completed", "partial"].includes(snapshot?.status.status ?? "") ? "Sharing finished"
-              : "Preparing automatic sharing"
+              : search ? "Waiting to share"
+                : queueLabel(review, now)
     : progressive && search && ["queued", "running"].includes(search.status)
     ? `Searching Drive · ${search.matched.toLocaleString()} file candidates${batchCount ? ` · ${batchCount.toLocaleString()} ${batchCount === 1 ? "batch" : "batches"} started` : ""}`
     : bulkShare
@@ -1186,6 +1255,11 @@ function UnlockedDocumentReview({
           : search
             ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
             : null;
+  // The requester's sheet reads the same durable queue from the status.
+  const requesterQueued = snapshot?.status.direction === "outgoing" &&
+    snapshot.status.status === "pending" && typeof snapshot.status.queuedAt === "string";
+  const requesterDelayed = snapshot?.status.direction === "outgoing" &&
+    snapshot.status.status === "pending" && typeof snapshot.status.workDelayedSince === "string";
   const statusLine =
     activity === "loading"
       ? ACTIVITY_LABELS.loading
@@ -1220,8 +1294,12 @@ function UnlockedDocumentReview({
                 (UNDECIDED.has(snapshot.status.status) || snapshot.status.status === "approved" ||
                   ["queued", "running"].includes(snapshot.delivery?.bulkStatus ?? ""))
                 ? `${snapshot.delivery!.sharedCount!.toLocaleString()} files available; more may arrive`
+              : requesterDelayed
+                ? queueLabel({ queuedAt: snapshot.status.workDelayedSince, queueDelayed: true }, now)
               : snapshot.delivery?.bulkStatus
                 ? BULK_STATUS_LABELS[snapshot.delivery.bulkStatus]
+              : requesterQueued
+                ? queueLabel(snapshot.status, now)
               : stillWorking
               ? "Still finding files"
               : finding
@@ -1231,8 +1309,23 @@ function UnlockedDocumentReview({
                   : (STATUS_LABELS[snapshot.status.status] ??
                     "Check request status");
   const spinning =
-    activity !== "idle" || (finding && !stillWorking) || (!snapshot && !error);
-  const statusHint = stillWorking
+    activity !== "idle" || (finding && !stillWorking && !automaticQueued && !automaticDelayed) ||
+    (!snapshot && !error);
+  const statusHint = activity === "idle" && automaticQueued
+    ? review?.queueDelayed === true
+      ? "This request is saved and continues automatically."
+      : review?.ownerAllowed === true
+        ? "Request allowed. The Drive search starts soon."
+        : "The Drive search starts soon."
+    : activity === "idle" && requesterQueued
+      ? snapshot.status.queueDelayed === true
+        ? "Your request is saved and continues automatically."
+        : "The Drive search starts soon."
+    : activity === "idle" && automaticDelayed
+      ? "This request is saved and continues automatically."
+    : activity === "idle" && requesterDelayed
+      ? "Your request is saved and continues automatically."
+    : stillWorking
     ? "You can come back later."
     : finding &&
         (activity === "idle" || activity === "finding_files") &&
@@ -1504,8 +1597,8 @@ function UnlockedDocumentReview({
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.paymentRequired === true
-          ? "Allow to set a price. Agent One searches Drive and shares selected files after payment."
-          : "Allow Agent One to search Drive and share selected files."}</HelperText>
+          ? "Allow to set a price and search Drive. You may need to choose the exact files before payment and sharing."
+          : "Allow Agent One to search Drive. You may need to choose the exact files before sharing."}</HelperText>
         <FlowActionGroup
           primary={
             <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
@@ -1523,7 +1616,7 @@ function UnlockedDocumentReview({
           }
         />
         <DocumentRequestPriceSheet
-          moneyPolicy="drive_cents"
+          moneyPolicy={allowCents ? "drive_cents" : "legacy_whole_dollars"}
           open={priceOpen}
           requesterLabel={review.recipientEmail}
           purpose={review.purpose.purpose}
@@ -1592,6 +1685,8 @@ function UnlockedDocumentReview({
               : "Trusted Circle changed. Review this request manually before sharing."}</BodyText> : null}
           {review.trustedAuto && review.preparationError === "preparation_unavailable" ?
             <BodyText>Automatic sharing could not finish. Review and share the files yourself.</BodyText> : null}
+          {review.trustedAuto && !review.preparationError && automaticSearchEnded(review) ?
+            <BodyText>Automatic sharing stopped because the Drive search didn&apos;t finish. Review and share the files yourself.</BodyText> : null}
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”
           </BodyText>
@@ -1637,7 +1732,7 @@ function UnlockedDocumentReview({
             {v1ManualReview ? <HelperText>
               Only Agent One&apos;s verified matches can be selected.
             </HelperText> : ownerReviewRequired ? <HelperText>
-              Dates inside files haven&apos;t been checked; review before sharing.
+              Dates inside files haven&apos;t been checked. Select the exact files before sharing.
             </HelperText> : search.coverage.requestedPeriod ? <HelperText>
               Dates match file names first, then creation or modification dates. Dates inside file contents were not checked.
             </HelperText> : null}
@@ -1697,12 +1792,21 @@ function UnlockedDocumentReview({
                         <Checkbox
                           aria-label={file.name}
                           className={CHECKBOX_CLASS}
-                          checked={file.shareable !== false && (recoverable
+                          checked={file.shareable !== false && (ownerReviewRequired
+                            ? !alreadyClaimed && reviewSelectedPositions.includes(file.position)
+                            : recoverable
                             ? selectedRecoveryPositions.includes(file.position)
                             : !excludedPositions.includes(file.position) && !alreadyClaimed)}
                           disabled={locked || file.shareable === false || progressive &&
                             (file.shareable !== true || alreadyClaimed || bulkShare?.status === "review_ready")}
                           onCheckedChange={checked => {
+                            if (ownerReviewRequired) {
+                              setReviewSelected({ jobId: search.jobId,
+                                positions: checked === true
+                                  ? [...new Set([...reviewSelectedPositions, file.position])]
+                                  : reviewSelectedPositions.filter(position => position !== file.position) });
+                              return;
+                            }
                             if (recoverable) {
                               setRecoverySelected({ jobId: search.jobId,
                                 positions: checked === true

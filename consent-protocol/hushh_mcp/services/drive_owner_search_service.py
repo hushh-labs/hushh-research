@@ -89,7 +89,14 @@ _MONTH_WORDS = {
         1,
     )
 }
-_TITLE_DATE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
+# Title checks see through "_" and camelCase (_title_words), so title dates
+# must too: "2025_08_14", "2025.08.14" and compact "20250814" are dates. An
+# unread title date falls back to file activity, which would let an
+# out-of-period file into automatic sharing.
+_TITLE_DATE = re.compile(
+    r"(?<!\d)(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})(?!\d)"
+    r"|(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)"
+)
 _TITLE_TIME = re.compile(
     r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
     r"(?P<zone>IST|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b",
@@ -111,6 +118,45 @@ _MEETING_NOTE_DISCOVERY = (
     "huddle",
 )
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
+# Compound filenames hide their words from whole-word title checks:
+# "MeetingNotes.pdf" and "2026_09_MeetingNotes" contain no standalone "notes".
+_COMPOUND_WORD_BREAK = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
+def _title_words(title: str) -> str:
+    """Split camelCase and underscore-joined filename words for local title checks."""
+    return _COMPOUND_WORD_BREAK.sub(" ", title.replace("_", " "))
+
+
+def _title_search(pattern: re.Pattern[str], title: str) -> bool:
+    """A title check that also sees the words inside a compound filename."""
+    return bool(pattern.search(title) or pattern.search(_title_words(title)))
+
+
+_SPAN_PHRASE = re.compile(
+    r"\b(?P<count>\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+    r"[\s-]+(?P<unit>days?|weeks?|months?|years?)\b",
+    re.I,
+)
+# Shortest calendar length per unit: "1 month" never conflicts with 30 days.
+_SPAN_DAYS = {"day": 1, "week": 7, "month": 28, "year": 365}
+
+
+def _period_conflict(text: str, period: dict | None) -> str | None:
+    """Name a phrase span wider than the consented dates; never widen them.
+
+    "3 months meeting notes" with a one-month picker still searches and
+    shares only the picked dates. The owner and requester can see why.
+    """
+    if not period or not period.get("start") or not period.get("end"):
+        return None
+    picked = (date.fromisoformat(period["end"]) - date.fromisoformat(period["start"])).days + 1
+    for match in _SPAN_PHRASE.finditer(text):
+        count = _MONTH_WORDS.get(match["count"].lower()) or int(match["count"])
+        unit = match["unit"].lower().rstrip("s")
+        if count * _SPAN_DAYS[unit] > picked:
+            return "request_mentions_longer_span"
+    return None
 
 
 def _is_meeting_note_request(text: str) -> bool:
@@ -173,9 +219,14 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
         if term.casefold() not in {"note", "notes", "document", "documents", "file", "files"}
     ]
     return any(
-        _term_pattern(
-            "standup" if term.casefold() in {"standup", "stand up", "stand-up"} else term.casefold()
-        ).search(title)
+        _title_search(
+            _term_pattern(
+                "standup"
+                if term.casefold() in {"standup", "stand up", "stand-up"}
+                else term.casefold()
+            ),
+            title,
+        )
         for term in terms
     )
 
@@ -191,7 +242,7 @@ def _v1_folder_clue_matches(checkpoint: dict, title: str) -> bool:
     return any(
         isinstance(clue, str)
         and 1 <= len(clue) <= 50
-        and bool(_term_pattern(clue.casefold()).search(title))
+        and _title_search(_term_pattern(clue.casefold()), title)
         for clue in clues[:12]
     )
 
@@ -212,12 +263,13 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
     if not terms:
         return True
     matches = [
-        bool(
+        _title_search(
             _term_pattern(
                 "standup"
                 if term.casefold() in {"standup", "stand up", "stand-up"}
                 else term.casefold()
-            ).search(title)
+            ),
+            title,
         )
         for term in terms
     ]
@@ -242,16 +294,16 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
 
     name = match["name"]
     alias = match.get("shortcut_name", "")
+    excluded = _title_search(_NON_NOTE_TITLE, name) or _title_search(_NON_NOTE_TITLE, alias)
     if checkpoint.get("authority_mode") == "trusted_auto" and not owner_review:
         # Google Drive fullText may match an incidental mention inside a
         # generic document. Automatic grants need positive title evidence;
         # an owner-reviewed search can still show the broader candidates.
-        return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and bool(
-            _NOTE_TITLE.search(name)
-        )
-    return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and (
+        return not excluded and _title_search(_NOTE_TITLE, name)
+    return not excluded and (
         not folder_scoped
-        or bool(_GEMINI_NOTE_TITLE.search(name) or _GEMINI_NOTE_TITLE.search(alias))
+        or _title_search(_GEMINI_NOTE_TITLE, name)
+        or _title_search(_GEMINI_NOTE_TITLE, alias)
         or _subject_matches(checkpoint, name)
         or _subject_matches(checkpoint, alias)
     )
@@ -471,6 +523,7 @@ def compile_request_queries(
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
     broader_subject = None
+    compound_free_subject = None
     entity_subject = (
         "("
         + " or ".join(compile_search_terms([entity]) for entity in parsed.required_entities)
@@ -507,6 +560,16 @@ def compile_request_queries(
             else " and "
         )
         subject = "(" + joiner.join(groups) + ")"
+        # Drive's "name contains" matches word prefixes, so "MeetingNotes.pdf"
+        # has no "notes" word for a conjunction to find when its body never
+        # says "notes". One bounded clause, the concepts' first spellings run
+        # together, finds such a compound title. Title checks still decide.
+        compound = "".join(
+            character for group in term_groups for character in group[0] if character.isalnum()
+        )
+        if joiner == " and " and 2 <= len(groups) <= 3 and 4 <= len(compound) <= 50:
+            compound_free_subject = subject
+            subject = f"({subject} or name contains {quote_literal(compound.casefold())})"
         if parsed.time_intent == "document_coverage" and len(groups) > 1 and joiner == " and ":
             # A Drive full-text index can omit one of several request words
             # even when the original document is relevant. Exhaust a second,
@@ -523,6 +586,10 @@ def compile_request_queries(
             raise DriveReadError("narrow_selection_required")
         clauses = ["trashed = false"]
     query = " and ".join(clauses)
+    if len(query) > 1800 and compound_free_subject is not None:
+        # The optional compound clause never costs a request its search: drop
+        # it and keep the query main already accepted.
+        query = " and ".join([compound_free_subject, *base])
     if len(query) > 1800:
         raise DriveReadError("invalid_argument")
     # Google warns that createdTime sorting can time out on large collections.
@@ -641,7 +708,8 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
     title_days = []
     for match_date in _TITLE_DATE.finditer(match["name"]):
         try:
-            year, month, day = (int(part) for part in match_date.groups())
+            parts = match_date.groups()
+            year, month, day = (int(part) for part in (parts[:3] if parts[0] else parts[3:]))
             title_day = date(year, month, day)
             title_time = _TITLE_TIME.match(match["name"], match_date.end())
             if title_time:
@@ -1086,7 +1154,7 @@ class DriveOwnerSearchService:
         purpose = context["purpose"]
         plan = _deterministic_statement_plan(purpose)
         if plan is None or context.get("agentPackageRequired"):
-            return None, False
+            return None, False, None
         queries, period = compile_request_queries(
             plan.model_dump(mode="json"),
             purpose,
@@ -1187,11 +1255,18 @@ class DriveOwnerSearchService:
         after_page=None,
         evidence_route=None,
         v1_live_request=False,
+        planner_fallback=None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
         if (
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
+            or planner_fallback is not None
+            and (
+                not isinstance(planner_fallback, dict)
+                or planner_fallback.get("reason") not in {"timeout", "invalid_plan", "model_error"}
+                or planner_fallback.get("plan") not in {"statements", "meeting_notes"}
+            )
         ):
             raise DriveReadError("invalid_argument")
         if v1_live_request and authority_mode != "agent_package":
@@ -1221,17 +1296,7 @@ class DriveOwnerSearchService:
                 requested_at=requested_at,
                 v1_live_request=v1_live_request,
             )
-        from hushh_mcp.services.drive_request_bulk_service import (
-            _deterministic_statement_plan,
-        )
-
-        statement_plan = _deterministic_statement_plan(purpose)
-        v1_statement_search = v1_live_request or (
-            authority_mode in {"owner", "trusted_auto"}
-            and route["kind"] == "provider"
-            and statement_plan is not None
-            and plan == statement_plan.model_dump(mode="json")
-        )
+        v1_statement_search = v1_live_request
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
@@ -1277,6 +1342,8 @@ class DriveOwnerSearchService:
                 "agent_package_required": authority_mode == "agent_package",
                 "v1_live_request": v1_live_request,
                 **({"authored_plan": plan} if v1_live_request else {}),
+                # A deterministic plan that replaced a failed planner call.
+                **({"planner_fallback": planner_fallback} if planner_fallback else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
                 "request_coverage_query_version": 1
@@ -1313,6 +1380,8 @@ class DriveOwnerSearchService:
                     "lastIndexedAt": route.get("index_snapshot", {}).get("last_synced_at"),
                     "fileKind": plan.get("file_kind", "any"),
                     "requestedPeriod": period,
+                    # The selected dates stay the sharing boundary either way.
+                    "periodConflict": _period_conflict(query, period),
                     "timeIntent": time_intent,
                     "ownerReviewRequired": owner_review_required,
                     "dateBasis": "content_period_unverified"
@@ -2117,14 +2186,14 @@ class DriveOwnerSearchService:
                 except DriveSharingError:
                     await self.store.release(job, error="connection_changed")
                     return finish("superseded")
-                _, changed = await self.replan_legacy_statement_request(
+                _, changed, worker_stage = await self.replan_legacy_statement_request(
                     user_id=user_id,
                     request_id=checkpoint["request_origin_id"],
                     context=context,
                     expected_lease=job["lease_id"],
                 )
                 if changed:
-                    await wake_drive_work("v1")
+                    await wake_drive_work(worker_stage)
                     return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():
@@ -2219,6 +2288,11 @@ class DriveOwnerSearchService:
             if str(error) == "search_superseded":
                 await self.store.release(job, error="connection_changed")
                 return finish("superseded")
+            if str(error) == "reconnect_required":
+                # Drive rejected the current access token (HTTP 401). As with a
+                # refused refresh, the owner must reconnect; a retry cannot help
+                # and "provider unavailable" would hide the cause.
+                return finish(await self.store.release(job, error="connection_changed"))
             return finish(
                 await self.store.release(
                     job,

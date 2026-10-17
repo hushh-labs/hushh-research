@@ -18,7 +18,6 @@
 }
 
 .hero .overflow { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; padding: 0; color: var(--muted-foreground); }
-.actions .manage { font-size: 14px; font-weight: 500; }
 
 .avatar { width: 64px; height: 64px; flex-shrink: 0; }
 .page .hero .avatar [data-slot="avatar-fallback"] {
@@ -31,26 +30,28 @@
 .name { margin: 12px 0 0; max-width: 100%; font-size: clamp(24px, 4vw, 32px); line-height: 1.2; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; }
 .heading { margin: 0; padding-bottom: 12px; font-size: clamp(20px, 2.5vw, 24px); line-height: 1.25; font-weight: 600; letter-spacing: -0.025em; }
 
-.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; max-width: 480px; margin-top: 16px; align-items: stretch; }
-.actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; height: auto; min-width: 0; padding-block: 12px; white-space: normal; gap: 8px; border-radius: var(--app-card-radius-compact, 20px); font-size: 15px; line-height: 1.4; font-weight: 600; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; max-width: 560px; margin-top: 20px; align-items: stretch; }
+.actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; height: auto; min-width: 0; padding: 12px; white-space: normal; gap: 8px; border-radius: var(--app-card-radius-feature); font-size: 15px; line-height: 1.4; font-weight: 600; }
 .actions button svg { flex-shrink: 0; }
-.actions button > span { gap: 8px; }
-.actions .request, .actions .share { padding-inline: 8px; overflow-wrap: normal; }
+.actions button > span:first-child { gap: 8px; }
+.actions .request, .actions .share { overflow-wrap: normal; }
 .actions .share, .actions .manage, .actions .relationship[data-voice-control-id="person-profile-cancel-connection"] { color: var(--foreground); }
-.request { grid-column: 1; grid-row: 1; }
-.share { grid-column: 2; grid-row: 1; border: 1px solid var(--border); }
-.share:only-child { grid-column: 1 / -1; }
-.message { grid-column: 1 / -1; grid-row: 2; }
-/* Request scope sits with the file actions, above Manage access. Without an
-   explicit row a third auto-placed button skips the occupied Manage row and
-   lands underneath it. */
-.requestScope { grid-column: 1 / -1; grid-row: 3; }
-.requestCards { grid-column: 1; grid-row: 4; }
-.manage { grid-column: 1 / -1; grid-row: 4; background: transparent; }
-.relationship { grid-column: 1 / -1; grid-row: 5; justify-self: center; font-size: 13px; }
-.actions[data-connected="true"] .manage { grid-row: 5; }
-.actions[data-connected="true"] .relationship { grid-row: 6; }
-.actions .relationship { min-height: 44px; margin-top: 4px; padding: 10px 20px; font-size: 13px; font-weight: 500; }
+.request { grid-column: 1; }
+.share { grid-column: 2; border: 1px solid var(--border); }
+.actions[data-share-only="true"] .share { grid-column: 1 / -1; }
+.actionCards { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.actionCards:empty { display: none; }
+.actions .actionCards > button { align-items: stretch; justify-content: flex-start; padding: 16px; border: 1px solid var(--app-card-border-standard); background: var(--app-card-surface-default-solid); color: var(--foreground); text-align: start; }
+.actionCards > button > span:first-child { width: 100%; align-items: stretch; }
+.actionCardContent { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 16px; grid-template-rows: 20px auto; gap: 12px 8px; width: 100%; min-width: 0; }
+.actions .actionIcon { width: 20px; height: 20px; color: var(--app-accent); }
+.actions .actionArrow { width: 16px; height: 16px; color: var(--muted-foreground); }
+.actionLabel { grid-column: 1 / -1; align-self: start; overflow-wrap: anywhere; }
+.actions .manage { grid-column: 1 / -1; border-top: 1px solid var(--border); border-radius: 0; padding: 16px 4px 4px; background: transparent; font-size: 14px; font-weight: 500; }
+.manage > span:first-child { width: 100%; justify-content: flex-start; }
+.manage > span:first-child > span { flex: 1; text-align: start; }
+.packets, .relationship { grid-column: 1 / -1; }
+.actions .relationship { min-height: 44px; justify-self: center; margin-top: 4px; padding: 10px 20px; font-size: 13px; font-weight: 500; }
 
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; padding: 16px; text-align: center; }
 .emptyIcon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--app-radius-pill, 999px); background: var(--muted); color: var(--foreground); }

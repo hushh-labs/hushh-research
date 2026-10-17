@@ -741,6 +741,7 @@ async def test_azure_runner_downgrades_claimed_owner_link_without_contact_on_cit
 @pytest.mark.asyncio
 async def test_azure_runner_will_not_retry_unacknowledged_bing_spend():
     gateway = FakeGateway(charges=[], snapshots=[])
+    charge = AsyncMock()
     history = {
         "azure_work_version": 1,
         "sources": {},
@@ -768,13 +769,14 @@ async def test_azure_runner_will_not_retry_unacknowledged_bing_spend():
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         require_access=AsyncMock(),
-        on_attempts_start=AsyncMock(),
+        on_attempts_start=charge,
         attempts_used=(1, MODEL_FIRST),
         work=history,
         gateway=gateway,
     )
-    assert result == {"status": "unavailable", "pkm_written": False}
+    assert result == {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
     assert gateway.calls == []
+    charge.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -941,3 +943,43 @@ async def test_azure_gateway_rejects_parseable_but_incomplete_report():
             schema={},
             max_output_tokens=8192,
         )
+
+
+@pytest.mark.asyncio
+async def test_azure_gateway_bounds_web_search_reasoning_and_sdk_retries():
+    gateway = AzurePwmGateway(
+        primary_endpoint="https://synthetic.openai.azure.com/openai/v1/",
+        primary_deployment="primary",
+        primary_token_supplier=lambda: "synthetic",
+        phi_endpoint="https://synthetic.services.ai.azure.com/openai/v1/",
+        phi_deployment="phi",
+        phi_token_supplier=lambda: "synthetic",
+    )
+    client = await gateway._client(gateway.primary_endpoint, gateway.primary_token_supplier)
+    try:
+        assert client.max_retries == 0
+    finally:
+        await client.close()
+
+    result = search_response()
+
+    class FakeClient:
+        responses = SimpleNamespace(
+            create=AsyncMock(return_value=SimpleNamespace(model_dump=lambda **_kwargs: result))
+        )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    async def fake_client(_endpoint, _supplier):
+        return FakeClient()
+
+    gateway._client = fake_client
+    assert await gateway.search({"research_question": "Synthetic"}) == result
+    kwargs = FakeClient.responses.create.call_args.kwargs
+    assert kwargs["reasoning"] == {"effort": "low"}
+    assert kwargs["tools"] == [{"type": "web_search", "search_context_size": "low"}]
+    assert kwargs["max_output_tokens"] == 2048

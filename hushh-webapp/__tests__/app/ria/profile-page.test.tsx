@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
     updateProfile: vi.fn(),
     refreshLicenseProfile: vi.fn(),
   },
-  openKaiCommandBar: vi.fn(),
   draftClear: vi.fn(),
   onPersonaStateChanged: vi.fn(),
   invalidateResourcePrefix: vi.fn(),
@@ -207,9 +206,6 @@ vi.mock("@/lib/services/device-resource-cache-service", () => ({
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: mocks.toast }));
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { RIA_ONBOARDING: "/ria/onboarding", ONE_HOME: "/one" },
-}));
-vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
-  openKaiCommandBar: mocks.openKaiCommandBar,
 }));
 
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";

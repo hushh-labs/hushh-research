@@ -517,16 +517,14 @@ class ExternalConnectorCuratedOAuth:
             logger.warning("curated_connector_oauth.verify_failed code=%s", error)
         return {"connectorId": attempt["connector_id"], "status": status}
 
-    async def current_credential(
+    async def _validated_connection(
         self,
         *,
         connector_id: str,
         user_id: str,
         connector: ExternalMcpConnectorDefinition | None = None,
-    ) -> tuple[dict, dict]:
-        """Internal only. Execution additionally enforces chat admission and
-        the review policy before/after any tool call. `connector` is the live
-        registry row when the caller already holds it."""
+    ) -> tuple[dict, ExternalMcpConnectorDefinition, str, str | None]:
+        """Read current connection/configuration without decrypting or refreshing."""
         row = await self.lifecycle.read(user_id=user_id, connector_id=connector_id, purge=False)
         if not row or row["status"] == "revoked":
             # Never connected, or the person disconnected it: nothing to report.
@@ -542,6 +540,31 @@ class ExternalConnectorCuratedOAuth:
         # refresh token or access token to a changed target.
         if row.get("verified_policy_hash") not in (None, curated_policy_hash(connector)):
             raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
+        return row, connector, client_id, client_secret
+
+    async def connection_snapshot(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> dict:
+        row, _, _, _ = await self._validated_connection(
+            connector_id=connector_id, user_id=user_id, connector=connector
+        )
+        return row
+
+    async def current_credential(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> tuple[dict, dict]:
+        """Execution credentials; refresh only for a cold catalog or actual call."""
+        row, connector, client_id, client_secret = await self._validated_connection(
+            connector_id=connector_id, user_id=user_id, connector=connector
+        )
         credential = self.credentials.open_credential(
             user_id=user_id, connector_id=connector_id, row=row
         )

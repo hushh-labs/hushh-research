@@ -7,7 +7,6 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Compass as PhosphorCompass,
-  Search as MagnifyingGlass,
   MessageCircle as ChatCircle,
   Grid2x2 as SquaresFour,
   Briefcase,
@@ -52,7 +51,6 @@ import {
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
@@ -65,10 +63,6 @@ function FilledSquaresFourIcon(props: PhosphorIconProps) {
 
 function FilledCompassIcon(props: PhosphorIconProps) {
   return <PhosphorCompass {...props} weight="fill" />;
-}
-
-function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
-  return <MagnifyingGlass {...props} weight="fill" />;
 }
 
 function FilledChatCircleIcon(props: PhosphorIconProps) {
@@ -190,13 +184,6 @@ const BOTTOM_NAV_OPTION_META: Record<
     label: "Systems",
     icon: Database,
     dataTourId: "nav-one-systems",
-  },
-  search: {
-    value: "search",
-    label: "Search",
-    icon: FilledMagnifyingGlassIcon,
-    activeIcon: FilledMagnifyingGlassIcon,
-    dataTourId: "nav-search",
   },
   profile: {
     value: "profile",
@@ -467,10 +454,6 @@ export const Navbar = ({
         ? bottomNavScope
         : "one",
     );
-    if (action.type === "command") {
-      openKaiCommandBar();
-      return;
-    }
     if (action.type === "route") {
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
@@ -527,7 +510,7 @@ export const Navbar = ({
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
         // `lg`, so hiding it above 1024px leaves signed-in users with no way to
-        // reach One / Connect / Feed / Search at all.
+        // reach One / Connect / Feed at all.
         "pointer-events-none",
       )}
       style={
