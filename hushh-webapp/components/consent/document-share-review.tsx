@@ -362,6 +362,17 @@ function sharingProgressLabel(counts: DriveBulkShareCounts): string {
   return `Sharing files · ${(counts.shared + counts.alreadyShared).toLocaleString()} shared so far`;
 }
 
+/**
+ * Owner-only: matches without confirmed Drive sharing permission for this
+ * account, usually because someone else owns them. Automatic sharing leaves
+ * them out; the requester never receives search counts.
+ */
+function ownerOnlyMatchesLabel(count: number): string {
+  return count === 1
+    ? "1 of these can only be shared by its owner."
+    : `${count.toLocaleString()} of these can only be shared by their owners.`;
+}
+
 function needsSearchRefresh(review: SharingReview | undefined): boolean {
   const search = review?.search;
   const coverage = search?.coverage;
@@ -1720,6 +1731,9 @@ function UnlockedDocumentReview({
         {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
         {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} file candidates so far
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
+        {search && review.preparationError !== "date_range_required" && search.unshareableCount ? (
+          <HelperText>{ownerOnlyMatchesLabel(search.unshareableCount)}</HelperText>
+        ) : null}
         {/* An Allow can be withdrawn until a batch is frozen: nothing is charged or shared before that. */}
         {review.ownerAllowed === true && snapshot?.status.status === "pending" &&
           !bulkShare && batchCount === 0 && !review.aggregateCounts ? (

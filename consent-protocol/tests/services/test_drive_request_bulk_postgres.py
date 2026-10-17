@@ -2201,6 +2201,88 @@ async def test_request_review_requires_explicit_drive_shareability(request_bulk,
 
 
 @pytest.mark.asyncio
+async def test_only_the_owner_review_counts_matches_only_their_owners_can_share(
+    request_bulk, sharing
+):
+    """A's automatic sheet explains the matches A cannot share; B never learns of them.
+
+    They are usually other people's files in A's Drive (2026-10-18 owner test).
+    """
+    created = await _request(sharing)
+    request_id = created["requestId"]
+    await sharing.allow_request(
+        user_id="owner", request_id=request_id, revision=created["revision"], amount_cents=1000
+    )
+    today = datetime.now(UTC).date()
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=3,
+        shareability={2: False, 3: False},
+        selection={
+            # The autoshare date selection create_for_request froze.
+            "request_selection_version": 2,
+            "request_time_intent": "document_coverage",
+            "request_owner_review_required": False,
+            "request_selection_policy": "title_then_created_then_modified_v1",
+            "authority_mode": "trusted_auto",
+            "agent_package_required": False,
+            "requested_period": {
+                "start": (today - timedelta(days=90)).isoformat(),
+                "end": today.isoformat(),
+                "timezone": "UTC",
+            },
+        },
+    )
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status='running' WHERE job_id=:job"),
+            {"job": search},
+        )
+    service = DriveSharingService(
+        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
+        store=DriveSuggestionStore(db=sharing.db),
+        verify_recipient=AsyncMock(),
+    )
+    bulk = DriveRequestBulkService(
+        sharing=sharing,
+        search=SimpleNamespace(store=DriveOwnerSearchStore(db=sharing.db)),
+        bulk=request_bulk,
+        require_owner=AsyncMock(),
+        wake=AsyncMock(),
+    )
+
+    async def requester_views():
+        return [
+            await service.status(user_id="recipient", request_id=request_id),
+            await service.delivery(user_id="recipient", request_id=request_id, views=True),
+            await service.list_requests(user_id="recipient", direction="outgoing"),
+        ]
+
+    before = await requester_views()
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET unshareable_count=2 WHERE job_id=:job"),
+            {"job": search},
+        )
+    after = await requester_views()
+    assert after == before
+    assert "unshareable" not in json.dumps(after, default=str).casefold()
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await bulk.review_context(user_id="recipient", request_id=request_id)
+
+    # GET /requests/{id}/review merges the owner's search context.
+    review = await service.review(user_id="owner", request_id=request_id)
+    assert (review["durableAvailable"], review["trustedAuto"], review["autoshare"]) == (
+        True,
+        True,
+        True,
+    )
+    review.update(await bulk.review_context(user_id="owner", request_id=request_id))
+    assert (review["search"]["matched"], review["search"]["unshareableCount"]) == (3, 2)
+
+
+@pytest.mark.asyncio
 async def test_legacy_frozen_request_review_cannot_queue_drive_grants(request_bulk, sharing):
     request = await _request(sharing)
     search = _search(request_bulk, request_id=request["requestId"], count=1, verified=False)
