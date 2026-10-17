@@ -32,13 +32,12 @@ Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabl
 | Prior Dev 21 qualification | Both disposable clouds recovered 4,195,328 Files bytes using native identities, then upgraded from exact predecessor. Azure also retained encrypted chat/settings and completed another real response. Temporary Jobs deleted and absence verified | GCP live chat continuity and live rollback remain unverified; isolated evidence is distinct from personal Settings approval |
 | New Dev 22 native recovery | Exact `250aea9e…fc69f1` image recovers the retained 4,195,328-byte Files fixture on both clouds using native identities; keys remain inside the runtime. Both temporary Jobs were deleted and absence verified | GCP log-read 429 reconciled without rerunning its successful worker. Azure authenticated replacement retained Files, settings, key identity and the exact encrypted chat; the subsequent response reached `RUN_FINISHED` (13.089 s first content / 20.401 s completion). GCP chat returned `AGENT_ERROR` before replacement. A native-identity model probe independently returns Vertex `403 PERMISSION_DENIED` despite enabled billing/API and the existing Vertex AI User grant; a fixture-only Service Usage Consumer grant was tried, then removed by an etag-preserving exact diff with independent readback. A fresh synthetic turn still failed after seven minutes; this is not the established chat fix and no model fallback occurred. The local Dev 23 descriptor admits only exact Dev 21 digest `72b049df…842b001b` for the proven Azure owner transition, reusing the published image; it is not yet published or installed. GCP chat acceptance is not inferred |
 
-The later native GCP diagnostics confirmed the expected workload identity,
-requested cloud-platform scope and absence of a quota-project override. A bounded
-trial with both declared roles still returned 403; its Job was deleted and only
-its temporary Consumer binding was removed, with independent readback. These
-REST probes used `v1`, while the pinned SDK defaults to `v1beta1`; they are not
-exact ADK transport qualification and do not establish the live chat failure’s
-cause. Do not widen IAM or switch to the Files bridge from this evidence.
+Native GCP diagnostics confirm the expected workload identity and requested
+cloud-platform scope. REST `v1` and the pinned SDK’s `v1beta1` both return 403,
+including the exact declared Vertex/Consumer role pair; the SDK sample took
+0.128 s. Temporary Jobs and diagnostic grants were removed with readback.
+Transport parity is established; the provider refusal remains unresolved.
+No model fallback, personal-resource change or further IAM widening is justified.
 
 The workflow-only Admin repair and `azfx` removal landed separately through
 [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121), with live protection
@@ -92,7 +91,11 @@ pass. Four description-only changes use exact revision refusals for old prepared
 account-deletion/AI-setup plans; 48 graph compatibility checks pass. Type
 validation and design-system checks pass. The changes are integrated on the
 existing branch at `3129253ea1`, preserving main’s shared One chat bubbles and
-welcome styling. This UI is not deployed.
+welcome styling. This UI is not deployed. The subsequent combined core stopped
+at inherited architecture debt. Independent source review qualified exact
+inherited ceilings; bounded stream, connector and checkpoint extractions plus
+unchanged notification-test relocation pass all 187 affected checks. The debt
+ratchet, core coverage and release gates remain unchanged.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and

@@ -31,6 +31,30 @@ def open_notification_stream(
         raise
 
 
+async def _notification_is_active(
+    request: Request,
+    *,
+    clock: Callable[[], float],
+    deadline: float,
+    lease: streams.StreamLease | None,
+    authorize: streams.Authorize | None,
+    recheck_at: float,
+    auth_recheck_seconds: float,
+) -> tuple[bool, float]:
+    """Revalidate the existing stream authority without extending its lifetime."""
+    if clock() >= deadline or (lease is not None and lease.evicted):
+        return False, recheck_at
+    if await request.is_disconnected():
+        return False, recheck_at
+    if authorize is not None and clock() >= recheck_at:
+        try:
+            await asyncio.wait_for(authorize(), max(0, deadline - clock()))
+        except HTTPException:
+            return False, recheck_at
+        recheck_at = clock() + auth_recheck_seconds
+    return clock() < deadline and not (lease is not None and lease.evicted), recheck_at
+
+
 async def notification_events(
     user_id: str,
     request: Request,
@@ -62,17 +86,16 @@ async def notification_events(
 
     async def active() -> bool:
         nonlocal recheck_at
-        if clock() >= deadline or (lease is not None and lease.evicted):
-            return False
-        if await request.is_disconnected():
-            return False
-        if authorize is not None and clock() >= recheck_at:
-            try:
-                await asyncio.wait_for(authorize(), max(0, deadline - clock()))
-            except HTTPException:
-                return False
-            recheck_at = clock() + auth_recheck_seconds
-        return clock() < deadline and not (lease is not None and lease.evicted)
+        admitted, recheck_at = await _notification_is_active(
+            request,
+            clock=clock,
+            deadline=deadline,
+            lease=lease,
+            authorize=authorize,
+            recheck_at=recheck_at,
+            auth_recheck_seconds=auth_recheck_seconds,
+        )
+        return admitted
 
     try:
         queue = await asyncio.wait_for(
