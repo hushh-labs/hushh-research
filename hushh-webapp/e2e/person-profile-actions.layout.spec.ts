@@ -107,4 +107,8 @@ test("long and sent labels wrap, missing file actions leave no holes, and keyboa
   await page.locator(".actions").evaluate(el => { el.setAttribute("data-share-only", "true"); });
   const share = await boxes(page);
   expect(share.share.width).toBeCloseTo(await page.locator(".actions").evaluate(el => el.getBoundingClientRect().width), 0);
+  // Retain the existing non-connected primary-control color regression.
+  await page.locator(".actions").evaluate((el, html) => el.insertAdjacentHTML("beforeend", html),
+    button("connect", "Connect", "relationship primary").replace('data-id="connect"', 'data-id="connect" data-voice-control-id="person-profile-connect"'));
+  expect(await page.getByRole("button", { name: "Connect", exact: true }).evaluate(el => getComputedStyle(el).color)).toBe("rgb(255, 255, 255)");
 });
