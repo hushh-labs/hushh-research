@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "../../components/app-ui/bottom-chrome-column";
 
 /**
  * Model authority from shipped classes, copy and plain guards, including imported
@@ -360,10 +361,10 @@ one(panel, /<AgentBarSurface\b/, "the native-aware composer composition", PANEL_
 
 const panelHeaderClass = one(
   puppyRibbon,
-  /data-puppy-controls\s+className="([^"]+)"/,
+  /data-puppy-controls\s+className=\{`([^`]+)`\}/,
   "the Puppy panel header row",
   PUPPY_RIBBON_PATH,
-)[1];
+)[1].replace("${BOTTOM_CHROME_COLUMN_CLASSNAME}", BOTTOM_CHROME_COLUMN_CLASSNAME);
 const panelBodyClass = one(puppyRibbon, /<div className="([^"]+)">\{children\}<\/div>/,
   "the Puppy ribbon body", PUPPY_RIBBON_PATH)[1];
 const controlsClass = one(puppyControls, /<PuppyControlRibbon accessory=\{accessory\}>\s*<div className="([^"]+)">/,

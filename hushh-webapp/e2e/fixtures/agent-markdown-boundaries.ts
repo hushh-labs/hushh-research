@@ -27,6 +27,9 @@ export async function fetchPuppyStatus() {
 export const PUPPY_ONE_INSTALL_URL = "https://github.com/hushh-labs/hussh-one-hermes";
 export function PuppyModelPicker() { return null; }
 export function PuppyMachineSheet() { return null; }
+export function PrivatePuppyInferencePanel() {
+  throw new Error("Remote pod inference is outside the localhost chat typography fixture.");
+}
 export const PUPPY_TYPOGRAPHY_ANSWER = "Your local answer.\n\nA second paragraph with **emphasis**.\n\n- First item\n- Second item";
 export class HttpAgent {
   abortRun() {}
