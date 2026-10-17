@@ -1529,6 +1529,45 @@ async def test_trusted_auto_requires_exact_or_all_noncoordinated_title_terms():
 
 
 @pytest.mark.asyncio
+async def test_trusted_title_evidence_sees_words_inside_compound_filenames():
+    # Drive returns these for a meeting-notes search; whole-word title checks
+    # alone rejected every compound spelling as "no title evidence".
+    names = [
+        "MeetingNotes.pdf",
+        "2026_09_MeetingNotes.pdf",
+        "meeting-notes",
+        "Meeting Notes",
+        "meeting_notes_sept.docx",
+    ]
+    candidates = [
+        _request_candidate(f"compound-{index}", name) for index, name in enumerate(names)
+    ] + [
+        _request_candidate("agenda", "MeetingAgendaNotes.pdf"),
+        _request_candidate("unrelated", "Meetingroom budget.pdf"),
+    ]
+    checkpoint = {
+        "authority_mode": "trusted_auto",
+        "request_file_kind": "document",
+        "request_subject_terms": ["meeting", "notes"],
+        "request_notes": True,
+        "request": {"query": "meeting notes"},
+        "coverage_counts": {},
+    }
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+
+    assert [file["name"] for file in files] == names
+    assert not incomplete
+    # An agenda stays excluded once its compound words are visible.
+    assert checkpoint["coverage_counts"]["excludedByNoteTypeCount"] == 1
+    assert checkpoint["coverage_counts"]["excludedByFilenameCount"] == 1
+    assert search_module._title_words("2026_09_MeetingNotes.pdf") == "2026 09 Meeting Notes.pdf"
+    assert search_module._title_words("QBRNotes") == "QBR Notes"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("time_intent", ["document_coverage", "file_activity"])
 async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(
     monkeypatch, time_intent

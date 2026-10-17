@@ -111,6 +111,19 @@ _MEETING_NOTE_DISCOVERY = (
     "huddle",
 )
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
+# Compound filenames hide their words from whole-word title checks:
+# "MeetingNotes.pdf" and "2026_09_MeetingNotes" contain no standalone "notes".
+_COMPOUND_WORD_BREAK = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
+def _title_words(title: str) -> str:
+    """Split camelCase and underscore-joined filename words for local title checks."""
+    return _COMPOUND_WORD_BREAK.sub(" ", title.replace("_", " "))
+
+
+def _title_search(pattern: re.Pattern[str], title: str) -> bool:
+    """A title check that also sees the words inside a compound filename."""
+    return bool(pattern.search(title) or pattern.search(_title_words(title)))
 
 
 def _is_meeting_note_request(text: str) -> bool:
@@ -173,9 +186,14 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
         if term.casefold() not in {"note", "notes", "document", "documents", "file", "files"}
     ]
     return any(
-        _term_pattern(
-            "standup" if term.casefold() in {"standup", "stand up", "stand-up"} else term.casefold()
-        ).search(title)
+        _title_search(
+            _term_pattern(
+                "standup"
+                if term.casefold() in {"standup", "stand up", "stand-up"}
+                else term.casefold()
+            ),
+            title,
+        )
         for term in terms
     )
 
@@ -191,7 +209,7 @@ def _v1_folder_clue_matches(checkpoint: dict, title: str) -> bool:
     return any(
         isinstance(clue, str)
         and 1 <= len(clue) <= 50
-        and bool(_term_pattern(clue.casefold()).search(title))
+        and _title_search(_term_pattern(clue.casefold()), title)
         for clue in clues[:12]
     )
 
@@ -212,12 +230,13 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
     if not terms:
         return True
     matches = [
-        bool(
+        _title_search(
             _term_pattern(
                 "standup"
                 if term.casefold() in {"standup", "stand up", "stand-up"}
                 else term.casefold()
-            ).search(title)
+            ),
+            title,
         )
         for term in terms
     ]
@@ -242,16 +261,16 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
 
     name = match["name"]
     alias = match.get("shortcut_name", "")
+    excluded = _title_search(_NON_NOTE_TITLE, name) or _title_search(_NON_NOTE_TITLE, alias)
     if checkpoint.get("authority_mode") == "trusted_auto" and not owner_review:
         # Google Drive fullText may match an incidental mention inside a
         # generic document. Automatic grants need positive title evidence;
         # an owner-reviewed search can still show the broader candidates.
-        return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and bool(
-            _NOTE_TITLE.search(name)
-        )
-    return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and (
+        return not excluded and _title_search(_NOTE_TITLE, name)
+    return not excluded and (
         not folder_scoped
-        or bool(_GEMINI_NOTE_TITLE.search(name) or _GEMINI_NOTE_TITLE.search(alias))
+        or _title_search(_GEMINI_NOTE_TITLE, name)
+        or _title_search(_GEMINI_NOTE_TITLE, alias)
         or _subject_matches(checkpoint, name)
         or _subject_matches(checkpoint, alias)
     )
