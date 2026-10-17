@@ -89,6 +89,9 @@ tests/services/test_drive_search_performance_proof.py
 # Search v2: the request flow plans without any model call, and only typed
 # words and exact synonyms are title evidence for autoshare.
 tests/services/test_drive_request_brain.py
+# Corpus coverage: the bounded shared-folder walk, "shared with me" scope,
+# codes as fullText phrases and Devanagari words (P1-1, P0-4, P0-5, P0-6).
+tests/services/test_drive_corpus_coverage.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py

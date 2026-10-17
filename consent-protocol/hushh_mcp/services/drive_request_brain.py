@@ -38,6 +38,16 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from hushh_mcp.services.drive_text_tokens import (
+    NOT_AFTER_WORD,
+    NOT_BEFORE_WORD,
+    WORD_CHAR,
+    code_like,
+    normalize,
+    separated_words,
+)
+from hushh_mcp.services.drive_text_tokens import words as _word_runs
+
 BRAIN_VERSION = 2
 MAX_TOPICS = 4
 MAX_PARTS = 3
@@ -482,6 +492,34 @@ _ENTRIES = (
     ),
     # Reports.
     _Entry("report", ("report", "reports"), ("report", "reports"), "report", strict=("report",)),
+    # Hindi and Hinglish. The typed spelling is evidence (it is what was
+    # typed); its English or other-script counterparts are discovery only, so
+    # a Hindi request never auto-shares an English title or the reverse.
+    _Entry("bank", ("बैंक",), ("bank", "banking", "बैंक"), "bank"),
+    _Entry("account", ("खाता", "khata"), ("account", "accounts", "खाता"), "bank"),
+    _Entry(
+        "statement",
+        ("स्टेटमेंट", "विवरण"),
+        ("statement", "statements", "e-statement", "स्टेटमेंट", "विवरण"),
+        "statement",
+    ),
+    _Entry(
+        "payslip",
+        ("सैलरी स्लिप", "वेतन पर्ची"),
+        ("payslip", "pay slip", "salary slip", "सैलरी स्लिप", "वेतन पर्ची"),
+        "payslip",
+    ),
+    _Entry("invoice", ("बिल", "चालान", "इनवॉइस"), ("invoice", "bill", "बिल", "चालान"), "invoice"),
+    _Entry("receipt", ("रसीद", "raseed", "rasid"), ("receipt", "receipts", "रसीद"), "invoice"),
+    _Entry("insurance", ("बीमा", "bima"), ("insurance", "बीमा"), "insurance"),
+    _Entry("passport", ("पासपोर्ट",), ("passport", "पासपोर्ट"), "id"),
+    _Entry("aadhaar", ("आधार", "आधार कार्ड"), ("aadhaar", "aadhar", "आधार"), "id"),
+    _Entry("pan card", ("पैन कार्ड", "पैन"), ("pan card", "पैन कार्ड"), "id"),
+    _Entry("contract", ("अनुबंध", "करार"), ("contract", "agreement", "अनुबंध"), "contract"),
+    _Entry("report", ("रिपोर्ट",), ("report", "रिपोर्ट"), "report"),
+    _Entry("meeting", ("मीटिंग", "बैठक"), ("meeting", "मीटिंग", "बैठक"), "meeting"),
+    _Entry("notes", ("नोट्स", "नोट"), ("notes", "नोट्स"), "notes"),
+    _Entry("tax", ("टैक्स", "आयकर"), ("tax", "income tax", "टैक्स", "आयकर"), "tax"),
 )
 
 # Which families form one document part, its default kind and alternatives.
@@ -538,6 +576,9 @@ _KIND_WORDS = {
     "audios": "audio",
     "folder": "folder",
     "folders": "folder",
+    "दस्तावेज़": "document",
+    "दस्तावेज": "document",
+    "पीडीएफ": "pdf",
 }
 # File-type words that are also ordinary nouns. Before another subject word
 # they modify it ("photo ID", "video production invoice") and stay search
@@ -600,6 +641,25 @@ _IDENTIFIER_NOUNS = frozenset(
     account acct invoice bill receipt policy folio order ticket case claim
     """.split()
 )
+# Hindi and Hinglish filler: particles, pronouns, "send", "please", file and
+# period words, and month names (the picked dates bound the search, as they do
+# for English month names). Short romanised words ("ka", "se") are left out:
+# they collide with real subject words.
+_HINDI_STOPWORDS = frozenset(
+    """
+    मुझे मेरे मेरा मेरी हमें हमारे हमारा हमारी आप आपके आपका आपकी कृपया
+    भेजें भेजो भेजिए भेजिये भेज भेजना दें दो दीजिए दीजिये देना चाहिए
+    के का की को से में पर और या तथा सभी सारे सारी सब कोई
+    पिछले पिछला पिछली महीने महीना महीनों साल सालों वर्ष हफ्ते हफ़्ते सप्ताह
+    वाला वाली वाले है हैं था थी थे यह ये वह वो इस उस इन उन लिए तक अभी
+    फाइल फ़ाइल फाइलें फ़ाइलें फाइलों कॉपी प्रति नया नई नए पुराना पुरानी
+    जनवरी फरवरी फ़रवरी मार्च अप्रैल मई जून जुलाई अगस्त सितंबर सितम्बर अक्टूबर
+    नवंबर नवम्बर दिसंबर दिसम्बर
+    mujhe mere mera meri hamare kripya bhejo bhejiye bhejdo dijiye chahiye
+    pichle pichhle mahine mahina saare sabhi
+    """.split()
+)
+_STOPWORDS = _STOPWORDS | _HINDI_STOPWORDS
 _COORDINATORS = frozenset({"and", "or", "&", ",", "plus", "/"})
 # Words that make a subject-free request an explicit listing.
 _LISTING_CUES = frozenset({"all", "every", "everything", "entire", "whole", "anything"})
@@ -708,7 +768,14 @@ _QUOTED = re.compile(r"[\"“”]([^\"“”]{2,50})[\"“”]")
 _FILE_EXTENSION = r"\.(?:pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)"
 _FILE_NAME = re.compile(rf"[^\s\"“”,;()]+{_FILE_EXTENSION}(?![\w.])", re.I)
 # "AT&T", "H&M" and "P&G" are one name; only a spaced "&" lists subjects.
-_TOKEN = re.compile(r"[^\W_]+(?:[:'’\-&][^\W_]+)*|[,&/]", re.UNICODE)
+_TOKEN = re.compile(rf"{WORD_CHAR}+(?:[:'’\-&]{WORD_CHAR}+)*|[,&/]", re.UNICODE)
+# A typed code is one concept, never its pieces: "INV_2026_HDFC_9981". It is
+# masked before date and count parsing, which would otherwise eat "2026" out
+# of "INV-2026-001".
+_CODE = re.compile(rf"{NOT_AFTER_WORD}{WORD_CHAR}+(?:[_\-./]{WORD_CHAR}+)+{NOT_BEFORE_WORD}")
+_CODE_EXTENSION = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)$", re.I)
+_CODE_MARKER = "zqxcode"
+MAX_CODES = 4
 _DOTTED_MOM = re.compile(r"\bm\.\s?o\.\s?m\b\.?", re.I)
 _NUMBER_SIGN = re.compile(r"#\s*(?=\d)")
 _WORD = re.compile(r"[^\W_]+")
@@ -1001,6 +1068,58 @@ _CORRECTION_PHRASES = sorted(
 )
 
 
+def _date_like(code: str) -> bool:
+    """Month, quarter or fiscal-year letters with short numbers: "sep-2026", "q3_2026"."""
+    runs = re.findall(r"[^\W\d_]+|\d+", code.casefold())
+    return all(
+        run.isdigit() and len(run) <= 4 or run in _MONTHS or run in {"fy", "q", "h"} for run in runs
+    )
+
+
+def _mask_codes(text: str) -> tuple[str, dict[str, str]]:
+    """Replace each typed code with a marker word; return the markers' codes.
+
+    Lexicon spellings ("form-16") and date-like tokens ("sep-2026") stay
+    ordinary words, and so does anything longer than a search literal.
+    """
+    codes: dict[str, str] = {}
+
+    def replace(match: re.Match) -> str:
+        code = match.group(0)
+        extension = _CODE_EXTENSION.search(code)
+        trailer = ""
+        if extension:
+            # "INV_2026.pdf": the code, then a file-type word. "Q3.pdf" is no code.
+            if not code_like(code[: extension.start()]):
+                return match.group(0)
+            code, trailer = code[: extension.start()], " " + extension.group(1)
+        folded = code.casefold()
+        if (
+            len(codes) >= MAX_CODES
+            or not code_like(code)
+            or _date_like(code)
+            or len(code) > MAX_TERM_CHARS
+            or folded in _SINGLE_TRIGGERS
+        ):
+            return match.group(0)
+        marker = _CODE_MARKER + chr(ord("a") + len(codes))
+        codes[marker] = folded
+        return f" {marker} {trailer}"
+
+    return _CODE.sub(replace, text), codes
+
+
+def _code_concept(code: str) -> Concept:
+    """A code is searched as typed and with its separators removed.
+
+    Its typed spelling is the evidence; title checks read any of _ - . / or a
+    space between its parts (Drive's own index treats them as spaces).
+    """
+    joined = "".join(_word_runs(code))
+    variants = _unique((code, joined))
+    return Concept(variants[0], variants, _evidence((code,)))
+
+
 def _tokens(text: str) -> list[str]:
     text = _DOTTED_MOM.sub(" mom ", text)
     return [token.replace("’", "'") for token in _TOKEN.findall(text.casefold())]
@@ -1021,7 +1140,8 @@ def _phrase_correction(tokens: list[str], start: int, words: tuple[str, ...]) ->
         return False
     typed, word = misses[0]
     return (
-        typed not in _LEXICON_WORDS
+        typed.isascii()
+        and typed not in _LEXICON_WORDS
         and typed not in _STOPWORDS
         and _typo_limit(typed) > 0
         and _osa(typed, word, _typo_limit(typed)) <= _typo_limit(typed)
@@ -1172,9 +1292,13 @@ def interpret_request(
     today = (
         current.astimezone(_zone(timezone)) if current else datetime.now(_zone(timezone))
     ).date()
+    # NFC and ASCII digits: "२०२६" is the year 2026, and precomposed and
+    # decomposed Devanagari spell one word.
+    text = normalize(text)
     exact_title = _literal_file_name(text)
     quoted = [match.group(1).strip().casefold() for match in _QUOTED.finditer(text)]
     remainder = _NUMBER_SIGN.sub(" no ", _QUOTED.sub(" , ", text))
+    remainder, codes = _mask_codes(remainder)
     remainder, spans = _strip_dates(remainder, today, picked_period)
     remainder, result_limit = _strip_count(remainder)
     tokens = _tokens(remainder)
@@ -1184,6 +1308,8 @@ def interpret_request(
     dropped: list[str] = []
     corrected = False
     for start in range(len(tokens)):
+        if tokens[start] in codes:
+            continue
         for words in _CORRECTION_PHRASES:
             if _phrase_correction(tokens, start, words):
                 # The fixed phrase gives the kind and discovery spellings;
@@ -1199,6 +1325,10 @@ def interpret_request(
     while position < len(tokens):
         token = tokens[position]
         if position in skipped:
+            position += 1
+            continue
+        if token in codes:
+            units.append(_Unit(position, _code_concept(codes[token]), None))
             position += 1
             continue
         if token in _COORDINATORS:
@@ -1527,10 +1657,28 @@ def suggested_plan(brain: RequestBrain, query: str) -> dict:
     return plan
 
 
+_PLAIN = re.compile(rf"{WORD_CHAR}+(?:[ '\-]{WORD_CHAR}+)*")
+
+
 def _plain_literal(value: str) -> bool:
-    return _valid_literal(value) and bool(re.fullmatch(r"[^\W_]+(?:[ '\-][^\W_]+)*", value))
+    return _valid_literal(value) and bool(_PLAIN.fullmatch(value))
 
 
 def full_text_safe(value: str) -> bool:
     """Drive fullText matches whole tokens; punctuation such as ``1:1`` is title-only."""
     return _plain_literal(value)
+
+
+def full_text_phrase(value: str) -> str | None:
+    """The fullText value Gear 2 sends for a discovery spelling; None is title-only.
+
+    Drive's index reads _ - . / inside text as spaces, so a code
+    ("INV_2026_HDFC_9981") or any spelling joined by _ . / is sent as the
+    phrase of its parts ("inv 2026 hdfc 9981"). Plain words and phrases are
+    sent as they are; anything else ("1:1") stays a title clue.
+    """
+    if not _valid_literal(value):
+        return None
+    if code_like(value) or any(mark in value for mark in "_./") and separated_words(value):
+        return " ".join(_word_runs(value))
+    return value if _plain_literal(value) else None
