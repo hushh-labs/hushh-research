@@ -309,6 +309,107 @@ async def test_new_legacy_statement_uses_gemini_coverage_plan(request_text, expe
     }
 
 
+class _VertexRefused(Exception):
+    """Stands in for a provider 403 such as a suspended Vertex project."""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,reason",
+    [
+        (TimeoutError(), "timeout"),
+        (_VertexRefused("403 PERMISSION_DENIED"), "model_error"),
+        (ValueError("planner output failed its schema twice"), "invalid_plan"),
+    ],
+)
+@pytest.mark.parametrize(
+    "request_text,plan_name,terms",
+    [
+        ("3 months meeting notes", "meeting_notes", ["meeting", "notes"]),
+        ("Last months brokerage statements", "statements", ["brokerage", "statement"]),
+    ],
+)
+async def test_planner_failure_keeps_searching_with_the_recorded_deterministic_plan(
+    failure, reason, request_text, plan_name, terms
+):
+    purpose = {"purpose": request_text, "periodStart": "2026-09-02", "periodEnd": "2026-10-02"}
+    context = {"purpose": purpose, "revision": 1, "requestTimeZone": "UTC"}
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "job", "status": "queued"}),
+    )
+    planner = AsyncMock(side_effect=failure)
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request", authority_mode="trusted_auto")
+
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["terms"] == terms
+    # The substitute leaves every candidate to the owner's exact review.
+    assert frozen["plan"]["time_intent"] == "document_coverage"
+    assert frozen["planner_fallback"] == {"reason": reason, "plan": plan_name}
+
+
+@pytest.mark.asyncio
+async def test_planner_failure_without_a_deterministic_plan_still_waits():
+    purpose = {"purpose": "tax documents", "periodStart": "2026-09-02", "periodEnd": "2026-10-02"}
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(
+            request_bulk_context=AsyncMock(return_value={"purpose": purpose, "revision": 1})
+        ),
+        search=search,
+        planner=AsyncMock(side_effect=TimeoutError()),
+        require_owner=AsyncMock(),
+    )
+    with pytest.raises(TimeoutError):
+        await service.start_search(
+            user_id="owner", request_id="request", authority_mode="trusted_auto"
+        )
+    search.create_for_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_planner_fallback_is_frozen_into_the_search_checkpoint(monkeypatch):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    request = {
+        "user_id": "owner",
+        "request_id": "12345678-1234-1234-1234-123456789012",
+        "request_revision": 1,
+        "purpose": {"purpose": "meeting notes", **{"periodStart": "2026-09-02"}},
+        "plan": {
+            "mode": "find",
+            "terms": ["meeting", "notes"],
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        },
+        "require_current": AsyncMock(),
+        "authority_mode": "trusted_auto",
+    }
+    request["purpose"]["periodEnd"] = "2026-10-02"
+    await service.create_for_request(
+        **request, planner_fallback={"reason": "timeout", "plan": "meeting_notes"}
+    )
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    assert checkpoint["planner_fallback"] == {"reason": "timeout", "plan": "meeting_notes"}
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.create_for_request(
+            **request, planner_fallback={"reason": "the query text", "plan": "meeting_notes"}
+        )
+
+
 @pytest.mark.asyncio
 async def test_statement_coverage_cannot_become_automatic_file_activity():
     purpose = {

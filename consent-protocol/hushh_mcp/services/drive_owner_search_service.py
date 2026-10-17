@@ -1206,11 +1206,18 @@ class DriveOwnerSearchService:
         after_page=None,
         evidence_route=None,
         v1_live_request=False,
+        planner_fallback=None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
         if (
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
+            or planner_fallback is not None
+            and (
+                not isinstance(planner_fallback, dict)
+                or planner_fallback.get("reason") not in {"timeout", "invalid_plan", "model_error"}
+                or planner_fallback.get("plan") not in {"statements", "meeting_notes"}
+            )
         ):
             raise DriveReadError("invalid_argument")
         if v1_live_request and authority_mode != "agent_package":
@@ -1286,6 +1293,8 @@ class DriveOwnerSearchService:
                 "agent_package_required": authority_mode == "agent_package",
                 "v1_live_request": v1_live_request,
                 **({"authored_plan": plan} if v1_live_request else {}),
+                # A deterministic plan that replaced a failed planner call.
+                **({"planner_fallback": planner_fallback} if planner_fallback else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
                 "request_coverage_query_version": 1
