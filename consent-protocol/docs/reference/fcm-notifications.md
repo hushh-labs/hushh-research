@@ -16,9 +16,9 @@ specific reliability gaps:
 | Native token refresh depended on the separate web Firebase auth observer. | Refresh uses the active native AuthProvider identity getter and retains session, deletion and installation-owner fences. |
 | Location alert types were missing from the authenticated live-event allowlist. | Core alert types preserve their popup payload through the existing PostgreSQL/SSE path, independently of FCM readiness. |
 | Routine Android alerts had no explicit normal notification channel. | A high-importance activity channel has the default notification sound; existing user channel choices are preserved. |
-| TestFlight did not explicitly select the distribution APNs entitlement used by App Store. | Both release lanes select production APNs and verify the signed archive/profile before upload. This configuration risk was found in source; it is not proof that an installed TestFlight binary had the wrong entitlement. |
+| Distribution APNs was not verified on the exported app. | Both release lanes verify production APNs and the provisioning profile in a distribution-exported IPA before the existing Xcode upload. Automatic development signing remains target-owned during archive. |
 
-Provider acceptance, a successful archive guard and physical receipt are
+Provider acceptance, a successful distribution-export guard and physical receipt are
 separate evidence. Fresh signed TestFlight and Android builds still require
 the device matrix in the release checklist below. No physical-device receipt
 or sound result is inferred from mocked-provider tests.
@@ -60,8 +60,12 @@ subject to the environment's existing enablement policy and never substitutes
 for closed-app OS push.
 
 Native distribution builds use production APNs for both TestFlight and App
-Store. Both workflows verify the signed archive and its provisioning profile
-before upload; this is archive evidence, not physical-device delivery proof.
+Store. Both workflows verify a distribution-exported IPA and its provisioning
+profile before the existing Xcode upload from the same archive and signing
+options. Xcode may repackage during upload, so this proves a production-signed
+export rather than byte identity with the uploaded package or physical receipt.
+The archive retains automatic development signing; a global distribution
+identity conflicts with that mode and wrongly reaches Swift dependency targets.
 Android routine alerts use `hushh_activity_alerts_v1`, high importance and the
 default notification sound. SMS retains its separate alarm channel. Existing
 user channel settings are never reset.

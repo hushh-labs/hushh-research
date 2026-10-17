@@ -36,7 +36,8 @@ UAT configuration and native Firebase materialization
 → ordinary Gemini transcription and semantic model access against the matching UAT backend
 → optional focused iOS App Intent/action smoke tests (full AppTests remain in change-aware CI)
 → optional physical-iPhone capture evidence when requested
-→ signed archive and TestFlight upload
+→ automatic archive, distribution IPA export and production APNs/profile guard
+→ existing Xcode TestFlight upload from the same archive/signing options
 → Apple VALID processing check
 → attach the same build to internal and external groups
 ```

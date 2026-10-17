@@ -57,7 +57,7 @@ The non-chat delivery worker uses migration 361's source-transaction outbox.
 Deploy the additive migration and backend before testing fresh native builds;
 web deployment alone does not update an installed native wrapper. TestFlight
 and App Store distributions both require production APNs. The release lanes
-verify signed archive entitlements/profile before upload; a green archive
+verify distribution-exported IPA entitlements/profile before upload; a green export
 check is not evidence that an iPhone displayed or sounded an alert.
 
 Use two connected accounts. Record the candidate commit, app version/build,

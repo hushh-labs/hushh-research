@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail a distribution archive before upload if signed APNs configuration drifted."""
+"""Fail a distribution-exported app before upload if signed APNs drifted."""
 
 import argparse
 import plistlib
