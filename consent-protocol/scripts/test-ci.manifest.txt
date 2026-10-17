@@ -88,6 +88,7 @@ tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
+tests/services/test_drive_autoshare_pay_then_stream_postgres.py
 tests/test_drive_request_owner_payouts.py
 tests/test_stripe_connect_bank_payouts.py
 # Hashcoin liabilities and test-only redemption must run against real PostgreSQL.

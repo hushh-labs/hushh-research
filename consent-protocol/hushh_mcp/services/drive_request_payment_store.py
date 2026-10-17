@@ -108,6 +108,17 @@ def _record_new_owner_payout(
         )
 
 
+def _search_exists(connection, request: Mapping[str, Any]) -> bool:
+    """Whether this request's own search job exists yet; reads no results."""
+    return bool(
+        connection.execute(
+            text("""SELECT EXISTS(SELECT 1 FROM drive_owner_search_jobs
+              WHERE user_id=:owner AND client_request_id=:request)"""),
+            {"owner": request["user_id"], "request": str(request["request_id"])},
+        ).scalar_one()
+    )
+
+
 # Checkout verifies the live, exact owner-approved batch. Refunds use the
 # durable obligation marker after request, search and share retention.
 _V1_APPROVED_BATCH_REQUEST_SQL = text("""SELECT EXISTS (
@@ -602,6 +613,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             "SELECT * FROM drive_request_payment_orders WHERE request_id=:request",
             {"request": request["request_id"]},
         )
+        if order is not None and inserted.rowcount == 1:
+            # Only this transaction created the order: the one moment the
+            # Checkout lane needs a wake. Never a database column.
+            order["_order_created"] = True
         return request, order, False
 
     async def ensure_payment_for_frozen_batch(
@@ -622,7 +637,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 if order["status"] == "paid"
                 else "awaiting_payment"
             )
-            return {"status": status, "notificationQueued": notified}
+            return {
+                "status": status,
+                "notificationQueued": notified,
+                # A worker wakes the Checkout lane only when this is True:
+                # never on every page handoff while the order stays unpaid.
+                "orderCreated": order.get("_order_created") is True,
+            }
 
         return await self._transaction(operation)
 
@@ -723,6 +744,23 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     revision=request["revision"],
                 )
             )
+            # A request sealed for autoshare is priced per request, never per
+            # file. While its selection is automatic (or its search has not
+            # started yet), checkout opens as soon as the order exists, without
+            # a frozen file set. Older automatic requests keep the complete-set
+            # checkout; a selection the owner must review keeps the manual lane.
+            from hushh_mcp.services.drive_owner_allowed import autoshare_request
+
+            autoshare_flow = bool(private is not None and autoshare_request(private))
+            autoshare_lane = bool(
+                autoshare_flow
+                and private is not None
+                and private.get("trusted_auto") is True
+                and request["status"] == "pending"
+                and (legacy_auto or not _search_exists(connection, request))
+            )
+            if autoshare_lane:
+                legacy_auto = False
             disclosure = (
                 buyer_package_disclosure(
                     private or {},
@@ -855,9 +893,16 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     else {}
                 ),
                 **({"_legacy_auto_owner_user_id": request["user_id"]} if legacy_auto else {}),
+                **({"_autoshare_owner_user_id": request["user_id"]} if autoshare_lane else {}),
+                **({"_autoshare_request": True} if autoshare_flow else {}),
+                "_order_present": order is not None,
                 **(
                     {"_legacy_manual_owner_user_id": request["user_id"]}
-                    if private is not None and not package_required and approved and not legacy_auto
+                    if private is not None
+                    and not package_required
+                    and approved
+                    and not legacy_auto
+                    and not autoshare_lane
                     else {}
                 ),
                 **setup,

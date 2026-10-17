@@ -921,7 +921,14 @@ def _owner_allow(sharing, request_id: str, *, amount_cents: int | None) -> None:
 
 
 @pytest.mark.asyncio
-async def test_legacy_checkout_requires_every_shareable_search_result_frozen(request_bulk, sharing):
+async def test_legacy_checkout_requires_every_shareable_search_result_frozen(
+    request_bulk, sharing, monkeypatch
+):
+    # Production requests are not sealed for autoshare and keep this complete
+    # set gate; an autoshare request is priced per request and checks out on
+    # its own lane (test_drive_autoshare_pay_then_stream_postgres).
+    monkeypatch.setattr("hushh_mcp.services.drive_sharing_store.autoshare_enabled", lambda: False)
+
     async def prepare(*, shareability=None):
         request_id = (await request(sharing))["requestId"]
         _owner_allow(sharing, request_id, amount_cents=1000)
@@ -960,6 +967,11 @@ async def test_legacy_checkout_requires_every_shareable_search_result_frozen(req
     assert sources[0]["id"] == "standup-file-1"
     assert sources[0]["modifiedTime"] == "2026-09-27T00:00:00Z"
     assert sources[0]["generation"] == 1
+    state = await DriveRequestPaymentService(db=sharing.db).payment_state(
+        requester_user_id="recipient", request_id=complete
+    )
+    assert state["_legacy_auto_owner_user_id"] == "owner"
+    assert "_autoshare_owner_user_id" not in state and "_autoshare_request" not in state
 
 
 def _signed_event(
