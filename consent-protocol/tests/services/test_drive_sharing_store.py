@@ -1875,3 +1875,38 @@ async def test_hashcoin_request_without_price_still_waits_for_owner(sharing, mon
         == "owner_price_required"
     )
     assert not rows(sharing, "drive_request_payment_orders")
+
+
+def test_autoshare_is_sealed_outside_production_only(monkeypatch):
+    from hushh_mcp.services.drive_owner_allowed import autoshare_enabled
+
+    for environment, expected in (
+        ("uat", True),
+        ("development", True),
+        ("", True),
+        ("production", False),
+        (" Production ", False),
+    ):
+        monkeypatch.setenv("ENVIRONMENT", environment)
+        assert autoshare_enabled() is expected
+
+
+@pytest.mark.asyncio
+async def test_production_requests_keep_the_owner_review_contract(sharing, monkeypatch):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
+    gate = "hushh_mcp.services.drive_sharing_store.autoshare_enabled"
+    monkeypatch.setattr(gate, lambda: False)
+    created = await request(sharing)
+    _, private = stored_request(sharing, created["requestId"])
+    # Autoshare is not approved for production: no sealed flow, so the
+    # whole-dollar owner-review contract applies.
+    assert "request_flow" not in private
+    review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
+    assert review.get("autoshare") is not True
+    assert review.get("wholeDollarPrice") is True
+    # Negative control: outside production the same request seals the flow.
+    monkeypatch.setattr(gate, lambda: True)
+    other = await request(sharing)
+    _, other_private = stored_request(sharing, other["requestId"])
+    assert other_private["request_flow"] == "oct17_autoshare"
