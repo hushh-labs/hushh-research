@@ -639,6 +639,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "289_one_referral_program_settings_v2.sql",
             "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65",
         ),
+        (
+            361,
+            "361_system_push_outbox.sql",
+            "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608",
+        ),
     ],
 )
 async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
@@ -686,6 +691,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
         "289_one_referral_program_settings_v2.sql",
         "298_stripe_mode_isolation.sql",
         "304_connect_bank_payout_reconciliation.sql",
+        "361_system_push_outbox.sql",
     ],
 )
 async def test_legacy_replay_rejects_unknown_or_forged_source_before_execution(drift, filename):

@@ -3,6 +3,7 @@
 import { forwardRef, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Cpu, Send, StopSquare } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "@/components/app-ui/bottom-chrome-column";
 
 /** Stays above the transcript, directly below the shared app bar. */
 export function PuppyControlRibbon({ children, accessory }: {
@@ -11,8 +12,8 @@ export function PuppyControlRibbon({ children, accessory }: {
 }) {
   return (
     <div role="group" aria-label="Puppy controls" data-puppy-controls
-      className="grid min-h-14 w-full min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border/40 py-1">
-      <div className="flex min-w-0 flex-1 items-start">{children}</div>
+      className={`mx-auto ${BOTTOM_CHROME_COLUMN_CLASSNAME} grid min-h-14 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] content-center items-start gap-2 border-b border-border/40 py-1`}>
+      <div className="flex min-w-0 flex-1 items-center">{children}</div>
       {accessory ? <div className="contents">{accessory}</div> : null}
     </div>
   );

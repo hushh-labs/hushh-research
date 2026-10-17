@@ -87,7 +87,55 @@ controls reject missing response cleanup and ignored coalescing maximum wait. Th
 scheduler-sensitive payout timing test is replaced by a deterministic queued
 maximum-wait case; exact debounce/cap arithmetic and payload coverage remain.
 This repair is not yet deployed. Main integration preserves migration bodies and
-rollbacks; the canonical manifest and all environment contracts verify head 406.
+rollbacks; the canonical manifest and all environment contracts verify head 406. The integration pin is main `fd3b00b3c160a5473efcbd32f139df8b6ccc7a7d`;
+concurrent Puppy controls and BYOC cleanup tests remain intact. Four authored
+capability descriptions retain hosting-aware AI choices and private-cloud
+account-deletion prerequisites. Exact-revision rejection declarations cover the
+two main graph predecessors (`8845cf8eae4a24fb` and `bae648fb1e85fb89`);
+current compatible workflow runs are not silently reinterpreted. Existing
+evolution declarations and execution guards remain unchanged.
+
+Root checkout integration `750db14051173801f3e79573297db24fda15714e`
+also preserves shared-branch `09f3d53a10725c982d65c008ece594732d42a4ff`.
+Its extracted stream/checkpoint helpers and production deployment dependencies
+are reused. The previous core completed frontend checks and 21,237 backend
+cases but failed eleven Drive/Azure fixture and dependency checks. The combined
+source passes all 48 nearest recovery/negative-control cases, all 472 Back cases
+and 14 monitoring provisioner tests. The Azure story now supplies explicit,
+provider-bound consent to the real checkpoint validator. No consent or hosting
+guard is bypassed. Seventeen independently reviewed size observations preserve
+all earlier baseline rows and unchanged budgets; each additional-line negative
+control still fails. Combined core, hosted CI, Dev promotion and paid delivery
+remain required. The two clean, preserved worktrees last changed over five days
+ago were removed; implementation remains on the original root branch.
+
+The `2026-10-17T12:34:30Z` read-only provider preflight verifies the same funding
+and capital totals, balanced liabilities, settled backing and conserved fees.
+The existing signed-in browser displays an enabled price-review control for the
+inactive one-cent approval; this diagnostic does not establish a purchase or
+replace canonical same-session encrypted delivery acceptance. A later headless diagnostic reaches the same Consent query with
+an unlocked vault and a mounted but empty sharing-review panel, without a read
+error. The source now retries an empty, error-free initial financial read every
+15 visible seconds using a newly captured session; retired payloads remain
+withheld. The nearest 33 commerce-panel cases pass, including initial vault and
+authentication retirement, stale-result rejection and fresh-read recovery. This bounds the source correction; the exact
+runtime retirement cause and deployed recovery remain to be verified. The
+original polling condition fails both regression cases in an isolated,
+in-memory negative control. The source change passes 472 Back cases and
+TypeScript. A normal Refresh attempt on the previous deployed build did not
+recover the control; successful request/readiness HTTP responses alone therefore
+do not establish a usable review. No purchase was confirmed in that diagnostic.
+
+The final-main core attempt at `da6b4cdb8dec60f569c8e242ed7c37155e172622`
+stopped at the architecture-size ratchet before protocol/web stages. Independent
+review bound all 148 size occurrences to exact source, parent revisions and
+occurrence ranks: 129 replacements and 19 additions retain all 2,835 prior
+baseline entries and history. No production measurement exceeds every supplied
+parent. All 26 retained production deltas were inspected; the sole above-parent
+test growth protects initial-session retirement. The accepted debt remains
+visible under unchanged 500/250/80 budgets, scanner and exclusions. Each of the
+148 individual one-line growth controls is still rejected. This is a bounded
+debt qualification, not completed core, release or financial acceptance.
 UI behavior, core, hosted CI and governed Dev deployment remain required before
 resuming the preserved financial checkpoint.
 

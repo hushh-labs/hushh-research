@@ -84,7 +84,7 @@ for (const width of [320, 390, 768, 1280]) {
       expect(control.right).toBeLessThanOrEqual(geometry.ribbon.right + 1);
     }
     // A wrapped local pin must not vertically displace the machine trigger.
-    expect(Math.abs(geometry.controls[0].top - geometry.controls.at(-1)!.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.controls[0].top - geometry.controls.at(-1)!.top), JSON.stringify(geometry.controls)).toBeLessThanOrEqual(1);
     // Top-align both grid tracks even with inherited leading; centering only
     // the model produced the cross-platform 1.5px displacement.
     await ribbon.evaluate(node => { node.style.lineHeight = "48px"; });

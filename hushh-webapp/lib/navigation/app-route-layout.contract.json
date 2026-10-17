@@ -1229,7 +1229,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
     }
   },
   {
@@ -2522,7 +2522,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Circle creation unwinds its contact step to retained name/type state through a route-scoped Back layer before the authored route parent. Pending membership saves consume Back. Connect modal Escape uses the same callback."
+      "reason": "Circle creation unwinds its contact step to retained name/type state through a route-scoped Back layer before the authored route parent. Pending membership saves consume Back. Connect modal Escape uses the same callback. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
     }
   },
   {
@@ -6284,7 +6284,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.referrals",
-      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share One opens WhatsApp, SMS and More sharing bubbles beneath the button; Back closes them and restores focus. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Invite opens the device share sheet directly and copies the invite link when sharing is unavailable. Individual and Circle rankings show ten entries per page. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
       "screen": "one_referrals",
       "entryCue": "",
       "proactivity": "ambient",

@@ -1,5 +1,6 @@
 /** Invocation-local information. Never serialize into sync results or telemetry. */
 export type InviteDestination = { kind: "phone" | "email"; value: string };
+export const MAX_INVITATION_RECIPIENTS = 15;
 export type InviteCandidate = {
   id: string;
   displayName: string;
@@ -14,6 +15,10 @@ export type LocalInviteContact = Omit<InviteCandidate, "classification"> & {
 
 export function contactInvitationsEnabled(): boolean {
   return process.env.NEXT_PUBLIC_CONTACT_INVITATIONS_ENABLED !== "false";
+}
+
+export function isInvitePhone(value: string): boolean {
+  return /^\+[1-9]\d{6,14}$/.test(value) && value === value.trim();
 }
 
 export function normalizeInviteEmail(input: string): string | null {

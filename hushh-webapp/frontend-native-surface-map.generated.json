@@ -7931,7 +7931,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share One opens WhatsApp, SMS and More sharing bubbles beneath the button; Back closes them and restores focus. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Invite opens the device share sheet directly and copies the invite link when sharing is unavailable. Individual and Circle rankings show ten entries per page. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10890,5 +10890,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ddd487f7a639dccd15d0e4d60847f4325d89c92810ac6e164dd26d33233671d7"
+  "content_sha256": "cbd9dd5397623a92729f5f5b2f469fd1840053119370ea65a4b375414d693efb"
 }

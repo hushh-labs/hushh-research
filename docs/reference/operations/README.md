@@ -139,6 +139,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 - [observability-architecture-map.md](./observability-architecture-map.md): canonical analytics-plane and reporting-plane map.
 - [observability-google-first.md](./observability-google-first.md): observability operating model.
 - [observability-event-matrix.md](./observability-event-matrix.md): event taxonomy, emitter map, and dashboard contract.
+- [runtime-capacity.md](./runtime-capacity.md): connection admission, application deadlines, retained-work lifecycle, provider observability and workload qualification.
 - [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md): production DB recovery guide.
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.

@@ -251,7 +251,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
   /*
    * Puppy One's surface. Only the two things this spec measures are modelled:
    * its own model control (the real `PuppyModelPicker` trigger's classes and
-   * title, extracted) and its own composer. The pill reports a local weight
+   * title, extracted) and its own composer. The picker reports a local weight
    * file, which is what makes the "no cloud model name on this screen" sweep
    * meaningful rather than tautological.
    */
@@ -261,11 +261,14 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
       <div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3">
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
           <div class="${SRC.puppy.panelHeaderClass}">
-            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)]">${escapeHtml(PUPPY_MODEL)}</span>
-            <button type="button" class="${SRC.puppy.pickerClass} ml-auto"
+            <div class="${SRC.puppy.panelBodyClass}">
+              <div class="${SRC.puppy.controlsClass}">
+            <button type="button" class="${SRC.puppy.pickerClass} ${SRC.puppy.pickerInstanceClass}"
                     title="${escapeHtml(SRC.puppy.pickerTitle)}">${escapeHtml(PUPPY_MODEL)}</button>
             <button type="button" aria-pressed="true"
-                    class="rounded-full px-2 py-0.5 text-[11px] font-medium">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+                    class="${SRC.puppy.pinOnClass}">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+              </div>
+            </div>
           </div>
           <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4"></div>
           <div class="flex items-end gap-2 border-t border-border/60 px-4 py-3">

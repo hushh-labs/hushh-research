@@ -139,6 +139,25 @@ describe("commerce session and review authority", () => {
     expect(mocks.periodic.mock.calls.at(-1)![3].enabled).toBe(false);
   });
 
+  it.each(["vault", "authentication"])("retries an initially retired %s read with fresh authority without publishing its result", async boundary => {
+    const retired = deferred<{ pending: boolean; label: string }>();
+    const load = vi.fn().mockReturnValueOnce(retired.promise).mockResolvedValueOnce({ pending: false, label: "current review" });
+    const { result } = renderHook(() => useCommerceRead("review", load, value => value.pending));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    act(() => {
+      if (boundary === "vault") advanceVaultSessionEpoch();
+      else { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); }
+    });
+    await act(async () => retired.resolve({ pending: true, label: "retired review" }));
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toBeNull();
+    const retry = mocks.periodic.mock.calls.at(-1)!;
+    expect(retry[3].enabled).toBe(true);
+    await act(async () => retry[2]());
+    expect(result.current.data?.label).toBe("current review");
+    expect(mocks.periodic.mock.calls.at(-1)![3].enabled).toBe(false);
+  });
+
   it("requires acknowledgement of exact negative net and resets consent when the cost binding changes", async () => {
     const prepare = vi.fn(async () => undefined);
     const request = ownerRequest();

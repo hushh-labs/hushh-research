@@ -33,12 +33,14 @@ FRONTEND_DB_ENV = re.compile(
 FRONTEND_DB_VALUE = re.compile(
     r"(?:postgres(?:ql)?://|/cloudsql/|hushh-uat-pg|cloudsql-instances)", re.I
 )
-FRONTEND_ALLOWED_PROJECT_ROLES = frozenset({
-    "roles/secretmanager.secretAccessor",
-    "roles/logging.logWriter",
-    "roles/monitoring.metricWriter",
-    "roles/cloudtrace.agent",
-})
+FRONTEND_ALLOWED_PROJECT_ROLES = frozenset(
+    {
+        "roles/secretmanager.secretAccessor",
+        "roles/logging.logWriter",
+        "roles/monitoring.metricWriter",
+        "roles/cloudtrace.agent",
+    }
+)
 
 
 class BudgetError(ValueError):
@@ -142,6 +144,41 @@ def revision_workers(
     )
 
 
+def pool_capacity(
+    container: dict[str, Any], label: str, *, required: bool = True
+) -> int:
+    """Count the runtime's effective finite pools, including optional modifiers."""
+    env = env_values(container, label)
+    controls = {*POOL_KEYS, "DB_POOL_MIN_SIZE", "DB_SQLALCHEMY_USE_NULL_POOL"}
+    for item in container.get("env", []):
+        if item.get("name") in controls and item["name"] not in env:
+            raise BudgetError(f"{label}: uninspectable {item['name']}")
+    if env.get("DB_SQLALCHEMY_USE_NULL_POOL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        raise BudgetError(f"{label}: NullPool has no reviewed finite connection bound")
+    present = [key in env for key in POOL_KEYS]
+    if not required and not any(present) and "DB_POOL_MIN_SIZE" not in env:
+        return 0
+    if not all(present):
+        raise BudgetError(f"{label}: partial DB pool settings: missing {', '.join(key for key in POOL_KEYS if key not in env)}")
+    asynchronous, synchronous, overflow = [
+        positive_int(
+            env[key], f"{label} {key}", zero_ok=key == "DB_SQLALCHEMY_MAX_OVERFLOW"
+        )
+        for key in POOL_KEYS
+    ]
+    # Match db.connection.get_pool: an omitted minimum defaults to two and
+    # a larger minimum raises the effective asyncpg maximum.
+    minimum = positive_int(
+        env.get("DB_POOL_MIN_SIZE", "2"), f"{label} DB_POOL_MIN_SIZE", zero_ok=True
+    )
+    return max(asynchronous, minimum) + synchronous + overflow
+
+
 def revision_connections(
     revision: dict[str, Any],
     service: str,
@@ -164,20 +201,14 @@ def revision_connections(
     )
     spec = revision.get("spec") or {}
     container = named_container(spec, settings["container"], name)
-    env = env_values(container, name)
-    pools = [
-        positive_int(
-            env.get(key), f"{name} {key}", zero_ok=(key == "DB_SQLALCHEMY_MAX_OVERFLOW")
-        )
-        for key in POOL_KEYS
-    ]
+    connections_per_worker = pool_capacity(container, name)
     workers = revision_workers(container, settings, name)
     return {
         "name": name,
         "max_instances": maximum,
         "workers_per_instance": workers,
-        "connections_per_worker": sum(pools),
-        "connections": maximum * workers * sum(pools),
+        "connections_per_worker": connections_per_worker,
+        "connections": maximum * workers * connections_per_worker,
     }
 
 
@@ -365,19 +396,7 @@ def job_budget(
         raise BudgetError(f"{name}: task containers unavailable")
     live_pool = 0
     for container in containers:
-        env = env_values(container, name)
-        present = [key in env for key in POOL_KEYS]
-        if any(present) and not all(present):
-            raise BudgetError(f"{name}: partial DB pool settings")
-        if all(present):
-            live_pool += sum(
-                positive_int(
-                    env[key],
-                    f"{name} {key}",
-                    zero_ok=(key == "DB_SQLALCHEMY_MAX_OVERFLOW"),
-                )
-                for key in POOL_KEYS
-            )
+        live_pool += pool_capacity(container, name, required=False)
     if not attached and live_pool:
         raise BudgetError(
             f"{name}: DB pools configured without expected Cloud SQL attachment"

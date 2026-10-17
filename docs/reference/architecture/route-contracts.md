@@ -140,7 +140,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/kyc`
 - `/one/career`
 - `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
-  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the four-item bottom navigation on web and Capacitor. The Share button expands into Copy link, WhatsApp, SMS, and more sharing options; Back or Escape closes it. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
+  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the four-item bottom navigation on web and Capacitor. Invite opens the device share sheet directly, falling back to copying the invite link. Individual and Circle rankings show ten entries per page. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`

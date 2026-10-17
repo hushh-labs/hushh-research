@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "../../components/app-ui/bottom-chrome-column";
 
 /**
  * Model authority from shipped classes, copy and plain guards, including imported
@@ -77,9 +78,9 @@ export function evaluateShippedExpression(
 
 const WORKSPACE_PATH = "components/agent/agent-chat-workspace.tsx";
 const PANEL_PATH = "components/agent/hermes-chat-panel.tsx";
-const PUPPY_CONTROLS_PATH = "components/agent/puppy-chat-controls.tsx";
-const PUPPY_LOCAL_CONTROLS_PATH = "components/agent/puppy-local-controls.tsx";
 const PUPPY_PICKER_PATH = "components/agent/puppy-model-picker.tsx";
+const PUPPY_RIBBON_PATH = "components/agent/puppy-chat-controls.tsx";
+const PUPPY_CONTROLS_PATH = "components/agent/puppy-local-controls.tsx";
 const SEGMENTED_PATH = "lib/morphy-ux/ui/segmented-control.tsx";
 
 const workspace = read(WORKSPACE_PATH);
@@ -109,8 +110,10 @@ const historyClass = one(historySource, /<NativeChatChrome\b[\s\S]*?kind="histor
   "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
- * Fixed history/actions flank the shrinkable identity region. Its attribute
- * anchors ownership independently of styling.
+ * The header is three flex regions and only the middle one may give way:
+ * history (fixed), identity (flex-1, clips), actions (shrink-0). The identity
+ * region carries a data attribute so this anchor names the region, not a
+ * styling that may change under it.
  */
 const identityClass = one(
   header,
@@ -347,20 +350,30 @@ const puppyMountedLazily = workspace.includes("{puppyEverOpened ? (");
 // --- The Puppy surface's own controls -------------------------------------
 
 const panel = read(PANEL_PATH);
-const puppyControls = read(PUPPY_CONTROLS_PATH);
-const puppyLocalControls = read(PUPPY_LOCAL_CONTROLS_PATH);
 const puppyPicker = read(PUPPY_PICKER_PATH);
+const puppyRibbon = read(PUPPY_RIBBON_PATH);
+const puppyControls = read(PUPPY_CONTROLS_PATH);
 const segmented = read(SEGMENTED_PATH);
 
-// Follow the extracted owners; removing either composition must still fail.
+// Refuse a fixture whose extracted controls are no longer composed by the panel.
 one(panel, /<PuppyLocalControls\b/, "the local controls composition", PANEL_PATH);
 one(panel, /<AgentBarSurface\b/, "the native-aware composer composition", PANEL_PATH);
+
 const panelHeaderClass = one(
-  puppyControls,
-  /aria-label="Puppy controls"\s+data-puppy-controls\s+className="([^"]+)"/,
-  "the Puppy controls ribbon",
-  PUPPY_CONTROLS_PATH,
-)[1];
+  puppyRibbon,
+  /data-puppy-controls\s+className=\{`([^`]+)`\}/,
+  "the Puppy panel header row",
+  PUPPY_RIBBON_PATH,
+)[1].replace("${BOTTOM_CHROME_COLUMN_CLASSNAME}", BOTTOM_CHROME_COLUMN_CLASSNAME);
+const panelBodyClass = one(puppyRibbon, /<div className="([^"]+)">\{children\}<\/div>/,
+  "the Puppy ribbon body", PUPPY_RIBBON_PATH)[1];
+const controlsClass = one(puppyControls, /<PuppyControlRibbon accessory=\{accessory\}>\s*<div className="([^"]+)">/,
+  "the Puppy wrapping controls", PUPPY_CONTROLS_PATH)[1];
+const pickerInstanceClass = one(puppyControls, /<PuppyModelPicker\b[^>]+className="([^"]+)"/,
+  "the Puppy picker placement", PUPPY_CONTROLS_PATH)[1];
+const pinClasses = one(puppyControls,
+  /aria-pressed=\{onDevice\}\s+className=\{cn\(\s*"([^"]+)",\s*onDevice\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/,
+  "the Puppy pin sizing and selected state", PUPPY_CONTROLS_PATH);
 
 const puppyComposerPlaceholder = one(
   panel,
@@ -377,10 +390,10 @@ const puppySendLabel = one(
 )[1];
 
 const puppyPinLabels = one(
-  puppyLocalControls,
+  puppyControls,
   /\{onDevice \? "([^"]+)" : "([^"]+)"\}/,
   "the on-device pin labels",
-  PUPPY_LOCAL_CONTROLS_PATH,
+  PUPPY_CONTROLS_PATH,
 );
 
 const puppyPickerMatch = one(
@@ -574,6 +587,10 @@ export const AGENT_SURFACE_SOURCE = {
   },
   puppy: {
     panelHeaderClass,
+    panelBodyClass,
+    controlsClass,
+    pickerInstanceClass,
+    pinOnClass: `${pinClasses[1]} ${pinClasses[2]}`,
     composerPlaceholder: puppyComposerPlaceholder,
     sendLabel: puppySendLabel,
     pinOnLabel: puppyPinLabels[1],

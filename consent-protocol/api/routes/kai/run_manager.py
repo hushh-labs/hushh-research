@@ -91,6 +91,7 @@ class AnalyzeRunRecord:
     status: RunStatus = "running"
     started_at: str = field(default_factory=_now_iso)
     completed_at: Optional[str] = None
+    completed_monotonic: Optional[float] = None
     updated_at: str = field(default_factory=_now_iso)
     terminal_event: Optional[str] = None
     terminal_payload: Optional[Dict[str, Any]] = None
@@ -212,18 +213,45 @@ class KaiAnalyzeRunManager:
         self,
         *,
         retention_seconds: int = 6 * 60 * 60,
+        cleanup_interval_seconds: float = 60.0,
         store: Any = None,
     ) -> None:
         self._retention_seconds = max(60, retention_seconds)
         self._runs_by_id: dict[str, AnalyzeRunRecord] = {}
         self._active_by_session: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_interval_seconds = max(0.01, cleanup_interval_seconds)
+        self._retention_task: asyncio.Task[None] | None = None
         # Cross-process run state. Injected in tests (``False`` disables it);
         # otherwise on unless the kill switch turns it off.
         if store is None:
             self._store = run_store.default_store_from_flag()
         else:
             self._store = store or None
+
+    def _start_retention(self) -> None:
+        if self._retention_task is None or self._retention_task.done():
+            self._retention_task = asyncio.create_task(
+                self._expire_runs(), name="kai-analyze-retention"
+            )
+
+    async def _expire_runs(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self._cleanup_interval_seconds)
+                async with self._lock:
+                    await self._prune_locked()
+                    if not self._runs_by_id:
+                        return
+        finally:
+            if self._retention_task is asyncio.current_task():
+                self._retention_task = None
+
+    async def stop_retention(self) -> None:
+        task = self._retention_task
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _append_frame(self, run: AnalyzeRunRecord, frame: RunFrame) -> dict[str, Any] | None:
         try:
@@ -403,11 +431,26 @@ class KaiAnalyzeRunManager:
         finally:
             # Close in the owning task: generators release contextvar tokens
             # here, which cannot safely be deferred to asyncgen GC in a new task.
-            if generator is not None:
-                try:
+            try:
+                if generator is not None:
                     await generator.aclose()
-                except Exception:
-                    logger.warning("kai_run_generator_cleanup_failed")
+            except Exception:
+                logger.warning("kai_run_generator_cleanup_failed")
+            finally:
+                # Completed replay needs frames and provenance, not the authority
+                # or authorized package snapshot that produced them.
+                run.consent_token = ""
+                if isinstance(run.context, dict):
+                    run.context = {
+                        key: run.context[key]
+                        for key in (
+                            "pick_source",
+                            "pick_source_label",
+                            "pick_source_kind",
+                            "pick_source_snapshot",
+                        )
+                        if key in run.context
+                    }
             if run.cancel_event.is_set() and not saw_terminal:
                 await self._append_synthetic_terminal(
                     run,
@@ -432,6 +475,7 @@ class KaiAnalyzeRunManager:
                 )
 
             run.completed_at = _now_iso()
+            run.completed_monotonic = time.monotonic()
             run.updated_at = run.completed_at
             async with run.condition:
                 run.condition.notify_all()
@@ -475,7 +519,11 @@ class KaiAnalyzeRunManager:
         now = datetime.now(timezone.utc).timestamp()
         stale_ids: list[str] = []
         for run_id, run in self._runs_by_id.items():
-            if run.status == "running":
+            if run.status == "running" or (run.worker_task and not run.worker_task.done()):
+                continue
+            if run.completed_monotonic is not None:
+                if time.monotonic() - run.completed_monotonic > self._retention_seconds:
+                    stale_ids.append(run_id)
                 continue
             completed_at = run.completed_at or run.updated_at
             try:
@@ -486,7 +534,15 @@ class KaiAnalyzeRunManager:
                 stale_ids.append(run_id)
 
         for run_id in stale_ids:
-            self._runs_by_id.pop(run_id, None)
+            run = self._runs_by_id.pop(run_id, None)
+            if run is not None:
+                key = (run.user_id, run.debate_session_id)
+                if self._active_by_session.get(key) == run_id:
+                    self._active_by_session.pop(key, None)
+        if stale_ids:
+            logger.info(
+                "kai_run_retention expired=%s retained=%s", len(stale_ids), len(self._runs_by_id)
+            )
 
     async def start_or_get_active(
         self,
@@ -538,6 +594,7 @@ class KaiAnalyzeRunManager:
             run.worker_task = asyncio.create_task(self._run_worker(run, generator_factory))
             self._runs_by_id[run_id] = run
             self._active_by_session[session_key] = run_id
+            self._start_retention()
 
         # Visible to every process before the run id reaches the client.
         if self._store is not None:

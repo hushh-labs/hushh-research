@@ -22,7 +22,7 @@ from hushh_mcp.services.one_referral_display_handle_service import (
     ANONYMOUS_PLACEHOLDER,
     get_display_handles,
 )
-from hushh_mcp.services.one_referral_identity_service import get_leaderboard_display_names
+from hushh_mcp.services.one_referral_identity_service import get_leaderboard_profiles
 from hushh_mcp.services.one_referral_rewards_service import (
     lifetime_joined_count,
     lifetime_qualified_count,
@@ -114,7 +114,7 @@ def get_individual_leaderboard(
             page_user_ids.append(viewer_row.user_id)
         handles = get_display_handles(page_user_ids)
 
-    names = get_leaderboard_display_names(
+    profiles = get_leaderboard_profiles(
         [uid for uid in page_user_ids if not handles.get(uid)],
         viewer_user_id=viewer_user_id,
     )
@@ -122,7 +122,8 @@ def get_individual_leaderboard(
         {
             "rank": row.rank,
             "handle": _handle_or_placeholder(handles, row.user_id),
-            "display_name": names.get(row.user_id),
+            "display_name": profiles.get(row.user_id, {}).get("display_name"),
+            "photo_url": profiles.get(row.user_id, {}).get("photo_url"),
             "points": row.cumulative_points,
             "is_viewer": row.user_id == viewer_user_id,
         }
@@ -132,7 +133,8 @@ def get_individual_leaderboard(
         {
             "rank": viewer_row.rank,
             "handle": _handle_or_placeholder(handles, viewer_row.user_id),
-            "display_name": names.get(viewer_row.user_id),
+            "display_name": profiles.get(viewer_row.user_id, {}).get("display_name"),
+            "photo_url": profiles.get(viewer_row.user_id, {}).get("photo_url"),
             "points": viewer_row.cumulative_points,
             "is_viewer": True,
         }

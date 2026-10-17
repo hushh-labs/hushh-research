@@ -53,7 +53,6 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
   const refresh = useCallback(async () => {
     if (!user) return;
     const current = capture();
-    const currentView = capture(false);
     const read = ++sequence.current;
     const latest = () => current() && sequence.current === read;
     setLoading(true);
@@ -64,7 +63,11 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
       if (latest()) { setResult({ value: result, user, scope }); setError(null); }
     } catch {
       if (latest()) setError("Payment status could not be checked. Refresh before continuing.");
-    } finally { if (currentView() && sequence.current === read) setLoading(false); }
+    } finally {
+      // Only the latest mounted read owns this spinner. Settling it publishes no
+      // financial result and must also work when authentication retires that read.
+      if (sequence.current === read) setLoading(false);
+    }
   }, [user, scope, load, capture]);
   useEffect(() => {
     setResult(null); setError(null); setLoading(false);
@@ -80,7 +83,9 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
     };
   }, [refresh, scope]);
   usePeriodicTask(`commerce:${scope}:${user?.uid || "signed-out"}`, 15_000, () => refresh(), {
-    enabled: Boolean(user && data && shouldPoll(data) && !loading),
+    // A session change can retire the initial read without a result or error.
+    // Retry with fresh authority rather than leaving that review permanently blank.
+    enabled: Boolean(user && !loading && (data ? shouldPoll(data) : !error)),
   });
   return { user, data, refresh, loading, error, capture };
 }

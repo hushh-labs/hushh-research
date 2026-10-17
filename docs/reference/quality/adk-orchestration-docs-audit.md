@@ -125,7 +125,10 @@ All 66 affected backend checks, 52 chat-formatting cases and 20 ribbon cases pas
 in the appropriate Python or Chromium/WebKit lanes. The final 28 Puppy cases
 also pass with fresh grid captures; ten optional formatting exports are unrun.
 Typecheck, focused lint, UI contracts and the unchanged architecture ratchet pass.
-No live Puppy model calls were made. Exact-SHA hosted validation remains required.
+No live Puppy model calls were made. After reconciling concurrent source through
+`216f259306`, all 320 affected browser cases, 66 backend cases, typecheck and
+regenerated Back/Search contracts pass. The shared bottom-shell column and local
+reading gutters are retained. Exact-SHA hosted validation remains required.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
@@ -194,6 +197,16 @@ Historical anchor: the [architecture baseline](./architecture-fitness-baseline.j
 owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 and
 exclusions remain unchanged; CI rejects new or worsened findings. Git retains
 integration chronology. Source qualification is not deployed acceptance.
+
+The 2026-10-17 scope-commerce integration qualification records exactly 148
+size occurrences at source `da6b4cdb8dec60f569c8e242ed7c37155e172622`:
+80 incoming-main byte matches, 66 retained-parent matches, one migration union
+within its parent size and one bounded test correction. Independent review covers
+all 26 retained production deltas. All 2,835 prior occurrences and history remain;
+129 exact value changes and 19 additions produce 2,854 rows. Every individual
+one-line growth control still fails. Scanner, exclusions and budgets remain
+unchanged. The canonical commerce reference owns remaining release and financial
+acceptance; this qualification does not establish them.
 
 ## GCP-only pod deployment correction — 2026-09-25
 

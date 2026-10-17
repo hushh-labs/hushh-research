@@ -60,6 +60,48 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_effective_async_pool_capacity_matches_minimum_override(self) -> None:
+        for minimum, maximum, expected in (
+            ("8", "4", 110),
+            (None, "1", 50),
+            ("0", "1", 40),
+        ):
+            with self.subTest(minimum=minimum, maximum=maximum):
+                row = revision("consent-protocol-effective")
+                env = row["spec"]["containers"][0]["env"]
+                env[0]["value"] = maximum
+                if minimum is not None:
+                    env.append({"name": "DB_POOL_MIN_SIZE", "value": minimum})
+                result = budget.revision_connections(
+                    row, "consent-protocol", SETTINGS, CONNECTION
+                )
+                self.assertEqual(result["connections"], expected)
+
+    def test_unbounded_or_uninspectable_pool_controls_fail_closed(self) -> None:
+        controls = [
+            {"name": "DB_SQLALCHEMY_USE_NULL_POOL", "value": value}
+            for value in ("1", "TRUE", "yes", "on")
+        ] + [
+            {"name": name, "valueFrom": {"secretKeyRef": {"name": "private-setting"}}}
+            for name in ("DB_POOL_MIN_SIZE", "DB_SQLALCHEMY_USE_NULL_POOL")
+        ]
+        for control in controls:
+            with self.subTest(control=control):
+                row = revision("consent-protocol-unbounded")
+                container = row["spec"]["containers"][0]
+                container["env"].append(control)
+                with self.assertRaises(budget.BudgetError):
+                    budget.revision_connections(
+                        row, "consent-protocol", SETTINGS, CONNECTION
+                    )
+                # Jobs use the same effective-capacity contract.
+                with self.assertRaises(budget.BudgetError):
+                    budget.pool_capacity(container, "job", required=False)
+        for minimum in ("40", "invalid"):
+            with self.subTest(modifier_only=minimum), self.assertRaises(budget.BudgetError):
+                budget.pool_capacity({"env": [{"name": "DB_POOL_MIN_SIZE", "value": minimum}]},
+                                     "job", required=False)
+
     def test_frontend_only_admits_zero_incremental_sql_without_job_inventory(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
         account = "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com"

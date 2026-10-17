@@ -76,7 +76,8 @@ export function PuppyOneSurface({
         // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
         // underneath the navigation. The fallback covers a mount outside the
         // workspace, where the variable is not defined.
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-0 sm:px-5",
+        "flex min-h-0 flex-1 flex-col overflow-hidden pt-0",
+        localBridge ? "px-4 sm:px-6" : "px-3 sm:px-5",
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
@@ -88,7 +89,8 @@ export function PuppyOneSurface({
           outer div would leave Puppy narrower than One at the same
           viewport. The wrapper repeats the flex chain on purpose: an inert
           wrapper here would let the chat panel's flex-1 basis collapse. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-[var(--app-bottom-shell-max-width)] flex-1 flex-col gap-3">
+      <div className={cn("mx-auto flex min-h-0 w-full flex-1 flex-col gap-3",
+        localBridge ? "max-w-3xl" : "max-w-[var(--app-bottom-shell-max-width)]")}>
         {/* Said once, and only to someone with no machine yet. The workspace
             header cannot carry it (its subtitle is hidden below sm, and the
             unlinked empty state below names an install without ever saying

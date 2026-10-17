@@ -37,6 +37,8 @@ METRICS = (
     "obs_short_read_duration_ms",
     "obs_one_voice_latency_ms",
     "obs_one_voice_client_perf_ms",
+    "obs_agent_chat_first_visible_ms",
+    "obs_agent_chat_first_visible_count",
 )
 VOICE_METRICS = ("obs_one_voice_latency_ms", "obs_one_voice_client_perf_ms")
 POLICIES = (
@@ -51,7 +53,9 @@ POLICIES = (
     "sql-connections-critical-policy",
     "db-pool-wait-policy",
     "db-pool-timeout-policy",
+    "sql-cpu-policy",
 )
+PROVIDER_POLICIES = ("provider-errors-policy",)
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,61}[a-z0-9]$")
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -64,6 +68,10 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--include-commerce", action="store_true")
     parser.add_argument("--console-only", action="store_true")
     parser.add_argument("--dashboard-id", default="hushh-observability-managed")
+    parser.add_argument(
+        "--provider-only", action="store_true",
+        help="Manage provider availability alerts/dashboard without SQL or log-metric changes",
+    )
     parser.add_argument(
         "--email",
         action="append",
@@ -82,10 +90,12 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.commerce_only and args.voice_only:
         parser.error("--commerce-only and --voice-only select different provisioners")
+    if args.provider_only and (args.voice_only or args.sql_instance or args.commerce_only or args.include_commerce):
+        parser.error("--provider-only cannot be combined with application or commerce provisioners")
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
     for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
-        if key == "sql_instance" and args.commerce_only and not args.sql_instance:
+        if key == "sql_instance" and (args.provider_only or (args.commerce_only and not args.sql_instance)):
             continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
@@ -96,14 +106,15 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
-    try:
-        _CAPACITY.sql_alert_thresholds(
-            json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
-            args.project,
-            args.sql_instance,
-        )
-    except ValueError as exc:
-        parser.error(str(exc))
+    if not args.provider_only and not args.commerce_only:
+        try:
+            _CAPACITY.sql_alert_thresholds(
+                json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
+                args.project,
+                args.sql_instance,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     return args
 
 
@@ -122,7 +133,7 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
-    thresholds = _CAPACITY.sql_alert_thresholds(
+    thresholds = {} if args.provider_only or args.commerce_only else _CAPACITY.sql_alert_thresholds(
         json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
     )
     substitutions = {
@@ -130,9 +141,9 @@ def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
         "__SQL_INSTANCE__": args.sql_instance,
         "__BACKEND_SERVICE__": args.backend_service,
         "__FRONTEND_SERVICE__": args.frontend_service,
-        "__SQL_CONNECTION_WARNING__": str(thresholds["warning"]),
-        "__SQL_CONNECTION_CRITICAL__": str(thresholds["critical"]),
     }
+    substitutions.update({f"__SQL_CONNECTION_{key.upper()}__": str(value)
+                          for key, value in thresholds.items()})
     for before, after in substitutions.items():
         source = source.replace(before, after)
     if re.search(r"__[A-Z_]+__", source):
@@ -200,14 +211,16 @@ def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
 
 def reconcile_dashboard(args: argparse.Namespace) -> None:
     project = args.project
-    desired_dashboard = render(ROOT / "dashboard-observability.json.in", args)
-    desired_dashboard["name"] = f"projects/{project}/dashboards/{args.dashboard_id}"
-    desired_dashboard["gridLayout"]["widgets"] = [
-        widget for widget in desired_dashboard["gridLayout"]["widgets"]
-        if (widget.get("title", "").startswith("Scope Commerce:")
-            if args.commerce_only
-            else args.include_commerce or not widget.get("title", "").startswith("Scope Commerce:"))
-    ]
+    template = "dashboard-provider.json.in" if args.provider_only else "dashboard-observability.json.in"
+    desired_dashboard = render(ROOT / template, args)
+    if not args.provider_only:
+        desired_dashboard["name"] = f"projects/{project}/dashboards/{args.dashboard_id}"
+        desired_dashboard["gridLayout"]["widgets"] = [
+            widget for widget in desired_dashboard["gridLayout"]["widgets"]
+            if (widget.get("title", "").startswith("Scope Commerce:")
+                if args.commerce_only
+                else args.include_commerce or not widget.get("title", "").startswith("Scope Commerce:"))
+        ]
     dashboard_name = desired_dashboard["name"]
     current_dashboard = run(
         "gcloud",
@@ -263,7 +276,7 @@ def reconcile_dashboard(args: argparse.Namespace) -> None:
 
 def reconcile(args: argparse.Namespace) -> None:
     project = args.project
-    current_metrics = {
+    current_metrics = {} if args.provider_only else {
         item["name"].split("/")[-1]: item
         for item in run(
             "gcloud",
@@ -275,7 +288,8 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    for name in (() if args.commerce_only else VOICE_METRICS if args.voice_only else METRICS):
+    metric_names = () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
+    for name in metric_names:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
         if current and same_log_metric(current, desired):
@@ -359,7 +373,7 @@ def reconcile(args: argparse.Namespace) -> None:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         by_name.setdefault(policy["displayName"], []).append(policy)
-    selected_policies = ("scope-commerce-policy",) if args.commerce_only else POLICIES
+    selected_policies = ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
     if args.include_commerce and not args.commerce_only:
         selected_policies += ("scope-commerce-policy",)
     for slug in selected_policies:

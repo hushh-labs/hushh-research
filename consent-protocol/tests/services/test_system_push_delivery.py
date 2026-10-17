@@ -6,10 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from psycopg2.errors import RaiseException
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from db.migration_authority import _replay_sql, build_manifest_entries
 from hushh_mcp.services import system_push_delivery as pushes
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,7 +75,10 @@ def push_db(monkeypatch):
                 "ALTER EVENT TRIGGER trg_refresh_account_deletion_guards_after_identity_ddl DISABLE"
             )
             raw.commit()
-            cursor.execute((ROOT / "db/migrations/361_system_push_outbox.sql").read_text())
+            entry = build_manifest_entries(ROOT / "db/migrations", ("361_system_push_outbox.sql",))[
+                0
+            ]
+            cursor.execute(_replay_sql(entry))
         raw.close()
 
         def execute_raw(sql, params):
@@ -131,8 +136,87 @@ def retry_now(db):
     sql(db, "UPDATE system_push_outbox SET due_at=now() WHERE status IN ('pending','leased')")
 
 
-def test_new_outbox_rejects_deleted_recipient_even_with_retained_actor_root(push_db):
+def replay_migration(db):
+    entry = build_manifest_entries(ROOT / "db/migrations", ("361_system_push_outbox.sql",))[0]
+    raw = db.engine.raw_connection()
+    try:
+        with raw.cursor() as cursor:
+            cursor.execute(_replay_sql(entry))
+        raw.commit()
+    finally:
+        raw.close()
+
+
+def test_migration_replay_preserves_intents_and_accepted_devices(push_db):
     db = push_db
+    add_devices(db)
+    grant = sql(db, "INSERT INTO one_location_share_grants DEFAULT VALUES RETURNING id")[0]["id"]
+    pushes.dispatch_system_pushes(db)
+    sql(db, "INSERT INTO connection_requests DEFAULT VALUES")
+    request = sql(db, "INSERT INTO one_location_access_requests DEFAULT VALUES RETURNING id")[0][
+        "id"
+    ]
+    sql(
+        db,
+        """UPDATE system_push_outbox SET status='leased',attempts=3,lease_id=:lease
+        WHERE source_id=:source""",
+        {"lease": uuid.uuid4(), "source": request},
+    )
+    intents = sql(db, "SELECT * FROM system_push_outbox ORDER BY id")
+    accepted = sql(db, "SELECT * FROM system_push_device_deliveries ORDER BY event_id,device_id")
+    assert {row["status"] for row in intents} == {"pending", "leased", "sent"}
+    assert len(accepted) == 2
+    triggers = sql(
+        db,
+        """SELECT oid,tgname FROM pg_trigger WHERE tgname LIKE 'system_push_%' ORDER BY tgname""",
+    )
+    for _ in range(2):
+        replay_migration(db)
+        assert sql(db, "SELECT * FROM system_push_outbox ORDER BY id") == intents
+        assert (
+            sql(db, "SELECT * FROM system_push_device_deliveries ORDER BY event_id,device_id")
+            == accepted
+        )
+        assert (
+            sql(
+                db,
+                "SELECT oid,tgname FROM pg_trigger WHERE tgname LIKE 'system_push_%' ORDER BY tgname",
+            )
+            == triggers
+        )
+    # A later point on an existing grant must not ring again after deployment.
+    sql(
+        db,
+        "UPDATE one_location_share_grants SET latest_envelope_id=gen_random_uuid() WHERE id=:id",
+        {"id": grant},
+    )
+    assert sql(db, "SELECT * FROM system_push_outbox ORDER BY id") == intents
+    sql(db, "INSERT INTO connection_requests DEFAULT VALUES")
+    assert len(sql(db, "SELECT * FROM system_push_outbox")) == 4
+    assert len(db.sent) == 2
+
+
+def test_migration_replay_creates_missing_trigger_and_rejects_drift(push_db):
+    db = push_db
+    sql(db, "DROP TRIGGER system_push_connection_request ON connection_requests")
+    replay_migration(db)
+    sql(db, "INSERT INTO connection_requests DEFAULT VALUES")
+    assert len(sql(db, "SELECT * FROM system_push_outbox")) == 1
+    sql(db, "ALTER TABLE connection_requests DISABLE TRIGGER system_push_connection_request")
+    with pytest.raises(RaiseException, match="System push trigger has unexpected definition"):
+        replay_migration(db)
+    assert len(sql(db, "SELECT * FROM system_push_outbox")) == 1
+    assert sql(
+        db,
+        "SELECT tgenabled FROM pg_trigger WHERE tgname='system_push_connection_request'",
+    ) == [{"tgenabled": "D"}]
+
+
+@pytest.mark.parametrize("replay", [False, True])
+def test_new_outbox_rejects_deleted_recipient_even_with_retained_actor_root(push_db, replay):
+    db = push_db
+    if replay:
+        replay_migration(db)
     sql(
         db,
         """INSERT INTO account_deletion_tombstones(user_id_hash)
