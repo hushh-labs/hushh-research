@@ -18,6 +18,11 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_match_evidence import (
+    automatic_claims,
+    awaiting_owner,
+    is_possible_match,
+)
 from hushh_mcp.services.drive_owner_allowed import (
     automatic_recipient_current,
     autoshare_request,
@@ -954,6 +959,13 @@ class DriveBulkShareStore(DriveLivePreferences):
             if positions and any(item > len(files) for item in positions):
                 raise DriveSharingError("invalid_argument")
             excluded_set = set(positions)
+            # An automatic batch may freeze a possible match (no title
+            # evidence) only after the owner's Send. A package or manual
+            # selection is already the owner's exact choice.
+            automatic = (
+                progressive and package is None and manual is None and automatic_claims(checkpoint)
+            )
+            unsent_possible = set()
             if origin is not None:
                 for item in files:
                     metadata = self._open(
@@ -967,8 +979,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                     # owner review; missing/legacy evidence must fail closed.
                     if metadata.get("shareable") is not True:
                         excluded_set.add(item["position"])
+                    elif automatic and awaiting_owner(checkpoint, metadata):
+                        unsent_possible.add(item["position"])
             if progressive and any(item in excluded_set for item in selected_positions):
                 raise DriveSharingError("source_not_shareable")
+            if unsent_possible:
+                raise DriveSharingError("possible_match_not_sent")
             chosen_files = (
                 [item for item in files if item["position"] in selected_positions]
                 if progressive
@@ -1515,6 +1531,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                     if frozen_row is not None:
                         raise DriveSharingError("payment_not_ready")
                     continue
+                if frozen_row is None and is_possible_match(checkpoint, metadata):
+                    # A possible match is not part of the purchase until the
+                    # owner's Send freezes it into a batch. A sent one joins
+                    # the next batch after payment; neither blocks Checkout.
+                    continue
                 if (
                     frozen_row is None
                     or frozen_row["source_job_id"] != search["job_id"]
@@ -1824,6 +1845,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                 search_job_id=source["job_id"],
                 generation=source["connection_generation"],
             )
+            # A package is the owner's exact Allow. Without one, only title
+            # evidence or the owner's Send for a possible match is claimable.
+            automatic = package is None and automatic_claims(checkpoint)
             rows = connection.execute(
                 text("""SELECT r.position,r.metadata_envelope
                 FROM drive_owner_search_results r
@@ -1844,6 +1868,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                     resource_id=f"{source['job_id']}:{row['position']}",
                     purpose="owner-search-result",
                 )
+                if automatic and awaiting_owner(checkpoint, metadata):
+                    # A possible match (D3): never auto-sent; waits for Send.
+                    continue
                 if metadata.get("shareable") is True:
                     result.append(row["position"])
                     if len(result) == limit:
@@ -2801,6 +2828,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             ORDER BY r.position LIMIT 10000"""),
             {"job": source["job_id"], "user": request["user_id"], "request": request_id},
         ).mappings()
+        # Possible matches the owner has not sent are invisible to the
+        # requester: they never hold the request open or change its outcome.
+        # A sent one is ordinary remaining work until its batch settles.
+        automatic = package is None and automatic_claims(checkpoint)
+        unsent_possible = 0
         for file in remaining:
             if package is not None and file["position"] not in package["selected_positions"]:
                 continue
@@ -2810,6 +2842,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                 resource_id=f"{source['job_id']}:{file['position']}",
                 purpose="owner-search-result",
             )
+            if automatic and awaiting_owner(checkpoint, metadata):
+                unsent_possible += 1
+                continue
             if metadata.get("shareable") is True:
                 return
         states = dict(
@@ -2832,9 +2867,16 @@ class DriveBulkShareStore(DriveLivePreferences):
         )
         # An empty, completed search never selected a file or attempted a
         # Google permission. Do not report it as a failed partial share.
+        # Unsent possible matches count as nothing found: the requester sees
+        # exactly the outcome they would see if the list did not exist.
         outcome = (
             "no_match"
-            if (len(package["selected_positions"]) if package else source["matched"]) == 0
+            if (
+                len(package["selected_positions"])
+                if package
+                else source["matched"] - unsent_possible
+            )
+            == 0
             and not successes
             and not errors
             else "completed"

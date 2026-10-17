@@ -94,6 +94,11 @@ tests/services/test_drive_request_brain.py
 # Corpus coverage: the bounded shared-folder walk, "shared with me" scope,
 # codes as fullText phrases and Devanagari words (P1-1, P0-4, P0-5, P0-6).
 tests/services/test_drive_corpus_coverage.py
+# D3: matches without title evidence are never auto-sent; only the owner
+# lists them and sends them, through the paid batch path.
+tests/services/test_drive_match_evidence.py
+tests/services/test_drive_possible_matches_postgres.py
+tests/test_drive_possible_matches_routes.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
