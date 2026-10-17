@@ -24640,7 +24640,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 987
+      "value": 990
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26990,7 +26990,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/fixtures/agent-surface-source.ts",
       "symbol": null,
-      "value": 584
+      "value": 601
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -71555,6 +71555,27 @@
         "value": 621,
         "source_sha256": "45ac95463a40274c3e94e558995a52708ad8458397daa1fc1bedb15023b81cd5",
         "prior_value": 610
+      }
+    ]
+  },
+  "scope_commerce_inherited_web_fixture_review_20261017": {
+    "reviewer": "client_context",
+    "boundary": "Two existing module slots only. Source-derived browser fixture follows the production Ribbon/body/wrapping controls; obsolete duplicate model pill removed. Exactly-one anchors, cloud-control refusals, visibility and geometry assertions remain. No production, scanner, budget or dependency/import exception changes. All2855 prior rows/history retained.",
+    "verification": "101 focused tests and2 Chromium/WebKit browser cases pass;both additional-line negative controls refuse. Exact-head hosted CI remains required.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "prior_value": 987,
+        "value": 990,
+        "source_sha256": "8a0caded13660a06a40b36c1f79fa6dad07601533fcc9ae5e1a0df04e9c7abaf"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/fixtures/agent-surface-source.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "prior_value": 584,
+        "value": 601,
+        "source_sha256": "eb375938b944d82177e99ed769275fad068c2e766f0c3f54497c82b3f4bf49ce"
       }
     ]
   }

@@ -341,12 +341,11 @@ describe("HermesChatPanel when the bridge is not connected", () => {
     ).toBeTruthy();
   });
 
-  it("leaves the bridge's own pill alone when the bridge is connected", async () => {
+  it("keeps a connected bridge usable despite a stale link prompt", async () => {
     await mount(
       link({ state: "unlinked" }),
       { connected: true, model: "gemma-4-26b-a4b-qat" },
     );
-    expect(await screen.findByText("gemma-4-26b-a4b-qat")).toBeInTheDocument();
     expect(screen.queryByText(/isn't connected to your account/)).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Ask Puppy One…")).not.toBeDisabled();
   });

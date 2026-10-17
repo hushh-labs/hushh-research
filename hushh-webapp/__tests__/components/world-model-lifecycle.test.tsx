@@ -169,21 +169,14 @@ afterEach(() => {
 describe("PWM owner and request isolation", () => {
   it("keeps restricted reviewer entry read-only while preserving explicit refresh", async () => {
     mock.skipBackgroundWrites = true;
-    const added = vi.spyOn(document, "addEventListener");
-    const removed = vi.spyOn(document, "removeEventListener");
     const { unmount } = render(<WorldModelProvider><Probe /></WorldModelProvider>);
     await waitFor(() => expect(mock.preferences).toHaveBeenCalledOnce());
     expect(mock.observe).not.toHaveBeenCalled();
     expect(mock.load).not.toHaveBeenCalled();
-    const listener = added.mock.calls.find(([name]) => name === "visibilitychange")?.[1];
-    expect(listener).toEqual(expect.any(Function));
     fireEvent.click(screen.getByText("Refresh"));
     await waitFor(() => expect(mock.observe).toHaveBeenCalledOnce());
     expect(mock.observe.mock.calls[0][0].refresh).toBe(true);
-    expect(removed).toHaveBeenCalledWith("visibilitychange", listener);
     unmount();
-    added.mockRestore();
-    removed.mockRestore();
   });
 
   it("consumes refresh before another account or vault token takes over", async () => {

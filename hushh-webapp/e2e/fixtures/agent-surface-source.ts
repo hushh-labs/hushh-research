@@ -83,6 +83,8 @@ export function evaluateShippedExpression(
 const WORKSPACE_PATH = "components/agent/agent-chat-workspace.tsx";
 const PANEL_PATH = "components/agent/hermes-chat-panel.tsx";
 const PUPPY_PICKER_PATH = "components/agent/puppy-model-picker.tsx";
+const PUPPY_RIBBON_PATH = "components/agent/puppy-chat-controls.tsx";
+const PUPPY_CONTROLS_PATH = "components/agent/puppy-local-controls.tsx";
 const SEGMENTED_PATH = "lib/morphy-ux/ui/segmented-control.tsx";
 
 const workspace = read(WORKSPACE_PATH);
@@ -353,14 +355,25 @@ const puppyMountedLazily = workspace.includes("{puppyEverOpened ? (");
 
 const panel = read(PANEL_PATH);
 const puppyPicker = read(PUPPY_PICKER_PATH);
+const puppyRibbon = read(PUPPY_RIBBON_PATH);
+const puppyControls = read(PUPPY_CONTROLS_PATH);
 const segmented = read(SEGMENTED_PATH);
 
 const panelHeaderClass = one(
-  panel,
-  /<div className="(flex items-center gap-2 border-b[^"]+)">/,
+  puppyRibbon,
+  /data-puppy-controls\s+className="([^"]+)"/,
   "the Puppy panel header row",
-  PANEL_PATH,
+  PUPPY_RIBBON_PATH,
 )[1];
+const panelBodyClass = one(puppyRibbon, /<div className="([^"]+)">\{children\}<\/div>/,
+  "the Puppy ribbon body", PUPPY_RIBBON_PATH)[1];
+const controlsClass = one(puppyControls, /<PuppyControlRibbon accessory=\{accessory\}>\s*<div className="([^"]+)">/,
+  "the Puppy wrapping controls", PUPPY_CONTROLS_PATH)[1];
+const pickerInstanceClass = one(puppyControls, /<PuppyModelPicker\b[^>]+className="([^"]+)"/,
+  "the Puppy picker placement", PUPPY_CONTROLS_PATH)[1];
+const pinClasses = one(puppyControls,
+  /aria-pressed=\{onDevice\}\s+className=\{cn\(\s*"([^"]+)",\s*onDevice\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/,
+  "the Puppy pin sizing and selected state", PUPPY_CONTROLS_PATH);
 
 const puppyComposerPlaceholder = one(
   panel,
@@ -377,10 +390,10 @@ const puppySendLabel = one(
 )[1];
 
 const puppyPinLabels = one(
-  panel,
+  puppyControls,
   /\{onDevice \? "([^"]+)" : "([^"]+)"\}/,
   "the on-device pin labels",
-  PANEL_PATH,
+  PUPPY_CONTROLS_PATH,
 );
 
 const puppyPickerMatch = one(
@@ -574,6 +587,10 @@ export const AGENT_SURFACE_SOURCE = {
   },
   puppy: {
     panelHeaderClass,
+    panelBodyClass,
+    controlsClass,
+    pickerInstanceClass,
+    pinOnClass: `${pinClasses[1]} ${pinClasses[2]}`,
     composerPlaceholder: puppyComposerPlaceholder,
     sendLabel: puppySendLabel,
     pinOnLabel: puppyPinLabels[1],
