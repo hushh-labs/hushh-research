@@ -38,6 +38,23 @@ unqualified iPad retain their established renderers. Capacitor core/iOS/Android
 and CLI are aligned on patched 8.4.3, including both Swift package locks; a
 successful build alone does not prove installation, visual or release acceptance.
 
+The installed iPhone candidate is bound to `67ed4931e4` (production-backed
+Debug qualification, iOS 27.2). Its web export is from `ab41daafb0`; the intervening
+app delta is iOS-only and was checked before reuse. Executable SHA-256:
+`ef3202c76e3cf62e354f774bfdd120b23694b228fe19a98d40e484e78b660142`.
+The three nearest simulator host regressions pass. Reintroducing the old menu
+interaction policy fails the retained-menu touch and accessibility assertions;
+the fixed policy delegates transient push/pop gating to UIKit's page ancestor.
+No extra settings projection is needed to recover the control. The physical
+attach-only attempt timed out before XCTest body entry, separately from vault
+unlock; no private input was attempted. Physical transition, accessibility and
+Release performance qualification remain open, and no release admission changed.
+
+Android's production-backed APK from `ab41daafb0`, including main through
+`6ab7790055`, installed and launched on the S24. APK SHA-256:
+`0bb20c56bbcb3cb9688180cd13fafa12eeccdc75ce9a44ae5cdb702435d1d8b9`.
+This proves installation/launch, not protected native-journey parity.
+
 ### Shared-renderer recovery and release gate — 2026-10-16
 
 The current recovery integrates main through `190c77fab6`, including Calendar's
