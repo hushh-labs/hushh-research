@@ -26,12 +26,30 @@ from db.migration_authority import (
     MigrationMode,
     _replay_sql,
     _stable_hash,
+    _system_push_outbox_replay_is_complete,
     apply_manifest_entries,
     build_manifest_entries,
     establish_baseline,
     load_preservation_evidence,
     manifest_checksum,
 )
+
+
+@pytest.mark.asyncio
+async def test_system_push_replay_pins_published_source_before_catalog_access():
+    entry = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("361_system_push_outbox.sql",),
+    )[0]
+
+    class NoCatalogAccess:
+        async def fetchrow(self, *_args, **_kwargs):
+            pytest.fail("A changed published migration must fail before catalog access")
+
+    with pytest.raises(MigrationAuthorityError, match="source checksum changed"):
+        await _system_push_outbox_replay_is_complete(
+            NoCatalogAccess(), replace(entry, sql=entry.sql + "\n-- changed")
+        )
 
 
 @pytest.fixture

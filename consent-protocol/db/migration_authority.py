@@ -138,6 +138,9 @@ class MigrationManifestEntryV2:
 
 
 _LEDGER_SCHEMA_PATH = Path(__file__).resolve().parent / "foundations" / "schema_migrations_v2.sql"
+_SYSTEM_PUSH_OUTBOX_REPLAY_SHA256 = (
+    "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608"
+)
 
 
 def _ledger_ddl() -> str:
@@ -620,6 +623,358 @@ def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     )
 
 
+def _catalog_sql_shape(value: str | None) -> str:
+    """Compare Postgres-deparsed definitions without formatting-only differences."""
+    segments = (value or "").split("'")
+    for index in range(0, len(segments), 2):
+        segments[index] = (
+            re.sub(r"[\s()]", "", segments[index].lower())
+            .replace("public.", "")
+            .replace("pg_catalog.", "")
+            .replace("::text", "")
+            .replace("::smallint", "")
+        )
+    return "'".join(segments)
+
+
+async def _system_push_outbox_replay_is_complete(
+    conn: Any, entry: MigrationManifestEntryV2
+) -> bool:
+    """Skip published 361 only on its exact installed state; never repair live rows.
+
+    A fresh database executes the immutable migration. An incomplete or changed
+    installation fails before any 361 DDL, rather than losing queued intents or
+    delivery receipts to a rollback/recreate attempt.
+    """
+    if (
+        hashlib.sha256(entry.sql.encode("utf-8")).hexdigest() != _SYSTEM_PUSH_OUTBOX_REPLAY_SHA256
+        or entry.checksum_sha256 != _SYSTEM_PUSH_OUTBOX_REPLAY_SHA256
+    ):
+        raise MigrationAuthorityError("System push outbox replay source checksum changed")
+
+    objects = await conn.fetchrow(
+        """
+        SELECT to_regclass('public.system_push_outbox') IS NOT NULL AS outbox,
+               to_regclass('public.system_push_device_deliveries') IS NOT NULL AS deliveries,
+               to_regclass('public.system_push_due') IS NOT NULL AS due_index,
+               to_regclass('public.system_push_expiry') IS NOT NULL AS expiry_index,
+               to_regprocedure('public.queue_system_push()') IS NOT NULL AS queue_function,
+               (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+                 JOIN pg_namespace n ON n.oid=c.relnamespace
+                 WHERE n.nspname='public' AND NOT t.tgisinternal
+                   AND (c.relname,t.tgname) IN (
+                     ('one_location_share_grants','system_push_share'),
+                     ('one_location_access_requests','system_push_location_request'),
+                     ('connection_requests','system_push_connection_request'),
+                     ('one_location_circle_memberships','system_push_circle_member'))
+               ) AS source_triggers
+        """
+    )
+    present = [bool(objects[key]) for key in objects.keys() if key != "source_triggers"]
+    trigger_count = int(objects["source_triggers"])
+    if not any(present) and trigger_count == 0:
+        return False
+    if not all(present) or trigger_count != 4:
+        raise MigrationAuthorityError("System push outbox replay state is partial")
+
+    tables = await conn.fetch(
+        """
+        SELECT c.relname, c.relkind, c.relpersistence, c.relrowsecurity,
+               c.relforcerowsecurity,
+               EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid) AS has_policy,
+               EXISTS (SELECT 1 FROM aclexplode(COALESCE(c.relacl,
+                   acldefault('r',c.relowner))) a WHERE a.grantee=0) AS public_grant
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relname = ANY($1::text[])
+        """,
+        ["system_push_outbox", "system_push_device_deliveries"],
+    )
+    if len(tables) != 2 or any(
+        row["relkind"] != "r"
+        or row["relpersistence"] != "p"
+        or not row["relrowsecurity"]
+        or row["relforcerowsecurity"]
+        or row["has_policy"]
+        or row["public_grant"]
+        for row in tables
+    ):
+        raise MigrationAuthorityError("System push outbox replay table security drift")
+
+    expected_columns = {
+        ("system_push_outbox", "id"): ("uuid", True, "gen_random_uuid"),
+        ("system_push_outbox", "source_kind"): ("text", True, ""),
+        ("system_push_outbox", "source_id"): ("uuid", True, ""),
+        ("system_push_outbox", "source_revision"): ("text", True, "''"),
+        ("system_push_outbox", "recipient_user_id"): ("text", True, ""),
+        ("system_push_outbox", "status"): ("text", True, "'pending'"),
+        ("system_push_outbox", "attempts"): ("smallint", True, "0"),
+        ("system_push_outbox", "due_at"): ("timestamp with time zone", True, "now"),
+        ("system_push_outbox", "expires_at"): (
+            "timestamp with time zone",
+            True,
+            "now+'1 day'::interval",
+        ),
+        ("system_push_outbox", "lease_id"): ("uuid", False, ""),
+        ("system_push_outbox", "created_at"): ("timestamp with time zone", True, "now"),
+        ("system_push_device_deliveries", "event_id"): ("uuid", True, ""),
+        ("system_push_device_deliveries", "device_id"): ("uuid", True, ""),
+        ("system_push_device_deliveries", "accepted_at"): ("timestamp with time zone", True, "now"),
+    }
+    columns = await conn.fetch(
+        """
+        SELECT c.relname AS table_name, a.attname, format_type(a.atttypid,a.atttypmod) AS type,
+               a.attnotnull, a.attidentity, a.attgenerated,
+               pg_get_expr(d.adbin,d.adrelid) AS default_expr
+        FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+        WHERE n.nspname='public' AND c.relname = ANY($1::text[])
+          AND a.attnum>0 AND NOT a.attisdropped
+        """,
+        ["system_push_outbox", "system_push_device_deliveries"],
+    )
+    actual_columns = {
+        (row["table_name"], row["attname"]): (
+            row["type"],
+            bool(row["attnotnull"]),
+            _catalog_sql_shape(row["default_expr"]),
+        )
+        for row in columns
+    }
+    if actual_columns != expected_columns or any(
+        row["attidentity"] or row["attgenerated"] for row in columns
+    ):
+        raise MigrationAuthorityError("System push outbox replay column drift")
+
+    expected_constraints = {
+        "system_push_outbox": {
+            "primarykeyid",
+            "uniquesource_kind,source_id,source_revision,recipient_user_id",
+            "foreignkeyrecipient_user_idreferencesactor_profilesuser_idondeletecascade",
+            "checksource_kind=anyarray['share','location_request','circle_member','connection_request']",
+            "checkstatus=anyarray['pending','leased','sent','suppressed','failed']",
+            "checkattempts>=0andattempts<=12",
+        },
+        "system_push_device_deliveries": {
+            "primarykeyevent_id,device_id",
+            "foreignkeyevent_idreferencessystem_push_outboxidondeletecascade",
+        },
+    }
+    constraints = await conn.fetch(
+        """
+        SELECT c.relname AS table_name, p.contype, p.convalidated, p.condeferrable,
+               p.condeferred, pg_get_constraintdef(p.oid,false) AS definition,
+               CASE WHEN p.conindid<>0 THEN i.indisvalid AND i.indisready END AS index_valid
+        FROM pg_constraint p JOIN pg_class c ON c.oid=p.conrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        LEFT JOIN pg_index i ON i.indexrelid=p.conindid
+        WHERE n.nspname='public' AND c.relname = ANY($1::text[])
+        """,
+        ["system_push_outbox", "system_push_device_deliveries"],
+    )
+    actual_constraints: dict[str, set[str]] = {name: set() for name in expected_constraints}
+    for row in constraints:
+        actual_constraints[row["table_name"]].add(_catalog_sql_shape(row["definition"]))
+    if (
+        actual_constraints != expected_constraints
+        or len(constraints) != sum(map(len, expected_constraints.values()))
+        or any(
+            not row["convalidated"]
+            or row["condeferrable"]
+            or row["condeferred"]
+            or row["index_valid"] is False
+            for row in constraints
+        )
+    ):
+        raise MigrationAuthorityError("System push outbox replay constraint drift")
+
+    indexes = await conn.fetch(
+        """
+        SELECT ic.relname AS name, tc.relname AS table_name, am.amname,
+               x.indisvalid, x.indisready, x.indislive, x.indisunique,
+               x.indisprimary, x.indnkeyatts, x.indnatts,
+               pg_get_indexdef(x.indexrelid,1,true) AS key_column,
+               pg_get_expr(x.indpred,x.indrelid) AS predicate
+        FROM pg_class ic JOIN pg_index x ON x.indexrelid=ic.oid
+        JOIN pg_class tc ON tc.oid=x.indrelid
+        JOIN pg_am am ON am.oid=ic.relam
+        JOIN pg_namespace n ON n.oid=ic.relnamespace
+        WHERE n.nspname='public' AND ic.relname = ANY($1::text[])
+        """,
+        ["system_push_due", "system_push_expiry"],
+    )
+    expected_indexes = {
+        "system_push_due": ("system_push_outbox", "due_at", "status=anyarray['pending','leased']"),
+        "system_push_expiry": ("system_push_outbox", "expires_at", ""),
+    }
+    if len(indexes) != 2 or any(
+        row["name"] not in expected_indexes
+        or (row["table_name"], row["key_column"], _catalog_sql_shape(row["predicate"]))
+        != expected_indexes.get(row["name"])
+        or row["amname"] != "btree"
+        or not row["indisvalid"]
+        or not row["indisready"]
+        or not row["indislive"]
+        or row["indisunique"]
+        or row["indisprimary"]
+        or row["indnkeyatts"] != 1
+        or row["indnatts"] != 1
+        for row in indexes
+    ):
+        raise MigrationAuthorityError("System push outbox replay index drift")
+
+    function = await conn.fetchrow(
+        """
+        SELECT p.oid, p.prosrc, p.prorettype::regtype::text AS return_type,
+               p.pronargs, p.prokind, p.provolatile, p.prosecdef, p.proconfig,
+               l.lanname,
+               EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl,
+                   acldefault('f',p.proowner))) a WHERE a.grantee=0) AS public_grant
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        JOIN pg_language l ON l.oid=p.prolang
+        WHERE n.nspname='public' AND p.proname='queue_system_push' AND p.pronargs=0
+        """
+    )
+    function_start = "CREATE FUNCTION queue_system_push() RETURNS trigger AS $$"
+    function_end = "$$ LANGUAGE plpgsql SET search_path=public,pg_temp;"
+    expected_body = entry.sql.split(function_start, 1)[1].split(function_end, 1)[0]
+    if (
+        function is None
+        or function["prosrc"] != expected_body
+        or function["return_type"] != "trigger"
+        or function["pronargs"] != 0
+        or function["prokind"] != "f"
+        or function["provolatile"] != "v"
+        or function["prosecdef"]
+        or function["lanname"] != "plpgsql"
+        or function["public_grant"]
+        or [_catalog_sql_shape(value) for value in (function["proconfig"] or [])]
+        != ["search_path=public,pg_temp"]
+    ):
+        raise MigrationAuthorityError("System push outbox replay function drift")
+
+    trigger_rows = await conn.fetch(
+        """
+        SELECT c.relname AS table_name, t.tgname, t.tgtype, t.tgenabled,
+               t.tgattr::text AS update_attributes, t.tgfoid, t.tgqual IS NULL AS no_when,
+               t.tgnargs, t.tgargs, t.tgconstraint, t.tgisinternal,
+               obj_description(t.oid,'pg_trigger') AS comment
+        FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND (
+          (c.relname,t.tgname) IN (
+            ('one_location_share_grants','system_push_share'),
+            ('one_location_access_requests','system_push_location_request'),
+            ('connection_requests','system_push_connection_request'),
+            ('one_location_circle_memberships','system_push_circle_member'))
+          OR (c.relname='system_push_outbox' AND t.tgname IN (
+            'trg_reject_deleted_account_insert',
+            'trg_reject_deleted_account_reference_update')))
+        """
+    )
+    share_attr = await conn.fetchval(
+        "SELECT attnum FROM pg_attribute WHERE attrelid='public.one_location_share_grants'::regclass "
+        "AND attname='latest_envelope_id' AND NOT attisdropped"
+    )
+    circle_attr = await conn.fetchval(
+        "SELECT attnum FROM pg_attribute WHERE attrelid='public.one_location_circle_memberships'::regclass "
+        "AND attname='status' AND NOT attisdropped"
+    )
+    recipient_attr = await conn.fetchval(
+        "SELECT attnum FROM pg_attribute WHERE attrelid='public.system_push_outbox'::regclass "
+        "AND attname='recipient_user_id' AND NOT attisdropped"
+    )
+    guard_function = await conn.fetchval(
+        "SELECT to_regprocedure('public.reject_deleted_account_identity_write()')::oid"
+    )
+    expected_triggers = {
+        ("one_location_share_grants", "system_push_share"): (
+            21,
+            str(share_attr),
+            function["oid"],
+            b"",
+            None,
+        ),
+        ("one_location_access_requests", "system_push_location_request"): (
+            21,
+            "",
+            function["oid"],
+            b"",
+            None,
+        ),
+        ("connection_requests", "system_push_connection_request"): (
+            5,
+            "",
+            function["oid"],
+            b"",
+            None,
+        ),
+        ("one_location_circle_memberships", "system_push_circle_member"): (
+            21,
+            str(circle_attr),
+            function["oid"],
+            b"",
+            None,
+        ),
+        ("system_push_outbox", "trg_reject_deleted_account_insert"): (
+            7,
+            "",
+            guard_function,
+            b"recipient_user_id\x00",
+            "hushh.account-deletion-guard/v3/insert-presence:recipient_user_id",
+        ),
+        ("system_push_outbox", "trg_reject_deleted_account_reference_update"): (
+            19,
+            str(recipient_attr),
+            guard_function,
+            b"recipient_user_id\x00",
+            "hushh.account-deletion-guard/v3/update-bind-immutable:recipient_user_id",
+        ),
+    }
+    actual_triggers = {
+        (row["table_name"], row["tgname"]): (
+            row["tgtype"],
+            row["update_attributes"],
+            row["tgfoid"],
+            bytes(row["tgargs"]),
+            row["comment"],
+        )
+        for row in trigger_rows
+    }
+    if actual_triggers != expected_triggers or any(
+        row["tgenabled"] != "O"
+        or not row["no_when"]
+        or row["tgnargs"] != (1 if row["table_name"] == "system_push_outbox" else 0)
+        or row["tgconstraint"] != 0
+        or row["tgisinternal"]
+        for row in trigger_rows
+    ):
+        raise MigrationAuthorityError("System push outbox replay trigger drift")
+
+    service_role = await conn.fetchval("SELECT to_regrole('service_role')::oid")
+    if service_role is not None:
+        table_grants = await conn.fetch(
+            """
+            SELECT c.relname, bool_and(has_table_privilege('service_role',c.oid,p.name)) AS allowed
+            FROM pg_class c CROSS JOIN unnest(ARRAY[
+              'SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'
+            ]) AS p(name)
+            WHERE c.oid = ANY(ARRAY[
+              'public.system_push_outbox'::regclass,
+              'public.system_push_device_deliveries'::regclass])
+            GROUP BY c.relname
+            """
+        )
+        if len(table_grants) != 2 or not all(row["allowed"] for row in table_grants):
+            raise MigrationAuthorityError("System push outbox replay service role grant drift")
+        if not await conn.fetchval(
+            "SELECT has_function_privilege('service_role', $1::oid, 'EXECUTE')",
+            function["oid"],
+        ):
+            raise MigrationAuthorityError("System push outbox replay function grant drift")
+    return True
+
+
 async def _record_result(
     conn: Any,
     *,
@@ -821,6 +1176,14 @@ async def apply_manifest_entries(
                 )
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
+
+            if (
+                mode is MigrationMode.REPLAY
+                and entry.migration_id == "361"
+                and entry.filename == "361_system_push_outbox.sql"
+                and await _system_push_outbox_replay_is_complete(conn, entry)
+            ):
+                continue
 
             sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):

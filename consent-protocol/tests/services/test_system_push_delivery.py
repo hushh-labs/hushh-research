@@ -1,15 +1,23 @@
 """Real PostgreSQL regressions for source-atomic, per-installation alerts."""
 
+import asyncio
 import os
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+import asyncpg
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from db.migration_authority import (
+    MigrationAuthorityError,
+    MigrationMode,
+    apply_manifest_entries,
+    build_manifest_entries,
+)
 from hushh_mcp.services import system_push_delivery as pushes
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -129,6 +137,82 @@ def add_devices(db):
 
 def retry_now(db):
     sql(db, "UPDATE system_push_outbox SET due_at=now() WHERE status IN ('pending','leased')")
+
+
+def replay_outbox_migration(db):
+    async def replay():
+        url = db.engine.url
+        conn = await asyncpg.connect(
+            host=url.host,
+            port=url.port,
+            database=url.database,
+            user=url.username,
+            password=url.password,
+        )
+        try:
+            entries = build_manifest_entries(
+                ROOT / "db/migrations", ("361_system_push_outbox.sql",)
+            )
+            return await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+        finally:
+            await conn.close()
+
+    return asyncio.run(replay())
+
+
+def test_migration_replay_preserves_live_intent_and_device_receipt(push_db):
+    event_id = uuid.uuid4()
+    device_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    sql(
+        push_db,
+        """INSERT INTO system_push_outbox
+          (id,source_kind,source_id,recipient_user_id,status,attempts,lease_id)
+          VALUES (:id,'share',:source,'recipient','leased',2,:lease)""",
+        {"id": event_id, "source": uuid.uuid4(), "lease": lease_id},
+    )
+    sql(
+        push_db,
+        "INSERT INTO system_push_device_deliveries(event_id,device_id) VALUES (:event,:device)",
+        {"event": event_id, "device": device_id},
+    )
+    outbox_before = sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_outbox")
+    delivery_before = sql(
+        push_db, "SELECT xmin::text AS row_version, * FROM system_push_device_deliveries"
+    )
+
+    assert replay_outbox_migration(push_db) == ()
+    assert (
+        sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_outbox") == outbox_before
+    )
+    assert (
+        sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_device_deliveries")
+        == delivery_before
+    )
+    sql(push_db, "INSERT INTO connection_requests DEFAULT VALUES")
+    assert sql(push_db, "SELECT count(*) AS n FROM system_push_outbox")[0]["n"] == 2
+
+
+def test_migration_replay_rejects_drift_and_partial_state_without_touching_rows(push_db):
+    event_id = uuid.uuid4()
+    sql(
+        push_db,
+        """INSERT INTO system_push_outbox(id,source_kind,source_id,recipient_user_id)
+           VALUES (:id,'share',:source,'recipient')""",
+        {"id": event_id, "source": uuid.uuid4()},
+    )
+    before = sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_outbox")
+
+    sql(push_db, "ALTER TABLE system_push_outbox DISABLE ROW LEVEL SECURITY")
+    with pytest.raises(MigrationAuthorityError, match="table security drift"):
+        replay_outbox_migration(push_db)
+    assert sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_outbox") == before
+
+    sql(push_db, "ALTER TABLE system_push_outbox ENABLE ROW LEVEL SECURITY")
+    sql(push_db, "DROP INDEX system_push_due")
+    with pytest.raises(MigrationAuthorityError, match="partial"):
+        replay_outbox_migration(push_db)
+    assert sql(push_db, "SELECT xmin::text AS row_version, * FROM system_push_outbox") == before
 
 
 def test_new_outbox_rejects_deleted_recipient_even_with_retained_actor_root(push_db):
