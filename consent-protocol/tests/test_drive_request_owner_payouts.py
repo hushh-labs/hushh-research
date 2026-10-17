@@ -886,9 +886,23 @@ _FUTURE = datetime.now(UTC) + timedelta(days=1)
         pytest.param(
             {"status": "cancelled"}, "refunded", "refunded", "void", id="withdrawn-refunded"
         ),
+        pytest.param(
+            {"status": "pending", "expires_at": _FUTURE, "access_stop_requested_at": _PAST},
+            "checkout_open",
+            "checkout_open",
+            "void",
+            id="stopped-unpaid",
+        ),
         # Negative controls: money still held, or the request is still open.
         pytest.param({"status": "cancelled"}, "paid", "paid", "held", id="paid-awaiting-refund"),
         pytest.param({"status": "cancelled"}, "expired", "paid", "held", id="paid-obligation"),
+        pytest.param(
+            {"status": "pending", "expires_at": _FUTURE, "access_stop_requested_at": _PAST},
+            "paid",
+            "paid",
+            "held",
+            id="stopped-paid",
+        ),
         pytest.param(
             {"status": "pending", "expires_at": _FUTURE},
             "awaiting_payment",
@@ -933,7 +947,12 @@ def test_closed_request_earning_is_void_only_when_unpaid_or_fully_refunded(
 
     assert service._advance_delivery(connection, REQUEST) == expected
     if expected == "held":
-        connection.execute.assert_called_once()  # Only the share lock; no state change.
+        # Paid money is never voided: it settles on its delivered files once
+        # every approved batch has finished (this mock leaves one unresolved).
+        assert not any(
+            "UPDATE drive_request_owner_payouts" in str(call.args[0])
+            for call in connection.execute.call_args_list
+        )
     else:
         statement, parameters = connection.execute.call_args.args
         assert "status='void'" in str(statement) and "status='awaiting_delivery'" in str(statement)

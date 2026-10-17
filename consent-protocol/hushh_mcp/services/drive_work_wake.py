@@ -3,8 +3,19 @@
 The durable database queue and scheduled drains remain authoritative. This
 call carries only a fixed stage, never an owner, request, or document value,
 and its log lines carry only that stage and an outcome class. Only a committed
-user action wakes a stage; a read never does. An explicit jobs.run still runs
-a paused job, so a read-triggered wake would undo an operator's incident pause.
+user action wakes a stage; a read never does, so polling a status can never
+turn into scheduler runs.
+
+Cloud Scheduler refuses jobs.run on a paused job (HTTP 400 FAILED_PRECONDITION,
+"Job.state must be ENABLED for RunJob"), so pausing a job also stops these
+wakes; each refusal logs outcome=paused for its stage. Withdrawing the runtime
+account's roles/cloudscheduler.jobRunner grant is a second, IAM-level switch:
+every wake is then denied (outcome=permission_denied) even if a release or an
+operator resumes or recreates a job. Neither switch is ever bypassed here.
+
+Only a request created while agent packages are enabled enters the V1 lane.
+Where they are off, the API never calls that job: no new request can need a
+prompt wake there, and the lane's own schedule drains any older V1 work.
 """
 
 from __future__ import annotations
@@ -80,6 +91,26 @@ def _drain_enabled() -> bool:
     return os.getenv("DRIVE_WORK_DRAIN_ENABLED", "").lower() == "true"
 
 
+def _agent_packages_enabled() -> bool:
+    # The same switch that marks a new request for the V1 lane at creation.
+    return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+
+
+def _refusal(response: Any) -> str:
+    """Fixed outcome class for a Scheduler refusal; never the response body."""
+    if response.status_code == 403:
+        # A withdrawn jobRunner grant (the operator kill switch).
+        return "permission_denied"
+    if response.status_code == 400:
+        try:
+            error = response.json().get("error") or {}
+            if error.get("status") == "FAILED_PRECONDITION":
+                return "paused"
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return f"http_{response.status_code}"
+
+
 def _not_woken(stage: str, outcome: str) -> bool:
     """Record why a wake did not run. Only the fixed stage and outcome class."""
     if outcome in {"disabled", "not_configured"}:
@@ -95,6 +126,9 @@ async def wake_drive_work(stage: str) -> bool:
         raise ValueError("invalid Drive stage")
     v1_worker = os.getenv("DRIVE_WORKER_V1_ONLY", "").lower() == "true"
     if v1_worker and stage != "v1":
+        return _not_woken(stage, "disabled")
+    if stage == "v1" and not v1_worker and not _agent_packages_enabled():
+        # No new request here enters the V1 lane; its schedule drains old work.
         return _not_woken(stage, "disabled")
     scheduler = _SCHEDULERS.get(os.getenv("ENVIRONMENT", ""))
     if scheduler is None:
@@ -120,13 +154,7 @@ async def wake_drive_work(stage: str) -> bool:
                 _forget_credentials()
             if response.status_code == 200:
                 return True
-            # A withdrawn jobRunner grant (the operator kill switch) reads 403.
-            return _not_woken(
-                stage,
-                "permission_denied"
-                if response.status_code == 403
-                else f"http_{response.status_code}",
-            )
+            return _not_woken(stage, _refusal(response))
     except (TimeoutError, httpx.TimeoutException):
         return _not_woken(stage, "timeout")
     except Exception:

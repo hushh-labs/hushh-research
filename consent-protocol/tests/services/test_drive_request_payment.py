@@ -62,6 +62,8 @@ from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
 from tests.services.test_drive_request_bulk_postgres import (  # noqa: F401
     FILE_ACTIVITY_SELECTION,
+    _recipient,
+    _request,
     _search,
     request_bulk,
 )
@@ -608,13 +610,17 @@ async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
         with pytest.raises(DriveSharingError, match="payment_not_ready"):
             await payment.checkout(requester_user_id="recipient", request_id=request_id)
         await bulk.approve(**approval)
-        with pytest.raises(DriveSharingError, match="payment_required"):
+        # Unpaid, the approved grant is not offered and a direct claim defers.
+        assert review["shareId"] not in {str(row["share_id"]) for row in await bulk.due()}
+        assert (
             await bulk.claim(
                 user_id="owner",
                 share_id=review["shareId"],
                 position=1,
                 recipient_user_id="recipient",
             )
+            is None
+        )
     provider.checkout.Session.create.assert_not_called()
     await payment.checkout(requester_user_id="recipient", request_id=request_id)
     checkout_params = provider.checkout.Session.create.call_args.kwargs
@@ -3807,3 +3813,345 @@ async def test_changed_package_source_cannot_create_or_reveal_checkout(monkeypat
     preflight.assert_awaited_once()
     service._transaction.assert_not_awaited()
     create.assert_not_called()
+
+
+_SETTLED_GROSS = 1000  # request_bulk's owner price, fixed on the order
+
+
+async def _paid_owner_batch(request_bulk, sharing, *, matches, approved, search_status=None):
+    """B's request; A approves the first `approved` of `matches` files; B pays."""
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(request_bulk, request_id=request_id, count=matches)
+    if search_status is not None:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+                {"status": search_status, "job": search},
+            )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=list(range(1, approved + 1)),
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    _mark_paid(sharing, request_id)
+    return request_id, review["shareId"]
+
+
+def _mark_paid(sharing, request_id):
+    """The order state the signed checkout.session.completed webhook commits."""
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+            SET status='paid',paid_at=clock_timestamp(),stripe_payment_intent_id='pi_test_bound',
+              stripe_checkout_session_id='cs_test_settlement'
+            WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+
+
+async def _grant(request_bulk, share_id, positions, *, state="succeeded"):
+    for position in positions:
+        job = await request_bulk.claim(
+            user_id="owner", share_id=share_id, position=position, recipient_user_id="recipient"
+        )
+        assert job is not None
+        await request_bulk.mark_dispatching(job)
+        assert await request_bulk.settle(
+            job,
+            state=state,
+            safe_error_code=None if state == "succeeded" else "permission_rejected",
+            receipt={"managed": True} if state == "succeeded" else None,
+        )
+
+
+def _settlement_provider(request_id):
+    provider = _CommerceStripe(request_id)
+    provider.charge["amount"] = _SETTLED_GROSS
+    return provider
+
+
+async def _settle(payment, payouts, *, concurrent=False):
+    """Two full sweeps of every settlement worker; each must finish at most once."""
+    for _ in range(2):
+        if concurrent:
+            await asyncio.gather(
+                payouts.reconcile_due(max_orders=4), payouts.reconcile_due(max_orders=4)
+            )
+            await asyncio.gather(
+                payment.reconcile_refunds(max_orders=4), payment.reconcile_refunds(max_orders=4)
+            )
+        else:
+            await payouts.reconcile_due(max_orders=4)
+            await payment.reconcile_refunds(max_orders=4)
+        await payouts.reconcile_due(max_orders=4)
+        await payouts.transfer_due(max_orders=4)
+
+
+def _ledger(sharing, request_id):
+    with sharing.db.engine.connect() as connection:
+        payout = dict(
+            connection.execute(
+                text("""SELECT status,expected_files,confirmed_files,retained_amount_cents,
+                  refund_amount_cents,owner_earning_cents,settlement_method
+                  FROM drive_request_owner_payouts WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        coins = connection.execute(
+            text("""SELECT amount_coins FROM hashcoin_ledger_entries
+              WHERE source_ref=:request AND entry_kind='earning'"""),
+            {"request": request_id},
+        ).scalars()
+        status = connection.execute(
+            text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+        return payout, list(coins), status
+
+
+def _assert_settled_once(sharing, request_id, provider, *, expected, confirmed, refund, method):
+    payout, coins, _ = _ledger(sharing, request_id)
+    retained = _SETTLED_GROSS - refund
+    earning = retained - (retained * 300 + 5000) // 10000 - min(103, retained) if retained else 0
+    assert (
+        payout["expected_files"],
+        payout["confirmed_files"],
+        payout["retained_amount_cents"],
+        payout["refund_amount_cents"],
+        payout["settlement_method"],
+    ) == (expected, confirmed, retained, refund, method)
+    assert provider.Refund.create.call_count == (1 if refund else 0)
+    if refund:
+        assert provider.Refund.create.call_args.kwargs["amount"] == refund
+    if not retained:
+        assert payout["status"] == "void" and coins == []
+        provider.Transfer.create.assert_not_called()
+    elif method == "hashcoins":
+        assert (payout["status"], payout["owner_earning_cents"], coins) == (
+            "hashcoins_credited",
+            earning,
+            [earning],
+        )
+        provider.Transfer.create.assert_not_called()
+    else:
+        assert (payout["status"], payout["owner_earning_cents"], coins) == (
+            "transferred",
+            earning,
+            [],
+        )
+        assert provider.Transfer.create.call_count == 1
+        assert provider.Transfer.create.call_args.kwargs["amount"] == earning
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_end", ["completed", "failed"])
+async def test_paid_request_with_no_match_refunds_in_full_exactly_once(
+    request_bulk, sharing, search_end
+):
+    """B paid at A's Allow and the search found nothing, or ended before it could.
+
+    Both settle once with a full refund. A failed search can never freeze a
+    batch, so it closes the request instead of holding the money until the
+    request's 30-day deadline.
+    """
+    created = await _request(sharing)
+    request_id = created["requestId"]
+    await sharing.allow_request(
+        user_id="owner",
+        request_id=request_id,
+        revision=created["revision"],
+        amount_cents=_SETTLED_GROSS,
+    )
+    with sharing.db.engine.begin() as connection:
+        row = dict(
+            connection.execute(
+                text("SELECT * FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        # The pay-on-Allow order; its INSERT also enrolls the owner earning.
+        DriveRequestPaymentStore.ensure_order_for_approved_request(connection, row)
+    _mark_paid(sharing, request_id)
+    search = _search(request_bulk, request_id=request_id, count=0)
+    if search_end == "completed":
+        # The search's own completion hook.
+        await request_bulk.refresh_request(user_id="owner", request_id=request_id)
+    else:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE drive_owner_search_jobs SET status='failed' WHERE job_id=:job"),
+                {"job": search},
+            )
+    provider = _settlement_provider(request_id)
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=provider)
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db, stripe_api=provider)
+
+    await _settle(payment, payouts)
+    _assert_settled_once(
+        sharing,
+        request_id,
+        provider,
+        expected=0,
+        confirmed=0,
+        refund=_SETTLED_GROSS,
+        method="stripe_transfer",
+    )
+    assert _ledger(sharing, request_id)[2] == "no_match"
+    assert _money_rows(sharing, request_id)["order"]["status"] == "refunded"
+    await _settle(payment, payouts)  # A later sweep is a no-op.
+    assert provider.Refund.create.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["stripe_transfer", "hashcoins"])
+async def test_partial_delivery_refunds_only_undelivered_files_exactly_once(
+    request_bulk, sharing, monkeypatch, method
+):
+    """10 approved, 7 delivered: B gets 3/10 back, A is paid for 7, once.
+
+    UAT settles in Hussh Coins while B still pays by card; both paths share
+    one refund and one earning, even with two drains settling at once.
+    """
+    if method == "hashcoins":
+        monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "true")
+    request_id, share_id = await _paid_owner_batch(request_bulk, sharing, matches=10, approved=10)
+    await _grant(request_bulk, share_id, range(1, 8))
+    await _grant(request_bulk, share_id, range(8, 11), state="failed")
+    assert _ledger(sharing, request_id)[2] == "partial"
+    provider = _settlement_provider(request_id)
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=provider)
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db, stripe_api=provider)
+
+    await _settle(payment, payouts, concurrent=True)
+    _assert_settled_once(
+        sharing, request_id, provider, expected=10, confirmed=7, refund=300, method=method
+    )
+    await _settle(payment, payouts, concurrent=True)
+    _assert_settled_once(
+        sharing, request_id, provider, expected=10, confirmed=7, refund=300, method=method
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ending", "method"),
+    [
+        ("stopped", "stripe_transfer"),
+        ("stopped", "hashcoins"),
+        ("expired", "stripe_transfer"),
+        ("search_incomplete", "hashcoins"),
+    ],
+)
+async def test_request_ending_mid_delivery_settles_its_delivered_files_once(
+    request_bulk, sharing, monkeypatch, ending, method
+):
+    """Stop, a deadline or an incomplete search ends delivery with files undelivered.
+
+    The approved-but-undelivered files are refunded and A is paid for the
+    delivered ones, exactly once. Before, a pending request that ended this
+    way held B's payment and A's earning forever.
+    """
+    if method == "hashcoins":
+        monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "true")
+    if ending == "search_incomplete":
+        # Six approved while the search still ran; two of them failed.
+        request_id, share_id = await _paid_owner_batch(
+            request_bulk, sharing, matches=10, approved=6, search_status="running"
+        )
+        await _grant(request_bulk, share_id, range(1, 5))
+        await _grant(request_bulk, share_id, range(5, 7), state="failed")
+        # A later batch was frozen but never approved before the search ended;
+        # approve now refuses it, so it can neither hold nor join settlement.
+        with sharing.db.engine.connect() as connection:
+            search = connection.execute(
+                text("SELECT job_id FROM drive_owner_search_jobs WHERE client_request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+        frozen = await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=str(search),
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            selected_positions=[7, 8],
+        )
+        assert frozen["status"] == "review_ready"
+        expected, confirmed, refund = 6, 4, 333
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs SET status='limited',
+                incomplete_search=TRUE WHERE client_request_id=:request"""),
+                {"request": request_id},
+            )
+    else:
+        # Two more matches wait unfrozen, so the batch alone cannot finish it.
+        request_id, share_id = await _paid_owner_batch(
+            request_bulk, sharing, matches=12, approved=10
+        )
+        delivered = 4 if ending == "stopped" else 3
+        await _grant(request_bulk, share_id, range(1, delivered + 1))
+        expected, confirmed, refund = 10, delivered, _SETTLED_GROSS - 100 * delivered
+        stop = text("""UPDATE drive_share_requests SET access_stop_requested_at=clock_timestamp()
+            WHERE request_id=:request""")
+        lapse = text("""UPDATE drive_share_requests SET expires_at=created_at+INTERVAL '1 millisecond'
+            WHERE request_id=:request""")
+        with sharing.db.engine.begin() as connection:
+            connection.execute(stop if ending == "stopped" else lapse, {"request": request_id})
+        # The next drain releases every queued grant of the ended request.
+        assert (
+            await request_bulk.claim(
+                user_id="owner",
+                share_id=share_id,
+                position=delivered + 1,
+                recipient_user_id="recipient",
+            )
+            is None
+        )
+        assert _money_rows(sharing, request_id)["effects"] == {
+            ("succeeded", None),
+            ("skipped", "stopped"),
+        }
+    assert _ledger(sharing, request_id)[2] == "pending"
+    provider = _settlement_provider(request_id)
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=provider)
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db, stripe_api=provider)
+
+    await _settle(payment, payouts)
+    _assert_settled_once(
+        sharing,
+        request_id,
+        provider,
+        expected=expected,
+        confirmed=confirmed,
+        refund=refund,
+        method=method,
+    )
+    # A search that ended closes the request; Stop and expiry keep their state.
+    assert _ledger(sharing, request_id)[2] == (
+        "partial" if ending == "search_incomplete" else "pending"
+    )
+    await _settle(payment, payouts)
+    _assert_settled_once(
+        sharing,
+        request_id,
+        provider,
+        expected=expected,
+        confirmed=confirmed,
+        refund=refund,
+        method=method,
+    )

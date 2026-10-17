@@ -32,12 +32,16 @@ from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
 )
+from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.drive_v1_manual_review import (
     require_manual_selection,
     require_manual_share_files,
 )
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import SHARE_HINTS
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
+
+logger = drive_logger("drive_bulk_share")
 
 # A file whose access the owner removed, or a Stop queued for removal, leaves
 # every requester list at once: names, links and counts. Append to a WHERE
@@ -221,6 +225,79 @@ class DriveBulkShareStore(DriveLivePreferences):
         if request is None:
             raise DriveSharingError("request_unavailable")
         DriveRequestPaymentStore.require_paid_if_required(connection, request)
+
+    @staticmethod
+    def _origin_closed(share, origin, now):
+        """The originating request can never authorize this batch's queued grants.
+
+        It was withdrawn, declined or finished, the owner stopped access, or a
+        deadline passed. approve() and _share_recipient_current refuse all of
+        these states, so a queued grant there can only be released.
+        """
+        live_status = "pending" if share["progressive_batch"] else "approved"
+        access_expires_at = origin.get("access_expires_at")
+        return bool(
+            origin["status"] != live_status
+            or origin.get("access_stop_requested_at") is not None
+            or origin["expires_at"] <= now
+            or access_expires_at is not None
+            and access_expires_at <= now
+        )
+
+    def _payment_hold(self, connection, origin):
+        """Why a queued grant of this request may not run yet, or None if it may.
+
+        "awaiting_payment": the requester can still pay. due() leaves the grant
+        out until the order is paid, so it never loops in the worker.
+        "closed": the order can never become paid here (its Checkout window
+        expired, it was refunded, it needs reconciliation, or it belongs to
+        another Stripe mode), so the grant is released instead of retried.
+        require_paid_if_required stays the final paid authority before a lease.
+        """
+        if origin.get("payment_required") is not True:
+            return None
+        order = self._row(
+            connection,
+            """SELECT status,paid_at,reconciliation_required,stripe_mode
+            FROM drive_request_payment_orders WHERE request_id=:request FOR SHARE""",
+            {"request": origin["request_id"]},
+        )
+        if order is None:
+            return "awaiting_payment"
+        current = order["stripe_mode"] == configured_stripe_mode()
+        if (
+            order["status"] == "paid"
+            and order["paid_at"] is not None
+            and not order["reconciliation_required"]
+            and current
+        ):
+            return None
+        if (
+            order["status"] in {"awaiting_payment", "checkout_open"}
+            and order["paid_at"] is None
+            and not order["reconciliation_required"]
+            and current
+        ):
+            return "awaiting_payment"
+        return "closed"
+
+    def _release_queued(self, connection, share_id, *, reason):
+        """Skip every unleased queued grant of one share that can never be sent.
+
+        The caller holds the share lock. A leased effect is left to its worker:
+        mark_dispatching rechecks payment and request authority under the same
+        lock and releases it. Finalizing settles the share and its request.
+        """
+        released = connection.execute(
+            text("""UPDATE drive_bulk_share_effects SET state='skipped',
+              safe_error_code='stopped',lease_id=NULL,lease_expires_at=NULL,
+              updated_at=clock_timestamp()
+              WHERE share_id=:share AND state='queued'
+                AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
+            {"share": share_id},
+        ).rowcount
+        logger.info("drive_bulk_share.released reason=%s count=%d", reason, released)
+        self._finalize(connection, share_id)
 
     def _seal(self, value, *, user_id, resource_id, purpose):
         return json.dumps(
@@ -2753,7 +2830,13 @@ class DriveBulkShareStore(DriveLivePreferences):
                     )
 
     def _finalize_progressive_request(self, connection, request_id):
-        """Keep an unfinished search or unreviewed file visible and actionable."""
+        """Keep an unfinished search or unreviewed file visible and actionable.
+
+        A search that ended without completing (limited, failed or stopped) can
+        never freeze or approve another batch: create_review and approve both
+        refuse it. Delivery then ends with the batches already approved, and
+        the request closes so its payment settles once, on those files.
+        """
         request = self._row(
             connection,
             """SELECT * FROM drive_share_requests
@@ -2772,7 +2855,12 @@ class DriveBulkShareStore(DriveLivePreferences):
             WHERE user_id=:user AND client_request_id=:request""",
             {"user": request["user_id"], "request": request_id},
         )
-        if source is None or source["status"] != "completed" or source["incomplete_search"]:
+        if source is None:
+            return
+        search_ended = source["status"] in {"limited", "failed", "stopped"} or (
+            source["status"] == "completed" and source["incomplete_search"]
+        )
+        if source["status"] != "completed" and not search_ended:
             return
         checkpoint = self._open(
             source["checkpoint_envelope"],
@@ -2794,6 +2882,10 @@ class DriveBulkShareStore(DriveLivePreferences):
             checkpoint.get("agent_package_required") is True
             or request.get("agent_package_required") is True
         ):
+            if search_ended:
+                # A package or V1 selection binds an exact set, which an
+                # incomplete search cannot prove; its own lane reconciles it.
+                return
             private = self._open(
                 request["request_envelope"],
                 user_id=request["user_id"],
@@ -2831,20 +2923,23 @@ class DriveBulkShareStore(DriveLivePreferences):
         if legacy:
             # A frozen pre-upgrade review retains its original approval path.
             return
+        # After an incomplete search a frozen, unapproved batch can never be
+        # approved, so only approved batches still sharing keep it open.
         unfinished = connection.execute(
             text("""SELECT EXISTS(
             SELECT 1 FROM drive_bulk_shares b
             WHERE b.origin_request_id=:request AND b.user_id=:user
               AND b.progressive_batch=TRUE
-              AND (b.status='review_ready' OR b.status IN ('queued','running')
+              AND ((b.status='review_ready' AND NOT :search_ended)
+                OR b.status IN ('queued','running')
                 OR EXISTS(SELECT 1 FROM drive_bulk_share_effects e
                   WHERE e.share_id=b.share_id AND e.state IN ('queued','dispatching','unknown')))
         )"""),
-            {"request": request_id, "user": request["user_id"]},
+            {"request": request_id, "user": request["user_id"], "search_ended": search_ended},
         ).scalar_one()
         if unfinished:
             return
-        if self._recoverable_claims(
+        if not search_ended and self._recoverable_claims(
             connection,
             user_id=request["user_id"],
             request_id=request_id,
@@ -2853,16 +2948,20 @@ class DriveBulkShareStore(DriveLivePreferences):
             # An auto batch was skipped before any provider POST. Keep the
             # request actionable so the owner can explicitly review it.
             return
-        remaining = connection.execute(
-            text("""SELECT r.position,r.metadata_envelope
+        remaining = (
+            []
+            if search_ended
+            else connection.execute(
+                text("""SELECT r.position,r.metadata_envelope
             FROM drive_owner_search_results r
             WHERE r.job_id=:job AND r.user_id=:user
               AND NOT EXISTS(SELECT 1 FROM drive_bulk_share_files f
                 WHERE f.user_id=:user AND f.origin_request_id=:request
                   AND f.source_position=r.position)
             ORDER BY r.position LIMIT 10000"""),
-            {"job": source["job_id"], "user": request["user_id"], "request": request_id},
-        ).mappings()
+                {"job": source["job_id"], "user": request["user_id"], "request": request_id},
+            ).mappings()
+        )
         for file in remaining:
             if package is not None and file["position"] not in package["selected_positions"]:
                 continue
@@ -2893,16 +2992,34 @@ class DriveBulkShareStore(DriveLivePreferences):
             for state in ("failed", "skipped", "present_unattributed", "absent")
         )
         # An empty, completed search never selected a file or attempted a
-        # Google permission. Do not report it as a failed partial share.
+        # Google permission. Do not report it as a failed partial share. An
+        # incomplete search that ends before any approval has nothing to share.
         outcome = (
             "no_match"
-            if (len(package["selected_positions"]) if package else source["matched"]) == 0
-            and not successes
+            if not successes
             and not errors
+            and (
+                search_ended
+                or (len(package["selected_positions"]) if package else source["matched"]) == 0
+            )
             else "completed"
             if successes and not errors
             else "partial"
         )
+        if (
+            outcome != "no_match"
+            and not successes
+            and request.get("payment_required") is True
+            and not connection.execute(
+                text("""SELECT EXISTS(SELECT 1 FROM drive_request_payment_orders
+                WHERE request_id=:request AND paid_at IS NOT NULL)"""),
+                {"request": request_id},
+            ).scalar_one()
+        ):
+            # Every approved file was released before any payment arrived.
+            # Nothing was delivered, so no outcome is news: the request keeps
+            # its own state until it is paid, stopped or reaches its deadline.
+            return
         updated = self._row(
             connection,
             """UPDATE drive_share_requests
@@ -2987,7 +3104,12 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise ValueError("invalid bulk worker bound")
         if type(v1_only) is not bool:
             raise ValueError("invalid bulk worker mode")
+        stripe_mode = configured_stripe_mode()
 
+        # A queued grant whose live request still awaits payment is not work:
+        # claim() would refuse it on every drain. It becomes due the moment its
+        # order is paid. A request that ended, or an order that can never be
+        # paid, stays due so that claim() releases its grants once.
         def operation(connection):
             return [
                 dict(item)
@@ -2997,11 +3119,25 @@ class DriveBulkShareStore(DriveLivePreferences):
                       SELECT e.share_id,e.position,e.recipient_user_id
                       FROM drive_bulk_share_effects e
                       JOIN drive_bulk_shares b ON b.share_id=e.share_id
+                      LEFT JOIN drive_share_requests r ON r.request_id=b.origin_request_id
+                      LEFT JOIN drive_request_payment_orders o
+                        ON o.request_id=b.origin_request_id
                       WHERE e.state IN ('queued','dispatching','unknown')
                         AND (e.state<>'queued' OR b.status IN ('queued','running'))
                         AND e.next_at<=clock_timestamp()
                         AND (e.lease_id IS NULL OR e.lease_expires_at<=clock_timestamp())
                         AND b.expires_at>clock_timestamp()
+                        AND NOT (e.state='queued' AND r.payment_required IS TRUE
+                          AND r.status=CASE WHEN b.progressive_batch THEN 'pending'
+                            ELSE 'approved' END
+                          AND r.expires_at>clock_timestamp()
+                          AND r.access_stop_requested_at IS NULL
+                          AND (r.access_expires_at IS NULL
+                            OR r.access_expires_at>clock_timestamp())
+                          AND (o.request_id IS NULL
+                            OR (o.status IN ('awaiting_payment','checkout_open')
+                              AND o.paid_at IS NULL AND o.reconciliation_required=FALSE
+                              AND o.stripe_mode=:stripe_mode)))
                         AND (:v1_only = FALSE OR (
                           b.v1_statement_search=TRUE
                           AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
@@ -3015,7 +3151,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                       AND e.recipient_user_id=due.recipient_user_id
                     RETURNING e.share_id,e.user_id,e.position,e.recipient_user_id,e.state
                     """),
-                    {"limit": limit, "v1_only": v1_only},
+                    {"limit": limit, "v1_only": v1_only, "stripe_mode": stripe_mode},
                 ).mappings()
             ]
 
@@ -3034,6 +3170,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             row = self._owned(connection, user_id, share, locked=True, unexpired=False)
             if v1_only and not self._v1_approved_share(connection, user_id=user_id, share_id=share):
                 return None
+            request_row = None
             if row["origin_request_id"] is not None:
                 # A dispatcher takes the order before the effect. Claims must
                 # follow that order too, including reconciliation claims, so a
@@ -3045,6 +3182,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if origin is None:
                     raise DriveSharingError("request_unavailable")
+                request_row = origin
                 connection.execute(
                     text(
                         "SELECT request_id FROM drive_request_payment_orders "
@@ -3077,6 +3215,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                     {"share": share, "position": position, "recipient": recipient_user_id},
                 )
                 self._finalize(connection, share)
+                return None
+            if (
+                effect["state"] == "queued"
+                and request_row is not None
+                and self._origin_closed(row, request_row, now)
+            ):
+                # No queued grant of this batch can ever be sent: release them
+                # all at once instead of offering each one to the worker again.
+                self._release_queued(connection, share, reason="request_closed")
                 return None
             if effect["state"] == "queued" and not self._owner_grants_enabled(user_id):
                 connection.execute(
@@ -3164,6 +3311,16 @@ class DriveBulkShareStore(DriveLivePreferences):
             # legacy/undated request can be marked with its precise safe
             # error without ever creating a provider job, while no unpaid
             # effect can reach dispatch.
+            if effect["state"] == "queued" and request_row is not None:
+                hold = self._payment_hold(connection, request_row)
+                if hold == "awaiting_payment":
+                    # Not work yet, and not a failure: due() leaves this grant
+                    # out until the order is paid. Nothing durable changes.
+                    logger.info("drive_bulk_share.claim_deferred reason=payment_required")
+                    return None
+                if hold == "closed":
+                    self._release_queued(connection, share, reason="payment_closed")
+                    return None
             if effect["state"] == "queued":
                 self._require_paid_for_origin(connection, row["origin_request_id"])
             lease = str(uuid4())

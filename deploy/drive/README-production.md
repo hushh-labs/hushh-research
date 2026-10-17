@@ -71,10 +71,16 @@ legacy Drive processing, regardless of the older
 `DRIVE_WORK_DRAIN_UAT_ENABLED` variable. Keep the explicit preservation input on
 incident releases until background processing is authorized to resume.
 
-Pausing Scheduler alone does not prevent explicit `jobs.run` calls. During an
-incident pause, withdraw the UAT runtime account's `roles/cloudscheduler.jobRunner`
-grant as well, until a serving disabled drain is verified. Restore that grant
-only with an explicitly authorized background-processing resume.
+Cloud Scheduler refuses `jobs.run` on a paused job (`400 FAILED_PRECONDITION`,
+`Job.state must be ENABLED for RunJob`), so pausing the jobs also stops the
+API's prompt wakes; each refusal logs `drive_work_wake.failed stage=<stage>
+outcome=paused`. During an incident pause, withdraw the UAT runtime account's
+`roles/cloudscheduler.jobRunner` grant as well, until a serving disabled drain
+is verified. The withdrawn grant denies every wake at the IAM layer
+(`outcome=permission_denied`) whatever each job's state, so a job that a
+release or an operator resumes or recreates still cannot be run by the API.
+Restore that grant only with an explicitly authorized background-processing
+resume.
 
 The isolated V1 UAT lane has its own switch:
 `DRIVE_V1_WORK_DRAIN_UAT_ENABLED=false`. With
@@ -83,3 +89,8 @@ its drain disabled, requires an existing paused V1 scheduler baseline, and
 verifies that baseline again after promotion. It never resumes or dispatches the
 job, and reports paused-state proof separately from a fresh Scheduler 200. Use
 the preservation input and the V1 switch together during a complete processing pause.
+
+Only a request created with `DRIVE_AGENT_PACKAGES_ENABLED=true` enters the V1
+lane, so the API wakes the V1 job only where that setting is on. Elsewhere it
+records `drive_work_wake.skipped stage=v1 outcome=disabled` at debug level and
+never calls the job; the V1 job's own schedule drains any older V1 work.
