@@ -415,6 +415,8 @@ const STREAM_RECONNECT_MS = 1_000;
 /** This many failed streams in a row, and the run polls instead. */
 const MAX_STREAM_FAILURES = 2;
 const POLL_BUDGET_MS = 3_600_000;
+/** A failed ensure plus bare pending reads cannot masquerade as a live job. */
+const STARTUP_FAILURE_BUDGET_MS = 120_000;
 const MAX_FAILURES = 5;
 
 type Step = { path: "ensure" | "jobs" | "jobs/stream"; method: "GET" | "POST" };
@@ -436,6 +438,7 @@ type Session = {
   postBlockedUntil: number;
   failures: number;
   streamFailures: number;
+  startFailureAt: number | null;
 };
 type ResearchLocks = {
   request<T>(
@@ -483,6 +486,8 @@ function settle(
     if (result.validated_facts) input.onPartial?.(result.validated_facts);
     if (result.progress) input.onProgress?.(result.progress);
   }
+  if ((hasCheckpoint && result.progress) || !hasCheckpoint)
+    session.startFailureAt = null;
   input.onResult(result);
   if (result.status !== "pending" && result.status !== "paused") return "done";
   session.next = result.restart_required
@@ -517,7 +522,10 @@ async function streamStep(
       vaultOwnerToken: input.vaultOwnerToken,
       assertCurrent: input.assertCurrent,
       signal: local.signal,
-      onProgress: (progress) => input.onProgress?.(progress),
+      onProgress: (progress) => {
+        session.startFailureAt = null;
+        input.onProgress?.(progress);
+      },
       onPartial: (facts) => input.onPartial?.(facts),
       onResult: (result) => {
         final = result;
@@ -562,6 +570,10 @@ async function step(
 ): Promise<"done" | number> {
   let { path, method } = session.next;
   const now = Date.now();
+  if (
+    session.startFailureAt !== null &&
+    now - session.startFailureAt >= STARTUP_FAILURE_BUDGET_MS
+  ) throw new Error("Research could not start");
   const waitingToPost =
     !readOnly &&
     method === "POST" &&
@@ -590,6 +602,7 @@ async function step(
           : undefined,
       ),
     );
+    if (method === "POST") session.startFailureAt = null;
     // A refused POST has not started the new run. GET /jobs can still report
     // the previous run's terminal unavailable result while the POST waits.
     // Keep watching until the POST is allowed; a pending or completed result
@@ -610,6 +623,8 @@ async function step(
       return retryAfterMs(error, RATE_LIMITED_READ_MS);
     }
     if (error instanceof ApiError && error.status < 500) throw error;
+    if (method === "POST" && session.startFailureAt === null)
+      session.startFailureAt = Date.now();
     if (++session.failures >= MAX_FAILURES) throw error;
     // A lost response can already have started research; read before retrying.
     session.next = { path: "jobs", method: "GET" };
@@ -621,7 +636,9 @@ async function step(
 async function whenVisibleWithinBudget(input: Observation, session: Session) {
   const hiddenSince = Date.now();
   await whenVisible(input.signal);
-  session.deadline += Date.now() - hiddenSince;
+  const hiddenFor = Date.now() - hiddenSince;
+  session.deadline += hiddenFor;
+  if (session.startFailureAt !== null) session.startFailureAt += hiddenFor;
 }
 
 /** Drive while visible; a hidden tab hands the lock to a visible one. */
@@ -688,6 +705,7 @@ export const WorldModelResearchService = {
       postBlockedUntil: 0,
       failures: 0,
       streamFailures: 0,
+      startFailureAt: null,
     };
     const locks = input.ownerId ? researchLocks() : null;
     const lockName = `pwm-research:${input.ownerId}`;
