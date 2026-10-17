@@ -85,6 +85,11 @@ tests/services/test_drive_search_performance_proof.py
 # Search v2: the request flow plans without any model call, and only typed
 # words and exact synonyms are title evidence for autoshare.
 tests/services/test_drive_request_brain.py
+# D3: matches without title evidence are never auto-sent; only the owner
+# lists them and sends them, through the paid batch path.
+tests/services/test_drive_match_evidence.py
+tests/services/test_drive_possible_matches_postgres.py
+tests/test_drive_possible_matches_routes.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
