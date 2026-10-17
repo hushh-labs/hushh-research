@@ -16,6 +16,44 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Profile conversion coverage — 2026-10-17
+
+Qualification-only iPhone families are tracked separately from navigation tests.
+Opening nine destinations does not establish nine native form conversions.
+
+| Profile family | Current renderer / operation owner | Qualification state |
+| --- | --- | --- |
+| Root, Account, Preferences, Security, Session | Retained UIKit navigation and SwiftUI rows; existing React callbacks | Earlier installed candidate passed the broad Profile journey; visual/Release acceptance remains separate |
+| Name editor | Owned native form; existing authenticated account writer | Implemented; no new physical acceptance in this continuation |
+| Writing style / communication | Owned native form and finite menus; existing encrypted Settings writer | Ten edit/cancel cycles passed on the earlier installed candidate |
+| Appearance, Accent, App haptics | Native menus/switch; existing theme and Settings owners | Earlier physical Preferences journey passed; no broad admission change |
+| Help & feedback | New complete native sheet over the retained Profile root; existing support composer/service | Implementation and focused qualification in progress, not released |
+| Voice | React readiness, microphone check, switches and Location/Connect defaults | Native body still missing; not counted as converted |
+| Photo | React preview/options and existing native camera/library/crop | Complete native presentation still missing |
+| Protected vault/phone/provider forms, Devices, Connectors, Invite, Privacy, Terms | Established React content handoff | Deliberate retained bodies, not native form conversions |
+
+Help negotiates `profileSupportScene` within NativeDrawers v1. Its private,
+memory-only message replica is separate from public chrome metadata and uses
+the existing scene ordering/owner/privacy fence. A bounded destination token
+anchors the sheet to the still-painted Profile root; no empty page is pushed.
+UIKit owns the sheet, keyboard and actual dismissal above retained navigation.
+React retains the three message kinds, validation, draft and sole delivery
+operation. Send waits for committed, acknowledged edits; a synchronous operation
+guard rejects duplicate submission. Accepted delivery cannot clear a newer draft
+or a different unsent draft when voice supplied an override. Uncertain delivery
+retains the message, is narrated as uncertain and is never automatically retried.
+Native retirement scrubs message and reply information before dismissal.
+
+The previously built artwork candidate (web `d1c2b333c8`, native/test source
+`055789f04f`, executable hash recorded below) is now installed on the iPhone.
+Credential-free XCTest admission and normal identity-fenced passphrase unlock
+passed. This installation is separate from warm-session continuity evidence.
+The older shell rerun completed nine cycles then failed on accessibility
+snapshot/session availability; its failure remains recorded and does not qualify
+the new support scene. No account reset, sign-out, real support send or cloud
+deployment occurred. Rollback is the independent support-family commit; ordinary
+wrappers and web/Android/iPad retain their established renderers.
+
 ### Profile artwork parity and runner admission — 2026-10-17
 
 The existing shared artwork generator now projects the active web Gemini brand
@@ -28,8 +66,8 @@ owner or renderer admission is introduced.
 
 The nearest native artwork regression passes on the headless iPhone simulator,
 and all 467 existing Back cases pass. These are source/host checks, not physical
-visual acceptance. The installed physical candidate remains `67ed4931e4` below;
-this artwork follow-up has not been installed there.
+visual acceptance. The physical results below were obtained on the historical
+`67ed4931e4` baseline; the coverage entry above records the subsequent installation.
 
 The iPhone's wireless tunnel, unlocked state and compatible/usable developer
 image were verified. Its attach definition was corrected against Xcode's
@@ -71,8 +109,10 @@ The production-backed qualification candidate at `31b6c1c736` is built with a
 fresh `d1c2b333c8` web export (the intervening application delta is test-only).
 Executable SHA-256:
 `20250f396e2460480a7d4d034348e118878ddab4edc12718bfebb66e9cc37357`.
-It is not installed: the current session's draft/attachment safety check could
-not prove an empty state, so only its runner was updated. Visual, accessibility
+Initially it was not installed: the session's draft/attachment safety check could
+not prove an empty state, so only its runner was updated. The user subsequently
+authorized installation/restart accepting that loss, and installation and normal
+unlock passed as recorded above. Visual, accessibility
 and physical Release-performance acceptance remain open. Rollback is the
 independently reversible artwork/test commits; the custom-native flag remains
 opt-in and established platform fallbacks are unchanged.

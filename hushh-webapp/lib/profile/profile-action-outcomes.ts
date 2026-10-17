@@ -104,6 +104,7 @@ export function marketplaceOutcomeToVoice(
 
 export type SupportSubmitOutcome =
   | { kind: "accepted" }
+  | { kind: "uncertain" }
   | { kind: "too_short" }
   | { kind: "offline" }
   | { kind: "rejected" }
@@ -118,6 +119,8 @@ export function supportOutcomeToVoice(
   switch (outcome.kind) {
     case "accepted":
       return { status: "succeeded", summary: "Sent that to support." };
+    case "uncertain":
+      return { status: "failed", summary: "Delivery could not be confirmed. Please wait before trying again." };
     case "too_short":
       return {
         status: "blocked",

@@ -60,6 +60,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmProfileStyleAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfileStyleAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileStyleScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfileSupportScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfileSupportAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfileSupportAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfileSupportScene", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -70,6 +74,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         set { form = newValue }
     }
     private var styleScene: NativeProfileStyleScene? { form as? NativeProfileStyleScene }
+    private var supportScene: NativeProfileSupportScene? { form as? NativeProfileSupportScene }
     private var retiringForms = [ObjectIdentifier: NativeProfileOwnedForm]()
     private var formOwner: String?
     private var formRevision = 0
@@ -115,6 +120,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileSettingsPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileSupportScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "terminalReadmission": self?.supported == true,
@@ -161,7 +167,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             }
             if let previous = self.controllers[next.family] {
-                if next.family == "profile", previous.model.projection.profileDestinationId != next.profileDestinationId,
+                if next.family == "profile", (previous.model.projection.profileDestinationId != next.profileDestinationId ||
+                    previous.model.projection.profileSupportDestinationId != next.profileSupportDestinationId),
                    self.form != nil { self.retireProfileForm() }
                 previous.update(next)
             }
@@ -366,9 +373,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativePreferences = scene == "writing-style" && profile.open && profile.profileStack?.last?.id == "preferences" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativeSupport = scene == "support" && profile.open && profile.profileStack?.isEmpty == true &&
+            destinationId != nil && destinationId == profile.profileSupportDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount || nativePreferences) && profile.enabled
+            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport) && profile.enabled
     }
     private func profileFormOwnerKey(_ identity: NativeDrawerIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
@@ -600,6 +609,95 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_STYLE_STALE_RETIREMENT"); return }
                 receipt["destinationId"] = destination
             }
+            call.resolve(receipt)
+        }
+    }
+
+    @objc func applyProfileSupportScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController, let options = call.options as? [String: Any],
+                  Set(options.keys).isSubset(of: NativeSupportProjection.keys),
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["kind", "message"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 98_304,
+                  let next = try? JSONDecoder().decode(NativeSupportProjection.self, from: bytes), next.valid,
+                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_SUPPORT_UNAVAILABLE"); return }
+            if let scene = self.supportScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_SUPPORT_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return }
+            let scene = NativeProfileSupportScene(next)
+            self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.form === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "support", destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = ["kind": draft.kind, "message": draft.message]; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profileSupportEdit", data: event, retainUntilConsumed: false)
+                return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.form === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "support", destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profileSupportAction", data: event, retainUntilConsumed: false)
+                return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return }
+                guard presented, self.form === scene, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "support", destinationId: next.destinationId) else {
+                    if self.form === scene { self.retireProfileForm() }
+                    call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_SUPPORT_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfileSupportAction(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "support", destinationId: call.getString("destinationId")),
+                  let scene = self.supportScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: "support") else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": scene.model.confirm(action)])
+        }
+    }
+    @objc func settleProfileSupportAction(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "support", destinationId: call.getString("destinationId")),
+                  let scene = self.supportScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: "support", settlement: true) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": scene.settle(action)])
+        }
+    }
+    @objc func retireProfileSupportScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), identity.family == "profile", call.getString("scene") == "support",
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else {
+                call.reject("NATIVE_PROFILE_SUPPORT_STALE_RETIREMENT"); return
+            }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == "support" && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.supportScene {
+                guard scene.identity == identity, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_SUPPORT_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_SUPPORT_STALE_RETIREMENT"); return }
+            let owner = self.profileFormOwnerKey(identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            self.formRevision = max(self.formRevision, identity.revision)
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease())
+            receipt["scene"] = "support"; receipt["destinationId"] = destination
             call.resolve(receipt)
         }
     }

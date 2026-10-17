@@ -3844,6 +3844,75 @@ final class AppUITests: XCTestCase {
         return frame
     }
 
+    func testLocalSessionNativeSupportFormKeepsDraftWithoutSending() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else { throw XCTSkip("Opt-in ordinary support form") }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PROFILE_SUPPORT_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate(); dismissRehearsalChatKeyboard(app); returnToRehearsalChat(app)
+        let chatEditor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(chatEditor) else { XCTFail("PROFILE_SUPPORT_CHAT_UNAVAILABLE"); return }
+        let chatDraft = chatEditor.value as? String
+        let opener = app.buttons["Open Profile"].firstMatch
+        let root = app.buttons["native-profile-row-support"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        let cancel = app.buttons["native-support-cancel"].firstMatch
+        let field = app.textViews["native-support-message"].firstMatch
+        let send = app.buttons["native-support-send"].firstMatch
+        defer {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_SUPPORT_OPENER_UNAVAILABLE"); return }; opener.tap()
+        for _ in 0..<4 {
+            if root.exists && root.isHittable { break }
+            if root.exists && menu.exists && menu.isHittable { menu.swipeUp(); continue }
+            let back = app.navigationBars.buttons["Profile"].firstMatch
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_SUPPORT_PARENT_UNAVAILABLE"); return }; back.tap()
+        }
+        guard waitForAdmittedControl(root) else { XCTFail("PROFILE_SUPPORT_ROW_UNAVAILABLE"); return }; root.tap()
+        guard waitForAdmittedControl(field), waitForAdmittedControl(cancel), send.exists else {
+            XCTFail("PROFILE_SUPPORT_NATIVE_FORM_UNAVAILABLE"); return
+        }
+        let original = field.value as? String ?? ""
+        let kinds = app.segmentedControls["native-support-kind"].firstMatch
+        guard kinds.exists else { XCTFail("PROFILE_SUPPORT_KINDS_UNAVAILABLE"); return }
+        let labels = ["Problem", "Help", "Feedback"]
+        guard let originalKind = labels.first(where: { kinds.buttons[$0].isSelected }) else {
+            XCTFail("PROFILE_SUPPORT_SELECTED_KIND_UNAVAILABLE"); return
+        }
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+            "The native form must isolate the covered WebView, not leave a DOM editor interactive")
+        for label in labels {
+            let kind = kinds.buttons[label]
+            guard waitForAdmittedControl(kind) else { XCTFail("PROFILE_SUPPORT_KIND_NOT_ADMITTED"); return }; kind.tap()
+            let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in kind.isSelected }, object: app)
+            guard XCTWaiter.wait(for: [selected], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_KIND_NOT_APPLIED"); return }
+        }
+        kinds.buttons[originalKind].tap()
+        replaceText(in: field, with: "Synthetic support rehearsal\nNo delivery requested.")
+        guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_SUPPORT_KEYBOARD_UNAVAILABLE"); return }
+        let edited = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            field.value as? String == "Synthetic support rehearsal\nNo delivery requested." && send.isEnabled
+        }, object: app)
+        guard XCTWaiter.wait(for: [edited], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_EDIT_NOT_ACKNOWLEDGED"); return }
+        // Restore the original private draft using normal editing. Never Send.
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(original.isEmpty ? XCUIKeyboardKey.delete.rawValue : original)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in field.value as? String == original }, object: app)
+        guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_DRAFT_RESTORE_FAILED"); return }
+        cancel.tap()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && close.isHittable }, object: app)
+        guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else { XCTFail("PROFILE_SUPPORT_RETIREMENT_BLOCKED_TOUCH"); return }
+        close.tap()
+        guard waitForAdmittedControl(chatEditor) else { XCTFail("PROFILE_SUPPORT_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertTrue((chatEditor.value as? String) == chatDraft, "Support must preserve the Chat draft")
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+        print("PROFILE_SUPPORT_FORM_CONTINUITY kinds=3 multiline=true submitted=false restored=true")
+    }
+
     func testLocalSessionNativeWritingStyleSheetKeepsDraftAndOwnedMenus() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else { throw XCTSkip("Opt-in ordinary preferences continuity") }
         let app = XCUIApplication()
@@ -4327,6 +4396,20 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
+            if id == "support", app.buttons["native-support-cancel"].firstMatch.waitForExistence(timeout: 5) {
+                let cancel = app.buttons["native-support-cancel"].firstMatch
+                guard waitForAdmittedControl(cancel), waitForAdmittedControl(app.textViews["native-support-message"].firstMatch) else {
+                    XCTFail("PROFILE_BATCH_NATIVE_SUPPORT_UNAVAILABLE"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0)
+                cancel.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    !cancel.exists && close.isHittable && destination.isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else { XCTFail("PROFILE_BATCH_NATIVE_SUPPORT_PARENT_NOT_RESTORED"); return }
+                print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
+                continue
+            }
             if ["account", "preferences", "security"].contains(id), nativeAccountBack.waitForExistence(timeout: 5) {
                 // Account has an owned UIKit destination, not the React
                 // content plane used by the remaining rich detail families.

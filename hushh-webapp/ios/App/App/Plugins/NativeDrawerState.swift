@@ -78,13 +78,14 @@ struct NativeDrawerProjection: Codable {
     var surfaceOpen: Bool? = nil
     var profileStack: [NativeProfilePage]? = nil
     var profileDestinationId: String? = nil
+    var profileSupportDestinationId: String? = nil
     var activeSections: [NativeDrawerSection] { profileStack?.last?.sections ?? sections }
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
         guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
         var allSections = sections
         if let stack = options["profileStack"] {
@@ -121,6 +122,10 @@ struct NativeDrawerProjection: Codable {
                   }) else { return false }
         }
         if let id = profileDestinationId { guard profileStack?.isEmpty == false, NativeDrawerIdentity.identifier(id) else { return false } }
+        if let id = profileSupportDestinationId {
+            guard family == "profile", open, surfaceOpen == true, profileStack?.isEmpty == true,
+                  profileDestinationId == nil, NativeDrawerIdentity.identifier(id) else { return false }
+        }
         var ids = Set<String>()
         var count = 0
         for section in sections + (profileStack?.flatMap(\.sections) ?? []) {

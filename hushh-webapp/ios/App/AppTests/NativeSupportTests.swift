@@ -6,6 +6,46 @@ import Capacitor
 
 final class NativeSupportTests: XCTestCase {
     @MainActor
+    func testSupportRequiresCommittedAcknowledgedTextAndScrubsOnRetirement() throws {
+        func projection(update: Int = 1, ack: Int = 0, message: String = "Synthetic report only", sent: Bool = false) -> NativeSupportProjection {
+            NativeSupportProjection(documentId: "public-support-document", ownerEpoch: "public-support-owner", family: "profile", scene: "support",
+                destinationId: "public-support-visit", ownerGeneration: 1, revision: 1, updateSequence: update, privacyGeneration: 0,
+                draftRevision: update, acknowledgedEditRevision: ack, draft: NativeSupportDraft(kind: "bug_report", message: message),
+                canSave: !sent, busy: false, sent: sent, error: nil, replyLine: "Replies go to your verified account",
+                placeholder: "What happened?", submitLabel: "Send report", successTitle: "Report sent", successDescription: "Thanks",
+                appearance: "light", accentHex: "#007aff", foregroundHex: "#111111")
+        }
+        let model = NativeSupportModel(projection())
+        let editor = UITextView(); model.editor = editor
+        var choice: NativeProfileNameAction?
+        model.edit = { _, _, _ in true }; model.choose = { choice = $0; return true }
+        model.change(message: "Synthetic newer message", composing: true)
+        XCTAssertTrue(model.update(projection(update: 2, ack: 1, message: "Synthetic newer message")))
+        model.action("save")
+        XCTAssertNil(choice, "Acknowledging text does not commit unfinished IME composition")
+        model.change(composing: false)
+        model.action("save")
+        XCTAssertNil(choice, "Send must wait for the final committed edit's acknowledgement")
+        XCTAssertTrue(model.update(projection(update: 3, ack: 2, message: "Synthetic newer message")))
+        model.action("save")
+        let intent = try XCTUnwrap(choice)
+        XCTAssertTrue(model.confirm(intent))
+        XCTAssertFalse(model.confirm(intent), "One Send cannot authorize two deliveries")
+        XCTAssertTrue(model.settle(intent))
+        XCTAssertTrue(model.update(projection(update: 4, ack: 2, message: "", sent: true)))
+        XCTAssertFalse(model.canSend, "Provider acceptance cannot leave another Send active")
+        XCTAssertTrue(model.canDismiss)
+        editor.text = "Synthetic private replica"
+        model.clear()
+        XCTAssertEqual(editor.text, "")
+        XCTAssertEqual(model.draft.message, "")
+        XCTAssertEqual(model.projection.draft.message, "")
+        XCTAssertEqual(model.projection.replyLine, "")
+        XCTAssertFalse(model.canSend)
+        XCTAssertFalse(model.update(projection(update: 5, ack: 2)))
+    }
+
+    @MainActor
     func testInstalledProfileBackCapabilityMatchesItsAdmittedFamily() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let host = try XCTUnwrap(scene.windows.compactMap { $0.rootViewController as? CAPBridgeViewController }.first)

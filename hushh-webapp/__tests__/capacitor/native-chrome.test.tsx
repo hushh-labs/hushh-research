@@ -258,7 +258,8 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
-  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn() }));
+  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+  applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: (plugin: string) => plugin === "HushhNativeDrawers" ? { ...drawerBridge,
@@ -3101,12 +3102,12 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileNameScene: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileNameScene: true, profileSupportScene: true,
       generation: 0, isolated: false });
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const scene = (account: boolean, settings?: "preferences" | "security" | "session") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings}
+    const scene = (account: boolean, settings?: "preferences" | "security" | "session", support = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, pages: settings === "preferences" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
@@ -3115,6 +3116,7 @@ describe("native chrome presentation lease", () => {
         ] },
       ] }] }] : [{ id: "security", title: "Security", sections: [] }, ...(settings === "session" ? [{ id: "session" as const, title: "Account access", sections: [] }] : [])],
         rows: new Map([["pick-light", vi.fn()], ["pick-dark", vi.fn()]]), root: vi.fn() }}
+      support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
       ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
@@ -3159,6 +3161,17 @@ describe("native chrome presentation lease", () => {
       expect(drawerBridge.apply.mock.calls.at(-1)![0].profileDestinationId).not.toBe(preferences.profileDestinationId);
       expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
       expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
+      view.rerender(scene(false, undefined, true));
+      await waitFor(() => expect(view.getByTestId("public-support-sheet")).toBeInTheDocument());
+      const support = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(support.profileStack).toEqual([]); // Keep the meaningful root; never push a blank Support page.
+      expect(support.profileDestinationId).toBeUndefined();
+      expect(support.profileSupportDestinationId).toBeTruthy();
+      expect(validNativeDrawerProjection(support)).toBe(true);
+      expect(validNativeDrawerProjection({ ...support, family: "history" })).toBe(false);
+      expect(support.revision).toBe(identity.revision);
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
       expect(drawerBridge.retire).not.toHaveBeenCalled();
     } finally {

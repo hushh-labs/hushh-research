@@ -44,6 +44,7 @@ import secondaryTypographyStyles from "@/components/profile/profile-secondary-ty
 import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
+import { NativeSupportComposer } from "./native-support-composer";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
@@ -714,6 +715,14 @@ function ProfilePageContent({
   );
   const [supportComposerState, setSupportComposerState] =
     useState<SupportComposerState>({ status: "editing" });
+  const pendingSupportSubmission = useRef<symbol | null>(null);
+  const supportDraft = useRef({ kind: supportKind, message: supportMessage, revision: 0 });
+  const changeSupportDraft = useCallback((patch: { kind?: SupportMessageKind; message?: string }) => {
+    const next = { ...supportDraft.current, ...patch, revision: supportDraft.current.revision + 1 };
+    supportDraft.current = next; // Accept and revision edits before React batches a render.
+    setSupportKind(next.kind); setSupportMessage(next.message); setSupportMessageError(null);
+    setSupportComposerState(current => current.status === "error" ? { status: "editing" } : current);
+  }, []);
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
@@ -759,6 +768,16 @@ function ProfilePageContent({
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const supportOwner = useRef<string | null>(nativeDetailOwner);
+  const supportDraftOwner = useRef(nativeDetailOwner);
+  useLayoutEffect(() => {
+    if (supportDraftOwner.current !== nativeDetailOwner) {
+      supportDraftOwner.current = nativeDetailOwner;
+      changeSupportDraft({ kind: "support_request", message: "" }); setSupportComposerState({ status: "editing" });
+    }
+    supportOwner.current = nativeDetailOwner;
+    return () => { supportOwner.current = null; pendingSupportSubmission.current = null; };
+  }, [nativeDetailOwner, changeSupportDraft]);
   const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
   const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
     const title = typeof entry?.title === "string" ? entry.title : "Profile";
@@ -826,10 +845,9 @@ function ProfilePageContent({
   }, [legacyProfileRedirectHref, router]);
 
   useEffect(() => {
-    if (!supportRouteKind || supportRouteKind === supportKind) return;
-    setSupportKind(supportRouteKind);
-    setSupportMessageError(null);
-  }, [supportKind, supportRouteKind]);
+    if (!supportRouteKind || supportRouteKind === supportDraft.current.kind) return;
+    changeSupportDraft({ kind: supportRouteKind });
+  }, [supportRouteKind, nativeDetailOwner, changeSupportDraft]);
 
   const legacySupportRouteHref = useMemo(() => {
     if (isPanePresentation || activePanel !== "support") return null;
@@ -1895,20 +1913,26 @@ function ProfilePageContent({
     messageOverride?: string,
   ): Promise<SupportSubmitOutcome> {
     if (!user) return { kind: "no_user" };
-    if (sendingSupportMessage) return { kind: "busy" };
+    if (sendingSupportMessage || pendingSupportSubmission.current) return { kind: "busy" };
 
     // Voice dictates the message rather than typing it into the composer, and
     // React state set in the same tick would not be readable here. Every
     // validation below still runs on it -- a dictated message that is too
     // short is refused exactly like a typed one.
-    const trimmedMessage = (messageOverride ?? supportMessage).trim();
-    const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
+    const submittedDraft = supportDraft.current;
+    const kind = submittedDraft.kind;
+    const trimmedMessage = (messageOverride ?? submittedDraft.message).trim();
+    const presentation = SUPPORT_INTENT_PRESENTATION[kind];
 
     if (trimmedMessage.length < 10) {
       setSupportMessageError("Add a few more details.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
       return { kind: "too_short" };
+    }
+    if (trimmedMessage.length > 8000) {
+      setSupportMessageError("Keep your message under 8,000 characters.");
+      return { kind: "rejected" };
     }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1920,20 +1944,26 @@ function ProfilePageContent({
     }
 
     setSupportMessageError(null);
+    const submission = Symbol();
+    const owner = nativeDetailOwner;
+    const isCurrent = () => supportOwner.current === owner && pendingSupportSubmission.current === submission;
+    pendingSupportSubmission.current = submission;
     setSupportComposerState({ status: "sending" });
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return { kind: "no_user" };
       const pageUrl =
         typeof window !== "undefined" ? window.location.href : ROUTES.PROFILE;
       const result = await SupportService.submitMessage({
         idToken,
         userId: user.uid,
-        kind: supportKind,
+        kind,
         subject: presentation.internalSubject,
         message: trimmedMessage,
         persona: personaState?.active_persona || null,
         pageUrl,
       });
+      if (!isCurrent()) return { kind: "no_user" };
 
       if (!result.accepted) {
         setSupportComposerState({
@@ -1943,10 +1973,19 @@ function ProfilePageContent({
         return { kind: "rejected" };
       }
 
-      setSupportComposerState({ status: "sent", kind: supportKind });
-      setSupportMessage("");
+      // A route/voice edit may arrive while delivery is in flight. The accepted
+      // snapshot does not authorize erasing a newer unsent message.
+      if (supportDraft.current.revision === submittedDraft.revision &&
+          (messageOverride === undefined || trimmedMessage === submittedDraft.message.trim())) {
+        setSupportComposerState({ status: "sent", kind });
+        changeSupportDraft({ message: "" });
+      } else {
+        setSupportComposerState({ status: "editing" });
+        toast.success("Message sent");
+      }
       return { kind: "accepted" };
     } catch (error) {
+      if (!isCurrent()) return { kind: "no_user" };
       console.error(
         "[ProfilePage] Support delivery failed:",
         error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed",
@@ -1958,7 +1997,10 @@ function ProfilePageContent({
             ? "We couldn't confirm delivery. Please wait before trying again."
             : "We couldn't send your message. Try again.",
       });
+      if (error instanceof SupportDeliveryUncertainError) return { kind: "uncertain" };
       return { kind: "failed" };
+    } finally {
+      if (pendingSupportSubmission.current === submission) pendingSupportSubmission.current = null;
     }
   }
 
@@ -3753,11 +3795,7 @@ function ProfilePageContent({
                 onValueChange={(value) => {
                   const nextKind = normalizeSupportKind(value);
                   if (!nextKind) return;
-                  setSupportKind(nextKind);
-                  setSupportMessageError(null);
-                  if (supportComposerState.status === "error") {
-                    setSupportComposerState({ status: "editing" });
-                  }
+                  changeSupportDraft({ kind: nextKind });
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
@@ -3780,14 +3818,11 @@ function ProfilePageContent({
             </label>
             <Textarea
               id="support-message"
+              maxLength={8000}
               ref={supportMessageRef}
               value={supportMessage}
               onChange={(event) => {
-                setSupportMessage(event.target.value);
-                if (supportMessageError) setSupportMessageError(null);
-                if (supportComposerState.status === "error") {
-                  setSupportComposerState({ status: "editing" });
-                }
+                changeSupportDraft({ message: event.target.value });
               }}
               placeholder={supportPresentation.placeholder}
               disabled={sendingSupportMessage}
@@ -4873,6 +4908,19 @@ function ProfilePageContent({
     ] },
   ] };
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
+      <NativeSupportComposer destinationId={destinationId} onFallback={onFallback} model={{
+        userId: user.uid, ready: isVaultUnlocked, draft: { kind: supportKind, message: supportMessage },
+        busy: sendingSupportMessage, sent: supportComposerState.status === "sent",
+        error: supportMessageError ?? (supportComposerState.status === "error" ? supportComposerState.message : null),
+        replyLine: supportReplyLine, placeholder: supportPresentation.placeholder, submitLabel: supportPresentation.submitLabel,
+        successTitle: supportPresentation.successTitle,
+        successDescription: supportKind === "support_request" && effectiveReplyEmail ? supportReplyLine : supportPresentation.successDescription,
+        change: changeSupportDraft, send: () => submitSupportMessage(), close: () => {
+          setSupportComposerState({ status: "editing" });
+          updateProfileView({ panel: null, detail: null }, "replace");
+        },
+      }} /> }}
     settings={{ active: !showVaultUnlock && (activePanel === "preferences" && !activeDetail ||
         activePanel === "security" && (!activeDetail || activeDetail === "session")),
       pages: activePanel === "preferences" ? [nativePreferences.page] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
