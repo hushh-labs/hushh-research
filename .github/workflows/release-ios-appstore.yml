@@ -95,7 +95,7 @@ env:
   XCODE_SCHEME: App
   PBXPROJ: hushh-webapp/ios/App/App.xcodeproj/project.pbxproj
   # Production APNs entitlement, applied only at archive time so the committed
-  # pbxproj (and local/dev/TestFlight builds) stay on App/App.entitlements.
+  # pbxproj and local/dev builds stay on App/App.entitlements. TestFlight also uses production APNs.
   IOS_RELEASE_ENTITLEMENTS: App/AppRelease.entitlements
   # cap:build (Next.js static export) is memory-heavy on the Apple-silicon runner.
   NODE_OPTIONS: --max-old-space-size=8192
@@ -575,6 +575,7 @@ jobs:
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             -skipMacroValidation \
             -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             HUSSH_APP_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
             MARKETING_VERSION="${IOS_MARKETING_VERSION}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
@@ -603,6 +604,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 scripts/ci/verify-ios-push-entitlements.py --app-bundle "${RUNNER_TEMP}/App.xcarchive/Products/Applications/App.app"
           IOS_APP_BUNDLE_PATH="${RUNNER_TEMP}/App.xcarchive/Products/Applications/App.app" \
             npm run --prefix hushh-webapp verify:capacitor:product-assets
 

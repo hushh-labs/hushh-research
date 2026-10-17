@@ -415,14 +415,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
                        "Tab switching introduced another WebView host")
         XCTAssertTrue(tab("Chat").isSelected, "Final selection did not match the settled Chat destination")
-        tap("Search")
-        // Search is the existing command palette, never a new native route.
-        let dismiss = app.buttons["Close search"].firstMatch
-        XCTAssertTrue(dismiss.waitForExistence(timeout: 10),
-                      "Native Search did not open the existing command palette")
-        XCTAssertFalse(bar.exists && bar.isHittable, "Native tabs remained accessible under Search")
-        dismiss.tap()
-        XCTAssertTrue(bar.waitForExistence(timeout: 10) && bar.isHittable)
+        XCTAssertFalse(tab("Search").exists, "Archived Search remained in native navigation")
         print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
     }
 
@@ -2878,10 +2871,6 @@ final class AppUITests: XCTestCase {
             returnToTab("Feed")
             burst("to-feed")
             stop("feed")
-
-            returnToTab("Search")
-            stop("search-keyboard", settle: 1.5)
-            dismissKeyboard()
 
             returnToTab("One")
             perfSettle(1.5)

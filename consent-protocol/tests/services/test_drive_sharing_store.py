@@ -166,7 +166,8 @@ async def request(sharing, client_id=None):
 
 
 @pytest.mark.asyncio
-async def test_verified_ria_identity_is_sealed_for_owner_review(sharing):
+async def test_verified_ria_identity_is_sealed_for_owner_review(sharing, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     profile = {
         "type": "ria",
         "displayName": "Chris",
@@ -204,7 +205,7 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
         lambda: None,
     )
     initial = await sharing.owner_pricing(user_id="owner")
-    assert initial == {"enabled": False, "amountCents": 50, "version": 0}
+    assert initial == {"enabled": False, "amountCents": 1000, "version": 0}
     quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
     assert quote == {
         "amountCents": None,
@@ -1341,6 +1342,79 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
         True,
     )
     assert review["preparationError"] is None
+    # Allowed and queued: no search has started, so nothing claims to run.
+    queued_at = datetime.fromisoformat(review["queuedAt"])
+    assert abs(queued_at - row["preparation_next_at"]) < timedelta(seconds=5)
+    assert review["queueDelayed"] is False
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert status["queueDelayed"] is False
+        assert abs(datetime.fromisoformat(status["queuedAt"]) - queued_at) < timedelta(seconds=5)
+
+    # Still due after three minutes: delayed for both participants. A read
+    # only reports it; the scheduled drains own the queue (see
+    # test_drive_work_wake::test_reads_of_a_stalled_request_never_run_scheduler_jobs).
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_next_at=clock_timestamp()-INTERVAL '4 minutes'
+              WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))["queueDelayed"]
+    assert (await sharing.request_status(user_id="recipient", request_id=request_id))[
+        "queueDelayed"
+    ]
+
+    # A repeated Allow is a no-op success even after the revision moved on.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET revision=revision+1 WHERE request_id=:id"),
+            {"id": request_id},
+        )
+    repeated = await owner_allow(sharing, created)
+    assert (repeated["ownerAllowed"], repeated["revision"]) == (True, 1)
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await owner_allow(sharing, created, 2000)  # A different price is not a repeat.
+
+    # Once the search starts the request is no longer queued.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp(),
+              preparation_error_code='trusted_auto_active' WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+    started = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert "queuedAt" not in started and "queueDelayed" not in started
+    assert "workDelayedSince" not in started  # No search slice exists to wait.
+
+    # A search slice that no worker has held for ten minutes (the drains are
+    # paused) is delayed for both participants, and moves again once held.
+    job_id = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_owner_search_jobs
+              (job_id,user_id,client_request_id,request_digest,connection_generation,
+               consent_version,status,checkpoint_envelope,next_at,updated_at)
+              VALUES (:job,'owner',:request,:digest,1,'drive-owner-search-v1','queued',
+                '{}'::jsonb,clock_timestamp()-INTERVAL '10 minutes',
+                clock_timestamp()-INTERVAL '10 minutes')"""),
+            {"job": job_id, "request": request_id, "digest": "a" * 64},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        waited = datetime.now(UTC) - datetime.fromisoformat(status["workDelayedSince"])
+        assert timedelta(minutes=9) < waited < timedelta(minutes=11)
+        assert "queuedAt" not in status
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='running',lease_id=:lease,
+              lease_expires_at=clock_timestamp()+INTERVAL '120 seconds' WHERE job_id=:job"""),
+            {"job": job_id, "lease": str(uuid4())},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" not in status
 
 
 @pytest.mark.asyncio
@@ -1348,6 +1422,7 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
     sharing, monkeypatch
 ):
     live_drive(sharing, monkeypatch)
+    monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
     created = await request(sharing)
     request_id = created["requestId"]
     with sharing.db.engine.begin() as connection:
@@ -1355,7 +1430,11 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
             text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
             {"id": request_id},
         )
-    for missing_or_invalid in (None, 9, 50001):
+    # The 2026-10-17 first-Allow 422: a cents price on a whole-dollar request.
+    # The review now names the request's rule so every price step offers it.
+    review = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert review["wholeDollarPrice"] is True
+    for missing_or_invalid in (None, 9, 50001, 50, 150):
         with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
             await owner_allow(sharing, created, missing_or_invalid)
 

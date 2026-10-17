@@ -1000,7 +1000,8 @@ async def ria_claim_lookup(
     try:
         return await service.lookup(payload.phone)
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        detail = {"code": exc.code, "message": str(exc)} if exc.code else str(exc)
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 @router.post("/claim/otp/start")

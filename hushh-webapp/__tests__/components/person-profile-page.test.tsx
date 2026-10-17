@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   authLoading: false,
   isVaultUnlocked: true,
   packets: vi.fn(),
+  connectorOverview: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -76,6 +77,9 @@ vi.mock("@/lib/services/person-profile-service", () => ({
 // A connection's listed packets; buying is covered by the packet tests.
 vi.mock("@/lib/services/drive-packet-service", () => ({
   DrivePacketService: { packets: mocks.packets },
+}));
+vi.mock("@/lib/services/external-connector-service", () => ({
+  ExternalConnectorService: { overview: mocks.connectorOverview },
 }));
 
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
@@ -225,6 +229,7 @@ beforeEach(() => {
   mocks.realDialogs = false;
   mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
   mocks.answerCreate.mockReset();
+  mocks.connectorOverview.mockReset().mockResolvedValue({ driveAgentPackagesEnabled: true });
 });
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
@@ -548,13 +553,35 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Manage access", "Request cards", "Available packets"]);
+    ).toEqual(["Request", "Share profile", "Request cards", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
       historyHeading.compareDocumentPosition(reviewButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("keeps the four card actions reachable in reading order without changing their dialogs", async () => {
+    mocks.realDialogs = true;
+    mocks.user = { uid: "viewer", getIdToken: async () => "viewer-token" };
+    mocks.vaultOwnerToken = "synthetic-owner-token";
+    mocks.connectorOverview.mockResolvedValue({ features: { drive_document_sharing: true }, driveAgentPackagesEnabled: false });
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    const actions = await screen.findByLabelText("Relationship actions");
+    await within(actions).findByRole("button", { name: "Ask about files", exact: true });
+    const labels = ["Request files", "Ask about files", "Request scope", "Request cards"];
+    const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
+    expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
+    expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
+      .toEqual(["Request", "Share profile", ...labels, "Manage access"]);
+    fireEvent.click(cards[0]);
+    expect(await screen.findByRole("dialog", { name: "Request files", exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(cards[1]);
+    expect(await screen.findByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {
@@ -1796,5 +1823,14 @@ describe("PersonProfilePage packets a connection has listed", () => {
     fireEvent.click(row);
     expect(await screen.findByText("You pay after Actual Person approves.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Buy for $12.34" })).toBeInTheDocument();
+  });
+
+  it("does not offer new packet purchases when agent packages are disabled", async () => {
+    mocks.connectorOverview.mockResolvedValue({ driveAgentPackagesEnabled: false });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(mocks.connectorOverview).toHaveBeenCalledWith("owner-token"));
+    expect(screen.queryByRole("button", { name: "Available packets" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Available document packets" })).toBeNull();
+    expect(mocks.packets).not.toHaveBeenCalled();
   });
 });

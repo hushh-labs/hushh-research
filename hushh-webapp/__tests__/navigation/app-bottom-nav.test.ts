@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveBottomNavActiveKey,
-  resolveBottomNavAction,
   resolveBottomNavContextKey,
   resolveBottomNavigationScope,
   resolveBottomNavHref,
@@ -93,12 +92,6 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("chat", "one")).toBe(ROUTES.HOME);
     expect(resolveBottomNavHref("chat", "investor")).toBe(ROUTES.HOME);
     expect(resolveBottomNavHref("chat", "ria")).toBe(ROUTES.HOME);
-    expect(resolveBottomNavHref("search", "one")).toBeNull();
-    expect(resolveBottomNavHref("search", "investor")).toBeNull();
-    expect(resolveBottomNavAction("search", "one")).toEqual({
-      type: "command",
-      mode: "search",
-    });
     // General Profile is shared across scopes; advisor management keeps its own RIA route.
     expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "one")).toBe(ROUTES.PROFILE);
@@ -122,7 +115,6 @@ describe("app bottom navigation", () => {
         "dashboard",
         "connect",
         "feed",
-        "search",
       ]);
     }
   });

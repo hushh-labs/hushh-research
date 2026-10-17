@@ -130,7 +130,9 @@ def _drive_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, A
     )
 
 
-async def resolve_native_drive_connection(tool_context: ToolContext):
+async def resolve_native_drive_connection(
+    tool_context: ToolContext, *, metadata_only: bool = False
+):
     """Adapt the existing live grant to the shared native MCP core, without dispatch."""
     from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
 
@@ -141,7 +143,11 @@ async def resolve_native_drive_connection(tool_context: ToolContext):
         row, credential = (
             await get_external_connector_oauth_service()
             .drive()
-            .current_credential(user_id=owner, required_profile="live")
+            .current_credential(
+                user_id=owner,
+                required_profile="live",
+                **({"refresh": False} if metadata_only else {}),
+            )
         )
         if (
             row.get("status") != "connected"
@@ -165,13 +171,17 @@ async def resolve_native_drive_connection(tool_context: ToolContext):
             owner,
             "google_drive",
             int(row["connection_generation"]),
-            int(row["credential_version"]),
+            # OAuth refresh rotates the credential envelope, not authority.
+            # Reconnect/rebind changes generation; subject/profile/policy stay
+            # explicit below. The credential owner still opens the exact live
+            # envelope revision before every actual provider call.
+            1,
             GOOGLE_DRIVE_MCP_ENDPOINT,
             (credential["subject"], LIVE_POLICY_HASH, "live"),
         )
         return ResolvedMcpConnection(
             binding,
-            {"Authorization": f"Bearer {token}"},
+            {} if metadata_only else {"Authorization": f"Bearer {token}"},
             catalog_policy=partial(_trusted_catalog, "drive"),
             result_policy=_drive_result_policy,
         )
@@ -196,7 +206,10 @@ def _gmail_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, A
 
 
 async def resolve_native_workspace_connection(
-    tool_context: ToolContext, provider: Literal["gmail", "calendar"]
+    tool_context: ToolContext,
+    provider: Literal["gmail", "calendar"],
+    *,
+    metadata_only: bool = False,
 ):
     """Adapt existing owner grants to native ADK MCP without another dispatcher."""
     from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
@@ -209,13 +222,17 @@ async def resolve_native_workspace_connection(
         if before is None:
             raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
         token = (
-            await GmailReceiptsService().get_read_access_token(user_id=owner)
-            if provider == "gmail"
-            else await get_google_connection_service().access_token(
-                user_id=owner, service="calendar", access_level="read"
+            ""
+            if metadata_only
+            else (
+                await GmailReceiptsService().get_read_access_token(user_id=owner)
+                if provider == "gmail"
+                else await get_google_connection_service().access_token(
+                    user_id=owner, service="calendar", access_level="read"
+                )
             )
         )
-        if (
+        if not metadata_only and (
             not isinstance(token, str)
             or not token.strip()
             or any(ord(char) < 32 or ord(char) == 127 for char in token)
@@ -232,7 +249,7 @@ async def resolve_native_workspace_connection(
         )
         return ResolvedMcpConnection(
             McpConnectionBinding(owner, connector_id, 1, 1, endpoint, before),
-            {"Authorization": f"Bearer {token}"},
+            {} if metadata_only else {"Authorization": f"Bearer {token}"},
             catalog_policy=_gmail_catalog
             if provider == "gmail"
             else partial(_trusted_catalog, "calendar"),

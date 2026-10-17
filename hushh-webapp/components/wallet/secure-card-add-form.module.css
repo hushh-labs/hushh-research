@@ -66,11 +66,12 @@
 
 .field input { background-color: var(--app-card-surface-default-solid); }
 
-.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); overflow:hidden; }
+.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid transparent; border-radius:var(--app-card-radius-feature); background:transparent; overflow:hidden; }
 .scanArtwork { display:flex; flex-direction:column; align-items:center; width:100%; max-width:280px; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
 .scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
 .scanArtwork:disabled { opacity:.55; cursor:default; }
-.scanReference { display:block; width:100%; height:auto; max-height:260px; object-fit:contain; }
+.scanVisual { position:relative; display:block; width:100%; max-width:260px; aspect-ratio:1; }
+.scanReference { display:block; width:100%; height:100%; object-fit:contain; }
 
 @layer base {
   .scanActions .scanAction { font-size: 13px !important; }

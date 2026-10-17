@@ -146,6 +146,63 @@ test("preferred name entry saves privately, refreshes the profile label, and rec
   expect(errors).toEqual([]);
 });
 
+test("a picked name labels One at once, holds through the save, and reverts when declined", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let encrypted: unknown = null;
+  let revision = 0;
+  const writes: string[] = [];
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postData()!);
+      encrypted = route.request().postDataJSON().encrypted;
+      revision++;
+    }
+    await route.fulfill({ json: { encrypted, revision } });
+  });
+  const errors = await mount(page, "light", true);
+  const label = page.getByLabel("Chat profile name");
+  // Every distinct text the label shows, so a drop back to "One" cannot hide.
+  const watchLabel = () => page.evaluate(() => {
+    const target = document.querySelector('[aria-label="Chat profile name"]')!;
+    const seen = [target.textContent ?? ""];
+    new MutationObserver(() => {
+      const text = target.textContent ?? "";
+      if (seen.at(-1) !== text) seen.push(text);
+    }).observe(target, { childList: true, characterData: true, subtree: true });
+    (window as unknown as { labelSeen: string[] }).labelSeen = seen;
+  });
+  const labelSeen = () => page.evaluate(() => (window as unknown as { labelSeen: string[] }).labelSeen);
+  const answerRest = async () => {
+    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("button", { name: "Casual" }).click();
+  };
+
+  // Declined: the pick shows at once, then nothing is stored or kept.
+  await watchLabel();
+  await page.getByRole("button", { name: "Call me Owner" }).click();
+  await expect(label).toHaveText("Owner");
+  await answerRest();
+  await page.getByRole("button", { name: "Don't save" }).click();
+  await expect(label).toHaveText("One");
+  expect(writes).toHaveLength(0);
+  expect(await labelSeen()).toEqual(["One", "Owner", "One"]);
+
+  // Saved: the label never drops to "One" between the write and the re-read.
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(label).toHaveText("One");
+  await watchLabel();
+  await page.getByRole("button", { name: "Call me Owner" }).click();
+  await answerRest();
+  await page.getByRole("button", { name: "Save to memory" }).click();
+  await expect(page.getByText(/^Saved\. You can change it anytime in Memory/)).toBeVisible();
+  await expect(label).toHaveText("Owner");
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).not.toContain("Owner");
+  expect(await labelSeen()).toEqual(["One", "Owner"]);
+  expect(errors).toEqual([]);
+});
+
 test("Skip invalidates a slow semantic answer before it can save", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   let finishReply!: () => Promise<void>;

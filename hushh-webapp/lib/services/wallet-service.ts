@@ -23,6 +23,7 @@ import {
 import { approveWalletCatalogArtwork, assertWalletArtworkApproval, readWalletArtwork, MAX_WALLET_ARTWORK_CHARACTERS, type WalletCardArtwork, type WalletArtworkResolution, type WalletArtworkVariant, type WalletArtworkReference } from "@/lib/wallet/card-artwork";
 import { validateCardImage } from "@/lib/wallet/card-scan-image";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
+import { readWalletSecurityCode } from "@/lib/wallet/card-security-code";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -56,6 +57,8 @@ export interface WalletCardInput {
   draftId?: string;
   artwork?: WalletCardArtwork;
   cardholderName: string;
+  /** Owner Wallet manual entry only; never part of getCard or sharing. */
+  securityCode?: string;
   expiryMonth: number;
   expiryYear: number;
   issuingRegion?: string;
@@ -233,6 +236,7 @@ export class WalletService {
       expiryMonth: input.expiryMonth,
       expiryYear: input.expiryYear,
       issuingRegion: input.issuingRegion,
+      securityCode: input.securityCode,
     });
   }
 
@@ -438,7 +442,7 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
-    options?: { recoverArtwork?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
+    options?: { recoverArtwork?: boolean; failOnArtworkUnavailable?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
@@ -475,7 +479,7 @@ export class WalletService {
       const validateSaved = async () => {
         for (let offset = 0; offset < catalogCards.length; offset += 24) {
           const batch = savedReferences.slice(offset, offset + 24);
-          const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(() => []);
+          const approvals = await this.validateArtworkReferences(params, batch, signal, "saved").catch(error => { if (options?.failOnArtworkUnavailable) throw error; return []; });
           assertDisplayCurrent();
           const rejected = batch.flatMap((artwork, index) => !approvals[index]?.approved ? [{ cardId: catalogCards[offset + index]!.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }] : []);
           if (rejected.length) options?.onArtworkRejected?.(rejected);
@@ -499,7 +503,7 @@ export class WalletService {
                 if (final?.approved && final.replacement?.catalogVersion === catalogVersion && final.replacement.variant.assetId === variant.assetId && final.replacement.variant.digest === variant.digest) {
                   row.artwork = { ...cleaned, allowOverlay: final.replacement.variant.allowOverlay, evidence: artwork.evidence };
                 } else options?.onArtworkRejected?.([{ cardId: row.summary.cardId, assetId: artwork.assetId, digest: artwork.digest }]);
-              } catch { assertDisplayCurrent(); }
+              } catch (error) { assertDisplayCurrent(); if (options?.failOnArtworkUnavailable) throw error; }
             }
           };
           await Promise.all(Array.from({ length: Math.min(4, batch.length) }, refreshSaved));
@@ -560,7 +564,7 @@ export class WalletService {
           finally { signal.removeEventListener("abort", cancel); }
         }));
       }
-    }).catch(() => { assertCurrent(); });
+    }).catch(error => { assertCurrent(); if (options?.failOnArtworkUnavailable) throw error; });
     assertCurrent();
     return presentations;
   }
@@ -584,6 +588,13 @@ export class WalletService {
     };
   }
 
+  /** Dedicated owner-only action. Shared/chat card readers never receive codes. */
+  static async getCardSecurityCode(params: VaultContextParams & { cardId: string }): Promise<string | undefined> {
+    const data = await this.loadDomain(params);
+    if (!toSummary(params.cardId, isRecord(data?.summary) ? data.summary[params.cardId] : undefined)) return;
+    return readWalletSecurityCode(isRecord(data?.secrets) ? data.secrets[params.cardId] : undefined);
+  }
+
   static async addCard(
     params: VaultContextParams & {
       card: WalletCardInput;
@@ -595,6 +606,7 @@ export class WalletService {
     if (!this.isEnabled()) {
       throw new Error("Payment cards are not enabled in this environment.");
     }
+    if (params.card.securityCode && (params.surface !== "web" || params.source !== "one_wallet_add")) throw new Error("Security code write unavailable.");
     const assertCurrent = networkSessionGuard(params);
     assertCurrent();
     const preliminary = this.validateCard(params.card);
@@ -654,6 +666,7 @@ export class WalletService {
     const secretsRecord = {
       pan: params.card.pan.replace(/[\s-]/g, ""),
       cardholder_name: params.card.cardholderName.trim(),
+      ...(params.card.securityCode ? { manual_cvv: params.card.securityCode } : {}),
     };
     await PersonalKnowledgeModelService.storeWalletDomain({
       userId: params.userId,
@@ -667,12 +680,16 @@ export class WalletService {
         surface: params.surface,
         source: params.source,
       },
+      ...(params.card.securityCode ? { securityCodeChange: { cardId, value: params.card.securityCode } } : {}),
       applyMutation: async (base) => {
         assertCurrent();
         const next = isRecord(base) ? { ...base } : {};
         const summary = isRecord(next.summary) ? { ...next.summary } : {};
         const secrets = isRecord(next.secrets) ? { ...next.secrets } : {};
         const previousSummary = summary[cardId], previousSecret = secrets[cardId];
+        if (readWalletSecurityCode(previousSecret) && isRecord(previousSecret) && normalizePan(String(previousSecret.pan ?? "")) !== normalizePan(params.card.pan) && !params.card.securityCode) {
+          throw new Error("Enter this card's CVV or cancel and start a new card.");
+        }
         // An uncertain acknowledgement may already have committed this draft.
         // Retain its private image without converting saved bytes into a new approval.
         const preserveArtwork = assignAutomatically && isRecord(previousSummary) && previousSummary.brand === network && isRecord(previousSecret) && normalizePan(String(previousSecret.pan ?? "")) === normalizePan(params.card.pan);
@@ -701,7 +718,8 @@ export class WalletService {
         const previous = summary[cardId];
         summary[cardId] = { ...summaryRecord, ...(isRecord(previous) && typeof previous.created_at === "string" ? { created_at: previous.created_at } : {}) };
         const previousSecrets = secrets[cardId];
-        secrets[cardId] = { ...secretsRecord, ...(isRecord(previousSecrets) && Array.isArray(previousSecrets.share_receipts) ? { share_receipts: previousSecrets.share_receipts } : {}) };
+        const previousCode = readWalletSecurityCode(previousSecrets);
+        secrets[cardId] = { ...(previousCode ? { manual_cvv: previousCode } : {}), ...secretsRecord, ...(isRecord(previousSecrets) && Array.isArray(previousSecrets.share_receipts) ? { share_receipts: previousSecrets.share_receipts } : {}) };
         if (artwork && !preserveArtwork) {
           assertWalletArtworkApproval(artwork, params.userId);
           const collection = isRecord(next.artwork) ? { ...next.artwork } : {};

@@ -6,9 +6,11 @@ import base64
 import importlib.util
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
+import pathspec
 import pytest
 import yaml
 
@@ -414,16 +416,25 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "scripts/ci/runtime-capacity-budget.py",
         "config/runtime-capacity.json",
         "deploy/backend.cloudbuild.yaml",
+        ".gcloudignore",
+        "deploy/drive/verify_hashcoin_config.sh",
+        "deploy/sso/bind_workos.sh",
         "scripts/ops/sync_backend_runtime_secrets.py",
         "hushh-webapp/lib/vault/passkey-domain-aliases.json",
     )
     catalog_path = old_paths[-1]
     old_catalog = json.dumps({"production": ["one.hushh.ai", "one.hussh.ai"]})
     for path in old_paths:
-        write(path, old_catalog if path == catalog_path else "old release tooling\n")
+        contents = old_catalog if path == catalog_path else "old release tooling\n"
+        if path == ".gcloudignore":
+            contents = "*.sh\n!deploy/drive/verify_hashcoin_config.sh\n!deploy/sso/bind_workos.sh\n"
+        elif path in {"deploy/drive/verify_hashcoin_config.sh", "deploy/sso/bind_workos.sh"}:
+            contents = (ROOT / path).read_text()
+        write(path, contents)
     git("add", ".")
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
+    old_upload_policy = git("show", f"{old_sha}:.gcloudignore")
     tools = (
         "resolve_prod_release_mode.py",
         "verify_prod_prerequisites.py",
@@ -435,6 +446,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     current_paths = [
         *old_paths,
+        "deploy/email-auth/bind_secrets.sh",
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/account-deletion-fence-decision.py",
@@ -475,6 +487,44 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         ):
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
+    build = yaml.safe_load((repo / "deploy/backend.cloudbuild.yaml").read_text())
+    referenced = set()
+    for step in build["steps"]:
+        for argument in step.get("args", []):
+            referenced.update(
+                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
+            )
+    assert referenced, "Exercise the preserved Cloud Build source dependencies"
+    upload_filter = pathspec.GitIgnoreSpec.from_lines(
+        (repo / ".gcloudignore").read_text().splitlines()
+    )
+    for helper in referenced:
+        assert (repo / helper).is_file()
+        assert not upload_filter.match_file(helper), f"Older target upload excludes {helper}"
+        for directory in Path(helper).parents:
+            if directory != Path("."):
+                assert not upload_filter.match_file(directory.as_posix() + "/")
+    # The old target's upload rule must reject the newly preserved companion.
+    assert pathspec.GitIgnoreSpec.from_lines(old_upload_policy.splitlines()).match_file(
+        "deploy/email-auth/bind_secrets.sh"
+    )
+    assert upload_filter.match_file(".env"), "Keep secret-file upload exclusion intact"
+
+    # The current Cloud Build gate sources this helper even for an older app SHA.
+    # Production must remain a no-op: preserving tooling cannot enable email OTP.
+    subprocess.run(  # noqa: S603 - fixed authored shell helper in the synthetic checkout
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail; add_secret() { return 99; }; "
+            "source deploy/email-auth/bind_secrets.sh production",
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     assert (runner / "release-tools/verify-prod-places-readiness.py").read_text() == (
         ROOT / "scripts/ci/verify-prod-places-readiness.py"
     ).read_text()

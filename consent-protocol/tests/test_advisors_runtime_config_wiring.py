@@ -59,6 +59,30 @@ def _namespace(**overrides) -> argparse.Namespace:
     return argparse.Namespace(**values)
 
 
+@pytest.mark.parametrize("environment", ["uat", "production"])
+def test_email_auth_runtime_configuration_defaults_off(environment):
+    config = _load_sync_module()._build_backend_runtime_config(_namespace(environment=environment))
+    assert config["email_auth_enabled"] == "false"
+    assert not any(key.endswith("_key") for key in config if key.startswith("email_auth_"))
+
+
+def test_enabled_email_auth_survives_runtime_sync_and_first_configuration_read(monkeypatch):
+    from hushh_mcp.services.email_auth.config import EmailAuthConfig
+
+    monkeypatch.setattr(runtime_settings.os, "environ", runtime_settings.os.environ.copy())
+    config = _load_sync_module()._build_backend_runtime_config(
+        _namespace(email_auth_enabled="true")
+    )
+    for name in runtime_settings._BACKEND_RUNTIME_ENV_MAP.values():
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    actual = EmailAuthConfig.from_env()
+    assert actual.enabled
+    assert actual.mail_from == "one@hushh.ai"
+    assert actual.mail_api_endpoint == "https://hushh-mail-api-646258530541.us-central1.run.app"
+    assert actual.risk_manifest == "/app/config/email-auth/risk-manifest.json"
+
+
 def test_generated_runtime_config_carries_the_advisors_base_url():
     module = _load_sync_module()
     config = module._build_backend_runtime_config(

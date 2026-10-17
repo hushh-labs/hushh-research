@@ -13,9 +13,17 @@ type DirectoryPersonIdentity = Partial<
   Pick<DirectoryPerson, "displayName" | "email" | "maskedEmail" | "maskedPhone">
 >;
 
+/** Accept only the server's national first-two/last-two privacy projection. */
+export function getDirectoryPersonMaskedPhone(
+  person: DirectoryPersonIdentity,
+): string | undefined {
+  const mask = person.maskedPhone?.trim();
+  return mask && /^\d{2}\*+\d{2}$/.test(mask) ? mask : undefined;
+}
+
 export function getDirectoryPersonDescription(
   person: DirectoryPersonIdentity,
 ): string | undefined {
   if (!person.displayName) return undefined;
-  return person.email || person.maskedEmail || person.maskedPhone || undefined;
+  return person.email || person.maskedEmail || getDirectoryPersonMaskedPhone(person);
 }

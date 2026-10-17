@@ -428,8 +428,9 @@ def test_connections_query_loads_owner_recipients_and_filters_blocks(cards_db, m
     assert result["hasMore"] is False
     assert len(service.connections("alice", "rup")["items"]) == 1
     assert service.connections("outsider")["items"] == []
-    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_UNAVAILABLE"):
+    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_DISABLED") as unavailable:
         service.create_grants("alice", "card_test", str(uuid.uuid4()), refs(db), 10)
+    assert unavailable.value.status_code == 503
     with db.engine.begin() as conn:
         conn.execute(
             text(

@@ -30,7 +30,7 @@ describe("owner-confirmed encrypted card delivery", () => {
     mocks.directory.mockResolvedValue({ items: [recipient], page: 1, hasMore: false });
     mocks.bootstrap.mockResolvedValue({ userId: "alice", keyId: "alice-key", publicKeyJwk: { kty: "EC" } });
     mocks.peer.mockResolvedValue({ canSend: true, peerPersonRef: "person-bob", peerDisplayName: "Bob" });
-    mocks.getCard.mockResolvedValue({ summary: { brand: "visa", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" }, secrets: { pan: "4111111111111111", cardholderName: "Alice", cvv: "123", pin: "1234" } });
+    mocks.getCard.mockResolvedValue({ summary: { brand: "visa", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" }, secrets: { pan: "4111111111111111", cardholderName: "Alice", manual_cvv: "code-sentinel", cvv: "123", pin: "1234" } });
     mocks.seal.mockResolvedValue("encrypted-envelope"); mocks.send.mockResolvedValue(ack); mocks.record.mockResolvedValue(undefined);
   });
   it("sends only the selected card projection to the confirmed peer and records its acknowledgement", async () => {
@@ -38,7 +38,7 @@ describe("owner-confirmed encrypted card delivery", () => {
     expect(mocks.getCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "alice", cardId: "selected-card" }));
     expect(mocks.seal).toHaveBeenCalledWith(expect.objectContaining({ cardId: "selected-card", recipient: expect.objectContaining({ userId: "bob", keyId: "bob-key" }) }));
     const projection = mocks.seal.mock.calls[0][0].card;
-    expect(projection).not.toHaveProperty("cvv"); expect(projection).not.toHaveProperty("pin");
+    expect(projection).not.toHaveProperty("manual_cvv"); expect(projection).not.toHaveProperty("cvv"); expect(projection).not.toHaveProperty("pin");
     expect(mocks.send).toHaveBeenCalledWith({ idToken: "id-token", recipientPersonRef: "person-bob", content: "encrypted-envelope" });
     expect(result.receiptSaved).toBe(true);
     expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ cardId: "selected-card", receipt: expect.objectContaining({ messageId: "msg", recipientPersonRef: "person-bob" }), mayPublish: context.isCurrent }));

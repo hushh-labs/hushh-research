@@ -5,13 +5,12 @@
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
  * - ensure_ria_workspace: {}
- * - click_bottom_nav: { label: "Chat" | "One" | "Connect" | "Feed" | "Search" }
+ * - click_bottom_nav: { label: "Chat" | "One" | "Connect" | "Feed" }
  * - click_top_tab: { label: string }
  * - click_shell_action: { ariaLabel: string }
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
- * - open_command_palette: { timeoutMs?: number }
  * - navigate_route: { route: string }
  * - assert_route: { route: string }
  * - clear_import_background: {}

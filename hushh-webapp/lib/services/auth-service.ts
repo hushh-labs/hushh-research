@@ -87,7 +87,7 @@ const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set([
   "::1",
 ]);
 const UAT_PHONE_TEST_VERIFICATION_ID_PREFIX = "uat-test-phone:";
-type AuthProviderName = "google" | "apple";
+type AuthProviderName = "google" | "apple" | "microsoft";
 const EXPECTED_POPUP_CLOSE_CODES = new Set([
   "auth/cancelled-popup-request",
   "auth/popup-closed-by-user",
@@ -112,6 +112,11 @@ export class AuthService {
       const googleProvider = new GoogleAuthProvider();
       googleProvider.setCustomParameters({ prompt: "select_account" });
       return googleProvider;
+    }
+    if (provider === "microsoft") {
+      const microsoftProvider = new OAuthProvider("microsoft.com");
+      microsoftProvider.setCustomParameters({ prompt: "select_account", tenant: "common" });
+      return microsoftProvider;
     }
     const appleProvider = new OAuthProvider("apple.com");
     appleProvider.addScope("email");
@@ -1192,6 +1197,16 @@ export class AuthService {
       }
       throw error;
     }
+  }
+
+  /** Microsoft personal/company sign-in is available on the web pilot only. */
+  static async signInWithMicrosoft(): Promise<AuthResult> {
+    if (Capacitor.isNativePlatform()) {
+      throw new Error("Microsoft sign-in is currently available in the web app.");
+    }
+    // Launch synchronously from the click handler so browsers allow the popup.
+    const result = await signInWithPopup(auth, this.createWebProvider("microsoft"));
+    return { user: result.user, idToken: await result.user.getIdToken() };
   }
 
   // ==================== Apple Sign-In ====================

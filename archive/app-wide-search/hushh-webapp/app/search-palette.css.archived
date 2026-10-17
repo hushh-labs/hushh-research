@@ -1,0 +1,18 @@
+/* The search palette sits above the bottom chrome so the tab bar stays
+ * reachable. With a keyboard up the tab bar is not on screen (the keyboard
+ * covers it on iOS, it steps aside on Android), yet its height was still
+ * reserved: the palette floated ~160 dp above the keyboard and its top ran
+ * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
+[data-keyboard-anchor="bottom"][data-search-surface] {
+  /* Bound the entire surface, including its input and padding, to the band
+   * between the status bar and the keyboard/chrome. Results alone may shrink. */
+  max-height: max(0px, calc(
+    100dvh - var(--kb-height, 0px) -
+    var(--palette-chrome-clearance, var(--bottom-chrome-stack-height, 0px)) -
+    var(--app-safe-area-top-effective, 0px) - 1rem
+  )) !important;
+}
+
+html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
+  --palette-chrome-clearance: 0px;
+}

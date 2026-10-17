@@ -480,10 +480,12 @@ class ExternalConnectorGoogleOAuth:
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def current_credential(
-        self, *, user_id: str, required_profile: DriveProfile | None = None
+        self, *, user_id: str, required_profile: DriveProfile | None = None, refresh: bool = True
     ) -> tuple[dict, dict]:
         """Internal only. Execution additionally enforces policy before/after I/O."""
-        row = await self.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
+        row = await self.lifecycle.read(
+            user_id=user_id, connector_id=CONNECTOR_ID, **({"purge": False} if not refresh else {})
+        )
         if (
             not row
             or row["status"] not in {"connected", "verifying"}
@@ -511,7 +513,7 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("connector_configuration_invalid", status_code=503)
         if credential.get("oauthClientId") != client_id:
             raise DriveOAuthError("reconnect_required", status_code=401)
-        if row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
+        if not refresh or row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
             return row, credential
         common = dict(
             user_id=user_id,
@@ -596,6 +598,10 @@ class ExternalConnectorGoogleOAuth:
 
     async def _prepare_drive_collection(self, user_id: str) -> None:
         """Start private preparation after verified OAuth; scheduled work recovers."""
+        if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
+            return
+        if not connector_feature_enabled("drive_document_indexing", user_id):
+            return
         try:
             async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
                 from hushh_mcp.services.drive_collection_store import DriveCollectionStore
