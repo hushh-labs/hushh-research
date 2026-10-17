@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -72,10 +72,12 @@ export function DocumentRequestButton({
   personRef,
   personName,
   draft,
+  renderTrigger,
 }: {
   personRef: string;
   personName: string;
   draft?: RequestDraft;
+  renderTrigger?: (label: string) => ReactNode;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
@@ -87,6 +89,7 @@ export function DocumentRequestButton({
       personRef={personRef}
       personName={personName}
       draft={draft}
+      renderTrigger={renderTrigger}
       getToken={getVaultOwnerToken}
     />
   );
@@ -98,11 +101,13 @@ function UnlockedRequestButton({
   personName,
   draft,
   getToken,
+  renderTrigger,
 }: {
   userId: string;
   personRef: string;
   personName: string;
   draft?: RequestDraft;
+  renderTrigger?: (label: string) => ReactNode;
   getToken: () => string | null;
 }) {
   const [enabled, setEnabled] = useState(false);
@@ -336,9 +341,10 @@ function UnlockedRequestButton({
         personName={personName}
         getToken={getToken}
         agentPackagesEnabled={agentPackagesEnabled}
+        renderTrigger={renderTrigger}
       />
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>
-        Ask about files
+        {renderTrigger?.("Ask about files") ?? "Ask about files"}
       </Button>
       <Dialog
         open={open}
