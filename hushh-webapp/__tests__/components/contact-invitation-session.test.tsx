@@ -38,10 +38,10 @@ vi.mock(
       ...original,
       ContactInvitationsService: {
         isNative: () => true,
-        canComposeSms: async () => true,
+        canComposeBatchSms: async () => true,
         completesRecipient: (result: string) =>
           ["queued_or_sent", "native-share"].includes(result),
-        compose: mocks.compose,
+        composeBatch: mocks.compose,
         share: mocks.share,
         copy: async () => "copied",
       },
@@ -111,11 +111,10 @@ async function start() {
   fireEvent.click(screen.getByText("Person One"));
   fireEvent.click(screen.getByText("Person Two"));
   fireEvent.click(screen.getByRole("button", { name: "Review 2 invitations" }));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Continue with 2 invitations" }),
-  );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Open Messages" })).toBeEnabled(),
+    expect(
+      screen.getByRole("button", { name: "Open Messages · 2 contacts" }),
+    ).toBeEnabled(),
   );
 }
 
@@ -128,15 +127,15 @@ beforeEach(() => {
 
 describe("invitation session across native and browser return", () => {
   it.each([
-    ["compose", "queued_or_sent", "Person Two"],
-    ["compose", "cancelled", "Person One"],
-    ["compose", "failed", "Person One"],
-    ["compose", "opened", "Person One"],
-    ["share", "native-share", "Person Two"],
-    ["share", "cancelled", "Person One"],
+    ["compose", "queued_or_sent"],
+    ["compose", "cancelled"],
+    ["compose", "failed"],
+    ["compose", "opened"],
+    ["share", "native-share"],
+    ["share", "cancelled"],
   ])(
     "restores %s / %s after the auth gate removes the entire route",
-    async (kind, outcome, recipient) => {
+    async (kind, outcome) => {
       let resolve!: (result: string) => void;
       let reject!: (error: unknown) => void;
       const handoff = new Promise<string>((yes, no) => {
@@ -148,7 +147,10 @@ describe("invitation session across native and browser return", () => {
       await start();
       fireEvent.click(
         screen.getByRole("button", {
-          name: kind === "compose" ? "Open Messages" : "Share invitation",
+          name:
+            kind === "compose"
+              ? "Open Messages · 2 contacts"
+              : "Share link instead",
         }),
       );
       rerender(<App blocked />);
@@ -161,8 +163,28 @@ describe("invitation session across native and browser return", () => {
       });
       rerender(<App />);
       await screen.findByRole("textbox", {
-        name: `Invitation message for ${recipient}`,
+        name: "Invitation message",
       });
+      expect(screen.getByText("2 selected contacts")).toBeVisible();
+      expect(session.draft.outcome).toBe(outcome);
+      if (
+        kind === "compose" &&
+        ["queued_or_sent", "opened"].includes(outcome)
+      ) {
+        expect(
+          screen.getByRole("button", { name: "Done", exact: true }),
+        ).toBeEnabled();
+        fireEvent.click(
+          screen.getByRole("button", { name: "Copy invitation" }),
+        );
+        await waitFor(() => expect(session.draft.outcome).toBe("copied"));
+        expect(
+          screen.getByRole("button", { name: "Done", exact: true }),
+        ).toBeEnabled();
+        expect(
+          screen.queryByRole("button", { name: /Open Messages/ }),
+        ).not.toBeInTheDocument();
+      }
       expect(session.candidates).toHaveLength(2);
       expect(
         mocks.compose.mock.calls.length + mocks.share.mock.calls.length,
@@ -184,7 +206,9 @@ describe("invitation session across native and browser return", () => {
       );
       const { rerender } = render(<App />);
       await start();
-      fireEvent.click(screen.getByRole("button", { name: "Open Messages" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open Messages · 2 contacts" }),
+      );
       if (change === "navigation") mocks.pathname = "/one/location";
       if (change === "account") mocks.owner = "owner-b";
       if (change === "logout") mocks.owner = null;
@@ -203,7 +227,7 @@ describe("invitation session across native and browser return", () => {
       expect(session.active).toBe(false);
       expect(session.candidates).toEqual([]);
       expect(session.draft.selected).toEqual({});
-      expect(session.draft.processed.size).toBe(0);
+      expect(session.draft.outcome).toBeNull();
       expect(session.draft.busy).toBe(false);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     },
@@ -218,7 +242,7 @@ describe("invitation session across native and browser return", () => {
       rerender(<App />);
       expect(
         screen.getByRole("textbox", {
-          name: "Invitation message for Person One",
+          name: "Invitation message",
         }),
       ).toBeInTheDocument();
     }
