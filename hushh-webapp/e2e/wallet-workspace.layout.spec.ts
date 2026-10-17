@@ -1323,10 +1323,14 @@ for (const width of [320, 393, 1024]) {
     expect(consoleErrors).toEqual([]);
     await email.blur();
     await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
-    // Exercise the selected card's real visitor and editor layers before the collection.
-    await open(page, width, "light", { cards: 0 }, { shell: true, secure: true });
-    await mount(page);
-    for (const [kind, title] of [["profile", "Agent One Profile"], ["nws", "Agent One NWS"]] as const) {
+  });
+  // Keep each real preview → editor → collection journey inside the existing
+  // 30s budget. The CI trace completed both kinds but exhausted that compound
+  // case; do not raise the timeout, skip a viewport or remove return assertions.
+  for (const [kind, title] of [["profile", "Agent One Profile"], ["nws", "Agent One NWS"]] as const) {
+    test(`owner ${kind} visitor preview and editor return at ${width}px`, async ({ page }, testInfo) => {
+      const errors = await open(page, width, "light", { cards: 0 }, { shell: true, secure: true });
+      await mount(page);
       await page.getByRole("button", { name: title, exact: true }).click();
       const face = page.getByTestId("wallet-selected-card").locator("[data-agent-card]");
       await expect(face).toHaveAttribute("data-agent-card", kind);
@@ -1355,9 +1359,9 @@ for (const width of [320, 393, 1024]) {
       await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
       await page.getByRole("button", { name: "Back", exact: true }).click();
       await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
-    }
-
-  });
+      expect(errors).toEqual([]);
+    });
+  }
 }
 for (const width of [320, 1440]) {
   for (const kind of ["Profile", "Referral", "NWS"] as const) {
