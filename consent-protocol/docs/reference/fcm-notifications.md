@@ -43,6 +43,13 @@ requests. Emergency SMS is queued only when its first encrypted envelope has
 committed. Request approvals retain their separate notification, without an
 additional share-created alert. Historical sources are not backfilled.
 
+Release replay uses a checksum-pinned adapter in `db/migration_authority.py`;
+the published migration and ledger hashes stay immutable. Repeated deployment
+preserves pending/leased intents and accepted-device receipts. Existing source
+triggers retain their identities and are validated for drift; missing triggers
+are installed without backfilling historical alerts. Row-level security, grants
+and the explicit deleted-account guard installer remain enforced.
+
 `system_push_delivery.py` leases source references, rechecks current status,
 expiry, request revision, membership epoch and installation ownership, and
 records provider acceptance per installation. A failed phone retries without
