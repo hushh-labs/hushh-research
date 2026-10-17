@@ -77,11 +77,51 @@ RECONCILED_CREATE_PROVENANCE = "reconciled_create_after_absence_check"
 # Waits after each sharingRateLimitExceeded refusal, by attempt number. The
 # fifth attempt is the last (attempts never exceed 5).
 _RATE_LIMIT_DELAYS_SECONDS = (5 * 60, 10 * 60, 20 * 60, 40 * 60)
+# Waits before the next read-only reconciliation after a failed read, by
+# attempt number. Reads are safe to repeat; the last wait repeats once the
+# attempts are spent.
+_RECONCILE_DELAYS_SECONDS = (30, 30, 2 * 60, 10 * 60, 60 * 60)
+# The codes released clients know. Installed native apps bundle their web
+# assets and refuse any other code in `issues` or a file's `reasonCode`, so a
+# newer code reaches those fields as its nearest known one. The exact code is
+# in the additive `issueDetails` and per-file `reasonDetail`.
+_LEGACY_REASONS = frozenset(
+    {
+        "source_changed",
+        "source_not_shareable",
+        "recipient_changed",
+        "connection_changed",
+        "stopped",
+        "sharing_unavailable",
+        "date_range_required",
+        "retry_limit",
+        "provider_unavailable",
+        "permission_rejected",
+        "permission_outcome_unknown",
+        "permission_catalog_incomplete",
+        "unavailable",
+    }
+)
+_LEGACY_FALLBACK = {
+    "recipient_needs_google_account": "permission_rejected",
+    "drive_policy_blocked": "permission_rejected",
+    "sharing_rate_limited": "provider_unavailable",
+}
 
 
 def safe_bulk_reason(value):
     """Release only public reason codes, never provider bodies or diagnostics."""
     return value if value in _SAFE_REASONS else "unavailable"
+
+
+def legacy_bulk_reason(value):
+    """The public code as every released client can parse it."""
+    reason = safe_bulk_reason(value)
+    return reason if reason in _LEGACY_REASONS else _LEGACY_FALLBACK.get(reason, "unavailable")
+
+
+def issue_list(reasons):
+    return [{"reasonCode": code, "count": count} for code, count in sorted(reasons.items())]
 
 
 def _request_missing_dates(private):
@@ -106,11 +146,12 @@ def bulk_outcome_summary(
         GROUP BY e.state,e.safe_error_code"""),
         {"share": share_id, "recipient": recipient_user_id, "active_request": active_request_id},
     ).all()
-    states, reasons = Counter(), Counter()
+    states, reasons, known = Counter(), Counter(), Counter()
     for state, reason, count in rows:
         states[state] += count
         if state in {"skipped", "failed", "present_unattributed", "absent", "unknown"}:
             reasons[safe_bulk_reason(reason)] += count
+            known[legacy_bulk_reason(reason)] += count
     processed = sum(states[state] for state in _TERMINAL)
     return {
         "counts": {
@@ -124,7 +165,8 @@ def bulk_outcome_summary(
             "unknown": states["unknown"],
             "pending": max(0, total - processed - states["unknown"]),
         },
-        "issues": [{"reasonCode": code, "count": count} for code, count in sorted(reasons.items())],
+        "issues": issue_list(known),
+        **({"issueDetails": issue_list(reasons)} if reasons != known else {}),
     }
 
 
@@ -585,9 +627,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             "pending": total,
         }
         issues = []
+        details = None
         if row["approved_at"] is not None:
             summary = bulk_outcome_summary(connection, share_id=row["share_id"], total=total)
             counts, issues = summary["counts"], summary["issues"]
+            details = summary.get("issueDetails")
         elif row["status"] == "stopped":
             counts.update(processed=total, skipped=total, pending=0)
             issues = [{"reasonCode": "stopped", "count": total}] if total else []
@@ -688,6 +732,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             "excluded": excluded,
             "counts": counts,
             "issues": issues,
+            **({"issueDetails": details} if details is not None else {}),
             "retryableCount": retryable_count,
             "canRetry": retryable_count > 0
             and retry_origin_current
@@ -1962,15 +2007,18 @@ class DriveBulkShareStore(DriveLivePreferences):
                         "last": items[min(limit, len(items)) - 1]["position"],
                     },
                 ).mappings():
-                    outcomes.setdefault(effect["position"], []).append(
-                        {
-                            "status": effect["state"],
-                            "reasonCode": safe_bulk_reason(effect["safe_error_code"])
-                            if effect["safe_error_code"]
-                            and effect["state"] not in {"succeeded", "preexisting"}
-                            else None,
-                        }
+                    reason = (
+                        effect["safe_error_code"]
+                        if effect["state"] not in {"succeeded", "preexisting"}
+                        else None
                     )
+                    outcome = {
+                        "status": effect["state"],
+                        "reasonCode": legacy_bulk_reason(reason) if reason else None,
+                    }
+                    if reason and safe_bulk_reason(reason) != outcome["reasonCode"]:
+                        outcome["reasonDetail"] = safe_bulk_reason(reason)
+                    outcomes.setdefault(effect["position"], []).append(outcome)
             for item in items[:limit]:
                 metadata = self._file(item, user_id)
                 files.append(
@@ -3368,6 +3416,9 @@ class DriveBulkShareStore(DriveLivePreferences):
         effect, and the rest of its batch, wait minutes; its next claim repeats
         the complete absence check before any POST. ``pending`` is sealed on an
         uncertain effect for read-only reconciliation (see _pending_receipt).
+        ``retryable`` with ``uncertain`` means the reconciliation read failed for
+        a passing reason (quota, 5xx, timeout): the effect stays unknown and is
+        read again later, however many attempts it took.
         """
         if error not in {
             "provider_unavailable",
@@ -3408,10 +3459,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                 and error == "permission_outcome_unknown"
             ):
                 # A POST that just went out always gets at least one read-only
-                # reconciliation, even on its last attempt.
+                # reconciliation, even on its last attempt. A read that may pass
+                # never makes a possible grant terminal: only a read settles it.
                 state = (
                     "unknown"
-                    if effect["attempts"] < 5 or effect["state"] == "dispatching"
+                    if effect["attempts"] < 5 or effect["state"] == "dispatching" or retryable
                     else "failed"
                 )
             elif retryable and effect["attempts"] < 5 and parent["status"] in _ACTIVE:
@@ -3427,6 +3479,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if state == "queued":
                 delay = pause or min(120, 2 ** max(1, effect["attempts"]))
+            elif state == "unknown" and effect["state"] == "unknown":
+                # Another failed reconciliation read: each one waits longer.
+                delay = _RECONCILE_DELAYS_SECONDS[
+                    min(max(effect["attempts"], 1), len(_RECONCILE_DELAYS_SECONDS)) - 1
+                ]
             else:
                 delay = 30 if state == "unknown" else 0
             receipt = (

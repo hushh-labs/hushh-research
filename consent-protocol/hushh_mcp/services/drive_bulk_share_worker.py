@@ -53,6 +53,19 @@ def _refresh_pending(error: BaseException) -> bool:
     )
 
 
+def _retryable(error: BaseException) -> bool:
+    """A failure that can pass on its own: quota, 5xx, timeout or refresh contention."""
+    return (
+        isinstance(error, DriveReadError)
+        and error.retryable
+        or isinstance(error, TimeoutError)
+        or isinstance(error, DriveOAuthError)
+        and error.status_code >= 500
+        or _refresh_pending(error)
+        or str(error) in {"recipient_verification_unavailable", "connection_unavailable"}
+    )
+
+
 def _failure_code(error: BaseException) -> str:
     """Only fixed classifications enter logs; never raw provider exceptions."""
     code = str(error)
@@ -182,8 +195,15 @@ class DriveBulkShareWorker:
             )
             present = existing_individual_permission(snapshot, email=job["recipient"]["email"])
             await self.store.require_reconciliation_current(job)
-        except (DriveReadError, DriveSharingError, DriveOAuthError, TimeoutError):
-            return await self.store.release(job, error="permission_outcome_unknown", uncertain=True)
+        except (DriveReadError, DriveSharingError, DriveOAuthError, TimeoutError) as error:
+            # A read that failed for a passing reason (quota, 5xx, timeout) is
+            # repeated however many attempts it took: only a read settles it.
+            return await self.store.release(
+                job,
+                error="permission_outcome_unknown",
+                uncertain=True,
+                retryable=_retryable(error),
+            )
         # The worker's own sealed note: Google answered this create with
         # invalidSharingRequest after a complete absence check.
         pending = job.get("pending_receipt") or {}
@@ -334,15 +354,7 @@ class DriveBulkShareWorker:
             if provider_succeeded:
                 # Do not erase known provider success if receipt storage failed.
                 raise
-            retryable = (
-                isinstance(error, DriveReadError)
-                and error.retryable
-                or isinstance(error, TimeoutError)
-                or isinstance(error, DriveOAuthError)
-                and error.status_code >= 500
-                or _refresh_pending(error)
-                or code in {"recipient_verification_unavailable", "connection_unavailable"}
-            )
+            retryable = _retryable(error)
             if isinstance(error, DrivePermissionError) and error.retryable:
                 self._slow_down()
             uncertain = dispatched and (

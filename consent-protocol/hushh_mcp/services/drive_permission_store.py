@@ -356,9 +356,12 @@ class DrivePermissionStore(DriveSharingStore):
         """Requeue a create Google refused for its sharing rate limit.
 
         Nothing was shared, so the operation returns to queued behind a timer
-        lease (5, 10, 20, then 40 minutes) and loses its dispatch marker. The
-        next claim rechecks authority and repeats the complete absence check
-        before any POST. False once the waits are used up: the caller settles.
+        lease (5, 10, 20, then 40 minutes) and loses its dispatch marker. It
+        also releases its file claim: nothing is in flight, so a confirmed
+        Stop's removal or another grant of the same file never waits on the
+        timer. The next claim takes the file again, rechecks authority and
+        repeats the complete absence check before any POST. False once the
+        waits are used up: the caller settles.
         """
 
         def operation(connection):
@@ -398,6 +401,10 @@ class DrivePermissionStore(DriveSharingStore):
                     "delay": RATE_LIMIT_DELAYS_SECONDS[count],
                     "receipt": json.dumps(envelope),
                 },
+            )
+            connection.execute(
+                text("DELETE FROM drive_share_file_claims WHERE operation_id=:id"),
+                {"id": job["operation_id"]},
             )
             return True
 

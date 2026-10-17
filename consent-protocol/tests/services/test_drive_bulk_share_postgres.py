@@ -549,10 +549,12 @@ class _Drive:
 
     Records every call. ``acl`` is what permissions.list returns per file; a
     test edits it to show what Google holds after a create it answered.
+    ``list_failures`` holds statuses the next permissions.list calls answer.
     """
 
     def __init__(self, monkeypatch, create):
         self.calls, self.acl, self.create = [], {}, create
+        self.list_failures = []
         original = httpx.AsyncClient
         monkeypatch.setattr(
             httpx,
@@ -567,7 +569,11 @@ class _Drive:
             status, payload = self.create(file_id)
         elif request.url.path.endswith("/permissions"):
             self.calls.append(("list", file_id, None))
-            status, payload = 200, {"permissions": list(self.acl.get(file_id, ()))}
+            if self.list_failures:
+                status = self.list_failures.pop(0)
+                payload = {"error": {"code": status}}
+            else:
+                status, payload = 200, {"permissions": list(self.acl.get(file_id, ()))}
         else:
             self.calls.append(("inspect", file_id, None))
             status, payload = (
@@ -809,9 +815,12 @@ async def test_invalid_sharing_answer_is_reconciled_before_it_settles(
     summary = _requester_summary(bulk, share)
     if code in {"recipient_needs_google_account", "drive_policy_blocked"}:
         assert summary["counts"]["failed"] == 1
-        assert summary["issues"] == [{"reasonCode": code, "count": 1}]
+        # Released clients parse only codes they know; the exact one is additive.
+        assert summary["issues"] == [{"reasonCode": "permission_rejected", "count": 1}]
+        assert summary["issueDetails"] == [{"reasonCode": code, "count": 1}]
     if state == "succeeded":
         assert summary["counts"]["shared"] == 1 and summary["issues"] == []
+        assert "issueDetails" not in summary
 
 
 @pytest.mark.asyncio
@@ -878,4 +887,142 @@ async def test_sharing_rate_limit_waits_minutes_and_rechecks_absence_before_any_
     assert {call[2] for call in drive.creates()} == {"false"}
     summary = _requester_summary(bulk, share, total=2)
     assert summary["counts"]["alreadyShared"] == 1
-    assert summary["issues"] == [{"reasonCode": "sharing_rate_limited", "count": 1}]
+    assert summary["issues"] == [{"reasonCode": "provider_unavailable", "count": 1}]
+    assert summary["issueDetails"] == [{"reasonCode": "sharing_rate_limited", "count": 1}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,state",
+    [
+        # Quota or a 5xx can pass: the read repeats later, however many of the
+        # effect's attempts the refusals used.
+        (503, "unknown"),
+        (429, "unknown"),
+        # Negative control: an unreadable file keeps the five-attempt bound.
+        (404, "failed"),
+    ],
+    ids=["unavailable", "read_rate_limited", "unreadable"],
+)
+async def test_refusals_then_an_uncertain_post_never_end_on_one_failed_read(
+    bulk, monkeypatch, failure, state
+):
+    share = await _approved_share(bulk)
+    limited = _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded")
+    answers = [limited] * 4 + [_google_error(400, "invalidSharingRequest", _SHARED_WITHOUT_EMAIL)]
+    drive = _Drive(monkeypatch, create=lambda file_id: answers.pop(0))
+    worker = _worker(bulk)
+    for _ in range(4):
+        assert await worker._effect(_row(share)) == "queued"
+        _due_now(bulk, share)
+    # The fifth POST: Google created the grant but answered invalidSharingRequest.
+    assert await worker._effect(_row(share)) == "unknown"
+    assert _effect(bulk, share)["attempts"] == 5
+    drive.acl["file-1"] = [_viewer("file-1")]
+    drive.list_failures.append(failure)
+    _due_now(bulk, share)
+    assert await worker._effect(_row(share)) == state
+    effect = _effect(bulk, share)
+    assert (effect["state"], effect["safe_error_code"]) == (state, "permission_outcome_unknown")
+    if state == "failed":
+        assert await bulk.due() == []
+        assert len(drive.creates()) == 5
+        return
+    # A longer wait, then the next read records the grant as One's own, so
+    # Stop and expiry can remove it.
+    assert 3500 < effect["wait"] <= 3600
+    assert await bulk.due() == []
+    _due_now(bulk, share)
+    assert await worker._effect(_row(share)) == "succeeded"
+    plan = managed_bulk_plan(
+        receipt=_receipt(bulk, share),
+        file={"id": "file-1"},
+        recipient={"email": "recipient1@example.com"},
+    )
+    assert plan is not None
+    # Reconciliation only reads: five creates, all before the uncertainty.
+    assert len(drive.creates()) == 5
+
+
+# The codes in BULK_REASON_CODES of every app released before 2026-10-17.
+# Those apps bundle their web assets and refuse any other code.
+_RELEASED_CLIENT_REASONS = frozenset(
+    {
+        "source_changed",
+        "source_not_shareable",
+        "recipient_changed",
+        "connection_changed",
+        "stopped",
+        "sharing_unavailable",
+        "date_range_required",
+        "retry_limit",
+        "provider_unavailable",
+        "permission_rejected",
+        "permission_outcome_unknown",
+        "permission_catalog_incomplete",
+        "unavailable",
+    }
+)
+
+
+def test_every_public_reason_reaches_released_clients_as_a_code_they_parse():
+    from hushh_mcp.services.drive_bulk_share_store import (
+        _SAFE_REASONS,
+        legacy_bulk_reason,
+        safe_bulk_reason,
+    )
+
+    for code in [*_SAFE_REASONS, "private_provider_message", None]:
+        assert legacy_bulk_reason(code) in _RELEASED_CLIENT_REASONS
+        # A code they already know passes through unchanged.
+        if safe_bulk_reason(code) in _RELEASED_CLIENT_REASONS:
+            assert legacy_bulk_reason(code) == safe_bulk_reason(code)
+    assert legacy_bulk_reason("recipient_needs_google_account") == "permission_rejected"
+    assert legacy_bulk_reason("drive_policy_blocked") == "permission_rejected"
+    assert legacy_bulk_reason("sharing_rate_limited") == "provider_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_owner_outcomes_keep_released_codes_with_the_exact_code_beside_them(
+    bulk, monkeypatch
+):
+    share = await _approved_share(bulk, count=3)
+    answers = {
+        "file-1": _google_error(403, "shareOutNotPermitted", "Sharing outside not permitted"),
+        "file-2": _google_error(400, "badRequest"),
+        "file-3": _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded"),
+    }
+    _Drive(monkeypatch, create=lambda file_id: answers[file_id])
+    worker = _worker(bulk)
+    assert [await worker._effect(_row(share, position)) for position in (1, 2, 3)] == [
+        "failed",
+        "failed",
+        "queued",
+    ]
+
+    page = await bulk.files(user_id="owner", share_id=share)
+    assert {item["position"]: item["outcomes"] for item in page["files"]} == {
+        1: [
+            {
+                "status": "failed",
+                "reasonCode": "permission_rejected",
+                "reasonDetail": "drive_policy_blocked",
+            }
+        ],
+        # Negative control: a code every client knows carries no detail.
+        2: [{"status": "failed", "reasonCode": "permission_rejected"}],
+        3: [
+            {
+                "status": "queued",
+                "reasonCode": "provider_unavailable",
+                "reasonDetail": "sharing_rate_limited",
+            }
+        ],
+    }
+    view = await bulk.review(user_id="owner", share_id=share)
+    assert view["issues"] == [{"reasonCode": "permission_rejected", "count": 2}]
+    assert view["issueDetails"] == [
+        {"reasonCode": "drive_policy_blocked", "count": 1},
+        {"reasonCode": "permission_rejected", "count": 1},
+    ]
+    assert {item["reasonCode"] for item in view["issues"]} <= _RELEASED_CLIENT_REASONS

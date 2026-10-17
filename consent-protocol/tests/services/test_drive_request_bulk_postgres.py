@@ -1630,6 +1630,7 @@ async def test_requester_without_google_account_is_told_to_link_one(request_bulk
     checking = await requester_view()
     assert checking["counts"]["unknown"] == 2
     assert checking["issues"] == [{"reasonCode": "permission_outcome_unknown", "count": 2}]
+    assert "issueDetails" not in checking
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_bulk_share_effects
@@ -1640,7 +1641,10 @@ async def test_requester_without_google_account_is_told_to_link_one(request_bulk
     assert adapter.create_reader.await_count == 2
     view = await requester_view()
     assert view["sharedCount"] == 0 and view["counts"]["failed"] == 2
-    assert view["issues"] == [{"reasonCode": "recipient_needs_google_account", "count": 2}]
+    # Installed apps parse only the codes they shipped with: the exact reason
+    # is additive, beside its nearest known code.
+    assert view["issues"] == [{"reasonCode": "permission_rejected", "count": 2}]
+    assert view["issueDetails"] == [{"reasonCode": "recipient_needs_google_account", "count": 2}]
     assert view["recovery"]["reasons"] == [
         {"reasonCode": "recipient_needs_google_account", "count": 2}
     ]

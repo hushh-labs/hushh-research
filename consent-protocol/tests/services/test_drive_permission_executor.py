@@ -717,3 +717,68 @@ async def test_sharing_rate_limit_waits_grow_and_every_post_follows_an_absence_c
             ).scalar()
             == 0
         )
+
+
+def _same_drive_file(store, ids):
+    """Point the second synthetic grant at the first one's Drive file.
+
+    Two requests can share one file; its claim serializes their writes.
+    """
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_permission_operations SET file_lock_hmac=(
+                SELECT file_lock_hmac FROM drive_share_permission_operations
+                WHERE operation_id=:first)
+              WHERE operation_id=:second"""),
+            {"first": ids[0], "second": ids[1]},
+        )
+
+
+def _file_claims(store):
+    with store.db.engine.connect() as connection:
+        return [
+            str(identifier)
+            for identifier in connection.execute(
+                text("SELECT operation_id FROM drive_share_file_claims ORDER BY operation_id")
+            ).scalars()
+        ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,first,second",
+    [
+        # Google refused the share: nothing is in flight, so the file is free.
+        (DrivePermissionError("sharing_rate_limited", retryable=True), "deferred", "succeeded"),
+        # Negative control: an uncertain create keeps its file until reconciled.
+        (
+            DrivePermissionError("permission_outcome_unknown", outcome_unknown=True),
+            "unknown",
+            "not_claimed",
+        ),
+    ],
+    ids=["rate_limited", "uncertain"],
+)
+async def test_a_rate_limit_wait_never_holds_its_file_from_other_grants(
+    permission_setup, answer, first, second
+):
+    store, executor, adapter, ids = permission_setup
+    _same_drive_file(store, ids)
+    adapter.create_reader.side_effect = [
+        answer,
+        CreatedReader("synthetic-permission", "recipient@example.invalid"),
+    ]
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == first
+    assert _file_claims(store) == ([] if first == "deferred" else [ids[0]])
+    assert await executor.grant(user_id="owner", operation_id=ids[1]) == second
+    if first != "deferred":
+        assert adapter.create_reader.await_count == 1
+        return
+    assert _file_claims(store) == []
+    # When its timer ends the waiting grant takes the file again, and its
+    # complete absence check finds the access: no second POST for it.
+    _expire_leases(store, ids[0])
+    adapter.list_permissions.return_value = PermissionSnapshot((_direct_reader(),))
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "preexisting"
+    assert adapter.create_reader.await_count == 2
+    assert _file_claims(store) == []
