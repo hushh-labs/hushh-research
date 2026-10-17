@@ -1380,7 +1380,7 @@ so its truthful `sandbox-readiness.schema_head` is null. An explicit operator-on
 The harness validates complete table/function results, no skipped database check,
 account/origin, current source, contract/checker digests and verification freshness.
 Resume checkpoints bind the same source, database and protected configuration
-fingerprint. The operator excludes only the planned new-provider-admission
+fingerprint. The operator excludes only the explicit new-provider-admission
 pause/resume flag from that fingerprint; it freshly verifies the current secret
 version on every invocation. Policy/account/database changes still refuse resume; observed
 release head remains separate from the expected contract head. Missing, stale or
