@@ -10,17 +10,9 @@ import {
 } from "./fixtures/product-font";
 
 /**
- * One's answers, read on a phone: the real `AgentMarkdown` renderer, the real
- * chat bubble classes and the app stylesheet, fed realistic replies (see
- * `e2e/fixtures/agent-markdown.tsx`).
- *
- * JSDOM has no layout, so the defects this guards are invisible there: a long
- * URL or code line that widens the whole page, a wide table that pushes the
- * transcript sideways instead of scrolling in its own box, link targets too
- * small to tap, and link colour that sinks into the grey bubble.
- *
+ * Real chat renderer, bubbles and production CSS: guards horizontal overflow,
+ * table containment, touch targets, contrast and One/Puppy typography parity.
  * Run: CI=1 npx playwright test e2e/agent-markdown.layout.spec.ts --project=chromium --project=webkit
- *
  * Renders for design review (not asserted): set CHAT_FORMATTING_RENDERS_DIR and
  * run with `--grep renders`.
  */
@@ -55,6 +47,9 @@ test.beforeAll(async () => {
           /^@ag-ui\/client$/,
           /^@\/lib\/hermes\/use-puppy-link$/,
           /^@\/lib\/services\/puppy-one-service$/,
+          /^@\/lib\/services\/api-service$/,
+          /^@\/lib\/firebase(?:\/auth-context)?$/,
+          /^@\/lib\/vault\/vault-context$/,
           /^@\/components\/agent\/puppy-model-picker$/,
           /^@\/components\/agent\/puppy-resource-monitor$/,
         ].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts") })),
@@ -122,7 +117,7 @@ for (const width of [390, 1280]) for (const theme of ["light", "dark"] as const)
     expect(openingCopy.family).toContain("Plus Jakarta Sans");
     expect(openingCopy.size).toBe(width < 640 ? "16px" : "17px");
     expect(openingCopy.line).toBe("28px");
-    expect(await puppy.getByText("A personal supercomputer you own.", { exact: false }).evaluate(typeMetrics)).toEqual(openingCopy);
+    expect(await puppy.locator("[data-agent-surface=puppy] > div > p").first().evaluate(typeMetrics)).toEqual(openingCopy);
     const emptyCopy = puppy.getByText("Puppy One isn't connected to your account yet.", { exact: false });
     await expect(emptyCopy).toBeVisible();
     expect(await emptyCopy.evaluate(typeMetrics)).toEqual(openingCopy);
@@ -190,7 +185,8 @@ async function mount(
   await page.goto(`http://localhost/agent-markdown${soul ? "?document=soul" : activity ? "?document=activity" : puppy ? "?document=puppy" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
-  await expect(page.getByTestId("transcript")).toBeVisible();
+  try { await expect(page.getByTestId("transcript")).toBeVisible(); }
+  catch (error) { throw new Error(`Chat fixture did not mount: ${errors.join("; ")}`, { cause: error }); }
   return { errors, remoteRequests };
 }
 

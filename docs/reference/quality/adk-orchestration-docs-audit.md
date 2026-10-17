@@ -114,6 +114,18 @@ one obsolete Puppy fixture anchor across the three browser shards. The existing
 runtime contracts remain unchanged: 99 affected web checks and 52 Chromium/WebKit
 model-authority checks pass after test repairs, including the original authority
 negative controls. A document-feed-only proxy-marker mutation is refused.
+The repaired hosted run `39041881593` passed all three full web shards, both
+native lanes and browser shard 2, but exposed a real 1.5 px Puppy ribbon offset,
+a local typography-fixture boundary failure and eight research-story failures.
+The grid now top-aligns both controls; reverting it reproduces the displacement.
+A generated-config test leaked `ENVIRONMENT=uat`; the story fixture also omitted
+the required consent marker. Both fixtures are corrected without changing runtime
+consent enforcement; the original ordered failure remains the negative control.
+All 66 affected backend checks, 52 chat-formatting cases and 20 ribbon cases pass
+in the appropriate Python or Chromium/WebKit lanes. The final 28 Puppy cases
+also pass with fresh grid captures; ten optional formatting exports are unrun.
+Typecheck, focused lint, UI contracts and the unchanged architecture ratchet pass.
+No live Puppy model calls were made. Exact-SHA hosted validation remains required.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and

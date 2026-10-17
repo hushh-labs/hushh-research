@@ -11,8 +11,8 @@ export function PuppyControlRibbon({ children, accessory }: {
 }) {
   return (
     <div role="group" aria-label="Puppy controls" data-puppy-controls
-      className="grid min-h-14 w-full min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 py-1">
-      <div className="min-w-0 flex-1">{children}</div>
+      className="grid min-h-14 w-full min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border/40 py-1">
+      <div className="flex min-w-0 flex-1 items-start">{children}</div>
       {accessory ? <div className="contents">{accessory}</div> : null}
     </div>
   );

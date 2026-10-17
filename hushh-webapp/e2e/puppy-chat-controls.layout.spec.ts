@@ -85,6 +85,15 @@ for (const width of [320, 390, 768, 1280]) {
     }
     // A wrapped local pin must not vertically displace the machine trigger.
     expect(Math.abs(geometry.controls[0].top - geometry.controls.at(-1)!.top)).toBeLessThanOrEqual(1);
+    // Top-align both grid tracks even with inherited leading; centering only
+    // the model produced the cross-platform 1.5px displacement.
+    await ribbon.evaluate(node => { node.style.lineHeight = "48px"; });
+    const leadingOffset = await ribbon.evaluate(node => {
+      const buttons = Array.from(node.querySelectorAll("button"));
+      return Math.abs(buttons[0].getBoundingClientRect().top - buttons.at(-1)!.getBoundingClientRect().top);
+    });
+    expect(leadingOffset).toBeLessThanOrEqual(1);
+    await ribbon.evaluate(node => { node.style.removeProperty("line-height"); });
     const before = await ribbon.boundingBox();
     await page.getByTestId("transcript").evaluate(node => { node.scrollTop = node.scrollHeight; });
     expect(await ribbon.boundingBox()).toEqual(before);

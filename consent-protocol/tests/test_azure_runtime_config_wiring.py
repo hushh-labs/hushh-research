@@ -99,11 +99,8 @@ def test_runtime_env_map_owns_each_key(key, env_name):
 
 
 def test_hydration_gives_the_azure_services_their_settings(monkeypatch):
-    # Hydration writes os.environ directly; registering each name with monkeypatch
-    # first makes teardown remove it, so no later test inherits the dev settings.
-    for env_name in _AZURE_KEYS.values():
-        monkeypatch.setenv(env_name, "")
-        monkeypatch.delenv(env_name)
+    # Hydration writes every generated setting, including ENVIRONMENT.
+    monkeypatch.setattr(runtime_settings.os, "environ", runtime_settings.os.environ.copy())
     config = _config("hushh-pda-dev", "https://dev.one.hushh.ai")
     monkeypatch.setenv(runtime_settings.BACKEND_RUNTIME_CONFIG_JSON_ENV, json.dumps(config))
 

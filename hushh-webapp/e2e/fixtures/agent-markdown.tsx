@@ -231,8 +231,9 @@ function PuppyTypography() {
   const [connected, setConnected] = useState(false);
   return (
     <main className="bg-background text-foreground" data-testid="transcript">
-      <section data-one-chat-surface data-testid="opening-chat" className="px-4 sm:px-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      {/* Canonical One composer measure, shared with Puppy; not the legacy transcript gutter. */}
+      <section data-one-chat-surface data-testid="opening-chat" className="px-3 sm:px-5">
+        <div className="mx-auto flex w-full max-w-[var(--app-bottom-shell-max-width)] flex-col gap-5">
           <p className={CHAT_WELCOME_COPY_CLASSNAME}>What would you like to do today?</p>
           <OneChatBubble tone="user" data-testid="opening-user">Compare the chat spacing.</OneChatBubble>
           <OneChatBubble tone="assistant" data-testid="opening-assistant"><AgentMarkdown text={PUPPY_TYPOGRAPHY_ANSWER} /></OneChatBubble>

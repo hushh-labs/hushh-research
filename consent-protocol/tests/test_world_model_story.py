@@ -1,10 +1,5 @@
-"""The owner's Personal World Model story, end to end on the job manager.
-
-Opening the pane ensures research; every checkpoint the worker seals shows up
-in GET /jobs as progress whose counts grow and that never carries owner text;
-the live stream turns those reads into frames; the finished draft is offered
-and announced to the Feed as ready. The research itself is a scripted fake.
-"""
+"""Owner story: real job manager, sealed checkpoints, public progress and Feed;
+scripted research preserves the real consent and commit boundaries."""
 
 import asyncio
 import copy
@@ -18,6 +13,7 @@ import pytest
 
 from api.routes.one.world_model_stream import progress_events
 from hushh_mcp.services import profile_research_jobs as jobs
+from hushh_mcp.services import world_model_preferences as preferences
 from hushh_mcp.services import world_model_service as pwm
 from hushh_mcp.services.world_model_preferences import checkpoint_committed
 from tests.test_profile_research_jobs import MemoryStore
@@ -28,7 +24,6 @@ IDENTITY = {
     "email": "alex@example.test",
     "phone_number": "+15550001111",
 }
-# Everything in a checkpoint that is the owner's, or about them: never in progress.
 PRIVATE = ("Alex", "alex@example.test", "+15550001111", "publishes", "studied", "Exact public")
 PROGRESS_KEYS = {
     "stage",
@@ -193,13 +188,10 @@ async def settle(instance):
 def story(monkeypatch):
     """One owner, consented and admitted; a scripted researcher behind the real manager."""
     now = [10_000.0]
-    monkeypatch.setattr(
-        pwm,
-        "preferences",
-        AsyncMock(
-            return_value={"enabled": True, "generation": GENERATION, "auto_started_at": None}
-        ),
-    )
+    monkeypatch.setattr(preferences, "load_pwm_policy", lambda: pwm.POLICY)
+    owner = {"enabled": True, "generation": GENERATION, "auto_started_at": None}
+    owner["consent_version"] = preferences._consent_marker()
+    monkeypatch.setattr(pwm, "preferences", AsyncMock(return_value=owner))
     monkeypatch.setattr(pwm, "admission", AsyncMock(return_value=(None, "owner-bound-identity")))
     monkeypatch.setattr(pwm, "validate_first_party_owner_token", AsyncMock(return_value=object()))
     monkeypatch.setenv("HUSSH_POD_MODE", "0")
@@ -211,7 +203,7 @@ def story(monkeypatch):
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
     monkeypatch.setattr(jobs, "provider_breaker", jobs.ProviderBreaker())
     conn = SimpleNamespace(
-        fetchrow=AsyncMock(return_value={"enabled": True, "generation": uuid.UUID(GENERATION)}),
+        fetchrow=AsyncMock(return_value={**owner, "generation": uuid.UUID(GENERATION)}),
         execute=AsyncMock(),
     )
     research = ScriptedResearch(lambda: now[0])
@@ -256,7 +248,8 @@ def assert_contract(progress):
 
 def use_azure_budget(story, monkeypatch):
     monkeypatch.setattr(pwm, "POLICY", {**pwm.POLICY, "provider": "azure_openai_web_search"})
-    monkeypatch.setattr(pwm, "azure_bing_consented", lambda _consent: True)
+    pwm.preferences.return_value["consent_version"] = preferences.AZURE_BING_CONSENT_VERSION
+    story.conn.fetchrow.return_value["consent_version"] = preferences.AZURE_BING_CONSENT_VERSION
     story.jobs.search_slots = 8
     story.jobs.max_attempts = 24
     story.jobs.stored_attempts = 24
