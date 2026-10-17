@@ -7,7 +7,11 @@ The response 'approved' means queued, not that Google has shared anything.
 from hushh_mcp.services.drive_permission_executor import require_recipient_identity
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
-from hushh_mcp.services.drive_work_wake import wake_drive_work, wake_drive_work_stages
+from hushh_mcp.services.drive_work_wake import (
+    QUEUED_REQUEST_STAGES,
+    wake_drive_work,
+    wake_drive_work_stages,
+)
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 
 
@@ -214,7 +218,7 @@ class DriveSharingService:
                 else {}
             ),
         )
-        await wake_drive_work_stages("v1", "suggestions")
+        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES)
         return result
 
     async def set_request_price(self, *, user_id, request_id, revision, amount_cents):
@@ -228,7 +232,7 @@ class DriveSharingService:
     async def retry_preparation(self, **kwargs):
         await self._require_owner()
         result = await self.store.retry_preparation(**kwargs)
-        await wake_drive_work_stages("v1", "suggestions")
+        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES)
         return result
 
     async def prepare_revocation(self, *, user_id, request_id):

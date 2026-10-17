@@ -120,6 +120,42 @@ async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("draw", "retry_count", "delay"), [(0.0, 0, 2.5), (0.999, 1, 9.995)])
+async def test_rate_limited_search_retries_back_off_with_jitter(
+    monkeypatch, draw, retry_count, delay
+):
+    from hushh_mcp.services import drive_owner_search_store as store_module
+
+    store = DriveOwnerSearchStore(db=SimpleNamespace())
+    updated = []
+    connection = SimpleNamespace(execute=lambda _statement, params: updated.append(params))
+    monkeypatch.setattr(store, "_lock", lambda *_args: None)
+    monkeypatch.setattr(
+        store,
+        "_owned",
+        lambda *_args, **_kwargs: {
+            "status": "running",
+            "lease_id": "lease",
+            "retry_count": retry_count,
+            "job_id": "job",
+        },
+    )
+    monkeypatch.setattr(
+        store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
+    )
+    monkeypatch.setattr(store_module.random, "random", lambda: draw)
+    state = await store.release(
+        {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
+        error="provider_unavailable",
+        retryable=True,
+    )
+    # Same durable cursor, queued again within [half, full] of 5s, 10s, 20s.
+    assert state == "queued"
+    assert updated[0]["delay"] == pytest.approx(delay)
+    assert updated[0]["retries"] == retry_count + 1
+
+
 @pytest.mark.parametrize(
     ("search_status", "incomplete"),
     [("failed", False), ("limited", True), ("stopped", False), ("completed", True)],
@@ -307,6 +343,107 @@ async def test_new_legacy_statement_uses_gemini_coverage_plan(request_text, expe
         "end": "2026-10-09",
         "timezone": "Asia/Kolkata",
     }
+
+
+class _VertexRefused(Exception):
+    """Stands in for a provider 403 such as a suspended Vertex project."""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,reason",
+    [
+        (TimeoutError(), "timeout"),
+        (_VertexRefused("403 PERMISSION_DENIED"), "model_error"),
+        (ValueError("planner output failed its schema twice"), "invalid_plan"),
+    ],
+)
+@pytest.mark.parametrize(
+    "request_text,plan_name,terms",
+    [
+        ("3 months meeting notes", "meeting_notes", ["meeting", "notes"]),
+        ("Last months brokerage statements", "statements", ["brokerage", "statement"]),
+    ],
+)
+async def test_planner_failure_keeps_searching_with_the_recorded_deterministic_plan(
+    failure, reason, request_text, plan_name, terms
+):
+    purpose = {"purpose": request_text, "periodStart": "2026-09-02", "periodEnd": "2026-10-02"}
+    context = {"purpose": purpose, "revision": 1, "requestTimeZone": "UTC"}
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"jobId": "job", "status": "queued"}),
+    )
+    planner = AsyncMock(side_effect=failure)
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request", authority_mode="trusted_auto")
+
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["terms"] == terms
+    # The substitute leaves every candidate to the owner's exact review.
+    assert frozen["plan"]["time_intent"] == "document_coverage"
+    assert frozen["planner_fallback"] == {"reason": reason, "plan": plan_name}
+
+
+@pytest.mark.asyncio
+async def test_planner_failure_without_a_deterministic_plan_still_waits():
+    purpose = {"purpose": "tax documents", "periodStart": "2026-09-02", "periodEnd": "2026-10-02"}
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(
+            request_bulk_context=AsyncMock(return_value={"purpose": purpose, "revision": 1})
+        ),
+        search=search,
+        planner=AsyncMock(side_effect=TimeoutError()),
+        require_owner=AsyncMock(),
+    )
+    with pytest.raises(TimeoutError):
+        await service.start_search(
+            user_id="owner", request_id="request", authority_mode="trusted_auto"
+        )
+    search.create_for_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_planner_fallback_is_frozen_into_the_search_checkpoint(monkeypatch):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    request = {
+        "user_id": "owner",
+        "request_id": "12345678-1234-1234-1234-123456789012",
+        "request_revision": 1,
+        "purpose": {"purpose": "meeting notes", **{"periodStart": "2026-09-02"}},
+        "plan": {
+            "mode": "find",
+            "terms": ["meeting", "notes"],
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        },
+        "require_current": AsyncMock(),
+        "authority_mode": "trusted_auto",
+    }
+    request["purpose"]["periodEnd"] = "2026-10-02"
+    await service.create_for_request(
+        **request, planner_fallback={"reason": "timeout", "plan": "meeting_notes"}
+    )
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    assert checkpoint["planner_fallback"] == {"reason": "timeout", "plan": "meeting_notes"}
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await service.create_for_request(
+            **request, planner_fallback={"reason": "the query text", "plan": "meeting_notes"}
+        )
 
 
 @pytest.mark.asyncio
@@ -1529,6 +1666,146 @@ async def test_trusted_auto_requires_exact_or_all_noncoordinated_title_terms():
 
 
 @pytest.mark.asyncio
+async def test_trusted_title_evidence_sees_words_inside_compound_filenames():
+    # Drive returns these for a meeting-notes search; whole-word title checks
+    # alone rejected every compound spelling as "no title evidence".
+    names = [
+        "MeetingNotes.pdf",
+        "2026_09_MeetingNotes.pdf",
+        "meeting-notes",
+        "Meeting Notes",
+        "meeting_notes_sept.docx",
+    ]
+    candidates = [
+        _request_candidate(f"compound-{index}", name) for index, name in enumerate(names)
+    ] + [
+        _request_candidate("agenda", "MeetingAgendaNotes.pdf"),
+        _request_candidate("unrelated", "Meetingroom budget.pdf"),
+    ]
+    checkpoint = {
+        "authority_mode": "trusted_auto",
+        "request_file_kind": "document",
+        "request_subject_terms": ["meeting", "notes"],
+        "request_notes": True,
+        "request": {"query": "meeting notes"},
+        "coverage_counts": {},
+    }
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    files, incomplete = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+
+    assert [file["name"] for file in files] == names
+    assert not incomplete
+    # An agenda stays excluded once its compound words are visible.
+    assert checkpoint["coverage_counts"]["excludedByNoteTypeCount"] == 1
+    assert checkpoint["coverage_counts"]["excludedByFilenameCount"] == 1
+    assert search_module._title_words("2026_09_MeetingNotes.pdf") == "2026 09 Meeting Notes.pdf"
+    assert search_module._title_words("QBRNotes") == "QBR Notes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terms", "outside", "inside"),
+    [
+        (
+            ["meeting", "notes"],
+            [
+                "2025_08_14_MeetingNotes",
+                "2025_08_14_meeting_notes.docx",
+                "20250814_MeetingNotes",
+                "2025.08.14 Meeting Notes",
+                "2025-08-14 Meeting Notes",
+            ],
+            ["2026_09_14_MeetingNotes", "20260914_meeting_notes", "2026.09.14 Meeting Notes"],
+        ),
+        (
+            ["invoice"],
+            ["2025_03_01_invoice.pdf", "20250301_invoice.pdf", "2025-03-01 invoice.pdf"],
+            ["2026_09_03_invoice.pdf"],
+        ),
+    ],
+)
+async def test_automatic_sharing_reads_title_dates_through_compound_spellings(
+    terms, outside, inside
+):
+    # Every file was created and modified inside the consented month. A title
+    # date outside it still wins, however the title spells it.
+    candidates = [
+        _request_candidate(f"title-{index}", name) for index, name in enumerate([*outside, *inside])
+    ]
+    checkpoint = {
+        "authority_mode": "trusted_auto",
+        "request_file_kind": "document",
+        "request_subject_terms": terms,
+        "request_notes": "notes" in terms,
+        "request": {"query": " ".join(terms)},
+        "request_time_intent": "file_activity",
+        "request_owner_review_required": False,
+        "requested_period": {"start": "2026-09-01", "end": "2026-09-30", "timezone": "UTC"},
+        "coverage_counts": {},
+    }
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+
+    assert [file["name"] for file in files] == inside
+    assert checkpoint["coverage_counts"]["excludedByDateCount"] == len(outside)
+    # An in-period title date wins over file activity outside the period too.
+    activity = {"created_time": "2025-01-05T00:00:00Z", "modified_time": "2025-01-05T00:00:00Z"}
+    for name in inside:
+        assert search_module._in_requested_period(
+            {**activity, "name": name}, checkpoint["requested_period"]
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,conflict",
+    [
+        ("3 months meeting notes", "request_mentions_longer_span"),
+        ("meeting notes for the last two weeks", None),
+        ("1 month of meeting notes", None),
+        ("meeting notes", None),
+    ],
+)
+async def test_phrase_span_never_widens_the_consented_period(monkeypatch, text, conflict):
+    store = SimpleNamespace(
+        by_client=AsyncMock(return_value=None),
+        create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
+    )
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    await service.create_for_request(
+        user_id="owner",
+        request_id="12345678-1234-1234-1234-123456789012",
+        request_revision=1,
+        # The UAT failure: the phrase says 3 months, the Allow sheet one month.
+        purpose={"purpose": text, "periodStart": "2026-09-02", "periodEnd": "2026-10-02"},
+        plan={
+            "mode": "find",
+            "terms": ["meeting", "notes"],
+            "file_kind": "document",
+            "time_intent": "file_activity",
+        },
+        require_current=AsyncMock(),
+        authority_mode="trusted_auto",
+        requested_at=datetime(2026, 10, 3, tzinfo=UTC),
+    )
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    picked = {"start": "2026-09-02", "end": "2026-10-02", "timezone": "UTC"}
+    assert checkpoint["requested_period"] == picked
+    assert checkpoint["coverage_manifest"]["requestedPeriod"] == picked
+    assert checkpoint["coverage_manifest"]["periodConflict"] == conflict
+    # Discovery is not date-cut either way; membership uses the picked dates.
+    assert all(
+        "modifiedTime >=" not in query["arguments"]["query"] for query in checkpoint["queries"]
+    )
+    match = {"name": "Meeting notes", "created_time": "2026-07-15T10:00:00Z"}
+    assert not search_module._in_requested_period(match, checkpoint["requested_period"])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("time_intent", ["document_coverage", "file_activity"])
 async def test_request_returns_a_small_inline_page_then_uses_full_background_pages(
     monkeypatch, time_intent
@@ -2120,6 +2397,47 @@ async def test_http_rate_limited_shortcut_lookup_retries_page_without_publishing
     assert checkpoint["coverage_counts"] == {}
     assert checkpoint["phase"] == "user" and checkpoint["page_token"] is None
     assert len(requests) == 2 and all(request.method == "GET" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_rejected_drive_token_fails_the_slice_as_a_reconnect_not_an_outage(monkeypatch):
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            **kw, transport=httpx.MockTransport(lambda request: httpx.Response(401))
+        ),
+    )
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    connection = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 1,
+    }
+    transport = rest.GoogleDriveRestTransport(
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(return_value=(connection, {"accessToken": "revoked"})),
+            lifecycle=SimpleNamespace(read=AsyncMock(return_value=connection)),
+        ),
+        adapter=GoogleDriveAdapter(),
+    )
+    checkpoint = _checkpoint()
+    job = {"job_id": "synthetic-job", "user_id": "owner", "checkpoint": checkpoint}
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        require_current=AsyncMock(),
+        commit_page=AsyncMock(),
+        release=AsyncMock(return_value="failed"),
+    )
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    assert await service.run_one(user_id="owner", job_id="synthetic-job") == "failed"
+    store.commit_page.assert_not_awaited()
+    # Not a retryable "provider_unavailable": the saved cursor is untouched and
+    # the status asks for the Drive connection instead of a later retry.
+    store.release.assert_awaited_once_with(job, error="connection_changed")
+    assert checkpoint["page_token"] is None
 
 
 async def test_unavailable_folder_and_traversal_limits_cannot_claim_completeness(monkeypatch):
