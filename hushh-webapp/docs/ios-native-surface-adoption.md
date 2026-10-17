@@ -44,7 +44,7 @@ including rejected executable fields and inactive-document links. The new
 reader's physical interaction/accessibility acceptance remains separate; the
 host contract is not visual acceptance.
 
-The first Legal candidate is installed from `0dda4cbabb`, Agent One 1.4.0 (69),
+The first Legal candidate was installed from `0dda4cbabb`, Agent One 1.4.0 (69),
 UAT-backed Debug qualification, executable SHA-256
 `5a475a5041a62d07d1af2d8904f62e772d9dab31303877b85caf311a7c94dc07`.
 The user authorized installs/restarts with draft/attachment loss for this work.
@@ -62,8 +62,34 @@ entries follow the existing authored fallback; ambiguous older owned entries
 retain the web reader. TypeScript/native admit a validated document at stack
 root. The focused negative control reproduces the invented parent; 211 nearest
 cases, lint/typecheck and independent read-only review pass with the correction.
-The corrected physical candidate is being prepared; no acceptance is inferred.
-Ordinary-build native admission remains disabled.
+**Corrected installed candidate:** `b4bf1e869e`, Agent One 1.4.0 (69), UAT-backed
+Debug qualification; executable SHA-256
+`66e4a1b54f84164d12fc186dec94f47ebf3a8fc28123a099011d5cbd7958160b`.
+Fresh static export, native build, packaged assets/signature, credential-free
+admission and normal private unlock pass. The affected physical batch now passes
+for both Privacy and Terms: native reader, contents navigation, related-document
+replacement, direct Back to Profile, Close and warm Chat draft continuity.
+The separate remainder passes Invite, native Help edit/cancel without submission,
+both documents through their untracked Legal parent, Close, warm Chat draft
+continuity and the One Profile tabs/return (one test, zero skipped). Earlier
+Account/Phone, Preferences/Gemini/Voice, Security/Vault, Devices and Connectors
+receipts remain separate; this is not one green combined full-content run.
+
+The warm runner now distinguishes configured native admission from temporary AX
+absence, verifies the admitted root menu rather than an offscreen first row, and
+asserts the actual entry's Back parent. `HUSHH_EXPECT_COHERENT_PROFILE=true`
+requires native entry. An explicit `HUSHH_PROFILE_LEGAL_RETURN_ONLY=true` remainder
+reuses the earlier contents/switch receipts and emits return-only evidence; the
+default still requires contents and replacement. Retained long-document scroll
+acquisition failed in the full-content follow-up (contents more than 11,000
+points above the viewport; a fast-scroll attempt produced XCTest issue 103).
+Those failures remain recorded, not converted into a full-content pass or a
+proven product freeze. Independent read-only review finds no blocking ancestry
+or admission issue in the harness corrections.
+
+These functional results do not qualify external/mail launch, transition-frame
+pixels, accessibility or Release frame pacing. Ordinary-build native admission
+remains disabled.
 
 Rollback: revert the Legal-family increment, or leave the existing global
 qualification flag off. NativeChrome v2, NativeDock v1 and the normal web/Android
@@ -239,7 +265,7 @@ Opening nine destinations does not establish nine native form conversions.
 | Help & feedback | Complete native sheet over the retained Profile root; existing support composer/service | Exact candidate installed; physical edit/cancel, keyboard, type selection and Chat-draft continuity pass. Visual/accessibility/Release acceptance remains separate |
 | Voice | React readiness, microphone check, switches and Location/Connect defaults | Native body still missing; not counted as converted |
 | Photo | React preview/options and existing native camera/library/crop | Complete native presentation still missing |
-| Privacy, Terms | Complete native reader behind `profileLegalReader`; existing authored content and Profile routing | Local implementation/host contracts pass; new body not installed or physically qualified |
+| Privacy, Terms | Complete native reader behind `profileLegalReader`; existing authored content and Profile routing | Installed UAT candidate `b4bf1e869e` passes initial contents/switch/direct-return and separate Invite/Help/untracked-parent returns. Retained long-scroll acquisition, external-link, visual/accessibility and Release acceptance remain separate |
 | Protected vault/phone/provider forms, Devices, Connectors, Invite | Established React content handoff | Retained baseline bodies, not completed approved native conversions |
 
 Help negotiates `profileSupportScene` within NativeDrawers v1. Its private,
@@ -2646,6 +2672,11 @@ calling a handler directly; neither is a reason to record an unobserved pass.
 6. Physical qualification requires the same WebView/editor/session, one interactive
    composer, one-CSS-pixel alignment, both themes/accents, accessibility and three
    Release performance runs. Simulator/Debug receipts cannot close those gates.
+7. Native navigation projects the existing owner's actual Back destination,
+   including preserved origins and in-place replacements. A static URL hierarchy
+   or history depth alone cannot prove that an intermediate page was visited.
+   Unknown ancestry keeps the coherent fallback before reveal; verify entry and
+   return together, not only the settled destination.
 
 Material inspection follows Apple's [effect-view restrictions](https://developer.apple.com/documentation/uikit/uivisualeffectview)
 and [Liquid Glass guidance](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views):

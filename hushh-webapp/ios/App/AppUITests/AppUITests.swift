@@ -311,6 +311,17 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    override func record(_ issue: XCTIssue) {
+        if name.contains("testLocalSessionProfileBackAcrossTheSettingsStack") {
+            // Framework exceptions need source/type diagnostics too. Never
+            // print assertion operands, labels, drafts or an AX hierarchy.
+            let location = issue.sourceCodeContext.location
+            let line = location?.fileURL.lastPathComponent == "AppUITests.swift" ? location?.lineNumber ?? 0 : 0
+            print("PROFILE_RUNNER_ISSUE type=\(issue.type.rawValue) line=\(min(100_000, max(0, line)))")
+        }
+        super.record(issue)
+    }
+
     /// Public fixture only. Installation/launch is preparation; this journey
     /// attaches without resetting, authenticating or navigating the WebView.
     func testLocalNativeHistoryCompositionQualification() throws {
@@ -4147,12 +4158,25 @@ final class AppUITests: XCTestCase {
             self.printCoherentPresentationAdmission(app)
         }
         app.activate()
+        print("PROFILE_BATCH_ENTRY phase=activated")
         dismissRehearsalChatKeyboard(app)
+        print("PROFILE_BATCH_ENTRY phase=keyboard_settled")
         returnToRehearsalChat(app)
-        if app.segmentedControls["chat-agent-surface"].firstMatch.exists {
+        print("PROFILE_BATCH_ENTRY phase=chat_returned")
+        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+        let coherentExpected = ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true"
+        if coherentExpected || selector.exists {
+            // Renderer expectation comes from candidate preparation. A native
+            // drawer can temporarily hide this selector from accessibility;
+            // that is not authority to enter the web-only test branch.
+            guard waitForAdmittedControl(selector) else {
+                XCTFail("PROFILE_BATCH_NATIVE_ENTRY_NOT_ADMITTED"); return
+            }
+            print("PROFILE_BATCH_ENTRY phase=renderer_native")
             try verifyCoherentProfileDestinations(app)
             return
         }
+        print("PROFILE_BATCH_ENTRY phase=renderer_web")
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let close = app.buttons["Close Profile"].firstMatch
@@ -4336,6 +4360,7 @@ final class AppUITests: XCTestCase {
         }
         let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
         let admittedDestinations = Array(destinations.dropFirst(startIndex))
+        let legalReturnOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_LEGAL_RETURN_ONLY"] == "true"
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
         func publicPaneLevel() -> Int? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -4343,6 +4368,13 @@ final class AppUITests: XCTestCase {
             let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profilePaneLevel=") })
             guard let field, let level = Int(field.dropFirst("profilePaneLevel=".count)), (0...2).contains(level) else { return nil }
             return level
+        }
+        func publicPaneHistoryDepth() -> Int? {
+            let probe = app.buttons["native-profile-back-admission"].firstMatch
+            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024,
+                  let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profileHistoryDepth=") }),
+                  let depth = Int(field.dropFirst("profileHistoryDepth=".count)), (0...10000).contains(depth) else { return nil }
+            return depth
         }
         func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
             let probe = app.buttons["native-profile-back-admission"].firstMatch
@@ -4381,10 +4413,16 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
         }
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        func rootIsAdmitted() -> Bool {
+            // Returning preserves the roster's scroll position. Its first row
+            // need not be on screen (or in the accessibility snapshot).
+            close.exists && close.isHittable && menu.exists && menu.isHittable && publicPaneLevel() == 0
+        }
         // Profile deliberately resumes its query-owned detail. Its admitted
         // Back must restore the roster; opening Profile is not a root reset.
         for _ in 0..<3 {
-            if close.exists && close.isHittable && root("account").exists { break }
+            if rootIsAdmitted() { break }
             if nativeLegalBack.exists && nativeLegalBack.isHittable {
                 nativeLegalBack.tap()
                 guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-privacy"].firstMatch) else {
@@ -4395,7 +4433,7 @@ final class AppUITests: XCTestCase {
             if nativeAccountBack.exists && nativeAccountBack.isHittable {
                 nativeAccountBack.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    close.exists && close.isHittable && root("account").exists && root("account").isHittable
+                    rootIsAdmitted()
                 }, object: app)
                 guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
                     XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
@@ -4407,7 +4445,7 @@ final class AppUITests: XCTestCase {
             back.tap()
             print("PROFILE_RESUMED_PARENT phase=tapped level=\(level)")
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                if level == 1 { return close.exists && close.isHittable && root("account").exists }
+                if level == 1 { return rootIsAdmitted() }
                 return publicPaneLevel() == level - 1 && back.exists && back.isHittable
             }, object: app)
             guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
@@ -4415,7 +4453,6 @@ final class AppUITests: XCTestCase {
             }
             print("PROFILE_RESUMED_PARENT phase=returned level=\(level)")
         }
-        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         guard menu.waitForExistence(timeout: 10) else {
             printCoherentPresentationAdmission(app)
             printNativeControlStatuses(web)
@@ -4451,36 +4488,79 @@ final class AppUITests: XCTestCase {
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
+            let originHistoryDepth = publicPaneHistoryDepth()
             destination.tap()
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
+                print("PROFILE_LEGAL_STEP phase=reader_admitted")
                 let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch
-                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(close) else {
+                guard let originHistoryDepth else { XCTFail("PROFILE_LEGAL_ORIGIN_UNAVAILABLE"); return }
+                // Referrals restores an untracked root. Its existing Back
+                // uses the authored Legal parent; a tracked menu entry instead
+                // returns to Profile. Require the actual origin, not either
+                // conveniently hittable Back button.
+                let sectionParent = originHistoryDepth == 0
+                let documentBack = sectionParent ? nativeLegalBack : nativeAccountBack
+                guard waitForAdmittedControl(documentBack), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_LEGAL_HEADER_UNAVAILABLE"); return
                 }
                 XCTAssertFalse(app.buttons["Back in Profile"].firstMatch.exists, "PROFILE_LEGAL_DUPLICATE_WEB_HEADER")
-                let contact = app.buttons["native-legal-contents-contact"].firstMatch
-                for _ in 0..<6 {
-                    if contact.exists && contact.isHittable { break }
-                    reader.swipeUp()
+                // A remainder run can prove the unverified entry/return states
+                // without repeating already recorded contents/switch checks.
+                // Its receipt deliberately does not claim those checks.
+                if !legalReturnOnly {
+                    let contact = app.buttons["native-legal-contents-contact"].firstMatch
+                    for _ in 0..<6 {
+                        if contact.exists && contact.isHittable { break }
+                        // Retained readers may resume below their contents. Do
+                        // not reset product scroll or keep pushing further down.
+                        if contact.exists && contact.frame.midY < reader.frame.minY {
+                            reader.swipeDown()
+                        } else {
+                            reader.swipeUp()
+                        }
+                    }
+                    guard waitForAdmittedControl(contact) else {
+                        let frame = contact.exists ? contact.frame : .zero
+                        let viewport = reader.frame
+                        if [frame.minY, frame.height, viewport.minY, viewport.height].allSatisfy({ $0.isFinite && abs($0) < 100_000 }) {
+                            print("PROFILE_LEGAL_SCROLL target=contents present=\(contact.exists) y=\(Int(frame.minY)) height=\(Int(frame.height)) viewport_y=\(Int(viewport.minY)) viewport_height=\(Int(viewport.height))")
+                        }
+                        XCTFail("PROFILE_LEGAL_CONTENTS_UNAVAILABLE"); return
+                    }
+                    print("PROFILE_LEGAL_STEP phase=contents_admitted")
+                    contact.tap()
+                    print("PROFILE_LEGAL_STEP phase=contents_tapped")
+                    let related = app.buttons["native-legal-related"].firstMatch
+                    for _ in 0..<3 {
+                        if related.exists && related.isHittable { break }
+                        reader.swipeUp()
+                    }
+                    guard waitForAdmittedControl(related) else { XCTFail("PROFILE_LEGAL_RELATED_UNAVAILABLE"); return }
+                    related.tap()
+                    print("PROFILE_LEGAL_STEP phase=related_tapped")
+                    let other = id == "privacy" ? "terms" : "privacy"
+                    guard app.scrollViews["native-legal-reader-\(other)"].firstMatch.waitForExistence(timeout: 5),
+                          waitForAdmittedControl(documentBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
                 }
-                guard waitForAdmittedControl(contact) else { XCTFail("PROFILE_LEGAL_CONTENTS_UNAVAILABLE"); return }
-                contact.tap()
-                let related = app.buttons["native-legal-related"].firstMatch
-                for _ in 0..<3 {
-                    if related.exists && related.isHittable { break }
-                    reader.swipeUp()
+                documentBack.tap()
+                if sectionParent {
+                    guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-\(id)"].firstMatch),
+                          waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_LEGAL_PARENT_NOT_RESTORED"); return }
+                    nativeAccountBack.tap()
                 }
-                guard waitForAdmittedControl(related) else { XCTFail("PROFILE_LEGAL_RELATED_UNAVAILABLE"); return }
-                related.tap()
-                let other = id == "privacy" ? "terms" : "privacy"
-                guard app.scrollViews["native-legal-reader-\(other)"].firstMatch.waitForExistence(timeout: 5),
-                      waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
-                nativeAccountBack.tap()
                 guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_LEGAL_ROOT_NOT_RESTORED"); return
                 }
-                print("PROFILE_NATIVE_LEGAL family=\(id) contents=true replaced=true returned=true")
+                if legalReturnOnly {
+                    print("PROFILE_NATIVE_LEGAL_RETURN family=\(id) returned=true")
+                } else {
+                    print("PROFILE_NATIVE_LEGAL family=\(id) contents=true replaced=true returned=true")
+                }
+                print("PROFILE_NATIVE_LEGAL_ORIGIN family=\(id) parent=\(sectionParent ? "section" : "profile")")
                 continue
+            }
+            if legalReturnOnly && ["privacy", "terms"].contains(id) {
+                XCTFail("PROFILE_NATIVE_LEGAL_READER_NOT_ADMITTED"); return
             }
             if id == "support", app.buttons["native-support-cancel"].firstMatch.waitForExistence(timeout: 5) {
                 let cancel = app.buttons["native-support-cancel"].firstMatch
