@@ -1787,6 +1787,10 @@ class DriveOwnerSearchService:
             and getattr(self.owner_index, "enabled", False) is True
         )
         time_intent = plan.get("time_intent", "document_coverage")
+        # The brain left out a word that may name the subject or issuer
+        # ("Google One receipts"). Its title evidence is broader than the
+        # request, so the owner reviews, whatever the time intent.
+        brain_dropped = bool(parsed_brain is not None and parsed_brain.dropped)
         # The picked dates bound an autoshare search; no period, no selection.
         autoshare_dates = bool(
             autoshare
@@ -1796,9 +1800,10 @@ class DriveOwnerSearchService:
             # A stand-in for a failed planner may have dropped the request's
             # subject or issuer. Only a request it fully covers shares itself.
             and _fallback_plan_covers_request(query, planner_fallback)
+            and not brain_dropped
         )
         owner_review_required = not autoshare_dates and (
-            time_intent == "document_coverage" or authority_mode == "agent_package"
+            time_intent == "document_coverage" or authority_mode == "agent_package" or brain_dropped
         )
         result_limit = None if indexed else plan.get("result_limit")
         direct_originals = (

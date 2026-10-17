@@ -185,10 +185,46 @@ def test_spelling_fix_without_vocabulary_only_completes_a_known_phrase():
     # The typed spelling is kept: a misspelled title is still found.
     assert {"meeting", "metting"} <= spellings(fixed)
     assert "statement" in spellings(brain("bank statment"))
+    # The fix only discovers: what was typed is the only title evidence.
+    assert _brain_title_evidence(fixed, "Metting notes draft.pdf")
+    assert not _brain_title_evidence(fixed, "Team meeting notes.pdf")
     # Negative controls: real words are never rewritten without evidence.
     setting = brain("setting notes")
     assert not setting.corrected and "meeting" not in spellings(setting)
     assert not brain("metting").corrected
+
+
+GEMINI_NOTES = (
+    "HR 1:1 Priya - 2026/10/15 10:00 IST - Notes by Gemini",
+    "Therapy - 2026/10/14 09:00 IST - Notes by Gemini",
+)
+
+
+@pytest.mark.parametrize(
+    "text", ["fleeting notes", "teething notes", "greeting notes", "melting notes", "meeting nodes"]
+)
+def test_a_built_in_spelling_fix_never_authorizes_a_grant(text):
+    result = brain(text)
+    # Still discovered through the fixed phrase, for the owner's review.
+    assert result.corrected and {"meeting", "notes"} <= spellings(result)
+    # Never the generic ask: no Gemini or minutes-of-meeting alternative.
+    phrases = {item.phrase for part in result.parts for item in part.standalone}
+    assert not phrases & {"notes by gemini", "minutes of meeting", "mom"}
+    for title in (*GEMINI_NOTES, "Team meeting notes.pdf", "Q3 planning MoM.docx"):
+        assert not _brain_title_evidence(result, title), title
+    # Positive control: the words as typed are title evidence.
+    assert _brain_title_evidence(result, f"{text.title()} 2026-10-14.pdf")
+    # Negative control: the literal generic ask still shares a Gemini note.
+    assert all(titled("meeting notes", title) for title in GEMINI_NOTES)
+
+
+def test_a_built_in_spelling_fix_never_turns_a_word_into_a_bank():
+    blank = brain("blank statements")
+    assert blank.corrected and "bank" in spellings(blank)
+    assert not _brain_title_evidence(blank, "HDFC bank statement Sep 2026.pdf")
+    assert _brain_title_evidence(blank, "Blank statement 2026-10-14.pdf")
+    # Negative control: typed as it is, "bank statements" names the bank.
+    assert titled("bank statements", "HDFC bank statement Sep 2026.pdf")
 
 
 def test_spelling_fix_uses_the_owner_vocabulary_only_for_absent_words():
@@ -322,6 +358,125 @@ def test_account_invoice_and_form_numbers_narrow_the_search():
     # Negative control: a count is a limit, never a search word.
     payslips = brain("latest 3 payslips")
     assert payslips.result_limit == 3 and not payslips.topics
+
+
+OCTOBER = (date(2026, 10, 1), date(2026, 10, 17))
+
+
+@pytest.mark.parametrize(
+    "text,number,other,own,picked",
+    [
+        # Before a plural, a number after "Flat" names the flat; it is no count.
+        (
+            "Flat 302 maintenance bills",
+            "302",
+            "Flat 101 maintenance bill.pdf",
+            "Flat 302 maintenance bill.pdf",
+            OCTOBER,
+        ),
+        (
+            "Flat #302 maintenance bills",
+            "302",
+            "Flat 101 maintenance bill.pdf",
+            "Flat 302 maintenance bill.pdf",
+            None,
+        ),
+        # A year-shaped number after an identifier noun, a future year, or a
+        # year outside the picked dates names something; it is no period.
+        ("invoice 2001", "2001", "Invoice 7781 2026-10-14.pdf", "Invoice 2001.pdf", None),
+        ("HDFC 2045 statement", "2045", "HDFC 9876 statement.pdf", "HDFC 2045 statement.pdf", None),
+        (
+            "HDFC 2019 statement",
+            "2019",
+            "HDFC 9876 statement.pdf",
+            "HDFC 2019 statement.pdf",
+            OCTOBER,
+        ),
+    ],
+)
+def test_identifier_numbers_are_neither_counts_nor_years(text, number, other, own, picked):
+    result = brain(text, picked_period=picked)
+    assert number in {concept.canonical for concept in result.topics}
+    assert result.result_limit is None and result.suggested_period is None
+    assert _brain_title_evidence(result, own)
+    assert not _brain_title_evidence(result, other)
+
+
+def test_counts_and_years_without_an_identifier_still_leave_the_subject():
+    # Negative controls for the identifier rule.
+    assert brain("latest 3 payslips").result_limit == 3
+    assert brain("send 100 invoices").result_limit == 100
+    # A count cue keeps a count after an identifier noun.
+    assert brain("flat latest 3 maintenance bills").result_limit == 3
+    # A year inside the picked dates, or with none picked, is the period.
+    for text, picked in (("statements 2026", OCTOBER), ("HDFC 2019 statement", None)):
+        result = brain(text, picked_period=picked)
+        assert result.suggested_period is not None
+        assert not any(word.isdigit() for word in spellings(result))
+
+
+@pytest.mark.parametrize(
+    "text,dropped",
+    [
+        # Stopwords that can name the issuer or the subject.
+        ("Google One receipts", ("one",)),
+        ("Capital One statements", ("one",)),
+        ("email me the invoices", ("email",)),
+        ("hard drive invoice", ("drive",)),
+        # A spaced "&" lists subjects and leaves single letters behind.
+        ("AT & T bills", ("t",)),
+        # A short number after an identifier noun names the record.
+        ("Flat 12 maintenance bills", ("12",)),
+        ("#12 maintenance bills", ("12",)),
+        # Topic words past the bound.
+        ("blue green 48213 kickoff summary orange", ("blue", "green")),
+    ],
+)
+def test_words_that_may_name_the_subject_are_recorded_when_dropped(text, dropped):
+    result = brain(text)
+    assert result.dropped == dropped
+    assert brain_from_checkpoint(result.as_checkpoint()) == result
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Requesting the bank statements from your Google Drive",
+        "invoices from my drive",
+        "invoices in shared drives",
+        "Hi, can you please send me the bank statements for September? Thanks!",
+        "bank statements needed for home loan processing",
+        "latest 3 payslips",
+        "meeting notes last 3 months",
+        "statements for two months",
+        "send my google docs about falcon",
+        "invoices 15 Sep",
+        "send me Contract.pdf please",
+    ],
+)
+def test_filler_politeness_date_count_and_location_words_are_not_dropped_subjects(text):
+    # Negative control: these words never cost a request its automatic grant.
+    assert brain(text).dropped == ()
+
+
+@pytest.mark.parametrize(
+    "text,issuer,unrelated,named",
+    [
+        ("AT&T bills", "at&t", "Electricity bill Sep 2026.pdf", "AT&T bill Sep 2026.pdf"),
+        ("H&M receipts", "h&m", "Pharmacy receipt Sep 2026.pdf", "H&M receipt Sep 2026.pdf"),
+        ("P&G invoices", "p&g", "AWS invoice 2026-10-14.pdf", "P&G invoice 2026-10-14.pdf"),
+        ("Google invoices", "google", "Hospital invoice 2026-10-13.pdf", "Google invoice Sep.pdf"),
+    ],
+)
+def test_ampersand_names_and_google_stay_required_issuers(text, issuer, unrelated, named):
+    result = brain(text)
+    assert [concept.canonical for concept in result.topics] == [issuer]
+    assert result.dropped == ()
+    assert titled(text, named)
+    assert not titled(text, unrelated)
+    # Negative control: Google Drive and Google Docs are where and what, not who.
+    assert brain("bank statements from your Google Drive").topics == ()
+    assert "google" not in spellings(brain("send my google docs about falcon"))
 
 
 @pytest.mark.parametrize("kind", ["standup", "sync", "1:1"])

@@ -291,11 +291,13 @@ class DriveRequestBulkService:
             raise DriveReadError("invalid_argument")
         # Counts only: never the request words, concepts or corrections.
         logger.info(
-            "drive_request.plan source=deterministic_brain topics=%d parts=%d kind=%s corrected=%s",
+            "drive_request.plan source=deterministic_brain topics=%d parts=%d kind=%s"
+            " corrected=%s dropped=%d",
             len(brain.topics),
             len(brain.parts),
             brain.file_kind,
             brain.corrected,
+            len(brain.dropped),
         )
         return plan, brain
 

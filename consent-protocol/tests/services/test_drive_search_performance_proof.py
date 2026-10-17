@@ -1272,24 +1272,30 @@ def _shareable(store):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "text,expected",
+    "text,found_titles,shared",
     [
         # A correctly typed request does not match a misspelled title, as in Drive.
-        ("meeting notes", TITLE_EVIDENCE - {"typo_title"}),
-        # The typo is corrected and the typed spelling kept: both titles match.
-        ("metting notes", TITLE_EVIDENCE),
+        ("meeting notes", TITLE_EVIDENCE - {"typo_title"}, TITLE_EVIDENCE - {"typo_title"}),
+        # A built-in spelling fix only discovers: the owner's review sees the
+        # meeting notes it finds, and only the typed spelling is title
+        # evidence for an automatic grant.
+        ("metting notes", TITLE_EVIDENCE - {"camel"}, {"typo_title"}),
+        # A real word one letter from "meeting" never shares every meeting note.
+        ("fleeting notes", TITLE_EVIDENCE - {"camel", "typo_title"}, set()),
     ],
 )
-async def test_drive_app_parity_for_meeting_notes_without_a_model(monkeypatch, text, expected):
+async def test_drive_app_parity_for_meeting_notes_without_a_model(
+    monkeypatch, text, found_titles, shared
+):
     # Owner review: everything Drive's own search returns is a candidate,
     # including a PDF that only mentions the words in its body.
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text)
     found = set(store.results)
-    assert expected | {"body", "old", "standup"} <= found
+    assert found_titles | {"body", "old", "standup"} <= found
     assert not found & (NEVER_FOUND | {"mom"})
     # Automatic sharing: title evidence and the picked dates still decide.
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
-    assert _shareable(store) == expected
+    assert _shareable(store) == shared
     assert not set(store.results) & (NEVER_FOUND | LOOSE_ONLY | {"old", "body"})
 
 

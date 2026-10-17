@@ -5,10 +5,15 @@ type them into the Google Drive search box (with Drive's synonym and typo help
 made explicit). Discovery spellings only find candidates. A concept's evidence
 spellings are narrower: what the requester typed, its inflections and exact
 synonyms ("pay slip" for "payslip"). Only those can serve as automatic-sharing
-title evidence; loose clues ("salary", "call", "premium") and spelling fixes
-taken from the owner's own Drive never authorize a grant. The picked request
-dates, kind fences, title evidence and the existing review policy still decide
-what may be shared.
+title evidence; loose clues ("salary", "call", "premium") and spelling fixes,
+built-in or taken from the owner's own Drive, never authorize a grant. The
+picked request dates, kind fences, title evidence and the existing review
+policy still decide what may be shared.
+
+A word left out of the subject that may still name it ("one" in "Google One
+receipts", "12" in "Flat 12 maintenance bills") is recorded as dropped, and
+that search keeps the owner's review: like a failed planner's stand-in plan,
+the brain never shares on a subject it could not hold the request to.
 
 Shape: every typed word or lexicon phrase is one concept (OR of variants).
 Concepts are ANDed, like Drive's own multi-word search. Document-type parts
@@ -103,6 +108,10 @@ class RequestBrain:
     result_limit: int | None = None
     # A literal file name ("Contract.pdf"): the title must equal it.
     exact_title: str | None = None
+    # Request words left out of the subject that may still name it: "one" in
+    # "Google One", "12" in "Flat 12", topic words past the bound. The search
+    # cannot hold the request to them, so it keeps the owner's review.
+    dropped: tuple[str, ...] = ()
 
     @property
     def concepts(self) -> tuple[Concept, ...]:
@@ -125,6 +134,7 @@ class RequestBrain:
             "listing": self.listing,
             "resultLimit": self.result_limit,
             "exactTitle": self.exact_title,
+            "dropped": list(self.dropped),
         }
 
 
@@ -166,6 +176,7 @@ def brain_from_checkpoint(value: object) -> RequestBrain | None:
         listing = value.get("listing", False)
         limit = value.get("resultLimit")
         exact = value.get("exactTitle")
+        dropped = value.get("dropped", [])
         if (
             len(topics) > MAX_TOPICS
             or len(parts) > MAX_PARTS
@@ -175,6 +186,9 @@ def brain_from_checkpoint(value: object) -> RequestBrain | None:
             and (type(limit) is not int or not 1 <= limit <= MAX_RESULT_LIMIT)
             or exact is not None
             and not _valid_exact_title(exact)
+            or type(dropped) is not list
+            or len(dropped) > MAX_EVIDENCE
+            or not all(_valid_literal(word) for word in dropped)
         ):
             return None
         return RequestBrain(
@@ -186,6 +200,7 @@ def brain_from_checkpoint(value: object) -> RequestBrain | None:
             listing,
             limit,
             exact,
+            tuple(dropped),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -565,7 +580,24 @@ _STOPWORDS = frozenset(
     scanned soft photocopy
     hi hello hey dear thanks thank thankyou thx ty pls plz asap urgent urgently
     request requests requesting requested require required requires available
-    google drive gdrive email emails mail may might must shall regards sir madam
+    drive drives gdrive email emails mail may might must shall regards sir madam
+    """.split()
+)
+# Stopwords that can also name the subject or issuer: "Google One", "Royal
+# Mail", "hard drive". They stay out of the search like other filler, but a
+# request that used one keeps the owner's review (``RequestBrain.dropped``).
+_SUBJECT_STOPWORDS = frozenset({"one", "email", "emails", "mail", "drive", "drives"})
+# "your Google Drive", "shared drives": where the files live, not a subject.
+_DRIVE_LOCATION = frozenset({"google", "my", "your", "our", "his", "her", "their", "the", "shared"})
+# "Google Drive", "Google Docs", "Google Sheets": the files' home or type.
+_GOOGLE_PRODUCTS = frozenset({"drive", "drives", *_KIND_WORDS})
+# Nouns a number identifies rather than counts: "Flat 302", "invoice 2001",
+# "policy no 12" ("#12" reads as "no 12").
+_IDENTIFIER_NOUNS = frozenset(
+    """
+    no num number id ref flat apartment apt unit house villa plot room block tower wing
+    building floor shop office suite door lot sector phase site ward bed seat gate
+    account acct invoice bill receipt policy folio order ticket case claim
     """.split()
 )
 _COORDINATORS = frozenset({"and", "or", "&", ",", "plus", "/"})
@@ -675,8 +707,17 @@ _FILE_COUNT = re.compile(
 _QUOTED = re.compile(r"[\"“”]([^\"“”]{2,50})[\"“”]")
 _FILE_EXTENSION = r"\.(?:pdf|docx?|xlsx?|pptx?|txt|md|csv|jpe?g|png)"
 _FILE_NAME = re.compile(rf"[^\s\"“”,;()]+{_FILE_EXTENSION}(?![\w.])", re.I)
-_TOKEN = re.compile(r"[^\W_]+(?:[:'’\-][^\W_]+)*|[,&/]", re.UNICODE)
+# "AT&T", "H&M" and "P&G" are one name; only a spaced "&" lists subjects.
+_TOKEN = re.compile(r"[^\W_]+(?:[:'’\-&][^\W_]+)*|[,&/]", re.UNICODE)
 _DOTTED_MOM = re.compile(r"\bm\.\s?o\.\s?m\b\.?", re.I)
+_NUMBER_SIGN = re.compile(r"#\s*(?=\d)")
+_WORD = re.compile(r"[^\W_]+")
+
+
+def _identifies(before: str) -> bool:
+    """The number right after this text names a record: "Flat 302", "invoice no 12"."""
+    words = _WORD.findall(before[-40:])
+    return bool(words) and words[-1].casefold() in _IDENTIFIER_NOUNS
 
 
 def _zone(timezone: str) -> ZoneInfo:
@@ -793,16 +834,18 @@ def _strip_dates(
         return " "
 
     def year(match: re.Match) -> str:
-        if match["short"]:
-            first_year = 2000 + int(match["short"])
-            spans.append((date(first_year, 4, 1), date(first_year + 1, 3, 31)))
-            return " "
-        first_year = int(match["year"])
-        if match["end"]:
+        first_year = 2000 + int(match["short"]) if match["short"] else int(match["year"])
+        if match["short"] or match["end"]:
             # "2024-25" and "FY 2024-25" are an Indian fiscal year.
-            spans.append((date(first_year, 4, 1), date(first_year + 1, 3, 31)))
+            span = (date(first_year, 4, 1), date(first_year + 1, 3, 31))
         else:
-            spans.append((date(first_year, 1, 1), date(first_year, 12, 31)))
+            span = (date(first_year, 1, 1), date(first_year, 12, 31))
+        # A year outside the picked dates, a future one, or a number after an
+        # identifier noun ("HDFC 2045 statement", "invoice 2001") names
+        # something and stays a search word.
+        if names_something(span) or span[0] > today or _identifies(match.string[: match.start()]):
+            return match.group(0)
+        spans.append(span)
         return " "
 
     for pattern, replace in (
@@ -818,14 +861,17 @@ def _strip_dates(
 
 def _strip_count(text: str) -> tuple[str, int | None]:
     """Remove one explicit file count from the subject and return it."""
-    match = _FILE_COUNT.search(text)
-    if match is None:
-        return text, None
-    value = (match["lead"] or match["bare"]).lower()
-    count = _NUMBER_WORDS.get(value) or int(value)
-    if not 1 <= count <= MAX_RESULT_LIMIT:
-        return text, None
-    return text[: match.start()] + " " + text[match.end() :], count
+    for match in _FILE_COUNT.finditer(text):
+        if match["bare"] and _identifies(text[: match.start()]):
+            # "Flat 302 maintenance bills": the number names the flat. Only
+            # a count cue ("latest 3") makes a number after such a noun a count.
+            continue
+        value = (match["lead"] or match["bare"]).lower()
+        count = _NUMBER_WORDS.get(value) or int(value)
+        if not 1 <= count <= MAX_RESULT_LIMIT:
+            return text, None
+        return text[: match.start()] + " " + text[match.end() :], count
+    return text, None
 
 
 def _literal_file_name(text: str) -> str | None:
@@ -1020,7 +1066,7 @@ def _word_concept(word: str) -> Concept:
     return Concept(literal[0], literal, _evidence(literal))
 
 
-def _entry_concept(entry: _Entry, words: tuple[str, ...], typos: list[str]) -> Concept:
+def _entry_concept(entry: _Entry, words: tuple[str, ...]) -> Concept:
     """A lexicon concept: the typed trigger is always searched and is evidence."""
     typed = [form for form in _phrase_forms(" ".join(words)) if form not in _CASED_ONLY]
     covered = {form for variant in entry.variants for form in _phrase_forms(variant)}
@@ -1031,9 +1077,21 @@ def _entry_concept(entry: _Entry, words: tuple[str, ...], typos: list[str]) -> C
         if not _DOCUMENT_WORDS & set(form.split()) and not covered & set(_phrase_forms(form))
     ]
     first = entry.canonical if entry.canonical in entry.variants else entry.variants[0]
-    variants = _unique((first, *searched, *entry.variants, *typos))
-    evidence = _evidence((*typed, *entry.strict, *typos, *entry.cased))
+    variants = _unique((first, *searched, *entry.variants))
+    evidence = _evidence((*typed, *entry.strict, *entry.cased))
     return Concept(variants[0], variants, evidence)
+
+
+def _typo_concept(spelled: str, fixed: Iterable[str]) -> Concept:
+    """A built-in spelling fix only discovers, like an owner-vocabulary fix.
+
+    What was typed stays the concept and its only title evidence. The fixed
+    spelling and its kind's variants find candidates, never a grant: "fleeting
+    notes" is not "meeting notes" and "blank statements" are not bank ones.
+    """
+    forms = _phrase_forms(spelled)
+    literal = _unique((*forms[:1], *fixed))
+    return Concept(literal[0], literal, _evidence(forms))
 
 
 def _content_token(token: str) -> bool:
@@ -1068,11 +1126,30 @@ def _purpose_clause(tokens: list[str]) -> set[int]:
     return skipped
 
 
+def _explained_drop(word: str, previous: str | None) -> bool:
+    """A word left out of the subject that cannot name it.
+
+    Closed filler, politeness, date and count words qualify, and so does the
+    Drive location ("from your Google Drive"). Anything else may name the
+    subject or issuer the search no longer requires: "one" in "Google One", a
+    short identifier ("Flat 12") or a single letter ("Plan B").
+    """
+    if word in {"drive", "drives"}:
+        return previous in _DRIVE_LOCATION
+    if word in _SUBJECT_STOPWORDS:
+        return False
+    if word.isdigit() or word in _NUMBER_WORDS and word not in {"a", "an"}:
+        return previous not in _IDENTIFIER_NOUNS
+    return word in _STOPWORDS or word == "s"  # "invoice(s)"
+
+
 @dataclass
 class _Unit:
     position: int
     concept: Concept
     family: str | None  # None for a raw topic word
+    # A spelling fix: its concept is what was typed and only discovers.
+    corrected: bool = False
 
 
 def interpret_request(
@@ -1097,18 +1174,20 @@ def interpret_request(
     ).date()
     exact_title = _literal_file_name(text)
     quoted = [match.group(1).strip().casefold() for match in _QUOTED.finditer(text)]
-    remainder = _QUOTED.sub(" , ", text)
+    remainder = _NUMBER_SIGN.sub(" no ", _QUOTED.sub(" , ", text))
     remainder, spans = _strip_dates(remainder, today, picked_period)
     remainder, result_limit = _strip_count(remainder)
     tokens = _tokens(remainder)
     kinds: list[str] = []
     units: list[_Unit] = []
     typos: dict[int, str] = {}
+    dropped: list[str] = []
     corrected = False
     for start in range(len(tokens)):
         for words in _CORRECTION_PHRASES:
             if _phrase_correction(tokens, start, words):
-                # Keep what was typed as a variant; search the fixed phrase.
+                # The fixed phrase gives the kind and discovery spellings;
+                # what was typed stays the concept and evidence (_typo_concept).
                 for offset, word in enumerate(words):
                     if tokens[start + offset] != word:
                         typos[start + offset] = tokens[start + offset]
@@ -1140,10 +1219,13 @@ def interpret_request(
                 break
         if matched is not None:
             words, entry = matched
-            typed = [
-                typos[index] for index in range(position, position + len(words)) if index in typos
-            ]
-            units.append(_Unit(position, _entry_concept(entry, words, typed), entry.family))
+            window = range(position, position + len(words))
+            if any(index in typos for index in window):
+                spelled = " ".join(typos.get(index, tokens[index]) for index in window)
+                concept = _typo_concept(spelled, (" ".join(words), *entry.variants))
+                units.append(_Unit(position, concept, entry.family, corrected=True))
+            else:
+                units.append(_Unit(position, _entry_concept(entry, words), entry.family))
             if _DOCUMENT_WORDS & set(words):
                 # "tax documents" consumed the document noun: still documents.
                 kinds.append("document")
@@ -1163,9 +1245,20 @@ def interpret_request(
                 kinds.append(_KIND_WORDS[token])
             continue
         word = _bare(token)
+        if position - 1 in typos:
+            # A spelling fix that names no lexicon kind ("credt statements").
+            concept = _typo_concept(_bare(typos[position - 1]), _word_variants(word))
+            units.append(_Unit(position - 1, concept, None, corrected=True))
+            continue
+        if word == "google" and following in _GOOGLE_PRODUCTS:
+            # "Google Drive", "Google Docs": the files' home or type. Anywhere
+            # else ("Google invoices") Google is an issuer and a search word.
+            continue
         if word in _STOPWORDS or len(word) < 2 or word.isdigit() and len(word) < 3:
             # One- and two-digit numbers are counts or dates; longer ones
             # (account, invoice and form numbers) narrow the search.
+            if not _explained_drop(word, tokens[position - 2] if position >= 2 else None):
+                dropped.append(word)
             continue
         variants = list(_word_variants(word))
         evidence = _evidence(variants)
@@ -1176,9 +1269,8 @@ def interpret_request(
             if entry is not None:
                 # The owner's word is a known kind: search its spellings too.
                 literal = _unique((word, *entry.variants))
-                units.append(
-                    _Unit(position - 1, Concept(literal[0], literal, evidence), entry.family)
-                )
+                concept = Concept(literal[0], literal, evidence)
+                units.append(_Unit(position - 1, concept, entry.family, corrected=True))
                 continue
             variants = [*variants, fix, *_number_variants(fix)[1:]]
         literal = _unique(variants)
@@ -1191,6 +1283,7 @@ def interpret_request(
     if exact_title is not None:
         # The literal file name is the whole subject: its title must equal it.
         units = []
+        dropped = []
     # "all files", "September documents", "latest 5 files": a listing on
     # purpose. Words dropped as a purpose clause still carry a subject.
     listing_cue = (
@@ -1210,6 +1303,7 @@ def interpret_request(
         listing_cue=listing_cue,
         result_limit=result_limit,
         exact_title=exact_title,
+        dropped=dropped,
     )
 
 
@@ -1249,7 +1343,9 @@ def _assemble(
     listing_cue: bool = False,
     result_limit: int | None = None,
     exact_title: str | None = None,
+    dropped: Iterable[str] = (),
 ) -> RequestBrain:
+    dropped = list(dropped)
     # Split document-type words into separately listed parts at coordinators.
     groups: list[list[_Unit]] = [[]]
     topics: list[Concept] = []
@@ -1276,6 +1372,8 @@ def _assemble(
         else:
             raw = [unit.concept for group in listed for unit in group]
         topics = _most_specific(raw)
+        # Topic words past the bound are subjects the search no longer requires.
+        dropped.extend(concept.canonical for concept in raw if concept not in topics)
         # "meeting notes and minutes": each listed kind is its own alternative.
         parts = tuple(_doc_part(group) for group in lexical)[:MAX_PARTS]
     # Bound the total concept count; topic words are the most specific.
@@ -1283,6 +1381,7 @@ def _assemble(
     bounded = []
     for part in parts:
         concepts = part.concepts[: max(1, budget)]
+        dropped.extend(concept.canonical for concept in part.concepts[len(concepts) :])
         budget -= len(concepts)
         bounded.append(DocPart(part.key, concepts, part.standalone))
     parts = tuple(bounded)
@@ -1309,28 +1408,40 @@ def _assemble(
         listing=bool(listing_cue and not topics and not parts),
         result_limit=result_limit,
         exact_title=exact_title,
+        dropped=tuple(dict.fromkeys(dropped))[:MAX_EVIDENCE],
     )
 
 
 def _doc_part(group: list[_Unit]) -> DocPart:
     families = {unit.family for unit in group}
     concepts = [unit.concept for unit in group]
+    # Title evidence and the generic alternatives come only from words typed
+    # as they are: a spelling fix ("fleeting notes") only discovers.
+    typed = [unit for unit in group if not unit.corrected]
+    typed_families = {unit.family for unit in typed}
     # Only the literal generic ask ("meeting notes", "mtg notes") is satisfied
     # by each named kind on its own; "standup notes" stays standups, and
     # "Notes by Gemini" or "MoM" stays that specific kind.
-    generic_notes = "notes" in families and any(
-        unit.family == "meeting" and unit.concept.canonical == "meeting" for unit in group
+    generic_notes = "notes" in typed_families and any(
+        unit.family == "meeting" and unit.concept.canonical == "meeting" for unit in typed
     )
     if "meeting" in families and "notes" in families or "meeting_notes" in families:
+        widen = (
+            "meeting" in typed_families
+            and "notes" in typed_families
+            or "meeting_notes" in typed_families
+        )
         concepts = [
             Concept(
-                concept.canonical,
-                _unique((*concept.variants, *_MEETING_NOTE_VARIANTS)),
-                _evidence((*concept.title_evidence, *_MEETING_NOTE_EVIDENCE)),
+                unit.concept.canonical,
+                _unique((*unit.concept.variants, *_MEETING_NOTE_VARIANTS)),
+                _evidence((*unit.concept.title_evidence, *_MEETING_NOTE_EVIDENCE))
+                if widen and not unit.corrected
+                else unit.concept.title_evidence,
             )
-            if any(unit.family == "notes" and unit.concept == concept for unit in group)
-            else concept
-            for concept in concepts
+            if unit.family == "notes"
+            else unit.concept
+            for unit in group
         ]
         standalone = (
             [Standalone("minutes of meeting", False), Standalone("notes by gemini", False)]

@@ -1985,6 +1985,99 @@ async def test_planner_fallback_keeps_owner_review_when_it_drops_the_subject(
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,review",
+    [
+        # The default brain left out a word that may name the issuer or record.
+        ("Google One receipts", True),
+        ("Capital One statements", True),
+        ("Flat 12 maintenance bills", True),
+        ("AT & T bills", True),
+        # Negative controls: every subject word is still required.
+        ("Google receipts", False),
+        ("AT&T bills", False),
+        ("Requesting the bank statements from your Google Drive", False),
+    ],
+)
+async def test_brain_keeps_owner_review_when_it_drops_a_possible_subject(text, review):
+    from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
+
+    _, checkpoint = await _autoshare_checkpoint(text=text, planned_by="brain")
+    assert bool(checkpoint["request_brain"]["dropped"]) is review
+    assert checkpoint["request_owner_review_required"] is review
+    assert ("request_selection_policy" in checkpoint) is not review
+    assert (
+        checkpoint_requires_owner_review(
+            checkpoint, request_id="12345678-1234-1234-1234-123456789012", revision=1
+        )
+        is review
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("autoshare", [True, False])
+@pytest.mark.parametrize(
+    "text,review",
+    [
+        ("Google One receipt files uploaded last week", True),
+        # Negative control: the explicit file-activity selection still runs.
+        ("Google receipt files uploaded last week", False),
+    ],
+)
+async def test_file_activity_never_skips_review_after_a_dropped_subject(text, review, autoshare):
+    _, checkpoint = await _autoshare_checkpoint(text=text, planned_by="brain", autoshare=autoshare)
+    assert checkpoint["request_time_intent"] == "file_activity"
+    assert checkpoint["request_owner_review_required"] is review
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,unrelated,own",
+    [
+        # Issuers with "&" and Google stay required title words.
+        ("AT&T bills", ["Electricity bill 2026-09-14.pdf"], "AT&T bill 2026-09-14.pdf"),
+        (
+            "Google invoices",
+            ["AWS invoice 2026-09-14.pdf", "Hospital invoice 2026-09-13.pdf"],
+            "Google invoice 2026-09-14.pdf",
+        ),
+        ("H&M receipts", ["Pharmacy receipt 2026-09-14.pdf"], "H&M receipt 2026-09-14.pdf"),
+        # An identifier number is neither a count nor a year.
+        (
+            "Flat 302 maintenance bills",
+            ["Flat 101 maintenance bill 2026-09-14.pdf"],
+            "Flat 302 maintenance bill 2026-09-14.pdf",
+        ),
+        ("invoice 2001", ["Invoice 7781 2026-09-14.pdf"], "Invoice 2001 2026-09-14.pdf"),
+        # A built-in spelling fix only discovers; it never authorizes.
+        (
+            "fleeting notes",
+            [
+                "HR 1:1 with Priya - 2026/09/10 10:00 IST - Notes by Gemini",
+                "Therapy session - 2026/09/12 09:00 IST - Notes by Gemini",
+                "Team meeting notes 2026-09-14",
+            ],
+            "Fleeting notes 2026-09-14",
+        ),
+        ("blank statements", ["HDFC bank statement 2026-09-14.pdf"], "Blank statement 2026-09-14"),
+    ],
+)
+async def test_brain_autoshare_never_shares_a_title_the_request_did_not_name(text, unrelated, own):
+    service, checkpoint = await _autoshare_checkpoint(text=text, planned_by="brain")
+    assert checkpoint["request_owner_review_required"] is False
+    candidates = [_request_candidate(f"other{n}", title) for n, title in enumerate(unrelated)]
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"},
+        checkpoint,
+        [*candidates, _request_candidate("own", own)],
+        folder_scoped=False,
+        drive_id=None,
+    )
+    # Positive control: the title the request names is still shared.
+    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+
+
 @pytest.mark.parametrize(
     "title,shared",
     [
