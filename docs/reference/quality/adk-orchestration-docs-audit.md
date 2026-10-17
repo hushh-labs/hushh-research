@@ -24,9 +24,9 @@ Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabl
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Application | `0b1d4202d9`; canonical local core and [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39019417847) pass | The single failed iOS callback test passed on a failed-job-only retry, without source or gate changes. Frozen ADK intake `e5a3950d7e39`; newer concurrent commits remain outside this release |
-| Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39022845243) succeeded. ADC readback at 10:26 UTC: backend `00177-2z6` / digest `08a3f1b626b9`; frontend `00150-wnb` / `70e6d76acff9`; both source `0b1d4202d9`, 100% traffic | GitHub governs; Cloud Build builds. Workflow definition main `736466f65817`; immutable pod-image building completed |
-| Schema / rollback | Postdeploy migration guard and runtime parity pass; dev 959–963 applied, history cleanup 249 remains deferred. Application rollback: backend `00176-945`, frontend `00149-7qg`, source `f378a75b5588` | No new migration in this application delta. SQL no-op rollback is not information recovery; no destructive cutover performed |
+| Application | `5b493370ae`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39022976568) passes | Prior `0b1d4202d9` verification remains historical evidence and the immutable pod-image source. Local quota/Puppy/integration changes are not deployed |
+| Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39024698527) is healthy. Fresh approved-ADC readback: backend `00178-mv6` / `0e745d945ea7`; frontend `00151-s57` / `befea4952189`; both source `5b493370ae`, 100% traffic | GitHub governs; Cloud Build builds. Workflow definition main `3b2635e98e7f`; no new pod image was built. Earlier 10:26 readback preceded this deployment’s completion |
+| Schema / rollback | Latest deployment migration guard/runtime parity pass; dev 959–963 applied, history cleanup 249 deferred. Next-candidate application rollback target is the observed `5b493370ae` backend `00178-mv6` and frontend `00151-s57` | Local dev-only 964 is not applied. SQL no-op rollback is not information recovery; no destructive cutover performed |
 | Published pod release | `2026.10-dev.22+0b1d4202d9b1.250aea9e`, immutable `sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1`; image source `0b1d4202d9` | Archive generation `1792232007802820`, SHA-256 `7ee5ee95c5fcfa3d9ecc2096cc813a3e3b66f6139c2d10707e76033bfe4e6208`. Empty predecessor list: no installation offered until exact-image recovery qualification |
 | Personal Azure pod | Settings-approved operation `op_19b2108a5a8e4feca31d251ec4444084`; verified 22:31:26 UTC; revision `ca-hussh-one-pod--u0f70485d740a`, installed Dev 21 digest `72b049df…842b001b` | Same service and attached identity; 1 vCPU, 2 GiB, min 0/max 1, one worker, HTTP threshold 8, relay grace 600 s. No account or device reset |
 | Prior Dev 21 qualification | Both disposable clouds recovered 4,195,328 Files bytes using native identities, then upgraded from exact predecessor. Azure also retained encrypted chat/settings and completed another real response. Temporary Jobs deleted and absence verified | GCP live chat continuity and live rollback remain unverified; isolated evidence is distinct from personal Settings approval |
@@ -101,8 +101,10 @@ fixtures, one obsolete inline-deploy test and one unchanged restart timeout.
 All 85 affected checks pass after fixture/dependency-test repairs; restart keeps
 its 30-second limit. Dependency checks refuse missing direct or sourced scripts.
 The branch also preserves the already-invoked Vertex verifier for old production
-targets; no production deployment occurred. Serial database and remaining core
-stages must complete before publication.
+targets; no production deployment occurred. The serial database stage passed
+1,465 cases and found one further function-list ordering mismatch; owning
+generators agree after regeneration, with unchanged membership/multiplicity.
+Its affected suite and remaining core stages must complete before publication.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
@@ -163,16 +165,9 @@ extends the existing deletion journal, archive and finalization dependency. Dev-
 964 preserves legacy receipts; rollback locks custody and refuses unresolved
 provision attempts. Focused checks: 320 provisioning/IAM, 18 orchestration, ten real
 PostgreSQL erasure cases and two schema replay/rollback cases pass. Restoring the
-old Vertex-only completion prerequisite makes the quota-boundary test fail. The prior core
-on `702ad9939d` was deliberately interrupted for this repair; it is not a green
-candidate. The cohesive grant/protocol extraction then passed 420 focused checks
-and four real-PostgreSQL parity/rollback cases; changed Python files pass the
-unchanged architecture ratchet. Personal pods and the serving `0b1d4202d9` release
-are unchanged. Core on frozen `62a2805412` passed 21,046 protocol cases and
-skipped 137; it stopped on an outdated one-role inventory assertion and a
-20-second shell-fixture timeout. The inventory now checks both exact role/member
-pairs, and the focused rerun passes all 26 cases. The original failed run is
-retained; remaining core stages have not been represented as passed.
+old Vertex-only completion prerequisite makes the quota-boundary test fail. Original failed runs and independent negative controls remain retained. The
+current combined verification above supersedes those partial local attempts;
+source qualification does not prove the unresolved GCP provider access.
 
 Historical anchor: the [architecture baseline](./architecture-fitness-baseline.json)
 owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 and
