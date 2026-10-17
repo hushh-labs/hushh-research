@@ -104,7 +104,11 @@ The branch also preserves the already-invoked Vertex verifier for old production
 targets; no production deployment occurred. The serial database stage passed
 1,465 cases and found one further function-list ordering mismatch; owning
 generators agree after regeneration, with unchanged membership/multiplicity.
-Its affected suite and remaining core stages must complete before publication.
+All 14 affected database cases and the mandatory all-test import check pass.
+The remaining canonical web-core, packaged MCP and integration stages pass on
+`fd4e38838e`. This is composite core evidence: the original failed runs and
+targeted repairs remain recorded, rather than a claim that one uninterrupted
+core invocation passed. Hosted CI on the final publication SHA remains required.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
