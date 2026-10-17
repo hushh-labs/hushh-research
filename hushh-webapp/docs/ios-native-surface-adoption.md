@@ -34,12 +34,48 @@ this artwork follow-up has not been installed there.
 The iPhone's wireless tunnel, unlocked state and compatible/usable developer
 image were verified. Its attach definition was corrected against Xcode's
 generated runner metadata and installed `xcodebuild.xctestrun` manual, preserving
-destination artifacts and disabled attachments. Admission still timed out before
-test-body entry, with no private input. The timeout category does not establish
-that an approval prompt is visible or identify the underlying startup cause.
-No repeated unchanged retries, service resets or native qualification followed.
-Rollback is the independently reversible artwork commit; the custom-native flag
-remains opt-in and established platform fallbacks are unchanged.
+destination artifacts and disabled attachments. Initial admission attempts timed
+out before test-body entry. Subsequently, the installed runner was successfully
+activated through supported CoreDevice tooling and credential-free XCTest
+admission passed. This sequence does not establish the original timeout's cause
+or a permanent workaround; a timeout category alone does not prove a visible
+authorization prompt.
+
+On the installed `67ed4931e4` app, normal identity-fenced passphrase unlock passed,
+followed by Light/Dark/System, both accents, cancellation and ten edge-tap Profile
+reopens. Two background/resume cycles and an observed Control Center interruption
+also passed touch recovery. Writing style passed ten native sheet edit/cancel
+cycles after correcting its existing test's parent/roster assumptions. The
+updated `31b6c1c736` test runner was installed separately: the product process
+remained alive and its draft/session were retained. Private result bundles were
+removed; diagnostics contain only sanitized stage/identity-bound status.
+
+The wider Profile test reached and returned from all nine authored destinations,
+then failed on an obsolete One-profile Memory control label. The current shared
+surface and its 14 React tests require `Open Memory`; the nearest device test now
+uses that control without weakening its visibility or continuity assertions.
+The corrected full journey passes, including One's Feed/Profile content and
+return to the same Chat draft; the original failure is retained. These nine
+destinations include deliberately retained React content, not nine newly native
+form scenes.
+
+The wider shell rehearsal also reached History's native rename cancellation,
+Delete confirmation/cancellation and connector return without a crash or record
+deletion. It then stopped on another pre-conversion test assumption: Preferences
+Back is now UIKit navigation, not the former standalone `profile-back` button.
+That existing test now follows the owned native Back and requires covered-web
+accessibility isolation; exposed returns still require the single retained host
+and original draft. Full shell acceptance remains pending its corrected rerun.
+
+The production-backed qualification candidate at `31b6c1c736` is built with a
+fresh `d1c2b333c8` web export (the intervening application delta is test-only).
+Executable SHA-256:
+`20250f396e2460480a7d4d034348e118878ddab4edc12718bfebb66e9cc37357`.
+It is not installed: the current session's draft/attachment safety check could
+not prove an empty state, so only its runner was updated. Visual, accessibility
+and physical Release-performance acceptance remain open. Rollback is the
+independently reversible artwork/test commits; the custom-native flag remains
+opt-in and established platform fallbacks are unchanged.
 
 ### Shared Profile navigation and finite settings — 2026-10-16
 
