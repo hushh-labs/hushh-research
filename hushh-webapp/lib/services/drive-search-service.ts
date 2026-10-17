@@ -21,7 +21,15 @@ export type DriveSearchCoverage = {
   corpora: Array<"user" | "member_shared_drives">;
   fileKind: string;
   requestedPeriod: { start: string; end: string; timezone: string } | null;
-  dateBasis: "title_date_then_created_or_modified" | "content_period_unverified";
+  /**
+   * title_date_then_created_then_modified: an autoshare search. Every match
+   * whose title date (else created, else modified time) is inside the picked
+   * period is shared after payment, with no owner file review.
+   */
+  dateBasis:
+    | "title_date_then_created_or_modified"
+    | "title_date_then_created_then_modified"
+    | "content_period_unverified";
   timeIntent?: "file_activity" | "document_coverage";
   ownerReviewRequired?: boolean;
   contentPeriodVerified: false;
@@ -148,11 +156,15 @@ function coverage(value: unknown): DriveSearchCoverage {
   if (!Array.isArray(item.corpora) || item.corpora.length > 2 ||
     item.corpora.some(corpus => corpus !== "user" && corpus !== "member_shared_drives") ||
     new Set(item.corpora).size !== item.corpora.length ||
-    !["title_date_then_created_or_modified", "content_period_unverified"].includes(item.dateBasis as string) ||
+    !["title_date_then_created_or_modified", "title_date_then_created_then_modified",
+      "content_period_unverified"].includes(item.dateBasis as string) ||
     item.contentPeriodVerified !== false ||
     item.timeIntent !== undefined && item.timeIntent !== "file_activity" && item.timeIntent !== "document_coverage" ||
     item.ownerReviewRequired !== undefined && typeof item.ownerReviewRequired !== "boolean" ||
-    item.timeIntent === "document_coverage" && item.ownerReviewRequired !== true ||
+    // Only the autoshare date selection lets document coverage skip owner review.
+    item.dateBasis === "title_date_then_created_then_modified" && item.ownerReviewRequired !== false ||
+    item.timeIntent === "document_coverage" && item.ownerReviewRequired !== true &&
+      item.dateBasis !== "title_date_then_created_then_modified" ||
     item.dateBasis === "content_period_unverified" &&
       (item.timeIntent !== "document_coverage" || item.ownerReviewRequired !== true) ||
     typeof item.providerPagesExhausted !== "boolean" ||

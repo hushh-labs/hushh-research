@@ -7,9 +7,8 @@ import { ProfileAccountPriceIcon, ProfileAccountWalletIcon } from "@/components/
 import { FormLabel, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
-import { formatDocumentRequestPrice, parseDocumentRequestPrice, parseWholeDollarPrice } from "@/lib/consent/document-request-price";
+import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { apiErrorCode } from "@/lib/services/api-client";
 import {
   DriveRequestPricingService,
@@ -37,24 +36,6 @@ export function DocumentRequestPricingCard({ onSaved }: {
   const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
-
-  useEffect(() => {
-    if (!vaultOwnerToken) {
-      setAgentPackagesEnabled(false);
-      return;
-    }
-    let current = true;
-    setAgentPackagesEnabled(false);
-    void ExternalConnectorService.overview(vaultOwnerToken)
-      .then((overview) => {
-        if (current) setAgentPackagesEnabled(overview.driveAgentPackagesEnabled === true);
-      })
-      .catch(() => {
-        if (current) setAgentPackagesEnabled(false);
-      });
-    return () => { current = false; };
-  }, [vaultOwnerToken]);
 
   useEffect(() => {
     const operation = ++session.current;
@@ -85,8 +66,8 @@ export function DocumentRequestPricingCard({ onSaved }: {
   }, [vaultOwnerToken, reload]);
 
   if (!vaultOwnerToken) return null;
-  const amountCents = agentPackagesEnabled
-    ? parseDocumentRequestPrice(dollars) : parseWholeDollarPrice(dollars);
+  // New requests take cents from $0.50; older whole-dollar requests keep their own rule.
+  const amountCents = parseDocumentRequestPrice(dollars);
   const dirty = saved && (!saved.enabled || amountCents !== saved.amountCents);
   const save = async (enabled: boolean) => {
     const targetAmountCents = enabled ? amountCents : saved?.amountCents ?? null;
@@ -147,12 +128,11 @@ export function DocumentRequestPricingCard({ onSaved }: {
           <form className="space-y-3 px-3 pb-3" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
             <div className="space-y-[var(--app-form-field-gap)]">
               <FormLabel as="label" htmlFor={priceId}>Default price (USD)</FormLabel>
-              <Input id={priceId} type="text" inputMode={agentPackagesEnabled ? "decimal" : "numeric"} value={dollars}
+              <Input id={priceId} type="text" inputMode="decimal" value={dollars}
                 placeholder="Amount" onChange={(event) => { setDollars(event.target.value); setNotice(null); }}
                 disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
                 aria-describedby={`${priceId}-help`} />
-              <HelperText id={`${priceId}-help`}>{agentPackagesEnabled
-                ? "$0.50–$500, including cents." : "Whole dollars, $1–$500."}</HelperText>
+              <HelperText id={`${priceId}-help`}>$0.50–$500, including cents.</HelperText>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" size="sm" effect="fade" disabled={!dirty || amountCents === null || saving}>

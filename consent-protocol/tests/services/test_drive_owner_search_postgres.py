@@ -16,7 +16,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService, compile_plan
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
+from hushh_mcp.services.drive_owner_search_worker import (
+    MAX_SLICES_PER_RUN,
+    DriveOwnerSearchWorker,
+)
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 from hushh_mcp.services.drive_telemetry import correlation_tag
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -192,7 +195,8 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
             DriveOwnerSearchService(store=DriveOwnerSearchStore(db=store.db), transport=transport)
         )
         await worker.run(max_jobs=1)
-        assert 1 <= len(calls) - before <= 4
+        # Each slice reads at most four pages; a drain chains a bounded number.
+        assert 1 <= len(calls) - before <= 4 * MAX_SLICES_PER_RUN
     final = await store.status(user_id="owner", job_id=state["jobId"])
     # The disposable fixture contains synthetic files only. Preserve the
     # terminal-state requirement while exposing its sanitized failure class;
@@ -838,10 +842,13 @@ async def test_progress_slice_wakes_after_releasing_lease(store, monkeypatch):
     monkeypatch.setattr("hushh_mcp.services.drive_owner_search_worker.wake_drive_work", waking)
     service = DriveOwnerSearchService(store=store, transport=SimpleNamespace(read_tool=read))
     result = await DriveOwnerSearchWorker(service).run()
-    assert calls == [0, 1, 2, 3]
-    assert result["outcomes"] == {"queued": 1}
+    # Four-page slices chained in-run up to the per-drain bound, then exactly
+    # one wake after the final slice released its lease.
+    assert calls == list(range(4 * MAX_SLICES_PER_RUN))
+    assert result["outcomes"] == {"queued": MAX_SLICES_PER_RUN}
     waking.assert_awaited_once_with("suggestions")
-    assert (await store.status(user_id="owner", job_id=state["jobId"]))["matched"] == 4
+    matched = (await store.status(user_id="owner", job_id=state["jobId"]))["matched"]
+    assert matched == 4 * MAX_SLICES_PER_RUN
 
 
 async def test_retry_backoff_does_not_create_an_early_wake_loop(store, monkeypatch):

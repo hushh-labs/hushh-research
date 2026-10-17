@@ -266,6 +266,9 @@ _SAFE_METADATA_KEYS = frozenset(
         "bundle_id",
         "requested_labels",
         "requested_count",
+        # The owner's one "One sent N files to B" card per Drive request
+        # (drive_owner_shared_files): a count only, never a file name.
+        "shared_count",
     }
 )
 

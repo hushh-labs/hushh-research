@@ -8730,12 +8730,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       },
     });
   };
-  const handleWelcomePromptSelect = (prompt: string) => {
-    if (recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
+  const submitSuggestedPrompt = (prompt: string) => {
+    if (!prompt.trim() || recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
-    void enqueueGuardedTurn({ typedText: prompt, attachments: [], fromPaste: false });
+    setInput("");
+    pendingDriveSearchSelectionRef.current = null;
+    setPendingDriveSearchSelection(null);
+    generatedDriveSearchDraftRef.current = false;
+    setLongPromptAttachment(null);
+    setComposerExpanded(false);
+    void enqueueGuardedTurn({
+      typedText: prompt,
+      attachments: [],
+      fromPaste: false,
+      onRefused: () => {
+        setInput((current) => current || prompt);
+      },
+    });
   };
+  const handleWelcomePromptSelect = submitSuggestedPrompt;
   const handlePromptDraftSelect = useCallback((prompt: string) => {
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
@@ -9891,7 +9905,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     suggestions={visibleFollowUps(
                       message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
                     )}
-                    onSelect={handlePromptDraftSelect}
+                    disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
+                    onSelect={submitSuggestedPrompt}
                   />
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()

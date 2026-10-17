@@ -169,6 +169,12 @@ vi.mock("@/components/feed/feed-row", async (importOriginal) => {
 
 // The push prompt reads the app-wide notification provider; this suite only
 // covers clearing, and feed-push-prompt.test.tsx owns the prompt.
+vi.mock("@/components/feed/feed-shared-files-sheet", () => ({
+  FeedSharedFilesSheet: ({ requestId, sharedCount }: { requestId: string; sharedCount: number }) => (
+    <div data-testid="shared-files-sheet" data-request-id={requestId} data-count={sharedCount} />
+  ),
+}));
+
 vi.mock("@/components/feed/feed-push-prompt", () => ({
   FeedPushPrompt: () => null,
 }));
@@ -355,6 +361,32 @@ describe("Feed history interactions", () => {
     expect(mocks.routerPush).toHaveBeenCalledExactlyOnceWith(
       "/one/location?section=shared",
     );
+  });
+
+  it("opens the owner's shared files in place instead of routing", async () => {
+    mocks.useRealFeedRow = true;
+    mocks.data.items = [
+      {
+        ...mocks.data.items[0],
+        source_domain: "connected_systems",
+        event_type: "document_share_files_sent",
+        actor_label: "Ankit",
+        metadata: {
+          request_id: "6b4d3c1e-2f5a-4b6c-8d7e-9f0a1b2c3d4e",
+          counterpart_label: "Ankit",
+          shared_count: 12,
+        },
+      },
+    ];
+    await renderAfterAutomaticRead();
+    expect(screen.queryByTestId("shared-files-sheet")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open One sent 12 files to Ankit" }));
+
+    const sheet = screen.getByTestId("shared-files-sheet");
+    expect(sheet).toHaveAttribute("data-request-id", "6b4d3c1e-2f5a-4b6c-8d7e-9f0a1b2c3d4e");
+    expect(sheet).toHaveAttribute("data-count", "12");
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
   it("refreshes the displayed details when the server updates an existing notification", async () => {

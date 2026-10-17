@@ -208,6 +208,32 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   not satisfy that gate. This is bounded synthetic evidence, not a calibration,
   production-corpus recall measurement or empirical market-price validation.
 
+### Declared: deterministic Drive request search terms (owner decision)
+
+- Decision: on 2026-10-17 the org admin and product owner removed the Gemini
+  request planner from the Drive request flow, because the shared Gemini quota
+  is repeatedly exhausted and paused. This is a recorded **skip** of the
+  `agent_documents_live_search` stage, not a silent substitution.
+- Replacement: `hushh_mcp/services/drive_request_brain.py` turns the request
+  phrase into Drive discovery literals (typed words, a document-type synonym
+  lexicon, plural/singular forms, an owner-vocabulary spelling hint, date
+  phrases inside the picked dates removed as an advisory period, and
+  head-of-phrase kind words as MIME kinds). It is also the title-evidence
+  rule for automatic sharing, so that rule is deliberately narrow: only the
+  words the requester typed, their plural/singular forms and exact synonyms
+  ("pay slip" for "payslip", a cased "MoM") count. Loose lexicon clues
+  ("salary", "call", "card", "premium") and owner-vocabulary spelling fixes
+  only discover candidates for owner review. A request with no subject word
+  fails closed (`narrow_selection_required`) unless it explicitly asks for a
+  listing. The picked request dates, kind fences and
+  `drive_request_review_policy` still decide what may be shared.
+- Record: every plan freezes `request_plan_source` (`deterministic_brain` or
+  `model`) and the brain's concepts in the encrypted search checkpoint, and the
+  planner logs `drive_request.plan source=deterministic_brain` with counts only.
+- Rollback: `DRIVE_REQUEST_GEMINI_PLANNER_ENABLED=true` restores the
+  manifest-backed planner (default off); its model-failure fallback stays
+  recorded in `planner_fallback`.
+
 ### Declared: Continuous Drive evidence and reusable packets
 
 - Owner: existing Documents `agent_documents_suggestions` gene in

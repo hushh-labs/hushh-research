@@ -787,7 +787,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -817,7 +817,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -932,8 +932,8 @@
 			};
 			name = Debug;
 		};
-        C4A7B9010000000000000010 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.0; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
-        C4A7B9010000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.0; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+        C4A7B9010000000000000010 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+        C4A7B9010000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */

@@ -105,9 +105,13 @@ async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
     )
     with sharing.db.engine.begin() as connection:
         connection.execute(
+            # The owner's Allow already created this order, so mark that one
+            # paid instead of asserting that none exists yet.
             text("""INSERT INTO drive_request_payment_orders(
               request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
-              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())"""),
+              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE
+                SET status='paid',paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     return review
@@ -414,6 +418,44 @@ async def test_missing_dates_are_visible_and_park_trusted_search(request_bulk, s
             ),
             {"request": request_id},
         ).scalar_one()
+
+
+def test_another_requests_batch_maps_to_a_wait_not_a_failure():
+    from hushh_mcp.services.drive_trusted_auto_service import _defer_code
+
+    assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_another_requests_batch_is_a_wait_never_a_failed_attempt(request_bulk, sharing):
+    _membership(sharing, "active")
+    request_id = (await _request(sharing))["requestId"]
+
+    def preparation():
+        with sharing.db.engine.connect() as connection:
+            return connection.execute(
+                text("""SELECT preparation_attempts,preparation_error_code
+                  FROM drive_share_requests WHERE request_id=:request"""),
+                {"request": request_id},
+            ).one()
+
+    # A paid sibling request queued its batches first: each approve for this
+    # request collides. Waiting never uses up its three attempts.
+    for _ in range(4):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="share_in_progress"
+        )
+    assert tuple(preparation()) == (0, "trusted_auto_queued")
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "preparationError"
+    ] is None
+    # Three real failures still end automatic preparation.
+    for _ in range(3):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="preparation_unavailable"
+        )
+    assert tuple(preparation()) == (3, "preparation_unavailable")
 
 
 @pytest.mark.asyncio
@@ -1267,7 +1309,8 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     )
     service = SimpleNamespace(
         store=SimpleNamespace(
-            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}]),
+            # The in-run continuation asks the queue again and finds nothing.
+            due=AsyncMock(side_effect=[[{"user_id": "owner", "job_id": str(uuid4())}], []]),
             status=AsyncMock(return_value={"errorCode": None}),
         ),
         run_one=provider_slice,

@@ -45,9 +45,12 @@ describe("owner Drive request price", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
       enterPrice("25.501");
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-      enterPrice("25.50");
+      // New requests take cents from $0.50; below that is refused.
+      enterPrice("0.49");
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-      expect(screen.getByText("Whole dollars, $1–$500.")).toBeVisible();
+      enterPrice("0.50");
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+      expect(screen.getByText("$0.50–$500, including cents.")).toBeVisible();
       enterPrice("25");
       save();
       await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
@@ -63,8 +66,8 @@ describe("owner Drive request price", () => {
     }
   });
 
-  it("retains cent pricing when agent packages are enabled", async () => {
-    state.overview.mockResolvedValue({ driveAgentPackagesEnabled: true });
+  it("takes cent pricing whatever the agent package flag says", async () => {
+    state.overview.mockResolvedValue({ driveAgentPackagesEnabled: false });
     state.save.mockResolvedValue({ enabled: true, amountCents: 2550, version: 5 });
     render(<DocumentRequestPricingCard />);
     await screen.findByLabelText("Default price (USD)");

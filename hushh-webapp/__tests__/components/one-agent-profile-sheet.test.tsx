@@ -21,6 +21,7 @@ import {
   type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { CacheService } from "@/lib/services/cache-service";
+import { buildTodo } from "@/lib/services/todo-list-pkm-service";
 
 const mocks = vi.hoisted(() => ({
   uid: "viewer",
@@ -39,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   peekLiveMirror: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+  loadTasks: vi.fn(),
 }));
 vi.mock("@/lib/capacitor/native-drawers", () => ({ nativeDrawersPlatformEligible: () => mocks.native }));
 vi.mock("@/components/app-ui/native-feature-page", () => ({
@@ -72,6 +74,13 @@ vi.mock("@/lib/services/feed-service", () => ({
 }));
 vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
   isLocalCrmBuildEnabled: () => false,
+}));
+vi.mock("@/lib/services/todo-list-pkm-service", async original => {
+  const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
+  return { ...actual, TodoListPkmService: { ...actual.TodoListPkmService, load: mocks.loadTasks } };
+});
+vi.mock("@/lib/profile/gmail-connector-store", () => ({
+  useGmailConnectorStatus: () => ({ status: null }),
 }));
 
 const item = (id: string, event_type: string) => ({
@@ -179,6 +188,10 @@ describe("One agent profile feed preview", () => {
     useChatOnboardingSession.getState().reset(null);
     window.localStorage.clear();
     CacheService.getInstance().clear();
+    mocks.loadTasks.mockResolvedValue({ tasks: [
+      buildTodo({ id: "task-anytime", title: "Anytime task" }),
+      buildTodo({ id: "task-dated", title: "Tomorrow task", date: "2099-01-01" }),
+    ] });
     mocks.list.mockResolvedValue({
       items: [
         item("1", "calendar_connected"),
@@ -350,6 +363,7 @@ describe("One agent profile feed preview", () => {
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
     await screen.findByText("Mail connected");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
@@ -363,6 +377,22 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close One profile" }));
     expect(mocks.close).toHaveBeenCalledWith(false);
+  });
+
+  it("loads the shared To-do preview only when selected and closes before opening its workspace", async () => {
+    const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByText("Anytime task")).toBeInTheDocument();
+    expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
+    expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
+    fireEvent.click(screen.getByRole("button", { name: /Open To-do List/i }));
+    expect(mocks.close).toHaveBeenCalledWith(false);
+    expect(mocks.push).toHaveBeenCalledWith("/one/todos");
+    expect(mocks.close.mock.invocationCallOrder.at(-1)).toBeLessThan(mocks.push.mock.invocationCallOrder.at(-1)!);
   });
 
   it("shows the shared live memory preview instead of static file cards, and closes before navigating", async () => {

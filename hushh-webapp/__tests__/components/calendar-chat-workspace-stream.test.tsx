@@ -445,8 +445,6 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(stream).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: /Find newly available times/ }));
-    expect((composer as HTMLTextAreaElement).value).toContain("guest@example.com");
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
     expect(execute).toHaveBeenCalledOnce();
   });

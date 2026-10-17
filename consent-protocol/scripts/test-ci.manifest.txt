@@ -82,8 +82,14 @@ tests/services/test_drive_v1_manual_review_postgres.py
 tests/services/test_drive_request_package_service.py
 tests/services/test_drive_bounded_search_unit.py
 tests/services/test_drive_search_performance_proof.py
+# Search v2: the request flow plans without any model call, and only typed
+# words and exact synonyms are title evidence for autoshare.
+tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
+# A "3 month meeting notes" request over a realistic Drive (synthetic titles):
+# exactly the in-period notes A may share, end to end on PostgreSQL.
+tests/services/test_drive_owner_meeting_notes_scenario.py
 tests/services/test_drive_request_payment.py
 tests/test_drive_request_owner_payouts.py
 tests/test_stripe_connect_bank_payouts.py

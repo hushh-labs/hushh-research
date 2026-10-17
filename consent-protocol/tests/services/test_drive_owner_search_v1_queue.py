@@ -1,7 +1,7 @@
 """Only explicitly marked historical V1 requests use the V1 search queue."""
 
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock
+from unittest.mock import ANY, AsyncMock, call
 from uuid import uuid4
 
 import pytest
@@ -69,7 +69,8 @@ async def test_request_search_uses_v1_lane_only_for_marked_live_request(
 async def test_v1_worker_limits_request_preparation_to_v1(monkeypatch):
     job_id = str(uuid4())
     store = SimpleNamespace(
-        due=AsyncMock(return_value=[{"user_id": "owner", "job_id": job_id}]),
+        # The in-run continuation asks the V1 queue again and finds nothing.
+        due=AsyncMock(side_effect=[[{"user_id": "owner", "job_id": job_id}], []]),
         status=AsyncMock(return_value={"errorCode": None}),
     )
     service = SimpleNamespace(store=store, run_one=AsyncMock(return_value="queued"))
@@ -86,7 +87,7 @@ async def test_v1_worker_limits_request_preparation_to_v1(monkeypatch):
     result = await DriveOwnerSearchWorker(service, trusted_auto=trusted_auto).run(v1_only=True)
 
     assert result["outcomes"] == {"queued": 1, "unavailable": 0}
-    store.due.assert_awaited_once_with(limit=1, v1_only=True)
+    assert store.due.await_args_list == [call(limit=1, v1_only=True)] * 2
     service.run_one.assert_awaited_once()
     assert "after_page" not in service.run_one.await_args.kwargs
     assert "require_current" not in service.run_one.await_args.kwargs

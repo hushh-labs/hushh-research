@@ -205,7 +205,7 @@ class DriveSharingService:
         package_revision=None,
         package_digest=None,
     ):
-        """A's Allow hands one request to the automatic search; nothing is shared yet."""
+        """A's Allow starts the search and the payment ask; nothing is shared yet."""
         await self._require_owner()
         result = await self.store.allow_request(
             user_id=user_id,
@@ -218,7 +218,9 @@ class DriveSharingService:
                 else {}
             ),
         )
-        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES)
+        # "sharing" owns the Checkout lane, so the requester's payment ask goes
+        # out in parallel with the search instead of waiting for it.
+        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES, "sharing")
         return result
 
     async def set_request_price(self, *, user_id, request_id, revision, amount_cents):

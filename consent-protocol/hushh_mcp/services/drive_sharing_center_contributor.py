@@ -576,9 +576,30 @@ def entry(row: Any, *, now: datetime | None = None) -> dict[str, Any]:
             "checkout_open",
         }
     )
+    # The one order Allow itself creates: a still-pending request the owner's
+    # lane has already recorded a preparation state for, with no frozen batch
+    # and no package behind it, asking for a payment no Checkout session is
+    # bound to yet. That ask runs beside the search instead of parking it, and
+    # it hides no owner task. Everything else keeps the rule it had, because
+    # there an unpaid order still does imply the owner's part is done: a bound
+    # Checkout owns the row, a frozen batch or an approved request is the old
+    # post-review lane, a request nothing has prepared is one whose payment was
+    # opened some other way, and a refund, an expiry or a reconciliation is
+    # never progress.
+    allow_parallel_payment = bool(
+        row["state"] == "pending"
+        and preparation_code is not None
+        and row.get("agent_package") is not True
+        and row.get("trusted_batch_seen") is not True
+        and row.get("payment_status") == "awaiting_payment"
+    )
     owner_payment_blocked = row["direction"] == "incoming" and (
-        row.get("payment_status") in {"awaiting_payment", "checkout_open", "refunded", "expired"}
-        or row.get("payment_reconciliation_required") is True
+        row.get("payment_reconciliation_required") is True
+        or (
+            not allow_parallel_payment
+            and row.get("payment_status")
+            in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        )
     )
     # Automatic sharing claims a batch as each search page commits. A completed
     # search with results left and no automatic batch had every claim refused,
@@ -627,8 +648,11 @@ def entry(row: Any, *, now: datetime | None = None) -> dict[str, Any]:
     )
     legacy_progressing = bool(
         request_open
-        and row.get("payment_status")
-        not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        and (
+            allow_parallel_payment
+            or row.get("payment_status")
+            not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        )
         and row.get("payment_reconciliation_required") is not True
         and row.get("trusted_authority_ready") is True
         and (row.get("agent_package") is not True or row.get("owner_allowed") is True)

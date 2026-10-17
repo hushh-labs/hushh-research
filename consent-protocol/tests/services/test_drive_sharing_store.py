@@ -332,6 +332,86 @@ async def test_non_trusted_allow_fixes_owners_final_quote_before_payment(sharing
 
 
 @pytest.mark.asyncio
+async def test_owner_allow_asks_the_requester_to_pay_before_any_search(sharing, monkeypatch):
+    """Allow is the payment ask: no search job, no frozen batch, no repricing.
+
+    The owner allowed a period at their own price, so the amount is already
+    final. The requester can pay while the background search runs, and
+    delivery still waits for both.
+    """
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    created = await request(sharing)
+    identity = created["requestId"]
+    assert not rows(sharing, "drive_request_payment_orders")
+
+    allowed = await owner_allow(sharing, created, 3000)
+    assert (allowed["ownerAllowed"], allowed["amountCents"]) == (True, 3000)
+
+    row, private = stored_request(sharing, identity)
+    # Queued for the background search, which has not started and is not waited on.
+    assert row["preparation_error_code"] == "trusted_auto_queued"
+    assert row["owner_allowed_at"] is not None
+    assert not rows(sharing, "drive_owner_search_jobs")
+    assert not rows(sharing, "drive_bulk_shares")
+    # The requester's order exists now, at the owner's price.
+    orders = rows(sharing, "drive_request_payment_orders")
+    assert len(orders) == 1
+    assert (orders[0]["status"], orders[0]["amount_cents"]) == ("awaiting_payment", 3000)
+    assert (orders[0]["requester_user_id"], orders[0]["user_id"]) == ("recipient", "owner")
+    # The owner's earning claim is recorded with the order, as on approval.
+    assert len(rows(sharing, "drive_request_owner_payouts")) == 1
+    # Allow itself still emits no event: the bound Checkout tells the requester.
+    assert [event["event_type"] for event in rows(sharing, "drive_share_events")] == [
+        "document_share_request",
+        "document_share_request_sent",
+    ]
+    # A repeated tap neither reprices nor duplicates the order.
+    assert await owner_allow(sharing, created, 3000) == allowed
+    assert len(rows(sharing, "drive_request_payment_orders")) == 1
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await owner_allow(sharing, created, 2500)
+
+
+@pytest.mark.asyncio
+async def test_allow_without_owner_payout_setup_still_creates_no_order(sharing, monkeypatch):
+    """An incomplete owner setup parks the request instead of charging anyone."""
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    created = await request(sharing)
+    allowed = await owner_allow(sharing, created, 3000)
+    assert allowed["ownerPayoutAccountReady"] is False
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "owner_payout_required"
+    )
+    assert not rows(sharing, "drive_request_payment_orders")
+    assert not rows(sharing, "drive_request_owner_payouts")
+
+
+@pytest.mark.asyncio
 async def test_estimate_is_written_once_and_an_owner_price_reads_as_owner_set(sharing, monkeypatch):
     from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 
@@ -786,6 +866,9 @@ def rows(sharing, table):
         "drive_request_payment_orders",
         "drive_request_payment_obligations",
         "drive_request_payment_refunds",
+        "drive_request_owner_payouts",
+        "drive_owner_search_jobs",
+        "drive_bulk_shares",
         "one_action_directive_ledger",
     }
     with sharing.db.engine.connect() as connection:
@@ -1391,21 +1474,98 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
     # A search slice that no worker has held for ten minutes (the drains are
     # paused) is delayed for both participants, and moves again once held.
     job_id = str(uuid4())
+
+    def search_checkpoint(owner_review_required):
+        # The automatic selection this request's search froze at its revision.
+        return json.dumps(
+            sharing.sharing_cipher.seal(
+                {
+                    "request_origin_id": request_id,
+                    "request_revision": 1,
+                    "request_selection_version": 2,
+                    "request_time_intent": "file_activity",
+                    "request_owner_review_required": owner_review_required,
+                },
+                user_id="owner",
+                resource_id=job_id,
+                purpose="owner-search-checkpoint",
+            )
+        )
+
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_owner_search_jobs
               (job_id,user_id,client_request_id,request_digest,connection_generation,
                consent_version,status,checkpoint_envelope,next_at,updated_at)
               VALUES (:job,'owner',:request,:digest,1,'drive-owner-search-v1','queued',
-                '{}'::jsonb,clock_timestamp()-INTERVAL '10 minutes',
+                CAST(:checkpoint AS jsonb),clock_timestamp()-INTERVAL '10 minutes',
                 clock_timestamp()-INTERVAL '10 minutes')"""),
-            {"job": job_id, "request": request_id, "digest": "a" * 64},
+            {
+                "job": job_id,
+                "request": request_id,
+                "digest": "a" * 64,
+                "checkpoint": search_checkpoint(False),
+            },
         )
     for user_id in ("owner", "recipient"):
         status = await sharing.request_status(user_id=user_id, request_id=request_id)
         waited = datetime.now(UTC) - datetime.fromisoformat(status["workDelayedSince"])
         assert timedelta(minutes=9) < waited < timedelta(minutes=11)
         assert "queuedAt" not in status
+    # The UAT bug: the same stalled clock while the owner must select files
+    # waits on a person, never "Taking longer than usual".
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:checkpoint AS jsonb)
+              WHERE job_id=:job"""),
+            {"job": job_id, "checkpoint": search_checkpoint(True)},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" not in status
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:checkpoint AS jsonb)
+              WHERE job_id=:job"""),
+            {"job": job_id, "checkpoint": search_checkpoint(False)},
+        )
+    # The same stalled clock while the requester's payment is due waits on a
+    # person too; once paid, the stalled automatic work is a delay again.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (stripe_mode,request_id,user_id,requester_user_id,amount_cents,status)
+              VALUES ('test',:request,'owner','recipient',100,'awaiting_payment')"""),
+            {"request": request_id},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" not in status
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp() WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" in status
+    # Only active automatic preparation can be delayed.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET preparation_error_code='preparation_unavailable'
+              WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+    for user_id in ("owner", "recipient"):
+        status = await sharing.request_status(user_id=user_id, request_id=request_id)
+        assert "workDelayedSince" not in status
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET preparation_error_code='trusted_auto_active'
+              WHERE request_id=:id"""),
+            {"id": request_id},
+        )
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_owner_search_jobs SET status='running',lease_id=:lease,
@@ -1415,6 +1575,56 @@ async def test_owner_allow_hands_a_new_request_to_the_trusted_pipeline(sharing, 
     for user_id in ("owner", "recipient"):
         status = await sharing.request_status(user_id=user_id, request_id=request_id)
         assert "workDelayedSince" not in status
+
+
+def test_started_work_is_a_delay_only_while_automatic_work_should_run(monkeypatch):
+    """No person is waited on: not the owner, not setup, not the payment."""
+    from hushh_mcp.services import drive_sharing_store as module
+
+    store = DriveSharingStore.__new__(DriveSharingStore)
+    store.sharing_cipher = None
+    now = datetime(2026, 10, 17, 14, 30, tzinfo=UTC)
+    stalled = now - timedelta(minutes=10)
+    clocks = {"search_waiting_since": stalled, "sharing_waiting_since": None}
+    connection = SimpleNamespace(
+        execute=lambda *_args, **_kwargs: SimpleNamespace(
+            mappings=lambda: SimpleNamespace(one=lambda: clocks)
+        )
+    )
+    state = {"unpaid_order": None, "owner_review": False}
+    store._row = lambda _connection, _sql, _params: state["unpaid_order"]
+    monkeypatch.setattr(
+        module, "request_requires_owner_review", lambda *_args, **_kwargs: state["owner_review"]
+    )
+    row = {
+        "request_id": str(uuid4()),
+        "user_id": "owner",
+        "revision": 1,
+        "status": "pending",
+        "bulk_search_started_at": stalled,
+        "access_stop_requested_at": None,
+        "expires_at": now + timedelta(days=1),
+        "preparation_error_code": "trusted_auto_active",
+    }
+    automatic = {"trusted_auto": True}
+    delayed = {"workDelayedSince": stalled.isoformat()}
+    assert store._started_work(connection, row, now, automatic) == delayed
+    # Payment due (awaiting payment, open or expired checkout): never a delay.
+    state["unpaid_order"] = {"exists": 1}
+    assert store._started_work(connection, row, now, automatic) == {}
+    state["unpaid_order"] = None
+    # The owner's exact file review waits on the owner.
+    state["owner_review"] = True
+    assert store._started_work(connection, row, now, automatic) == {}
+    state["owner_review"] = False
+    # Queued, failed, manual or setup work is not running automatic work.
+    for code in ("trusted_auto_queued", "preparation_unavailable", "manual_search_active", None):
+        changed = {**row, "preparation_error_code": code}
+        assert store._started_work(connection, changed, now, automatic) == {}
+    # A request without Trusted or Allow authority has no automatic work.
+    assert store._started_work(connection, row, now, {}) == {}
+    assert store._started_work(connection, row, now, {"trusted_auto": False}) == {}
+    assert store._started_work(connection, row, now, automatic) == delayed
 
 
 @pytest.mark.asyncio
@@ -1430,27 +1640,52 @@ async def test_owner_price_is_required_for_a_paid_request_and_fixed_once_allowed
             text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
             {"id": request_id},
         )
-    # The 2026-10-17 first-Allow 422: a cents price on a whole-dollar request.
-    # The review now names the request's rule so every price step offers it.
+    # New requests seal the autoshare flow: cents from $0.50, no whole-dollar rule.
     review = await sharing.owner_review(user_id="owner", request_id=request_id)
-    assert review["wholeDollarPrice"] is True
-    for missing_or_invalid in (None, 9, 50001, 50, 150):
+    assert "wholeDollarPrice" not in review and review["autoshare"] is True
+    for missing_or_invalid in (None, 9, 49, 50001):
         with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
             await owner_allow(sharing, created, missing_or_invalid)
 
-    first = await owner_allow(sharing, created, 2000)
-    assert (first["ownerAllowed"], first["amountCents"]) == (True, 2000)
+    # A request sealed before the autoshare flow keeps its whole-dollar rule
+    # (the 2026-10-17 first-Allow 422 stays a 422 for it).
+    older = await request(sharing)
+    _, older_private = stored_request(sharing, older["requestId"])
+    older_private.pop("request_flow")
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET payment_required=TRUE,
+              request_envelope=CAST(:envelope AS jsonb) WHERE request_id=:id"""),
+            {
+                "id": older["requestId"],
+                "envelope": json.dumps(
+                    sharing.sharing_cipher.seal(
+                        older_private,
+                        user_id="owner",
+                        resource_id=older["requestId"],
+                        purpose="request",
+                    )
+                ),
+            },
+        )
+    older_review = await sharing.owner_review(user_id="owner", request_id=older["requestId"])
+    assert older_review["wholeDollarPrice"] is True and "autoshare" not in older_review
+    with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
+        await owner_allow(sharing, older, 150)
+
+    first = await owner_allow(sharing, created, 50)
+    assert (first["ownerAllowed"], first["amountCents"]) == (True, 50)
     row, private = stored_request(sharing, request_id)
-    assert private["owner_allowed"]["amount_cents"] == 2000
+    assert private["owner_allowed"]["amount_cents"] == 50
     # A repeated tap with the same price is the same decision, not a new seal.
-    assert await owner_allow(sharing, created, 2000) == first
+    assert await owner_allow(sharing, created, 50) == first
     assert stored_request(sharing, request_id)[0]["request_envelope"] == row["request_envelope"]
     for changed in (3000, None):
         with pytest.raises(DriveSharingError, match="request_already_decided"):
             await owner_allow(sharing, created, changed)
-    assert stored_request(sharing, request_id)[1]["owner_allowed"]["amount_cents"] == 2000
+    assert stored_request(sharing, request_id)[1]["owner_allowed"]["amount_cents"] == 50
     review = await sharing.owner_review(user_id="owner", request_id=request_id)
-    assert (review["paymentRequired"], review["priceCents"]) == (True, 2000)
+    assert (review["paymentRequired"], review["priceCents"]) == (True, 50)
 
 
 @pytest.mark.asyncio
@@ -1723,3 +1958,38 @@ async def test_hashcoin_request_without_price_still_waits_for_owner(sharing, mon
         == "owner_price_required"
     )
     assert not rows(sharing, "drive_request_payment_orders")
+
+
+def test_autoshare_is_sealed_outside_production_only(monkeypatch):
+    from hushh_mcp.services.drive_owner_allowed import autoshare_enabled
+
+    for environment, expected in (
+        ("uat", True),
+        ("development", True),
+        ("", True),
+        ("production", False),
+        (" Production ", False),
+    ):
+        monkeypatch.setenv("ENVIRONMENT", environment)
+        assert autoshare_enabled() is expected
+
+
+@pytest.mark.asyncio
+async def test_production_requests_keep_the_owner_review_contract(sharing, monkeypatch):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
+    gate = "hushh_mcp.services.drive_sharing_store.autoshare_enabled"
+    monkeypatch.setattr(gate, lambda: False)
+    created = await request(sharing)
+    _, private = stored_request(sharing, created["requestId"])
+    # Autoshare is not approved for production: no sealed flow, so the
+    # whole-dollar owner-review contract applies.
+    assert "request_flow" not in private
+    review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
+    assert review.get("autoshare") is not True
+    assert review.get("wholeDollarPrice") is True
+    # Negative control: outside production the same request seals the flow.
+    monkeypatch.setattr(gate, lambda: True)
+    other = await request(sharing)
+    _, other_private = stored_request(sharing, other["requestId"])
+    assert other_private["request_flow"] == "oct17_autoshare"

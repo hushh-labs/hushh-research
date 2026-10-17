@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
 
@@ -19,12 +19,15 @@ import {
 import { FeedRow } from "@/components/feed/feed-row";
 import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import {
+  ClipboardList,
   Fingerprint,
-  X,
+  LockKeyhole,
   Newspaper,
   ArrowUpRight,
+  X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
@@ -44,9 +47,25 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { OnePresenceAvatar, type OnePresenceState } from "@/components/agent/one-presence-avatar";
+import {
+  TodoListPkmService,
+  openTodoItems,
+  type TodoItem,
+} from "@/lib/services/todo-list-pkm-service";
+import {
+  TodoRow,
+  DueReceiptRow,
+  extractDueReceipts,
+  groupByDate,
+} from "@/components/todos/todo-list-page";
+import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  getCachedGmailReceipts,
+  cachedGmailReceiptDisplayItems,
+} from "@/lib/profile/gmail-receipts-cache";
 
 import styles from "./one-agent-profile-sheet.module.css";
-import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
 
 /** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
 function OneFeedPreview({
@@ -83,9 +102,9 @@ function OneFeedPreview({
   const openFullFeed = (_item: FeedItem) => onNavigate(ROUTES.ONE_FEED);
 
   return (
-    <div className={styles.feed}>
+    <div className={`${styles.feed} profile-home-content`}>
       <div className={styles.sectionHeading}>
-        <h3 data-app-pane-section-label>Latest activity</h3>
+        <h3>Latest activity</h3>
         <button type="button" onClick={() => onNavigate(ROUTES.ONE_FEED)}>
           Open Feed <ArrowUpRight className="size-4" aria-hidden />
         </button>
@@ -180,10 +199,218 @@ function WebOneAgentProfile({
   );
 }
 
+function OneTodoPreview({
+  user,
+  vaultKey,
+  vaultOwnerToken,
+  isVaultUnlocked,
+  onNavigate,
+}: {
+  user: User;
+  vaultKey: string | null;
+  vaultOwnerToken: string | null;
+  isVaultUnlocked: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  const [tasks, setTasks] = useState<TodoItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const loadTasks = useCallback(async () => {
+    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      setTasks([]);
+      return;
+    }
+    setLoading(true);
+    setError(false);
+    try {
+      const state = await TodoListPkmService.load({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      setTasks(state.tasks);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [isVaultUnlocked, user.uid, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    void loadTasks();
+  }, [loadTasks]);
+
+  const idTokenProvider = useCallback(
+    () => user.getIdToken(),
+    [user],
+  );
+  const gmail = useGmailConnectorStatus({
+    userId: user.uid,
+    idTokenProvider,
+  });
+  const receiptAccountKey =
+    gmail.status?.google_sub || gmail.status?.google_email || null;
+  const cachedReceipts = useMemo(() => {
+    if (!isVaultUnlocked || !receiptAccountKey) return null;
+    return getCachedGmailReceipts(user.uid, receiptAccountKey);
+  }, [isVaultUnlocked, receiptAccountKey, user.uid]);
+
+  const dueReceipts = useMemo(() => {
+    if (!cachedReceipts) return [];
+    return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
+  }, [cachedReceipts]);
+
+  const openTasks = useMemo(() => openTodoItems(tasks), [tasks]);
+  const groups = useMemo(() => groupByDate(openTasks), [openTasks]);
+  const anytimeGroup = useMemo(
+    () => groups.find((g) => g.id === "anytime"),
+    [groups],
+  );
+  const datedGroups = useMemo(
+    () => groups.filter((g) => g.id !== "anytime"),
+    [groups],
+  );
+
+  const toggleTask = useCallback(
+    async (task: TodoItem, complete: boolean) => {
+      if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) return;
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, status: complete ? "done" : "pending" }
+            : t,
+        ),
+      );
+      try {
+        await TodoListPkmService.setStatus({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+          task,
+          status: complete ? "done" : "pending",
+        });
+      } catch {
+        void loadTasks();
+      }
+    },
+    [isVaultUnlocked, loadTasks, user.uid, vaultKey, vaultOwnerToken],
+  );
+
+  const deleteTask = useCallback(
+    async (task: TodoItem) => {
+      if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) return;
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      try {
+        await TodoListPkmService.remove({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+          task,
+        });
+      } catch {
+        void loadTasks();
+      }
+    },
+    [isVaultUnlocked, loadTasks, user.uid, vaultKey, vaultOwnerToken],
+  );
+
+  return (
+    <div className={`${styles.todo} profile-home-content`}>
+      <div className={styles.sectionHeading}>
+        <h3>To-do list</h3>
+        <button type="button" onClick={() => onNavigate(ROUTES.ONE_TODOS)}>
+          Open To-do List <ArrowUpRight className="size-4" aria-hidden />
+        </button>
+      </div>
+
+      {!isVaultUnlocked ? (
+        <p role="status" className={styles.notice}>
+          Unlock your vault to view your to-do list.
+        </p>
+      ) : loading && !tasks.length ? (
+        <p role="status" className={styles.notice}>
+          Loading your to-do list…
+        </p>
+      ) : error && !tasks.length ? (
+        <div className={styles.notice}>
+          <p>Your to-do list couldn’t load.</p>
+          <button type="button" onClick={() => void loadTasks()}>
+            Try again
+          </button>
+        </div>
+      ) : !openTasks.length && !dueReceipts.length ? (
+        <div className={styles.empty}>
+          <ClipboardList className="size-7" aria-hidden />
+          <p>All clear.</p>
+          <span>Tasks and due payments will appear here.</span>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* 1. Any time section comes FIRST */}
+          {anytimeGroup ? (
+            <section key={anytimeGroup.id} className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                {anytimeGroup.label}
+              </h4>
+              <div className="space-y-2">
+                {anytimeGroup.tasks.map((task) => (
+                  <TodoRow
+                    key={task.id}
+                    task={task}
+                    saving={false}
+                    onToggle={toggleTask}
+                    onDelete={deleteTask}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* 2. Receipts in between */}
+          {dueReceipts.length > 0 ? (
+            <section className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                Receipts & Due Payments
+              </h4>
+              <div className="space-y-2">
+                {dueReceipts.map((receipt) => (
+                  <DueReceiptRow key={receipt.id} receipt={receipt} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* 3. Dated events below */}
+          {datedGroups.map((group) => (
+            <section key={group.id} className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                {group.label}
+              </h4>
+              <div className="space-y-2">
+                {group.tasks.map((task) => (
+                  <TodoRow
+                    key={task.id}
+                    task={task}
+                    saving={false}
+                    onToggle={toggleTask}
+                    onDelete={deleteTask}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One content model and hierarchy across renderers; no duplicated identity,
  * feed policy, private-name projection or tab/action authority. */
 function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false }: OneAgentProfileProps & { sheet?: boolean }) {
   const { user } = useAuth();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const profileName = useOneDisplayName(open);
   const router = useRouter();
   const [tab, setTab] = useState("feed");
@@ -202,12 +429,19 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
   if (open && tab === "feed" && user)
     feed = <OneFeedPreview key={user.uid} user={user} onNavigate={navigate} />;
 
+  let todo: ReactNode = <p className={styles.notice}>Sign in to view your to-do list.</p>;
+  if (open && tab === "todo" && user) {
+    todo = <OneTodoPreview key={user.uid} user={user} vaultKey={vaultKey}
+      vaultOwnerToken={vaultOwnerToken} isVaultUnlocked={isVaultUnlocked} onNavigate={navigate} />;
+  }
+
   return <div className={styles.content}>
         <div className={styles.hero}>
           <div className={styles.avatar}>
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
           {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
+          <span className={styles.privateBadge}><LockKeyhole className="size-3.5" aria-hidden /> Private to you</span>
         </div>
         {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
@@ -218,12 +452,16 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
             <TabsTrigger value="feed">
               <Newspaper aria-hidden /> Feed
             </TabsTrigger>
+            <TabsTrigger value="todo">
+              <ClipboardList aria-hidden /> To-do
+            </TabsTrigger>
             <TabsTrigger value="profile">
               <Fingerprint aria-hidden /> Profile
             </TabsTrigger>
           </TabsList>
           <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
+            <TabsContent value="todo">{todo}</TabsContent>
             <TabsContent value="profile">
               <div className={styles.profile}>
                 <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />

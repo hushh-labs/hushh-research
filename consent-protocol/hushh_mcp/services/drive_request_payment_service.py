@@ -23,6 +23,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     MAX_OWNER_PRICE_CENTS,
     MIN_OWNER_PRICE_CENTS,
     automatic_recipient_current,
+    autoshare_owner_allow_authority,
     request_has_document_scope,
     valid_owner_price_cents,
 )
@@ -326,12 +327,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_not_ready")
         if request["status"] == "pending" and not request_has_document_scope(private):
             raise DriveSharingError("date_range_required")
-        if private.get("trusted_auto") is True and not request_requires_owner_review(
-            connection,
-            user_id=owner,
-            request_id=request["request_id"],
-            revision=request["revision"],
-            cipher=sharing.sharing_cipher,
+        if private.get("trusted_auto") is True and (
+            # The owner's Allow priced the period, so the requester may pay
+            # before the background search has frozen anything. The automatic
+            # rechecks below still decide, and delivery still waits for both.
+            autoshare_owner_allow_authority(private)
+            or not request_requires_owner_review(
+                connection,
+                user_id=owner,
+                request_id=request["request_id"],
+                revision=request["revision"],
+                cipher=sharing.sharing_cipher,
+            )
         ):
             preferences = DriveLivePreferences(db=self.db)
             current = preferences.live_active(connection, user_id=owner)

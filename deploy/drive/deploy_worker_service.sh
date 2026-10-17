@@ -209,6 +209,17 @@ if [[ "${test_webhook_ready}" == true ]]; then
   payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_TEST_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}:latest"
 fi
 
+# Both budgeted instances stay warm (service-level --min=2). A cold instance
+# takes about 2.5 minutes to become ready (the ClamAV signature and E5 model
+# checks gate readiness), and each instance runs one drain at a time, so without
+# a warm second instance a lane that arrives while another lane runs waits for
+# that start. The service-level floor follows the traffic split: a tagged
+# no-traffic candidate or a retired revision is never kept warm, and the
+# revision-level minimum stays 0 for the same reason. The connection budget
+# counts every retained revision at maxScale x workers x pool (2 x 1 x 3), so
+# the floor reserves no extra connections. Concurrency stays 1:
+# LocalDocumentProcessor's memory-heavy child limits are per request, and every
+# Drive store transaction shares the process's one SQLAlchemy connection.
 gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
   --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
@@ -216,7 +227,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
   --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
   --concurrency=1 --timeout=240 --max-instances=2 --min-instances=0 \
-  --max=2 --min=0 "${traffic_flags[@]}" \
+  --max=2 --min=2 "${traffic_flags[@]}" \
   --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
   --container=drive-worker \
   --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \
@@ -244,6 +255,7 @@ gcloud run revisions describe "${candidate_revision}" \
       EXPECTED_SCANNER_INDEX_DIGEST="${CLAMAV_IMAGE#*@}" \
       EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
       EXPECTED_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED}" \
+      EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
       python3 deploy/drive/verify_worker_revision.py
 
 # The private service admits only this scheduler identity. The route repeats

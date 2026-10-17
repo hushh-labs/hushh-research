@@ -54,6 +54,18 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("prompts={welcomePrompts}");
   });
 
+  it("submits follow-up recommendations directly to chat and guards them when busy", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    const followUpUsage = workspace.slice(
+      workspace.indexOf("<AgentFollowUpSuggestions"),
+      workspace.indexOf("/>", workspace.indexOf("<AgentFollowUpSuggestions")),
+    );
+    expect(followUpUsage).toContain("onSelect={submitSuggestedPrompt}");
+    expect(followUpUsage).toContain("disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}");
+    expect(followUpUsage).not.toContain("onSelect={handlePromptDraftSelect}");
+  });
+
   it("keeps prompt and calendar work serialized while preserving an editable pending queue", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 

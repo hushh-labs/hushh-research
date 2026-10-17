@@ -261,6 +261,8 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
     assert "--max-instances=2 --min-instances=0" in release
+    # The candidate attestation holds the revision to the budgeted scale.
+    assert "EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1" in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
@@ -658,6 +660,50 @@ else:
         assert len("consent-protocol-drive-worker") + 1 + len(expected_tag) <= 46
         assert "--container=drive-worker" in deploy
         assert "--container=clamav" in deploy
+        # Scaling flags precede the first container, so they bind the service
+        # and revision. Both budgeted instances stay warm through the
+        # service-level floor; the revision keeps no floor and one request.
+        first_container = deploy.index("--container=drive-worker")
+        scaling = {
+            name: value
+            for name, _, value in (arg.partition("=") for arg in deploy[:first_container])
+            if name in {"--concurrency", "--max-instances", "--min-instances", "--max", "--min"}
+        }
+        assert scaling == {
+            "--concurrency": "1",
+            "--max-instances": "2",
+            "--min-instances": "0",
+            "--max": "2",
+            "--min": "2",
+        }
+        # Pre-deploy admission reserves the profile's candidate, so the cap,
+        # launcher workers and pools must equal it; the floor never exceeds it.
+        profile = json.loads((ROOT / "config" / "runtime-capacity.json").read_text())
+        services = profile["environments"]["uat"]["services"]
+        candidate = services["consent-protocol-drive-worker"]["candidate"]
+        assert scaling["--max"] == scaling["--max-instances"] == str(candidate["max_instances"])
+        assert 1 <= int(scaling["--min"]) <= candidate["max_instances"]
+        worker = {
+            name: value
+            for name, _, value in (
+                arg.partition("=")
+                for arg in deploy[first_container : deploy.index("--container=clamav")]
+            )
+        }
+        launcher = worker["--args"].split(",")
+        assert launcher[launcher.index("-w") + 1] == str(candidate["workers_per_instance"])
+        env_vars = worker["--set-env-vars"]
+        assert env_vars.startswith("^|^")
+        env = dict(item.split("=", 1) for item in env_vars.removeprefix("^|^").split("|"))
+        assert [
+            env["DB_POOL_MAX_SIZE"],
+            env["DB_SQLALCHEMY_POOL_SIZE"],
+            env["DB_SQLALCHEMY_MAX_OVERFLOW"],
+        ] == [
+            str(candidate[key])
+            for key in ("asyncpg_pool_max", "sqlalchemy_pool_size", "sqlalchemy_max_overflow")
+        ]
+        assert int(env["DB_POOL_MIN_SIZE"]) <= candidate["asyncpg_pool_max"]
     elif worker_state == "ambiguous":
         assert "no unambiguous serving revision" in result.stderr
     if worker_state == "cancel_during_deploy":

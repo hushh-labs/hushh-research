@@ -296,6 +296,40 @@ describe("saved-search bulk sharing boundary", () => {
       .toEqual([{ reasonCode: "date_range_required", count: 1 }]);
   });
 
+  it("shows exact additive reasons only when every code is known, else the released codes", async () => {
+    const counts = { total: 4, processed: 4, shared: 2, alreadyShared: 0, skipped: 0,
+      failed: 2, needsReview: 0, unknown: 0, pending: 0 };
+    const known = [{ reasonCode: "permission_rejected", count: 2 }];
+    const exact = [{ reasonCode: "drive_policy_blocked", count: 1 }, { reasonCode: "permission_rejected", count: 1 }];
+    const status = (issueDetails?: unknown) => {
+      fetcher.mockResolvedValueOnce(reply({ ...view, status: "partial", canApprove: false, counts,
+        issues: known, ...(issueDetails === undefined ? {} : { issueDetails }) }));
+      return DriveSharingService.bulkShareStatus("vault", documentId, guard);
+    };
+    expect((await status(exact)).issues).toEqual(exact);
+    // Negative controls: an older server, a code newer than this client, or a
+    // list that disagrees with the released one keeps the released codes.
+    expect((await status()).issues).toEqual(known);
+    expect((await status([{ reasonCode: "future_reason", count: 2 }])).issues).toEqual(known);
+    expect((await status([{ reasonCode: "drive_policy_blocked", count: 1 }])).issues).toEqual(known);
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], bulkShareId: documentId,
+      bulkStatus: "partial", fileCount: 4, sharedCount: 2, counts, issues: known,
+      issueDetails: [{ reasonCode: "recipient_needs_google_account", count: 2 }] }));
+    expect((await DriveSharingService.delivery("vault", requestId, guard)).issues)
+      .toEqual([{ reasonCode: "recipient_needs_google_account", count: 2 }]);
+    fetcher.mockResolvedValueOnce(reply({ shareId: documentId, files: [{ position: 1, name: "Original",
+      mimeType: "application/pdf", modifiedTime: null, openUrl: null, outcomes: [
+        { status: "queued", reasonCode: "provider_unavailable", reasonDetail: "sharing_rate_limited" },
+        { status: "failed", reasonCode: "permission_rejected", reasonDetail: "future_reason" },
+        { status: "failed", reasonCode: "permission_rejected" },
+      ] }], nextCursor: null }));
+    expect((await DriveSharingService.bulkShareFiles("vault", documentId, guard)).files[0].outcomes).toEqual([
+      { status: "queued", reasonCode: "sharing_rate_limited" },
+      { status: "failed", reasonCode: "permission_rejected" },
+      { status: "failed", reasonCode: "permission_rejected" },
+    ]);
+  });
+
   it.each([
     { issues: [{ reasonCode: "private_provider_message", count: 1 }] },
     { issues: [{ reasonCode: "stopped", count: 5 }] },
@@ -325,6 +359,21 @@ const reply = (payload: unknown, status = 200) =>
 
 describe("private sharing transport", () => {
   beforeEach(() => vi.resetAllMocks());
+  it("loads the owner's review of a running autoshare search", async () => {
+    // The /review payload the server merges for every new Trusted or allowed
+    // request once its search starts: no owner file review.
+    const search = { ...requestSearch(), status: "running" as const, canStop: true,
+      coverage: { ...requestSearch().coverage!, requestedPeriod: {
+        start: "2026-09-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+      dateBasis: "title_date_then_created_then_modified" as const,
+      timeIntent: "document_coverage" as const, ownerReviewRequired: false,
+      providerPagesExhausted: false } };
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true, autoshare: true,
+      search, bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.search?.coverage).toMatchObject({ ownerReviewRequired: false,
+      dateBasis: "title_date_then_created_then_modified" });
+  });
   it("uses request-bound durable search pages, freezes exclusions, and reads paged delivery", async () => {
     fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true,
       search: requestSearch(), bulkShare: null }));
