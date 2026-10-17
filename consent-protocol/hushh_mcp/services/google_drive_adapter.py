@@ -120,6 +120,17 @@ CHANGES_FIELDS = f"nextPageToken,newStartPageToken,changes(fileId,removed,change
 COLLECTION_QUERY = "trashed = false and mimeType != 'application/vnd.google-apps.folder'"
 
 
+# Drive answers HTTP 400 ("Sorting is not supported for queries with fullText
+# terms") when orderBy accompanies a fullText term. Quoted values are opaque, so
+# a filename such as 'fullText notes' is not mistaken for the operator.
+_QUERY_LITERALS = re.compile(r"('(?:\\.|[^'\\])*')")
+_FULL_TEXT_TERM = re.compile(r"\bfullText\b")
+
+
+def query_has_full_text_term(query: str) -> bool:
+    return any(_FULL_TEXT_TERM.search(part) for part in _QUERY_LITERALS.split(query)[::2])
+
+
 def _page_token(value: str) -> str:
     if not isinstance(value, str) or not 1 <= len(value) <= 2048 or any(ord(c) < 32 for c in value):
         raise DriveReadError("invalid_argument")
@@ -486,6 +497,8 @@ class GoogleDriveAdapter:
                 and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
+                # Callers drop the sort for fullText; refuse one that did not.
+                and not ("orderBy" in params and query_has_full_text_term(params.get("q", "")))
             )
         elif path == "/drives":
             allowed = (
