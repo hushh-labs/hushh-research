@@ -3177,6 +3177,52 @@ final class AppUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(openProfile.frame.width, 44, "Profile photo needs a full shell hit target")
         XCTAssertGreaterThanOrEqual(openProfile.frame.height, 44, "Profile photo needs a full shell hit target")
         openProfile.tap()
+        let nativeClose = app.buttons["native-profile-drawer-close"].firstMatch
+        if nativeClose.waitForExistence(timeout: 3) {
+            // Qualify the actual Account portrait, not the old web-only avatar
+            // selector. No camera, library, remove or save action is invoked.
+            let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+            let account = app.buttons["native-profile-row-account"].firstMatch
+            for _ in 0..<3 {
+                if menu.exists && menu.isHittable { break }
+                let parent = app.navigationBars.buttons["Profile"].firstMatch
+                guard waitForAdmittedControl(parent) else { XCTFail("PROFILE_PHOTO_PARENT_UNAVAILABLE"); return }
+                parent.tap()
+            }
+            for _ in 0..<4 {
+                if account.exists && account.isHittable { break }
+                menu.swipeDown()
+            }
+            guard waitForAdmittedControl(account) else { XCTFail("PROFILE_PHOTO_ACCOUNT_UNAVAILABLE"); return }
+            account.tap()
+            let options = app.buttons["native-profile-row-account-photo"].firstMatch
+            let portrait = app.buttons["Profile photo options"].firstMatch
+            guard waitForAdmittedControl(options), waitForAdmittedControl(portrait) else {
+                XCTFail("PROFILE_PHOTO_HEADER_UNAVAILABLE"); return
+            }
+            XCTAssertEqual(portrait.frame.midX, options.frame.midX, accuracy: 1, "PROFILE_PHOTO_HEADER_MISALIGNED")
+            XCTAssertLessThanOrEqual(portrait.frame.maxY, options.frame.minY, "PROFILE_PHOTO_OPTIONS_NOT_BELOW_PHOTO")
+            XCTAssertGreaterThanOrEqual(options.frame.height, 44)
+            options.tap()
+            let preview = app.buttons["View photo"].firstMatch
+            guard waitForAdmittedControl(preview) else { XCTFail("PROFILE_PHOTO_OPTIONS_UNAVAILABLE"); return }
+            preview.tap()
+            let previewOptions = app.buttons["Photo options"].firstMatch
+            guard waitForAdmittedControl(previewOptions), waitForAdmittedControl(app.buttons["Close"].firstMatch) else {
+                XCTFail("PROFILE_PHOTO_PREVIEW_UNAVAILABLE"); return
+            }
+            XCTAssertEqual(hosts.count, 1)
+            app.buttons["Close"].firstMatch.tap()
+            guard waitForAdmittedControl(options), waitForAdmittedControl(nativeClose) else {
+                XCTFail("PROFILE_PHOTO_ACCOUNT_NOT_RESTORED"); return
+            }
+            nativeClose.tap()
+            guard waitForAdmittedControl(openProfile) else { XCTFail("PROFILE_PHOTO_CHAT_NOT_RESTORED"); return }
+            XCTAssertEqual(hosts.count, 1)
+            XCTAssertFalse(webView.buttons["Unlock"].exists)
+            print("PROFILE_PHOTO_PREVIEW_CONTINUITY native_header_options_preview_return_without_mutation")
+            return
+        }
         // The pane can resume a nested setting from the same session. Reach
         // its home through its actual Back controls, not a cold route/reset.
         for _ in 0..<3 {
