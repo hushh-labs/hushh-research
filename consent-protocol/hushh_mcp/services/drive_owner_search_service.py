@@ -167,6 +167,10 @@ _MEETING_NOTE_WORDS = frozenset(
         "huddles",
     }
 )
+# A Gemini note title stands in for the generic ask only, as the request brain
+# rules: "standup notes" or "sync notes" need that kind in the title, so they
+# never share every in-period Gemini note.
+_SPECIFIC_MEETING_KIND = re.compile(r"\b(?:stand[\s-]?ups?|syncs?|huddles?)\b", re.I)
 # A deterministic plan that replaced a failed planner searches only its own
 # words. A request with any other word beyond period and filler words names a
 # subject or issuer that plan dropped, so its search keeps the owner's review.
@@ -603,10 +607,12 @@ def _filename_candidate(checkpoint: dict, match: dict) -> bool:
         # The brain already carries "Notes by Gemini" for the generic ask
         # only; "standup notes" must not share every Gemini note.
         return False
+    query = checkpoint.get("request", {}).get("query", "")
     if not (
         autoshare_selection(checkpoint)
         and not checkpoint.get("request_exact_title")
-        and _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
+        and _is_meeting_note_request(query)
+        and not _SPECIFIC_MEETING_KIND.search(query)
         and _title_search(_GEMINI_NOTE_TITLE, match["name"])
     ):
         return False

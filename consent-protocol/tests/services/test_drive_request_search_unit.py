@@ -1,7 +1,7 @@
 """Provider metadata search for a request includes date-named shortcut targets."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -1813,11 +1813,26 @@ async def _autoshare_checkpoint(
     text="last 3 months meeting notes",
     plan=None,
     planner_fallback=None,
+    planned_by="model",
 ):
     store = SimpleNamespace(
         by_client=AsyncMock(return_value=None),
         create=AsyncMock(return_value=({"jobId": "synthetic-job"}, False)),
     )
+    planned = {}
+    if planned_by == "brain":
+        # The default request flow: the deterministic brain plans, no model.
+        from hushh_mcp.services.drive_request_brain import interpret_request, suggested_plan
+        from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
+
+        brain = interpret_request(
+            text,
+            now=datetime(2026, 10, 3, tzinfo=UTC),
+            timezone="UTC",
+            picked_period=(date(2026, 9, 2), date(2026, 10, 2)),
+        )
+        plan = LiveSearchPlan.model_validate(suggested_plan(brain, text)).model_dump(mode="json")
+        planned = {"brain": brain.as_checkpoint(), "plan_source": "deterministic_brain"}
     service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
     await service.create_for_request(
         user_id="owner",
@@ -1836,13 +1851,19 @@ async def _autoshare_checkpoint(
         requested_at=datetime(2026, 10, 3, tzinfo=UTC),
         autoshare=autoshare,
         **({"planner_fallback": planner_fallback} if planner_fallback else {}),
+        **planned,
     )
-    return service, store.create.await_args.kwargs["checkpoint"]
+    checkpoint = store.create.await_args.kwargs["checkpoint"]
+    assert ("request_brain" in checkpoint) is (planned_by == "brain")
+    return service, checkpoint
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("planned_by", ["model", "brain"])
 @pytest.mark.parametrize("folder_scoped", [False, True])
-async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(folder_scoped):
+async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(
+    folder_scoped, planned_by
+):
     service, checkpoint = await _autoshare_checkpoint(
         text="Acme pricing meeting notes",
         plan={
@@ -1851,6 +1872,7 @@ async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(fo
             "file_kind": "document",
             "time_intent": "document_coverage",
         },
+        planned_by=planned_by,
     )
     assert checkpoint["request_owner_review_required"] is False
     # The broader OR query still runs; every row it finds passes the title gate.
@@ -1876,8 +1898,9 @@ async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(fo
 
 
 @pytest.mark.asyncio
-async def test_generic_meeting_notes_autoshare_every_in_period_gemini_note():
-    service, checkpoint = await _autoshare_checkpoint()
+@pytest.mark.parametrize("planned_by", ["model", "brain"])
+async def test_generic_meeting_notes_autoshare_every_in_period_gemini_note(planned_by):
+    service, checkpoint = await _autoshare_checkpoint(planned_by=planned_by)
     candidates = [
         _request_candidate("hr", "HR 1:1 with Priya - 2026/09/10 10:00 IST - Notes by Gemini"),
         _request_candidate("old", "HR 1:1 with Priya - 2026/06/16 10:00 IST - Notes by Gemini"),
@@ -1886,6 +1909,39 @@ async def test_generic_meeting_notes_autoshare_every_in_period_gemini_note():
         {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
     )
     assert {file["id"]: file["shareable"] for file in files} == {"hr": True}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("planned_by", ["model", "brain"])
+@pytest.mark.parametrize("text", ["standup notes", "sync notes"])
+async def test_autoshare_specific_meeting_kind_never_shares_every_gemini_note(text, planned_by):
+    kind = text.split()[-2]
+    service, checkpoint = await _autoshare_checkpoint(
+        text=text,
+        plan={
+            "mode": "find",
+            "terms": text.split(),
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        },
+        planned_by=planned_by,
+    )
+    assert checkpoint["request_owner_review_required"] is False
+    candidates = [
+        _request_candidate("therapy", "Therapy session - 2026/09/12 09:00 IST - Notes by Gemini"),
+        _request_candidate("own", f"Weekly {kind} - 2026/09/15 10:00 IST - Notes by Gemini"),
+    ]
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+    # A Gemini title stands in for the generic ask only; the kind must be named.
+    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+    # Negative control: the generic ask shares every in-period Gemini note.
+    service, generic = await _autoshare_checkpoint(text="meeting notes", planned_by=planned_by)
+    files, _ = await service._request_candidates(
+        {"user_id": "owner"}, generic, candidates, folder_scoped=False, drive_id=None
+    )
+    assert {file["id"] for file in files} == {"therapy", "own"}
 
 
 @pytest.mark.asyncio
@@ -1958,13 +2014,14 @@ def test_autoshare_never_grants_a_title_date_outside_the_period(title, shared):
 
 
 @pytest.mark.asyncio
-async def test_autoshare_shares_every_in_period_meeting_note_without_owner_review():
+@pytest.mark.parametrize("planned_by", ["model", "brain"])
+async def test_autoshare_shares_every_in_period_meeting_note_without_owner_review(planned_by):
     from hushh_mcp.services.drive_request_review_policy import (
         AUTOSHARE_SELECTION_POLICY,
         checkpoint_requires_owner_review,
     )
 
-    service, checkpoint = await _autoshare_checkpoint()
+    service, checkpoint = await _autoshare_checkpoint(planned_by=planned_by)
     request_id = "12345678-1234-1234-1234-123456789012"
     assert checkpoint["request_selection_policy"] == AUTOSHARE_SELECTION_POLICY
     assert checkpoint["request_owner_review_required"] is False
