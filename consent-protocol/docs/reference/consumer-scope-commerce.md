@@ -1342,12 +1342,36 @@ their section-only policy. Listing remains a separate explicit visibility change
 opening a review or saving a price never grants recipient access. Owner scope
 discovery supplies authoritative handles across web, iOS and Android. Source and
 focused checks cover these controls; deployed reviewer acceptance remains required.
-As of 2026-10-17 02:16 UTC, the read-only Dev ledger still records no scope
-purchases for either reviewer. Candidate `4b4b4c95fd` passed the complete local
-core, but hosted CI found stale browser/auth fixtures and a Wallet tab-history
-regression. Those repairs and the subsequent main integration require a new
-exact-candidate core and CI before Dev deployment. Existing funding must not be
-repeated; refreshed general-Sandbox evidence is required before financial actions.
+Dev release `f378a75b55880c67dcc112d75445b46bf2e53e31` passed
+[full hosted branch validation](https://github.com/hushh-labs/hushh-research/actions/runs/39010035938)
+and the [shared-Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39013356059)
+on 2026-10-17. Backend `consent-protocol-00176-945` and frontend
+`hushh-webapp-00149-7qg` serve that source at 100% traffic on
+`https://dev.one.hussh.ai`. Provenance, runtime parity, schema, semantic smoke
+and selected reviewer unlock/navigation checks passed. The separately selected
+PostgreSQL/PKM preservation lane was not required by the release selector and did
+not run. The subsequent test-only UTC fixture correction at `7847a611ed` passed
+the complete local core: 21,031 parallel backend, 1,449 PostgreSQL and 396
+integration cases, plus the web, MCP, governance and secret gates. This local
+result is not a claim that that later commit is deployed.
+
+Read-only, same-session Dev browser checks reached Saved/Add, category-level
+Sharing & price, an eligible whole-bundle tariff and a 393px-wide price editor
+for both reviewers, with vault continuity and no listing, tariff, consent or
+payment writes. The primary passed the complete smoke. The counterpart's
+critical-read gate failed on `GET /api/pkm/memory/mutation-impact`: a read-only
+consent-lineage check confirmed one active matching free grant without an
+authoritative request ID. The existing fail-closed guard and its negative test
+remain intact; that grant was not reset, revoked or relabelled to make the test
+pass. Authoritative lineage recovery remains separate acceptance work.
+As of 2026-10-17 08:01 UTC, the read-only Dev ledger still records no scope
+purchases for either reviewer. Existing $10.50 funding per reviewer and tagged
+capital must not be repeated. The previous general-Sandbox attestation is over
+seven days old; the existing Stripe Dashboard tab requires platform sign-in
+before its isolation evidence can be renewed. Application SDK keys and owner
+vault unlock do not supply that sign-in. Paid purchase/delivery, refunds,
+maturity, payouts, PII exchange and the private agent's authenticated Stripe
+reads remain unaccepted; existing owner-pod releases are preserved.
 Prices apply to the selected bundle or section, not just one opened memory. Its wallet
 link opens Payments and earnings; missing seller setup leads to Connect onboarding there. Checkout
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
