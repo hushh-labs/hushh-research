@@ -286,6 +286,15 @@ final class AppUITests: XCTestCase {
         return XCTWaiter.wait(for: [ready], timeout: 10) == .completed
     }
 
+    private func printSupportControlAdmission(_ app: XCUIApplication) {
+        for (name, id) in [("message", "native-support-message"), ("cancel", "native-support-cancel"),
+                           ("send", "native-support-send"), ("kinds", "native-support-kind"), ("scene", "native-support-scene")] {
+            let controls = app.descendants(matching: .any).matching(identifier: id)
+            let control = controls.firstMatch
+            print("PROFILE_SUPPORT_AX name=\(name) count=\(min(32, controls.count)) role=\(control.exists ? Int(control.elementType.rawValue) : 0) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+        }
+    }
+
     struct RouteCase {
         let name: String
         let initialRoute: String
@@ -3850,9 +3859,14 @@ final class AppUITests: XCTestCase {
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("PROFILE_SUPPORT_REQUIRES_RUNNING_SESSION"); return
         }
-        app.activate(); dismissRehearsalChatKeyboard(app); returnToRehearsalChat(app)
+        app.activate()
+        printSupportControlAdmission(app)
+        dismissRehearsalChatKeyboard(app); returnToRehearsalChat(app)
         let chatEditor = app.textViews["native-dock-editor"].firstMatch
-        guard waitForAdmittedControl(chatEditor) else { XCTFail("PROFILE_SUPPORT_CHAT_UNAVAILABLE"); return }
+        guard waitForAdmittedControl(chatEditor) else {
+            printSupportControlAdmission(app); printCoherentPresentationAdmission(app)
+            XCTFail("PROFILE_SUPPORT_CHAT_UNAVAILABLE"); return
+        }
         let chatDraft = chatEditor.value as? String
         let opener = app.buttons["Open Profile"].firstMatch
         let root = app.buttons["native-profile-row-support"].firstMatch
@@ -3873,10 +3887,40 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(back) else { XCTFail("PROFILE_SUPPORT_PARENT_UNAVAILABLE"); return }; back.tap()
         }
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_SUPPORT_ROW_UNAVAILABLE"); return }; root.tap()
-        guard waitForAdmittedControl(field), waitForAdmittedControl(cancel), send.exists else {
+        guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
+            for (name, control) in [("message", field), ("cancel", cancel), ("send", send),
+                                    ("kinds", app.segmentedControls["native-support-kind"].firstMatch)] {
+                print("PROFILE_SUPPORT_CONTROL name=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+            }
+            printSupportControlAdmission(app)
+            printCoherentPresentationAdmission(app)
             XCTFail("PROFILE_SUPPORT_NATIVE_FORM_UNAVAILABLE"); return
         }
         let original = field.value as? String ?? ""
+        let scene = app.otherElements["native-support-scene"].firstMatch
+        func reveal(_ control: XCUIElement, upwards: Bool) -> Bool {
+            for _ in 0..<3 {
+                if control.exists && control.isHittable { return true }
+                guard scene.exists else { return false }
+                // A scene-wide swipe can land on the keyboard or scroll the
+                // nested UITextView. Use the Form's visible trailing gutter.
+                let collection = scene.collectionViews.firstMatch
+                let scroll = scene.scrollViews.firstMatch
+                let container = collection.exists ? collection : scroll.exists ? scroll : scene
+                var visible = container.frame.intersection(app.frame)
+                let keyboard = app.keyboards.firstMatch
+                if softwareKeyboardIsOnscreen(keyboard, in: app) {
+                    visible.size.height = max(0, min(visible.maxY, keyboard.frame.minY) - visible.minY)
+                }
+                guard !visible.isNull, visible.width >= 44, visible.height >= 88 else { return false }
+                let top = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: visible.maxX - 12, dy: visible.minY + visible.height * 0.2))
+                let bottom = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: visible.maxX - 12, dy: visible.minY + visible.height * 0.85))
+                if upwards { bottom.press(forDuration: 0.05, thenDragTo: top) }
+                else { top.press(forDuration: 0.05, thenDragTo: bottom) }
+            }
+            printSupportControlAdmission(app)
+            return control.exists && control.isHittable
+        }
         let kinds = app.segmentedControls["native-support-kind"].firstMatch
         guard kinds.exists else { XCTFail("PROFILE_SUPPORT_KINDS_UNAVAILABLE"); return }
         let labels = ["Problem", "Help", "Feedback"]
@@ -3892,15 +3936,26 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [selected], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_KIND_NOT_APPLIED"); return }
         }
         kinds.buttons[originalKind].tap()
-        replaceText(in: field, with: "Synthetic support rehearsal\nNo delivery requested.")
+        // Only synthetic keystrokes may enter XCTest's activity stream. Append
+        // and remove our own suffix; never retype an owner's existing message.
+        let suffix = "\nSynthetic support rehearsal\nNo delivery requested."
+        field.tap()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [])
+        field.typeText(suffix)
         guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_SUPPORT_KEYBOARD_UNAVAILABLE"); return }
         let edited = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            field.value as? String == "Synthetic support rehearsal\nNo delivery requested." && send.isEnabled
+            field.value as? String == original + suffix
         }, object: app)
         guard XCTWaiter.wait(for: [edited], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_EDIT_NOT_ACKNOWLEDGED"); return }
-        // Restore the original private draft using normal editing. Never Send.
+        // Form rows are lazily realized below the initial medium detent.
+        // Reach the real primary action through normal native scrolling.
+        guard reveal(send, upwards: true), send.isEnabled else { XCTFail("PROFILE_SUPPORT_SEND_UNAVAILABLE"); return }
+        guard reveal(field, upwards: false), waitForAdmittedControl(field) else { XCTFail("PROFILE_SUPPORT_EDITOR_RETURN_UNAVAILABLE"); return }
+        field.tap()
         field.typeKey("a", modifierFlags: .command)
-        field.typeText(original.isEmpty ? XCUIKeyboardKey.delete.rawValue : original)
+        field.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [])
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: suffix.utf16.count))
         let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in field.value as? String == original }, object: app)
         guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else { XCTFail("PROFILE_SUPPORT_DRAFT_RESTORE_FAILED"); return }
         cancel.tap()
@@ -7769,6 +7824,13 @@ final class AppUITests: XCTestCase {
         // Recover only authored dismissals left by this rehearsal. A failed
         // XCTest assertion can interrupt Swift defer, so do not assume a prior
         // drawer test restored its warm entry state. No account/fixture reset.
+        let supportCancel = app.buttons["native-support-cancel"].firstMatch
+        if supportCancel.exists {
+            guard waitForAdmittedControl(supportCancel) else { return }
+            supportCancel.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: supportCancel)
+            guard XCTWaiter.wait(for: [retired], timeout: 10) == .completed else { return }
+        }
         let deleteConfirmation = app.alerts["Delete chat?"].firstMatch
         if deleteConfirmation.exists {
             let cancel = deleteConfirmation.buttons["Cancel"].firstMatch

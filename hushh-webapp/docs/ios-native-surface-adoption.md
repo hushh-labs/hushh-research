@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-15.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-17.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -27,7 +27,7 @@ Opening nine destinations does not establish nine native form conversions.
 | Name editor | Owned native form; existing authenticated account writer | Implemented; no new physical acceptance in this continuation |
 | Writing style / communication | Owned native form and finite menus; existing encrypted Settings writer | Ten edit/cancel cycles passed on the earlier installed candidate |
 | Appearance, Accent, App haptics | Native menus/switch; existing theme and Settings owners | Earlier physical Preferences journey passed; no broad admission change |
-| Help & feedback | Complete native sheet over the retained Profile root; existing support composer/service | Focused checks and exact device build pass; new physical family acceptance pending |
+| Help & feedback | Complete native sheet over the retained Profile root; existing support composer/service | Exact candidate installed; physical edit/cancel, keyboard, type selection and Chat-draft continuity pass. Visual/accessibility/Release acceptance remains separate |
 | Voice | React readiness, microphone check, switches and Location/Connect defaults | Native body still missing; not counted as converted |
 | Photo | React preview/options and existing native camera/library/crop | Complete native presentation still missing |
 | Protected vault/phone/provider forms, Devices, Connectors, Invite, Privacy, Terms | Established React content handoff | Deliberate retained bodies, not native form conversions |
@@ -51,16 +51,34 @@ The executable SHA-256 is
 strict signature verification and the unchanged product-assets validator pass.
 Focused evidence: 186 bridge/support cases, 22 support/outcome cases, the native
 host IME/acknowledgment/one-shot-send/scrubbing regression, typecheck, focused
-lint, plugin parity and generated UI contracts. The new attach-only Help check
-selects all three kinds, edits/restores multiline text and cancels without Send;
-it has not yet run against an installed support candidate. Installation remains
-separate: the empty-draft preparation could not prove that One had no unsent
-draft, and another candidate restart requires approval. No real email was sent.
+lint, plugin parity and generated UI contracts. The user authorized the candidate
+installation/restart accepting possible draft loss; installation, credential-free
+XCTest admission and normal identity-fenced reviewer unlock pass. The attach-only
+Help check now passes all three kinds, multiline editing with the software
+keyboard, reachable/enabled Send without tapping it, original support-draft
+restoration, actual Cancel dismissal and return to the original Chat draft and
+single WebView. The product process remained unchanged through runner-only
+updates. Private result bundles were removed; no real email was sent.
 
-The previously built artwork candidate (web `d1c2b333c8`, native/test source
-`055789f04f`, executable hash recorded below) is now installed on the iPhone.
-Credential-free XCTest admission and normal identity-fenced passphrase unlock
-passed. This installation is separate from warm-session continuity evidence.
+Earlier failed checks remain recorded: the native Form lazily realizes Send
+below the initial sheet viewport, and a scene-wide swipe can hit the keyboard or
+nested text editor. The corrected fixture scrolls the visible Form gutter rather
+than requiring an offscreen action on admission. It never retypes an existing
+private message into XCTest's activity stream. This is a fixture correction,
+not a demonstrated production rendering defect.
+
+A separate follow-up fixes destination supersession bookkeeping: a late failed
+root-row settlement must not retire a newer Help sheet. The existing bridge
+regression reproduces that failure on old code, passes after tracking destination
+kind/token, and still quarantines current-destination failures. All 188 nearest
+bridge/support cases, typecheck and focused lint pass. This TypeScript follow-up
+is not part of the installed `ae030c921a` executable/web export; its source tests
+must not be presented as physical acceptance of a newer candidate.
+
+The previously installed artwork candidate (web `d1c2b333c8`, native/test source
+`055789f04f`, executable hash recorded below) is superseded by the Help candidate.
+Its credential-free XCTest admission and normal identity-fenced passphrase unlock
+passed; those historical checks do not qualify the newer source.
 The older shell rerun completed nine cycles then failed on accessibility
 snapshot/session availability; its failure remains recorded and does not qualify
 the new support scene. No account reset, sign-out, real support send or cloud
