@@ -23,7 +23,11 @@ from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     compile_request_queries,
 )
-from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_owner_search_store import MAX_RESULTS
+from hushh_mcp.services.drive_request_bulk_service import (
+    DriveRequestBulkService,
+    _deterministic_meeting_note_plan,
+)
 from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -609,25 +613,33 @@ class StreamedSearchStore:
         assert self.row["lease"] == job["lease_id"]
 
     async def commit_page(self, job, *, checkpoint, files, incomplete=False, done=False):
-        assert self.row["lease"] == job["lease_id"] and len(files) <= 100
+        # Only a V1 request may commit a 1000-row provider page.
+        v1 = checkpoint.get("v1_live_request") is True
+        assert self.row["lease"] == job["lease_id"] and len(files) <= (1000 if v1 else 100)
         shareable = 0
+        limited = False
         for item in files:
             if item["id"] in self.results:
                 counts = checkpoint.setdefault("coverage_counts", {})
                 counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
                 continue
+            if self.row["matched"] == MAX_RESULTS:
+                # DriveOwnerSearchStore's 10,000-candidate storage ceiling.
+                limited = True
+                break
             self.row["matched"] += 1
             self.results[item["id"]] = (self.row["matched"], item)
             self.row["unshareable"] += int(item.get("shareable") is False)
             shareable += int(item.get("shareable") is True)
-        incomplete = incomplete or self.row["incomplete"]
-        state = "limited" if done and incomplete else "completed" if done else "running"
+        limited = limited or self.row["matched"] == MAX_RESULTS and not done
+        incomplete = incomplete or self.row["incomplete"] or limited
+        state = "limited" if limited or done and incomplete else "completed" if done else "running"
         self.row.update(
             status=state,
             pages=self.row["pages"] + 1,
             incomplete=incomplete,
             retries=0,
-            error=None,
+            error="search_limit" if limited else None,
             checkpoint=json.dumps(checkpoint),
             lease=self.row["lease"] if state == "running" else None,
         )
@@ -680,7 +692,7 @@ class StreamedBatches:
         return None
 
 
-async def stream_request(monkeypatch, *, incomplete_page=None):
+async def stream_request(monkeypatch, *, incomplete_page=None, v1=False):
     files, labels = streamed_corpus()
     drive = StreamedDrive(files, incomplete_page=incomplete_page)
     events = drive.events
@@ -773,12 +785,17 @@ async def stream_request(monkeypatch, *, incomplete_page=None):
     auto = DriveTrustedAutoService(sharing=sharing, bulk=batches, payment=payment, wake=AsyncMock())
     authority = AsyncMock()
     started = time.perf_counter()
+    # V1 is the content-evaluated package lane: its search hands nothing to
+    # sharing; the evaluator and an exact paid package come first.
+    after_page = None if v1 else auto.after_search_page
     await scanner.create_for_request(
         user_id=STREAM_OWNER,
         request_id=STREAM_REQUEST,
         request_revision=1,
         purpose=purpose,
-        plan={
+        plan=_deterministic_meeting_note_plan(purpose).model_dump(mode="json")
+        if v1
+        else {
             "mode": "find",
             "terms": ["meeting", "notes"],
             "file_kind": "document",
@@ -786,9 +803,9 @@ async def stream_request(monkeypatch, *, incomplete_page=None):
             "file_time_field": "modifiedTime",
         },
         require_current=authority,
-        authority_mode="trusted_auto",
+        authority_mode="agent_package" if v1 else "trusted_auto",
         requested_at=datetime(2026, 10, 3, tzinfo=UTC),
-        after_page=auto.after_search_page,
+        **({"v1_live_request": True} if v1 else {"after_page": after_page}),
     )
 
     def progress():
@@ -808,14 +825,14 @@ async def stream_request(monkeypatch, *, incomplete_page=None):
         await scanner.run_one(
             user_id=STREAM_OWNER,
             job_id=STREAM_JOB,
-            require_current=authority,
-            after_page=auto.after_search_page,
+            **({} if v1 else {"require_current": authority, "after_page": after_page}),
         )
-        # The worker hands off once more after each slice, as in production.
-        await auto.after_search_slice(user_id=STREAM_OWNER, job_id=STREAM_JOB)
+        if not v1:
+            # The worker hands off once more after each slice, as in production.
+            await auto.after_search_slice(user_id=STREAM_OWNER, job_id=STREAM_JOB)
         slices.append(progress())
     # continue_batches: a completed search keeps draining its committed rows.
-    while await auto.share_available(user_id=STREAM_OWNER, request_id=STREAM_REQUEST):
+    while not v1 and await auto.share_available(user_id=STREAM_OWNER, request_id=STREAM_REQUEST):
         pass
     return {
         "elapsed": time.perf_counter() - started,
@@ -1003,3 +1020,23 @@ def test_compound_titles_reach_the_live_query_within_its_budget(request_text, te
     clause = f" or name contains {compound}"
     assert clause in q
     assert not drive_query(q.replace(clause, ""))(compact)
+
+
+@pytest.mark.asyncio
+async def test_v1_lane_scans_thousand_row_pages_and_shares_nothing_mid_search(monkeypatch):
+    run = await stream_request(monkeypatch, v1=True)
+    store, slices, drive = run["store"], run["slices"], run["drive"]
+    assert run["elapsed"] < 60
+    # Large owner-search pages, at most four per slice, resumed slice by slice.
+    # A page with more than eight shortcuts is reread at 100 rows and the job
+    # keeps that size, so shortcut reads stay bounded.
+    assert set(drive.page_sizes) <= {25, 100, 1000} and 1000 in drive.page_sizes
+    assert all(item["commits"] <= 4 for item in slices)
+    # V1 never starts a batch from the search itself.
+    assert run["approved"] == [] and run["batches"].batches == []
+    # Every meeting-like document is a content candidate (no metadata date
+    # cut), so a large Drive reaches the 10,000-candidate ceiling. That ends
+    # as limited and incomplete, never as completed or "no match".
+    assert store.row["matched"] == MAX_RESULTS
+    assert store.row["status"] == "limited" and store.row["incomplete"]
+    assert store.row["error"] == "search_limit"
