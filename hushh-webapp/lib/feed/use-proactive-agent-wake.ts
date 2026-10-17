@@ -15,8 +15,8 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
  *
  * WHY THIS EXISTS
  * ---------------
- * The default tier is economy: the pod is scale-to-zero and takes ~11s to cold start
- * (`gcp_backend.py` minScale 0, founder directive; `pod_wake.py` WAKE_ETA_MS 12000).
+ * The default tier is economy: the pod scales to zero. Cold-start latency is
+ * measured separately from the wake route's estimate; neither is a fixed promise.
  * The wake primitive (`ApiService.wakePod` -> POST /api/one/pod/wake) has always
  * existed and its own doc long PROMISED it fired "on composer focus so the cold start
  * runs while the person is typing" -- but nothing ever called it except the
@@ -42,9 +42,8 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
 export type WakeState = "awake" | "waking" | "gone";
 type WakeObservation = WakeState | "unknown";
 
-/** Longer than cold start (~11s) + the serving idle window: one wake keeps the pod
- *  warm, so a second inside this window buys nothing and costs a request on a costed
- *  fleet. */
+/** Coalesce foreground triggers. This cooldown is not a keepalive interval or a
+ *  promise that a cold start will finish within the window. */
 const WAKE_COOLDOWN_MS = 45_000;
 
 // Module-scoped so every surface and every trigger share ONE cooldown and ONE
@@ -163,6 +162,11 @@ export function useProactiveAgentWake(input: {
   const wakeNow = useCallback((_reason: string) => {
     const { state, health, enabled: on, userId } = gateRef.current;
     if (!on || !shouldWakePod(state, health)) return;
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState !== "visible"
+    )
+      return;
     const requestGeneration = generation.current;
     void (async () => {
       try {
@@ -208,9 +212,8 @@ export function useProactiveAgentWake(input: {
     })();
   }, []);
 
-  // Self-driven triggers: mount + transition-into-eligibility (the deps are the pod's
-  // own state/health, which only change by VALUE, so this is not per-poll), plus app
-  // resume-to-foreground through the existing lifecycle spine.
+  // Mount/placement eligibility and actual foreground entry are owner activity.
+  // Health refreshes are observations: they must not wake an idle pod again.
   useEffect(() => {
     if (!enabled) return;
     wakeNow("presence");
@@ -222,18 +225,25 @@ export function useProactiveAgentWake(input: {
     return () => {
       unsubscribe();
     };
-  }, [enabled, input.userId, input.state, input.health, wakeNow]);
+  }, [enabled, input.userId, input.state, wakeNow]);
 
   // One foreground-entry wake also covers a stale "healthy" observation. No
   // recurring keepalive: reading an idle screen must not buy indefinite compute.
   useEffect(() => {
     if (!enabled) return;
     if (input.state !== "active") return;
-    if (isAgentNotAnswering(input.health)) return;
     if (typeof document === "undefined") return;
 
     let cancelled = false;
     const touch = () => {
+      const gate = gateRef.current;
+      if (
+        !gate.enabled ||
+        gate.state !== "active" ||
+        gate.userId !== input.userId ||
+        isAgentNotAnswering(gate.health)
+      )
+        return;
       void (async () => {
         try {
           const result = await issueWakeDeduped(input.userId);
@@ -276,7 +286,7 @@ export function useProactiveAgentWake(input: {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [enabled, input.userId, input.state, input.health]);
+  }, [enabled, input.userId, input.state]);
 
   return { wakeNow, isWaking, etaMs, livePresence };
 }

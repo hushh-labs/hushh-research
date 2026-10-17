@@ -3,7 +3,7 @@
  * shared, costed fleet, so the load-bearing behavior is NOT "does it wake" but "does it
  * refuse to over-wake": one wake per cooldown across every surface and trigger, one
  * in-flight request coalescing a burst, and no wake at all on the fault path or on a
- * pod that is not yet live. Healthy pods retain visible-tab keepalive.
+ * pod that is not yet live. Foreground entry may wake a healthy pod; status refreshes must not keep it warm.
  */
 
 import { act, renderHook } from "@testing-library/react";
@@ -59,9 +59,12 @@ describe("useProactiveAgentWake", () => {
       };
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
       const view = renderHook(
-        ({ health }) => useProactiveAgentWake({
-          userId: "owner-a", state: "active", health,
-        }),
+        ({ health }) =>
+          useProactiveAgentWake({
+            userId: "owner-a",
+            state: "active",
+            health,
+          }),
         { initialProps: { health: "sleeping" } },
       );
       try {
@@ -76,7 +79,8 @@ describe("useProactiveAgentWake", () => {
           document.dispatchEvent(new Event("visibilitychange"));
         });
         expect(wakePod).not.toHaveBeenCalled();
-        window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "mutation_authorized";
+        window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy =
+          "mutation_authorized";
         await act(async () => {
           document.dispatchEvent(new Event("visibilitychange"));
         });
@@ -133,40 +137,62 @@ describe("useProactiveAgentWake", () => {
       await vi.advanceTimersByTimeAsync(240_000);
     });
     expect(wakePod).toHaveBeenCalledTimes(1);
+    // A status refresh can observe scale-down. It is not new owner activity.
+    for (const health of ["sleeping", "healthy", "unknown"]) {
+      rerender({ health });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(wakePod).toHaveBeenCalledTimes(1);
+    }
     rerender({ health: "unreachable" });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(480_000);
     });
     expect(wakePod).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(wakePod).toHaveBeenCalledTimes(1); // Current fault still refuses wake.
+    rerender({ health: "healthy" });
+    await act(async () => {});
+    expect(wakePod).toHaveBeenCalledTimes(1); // Recovery observation is not activity.
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(wakePod).toHaveBeenCalledTimes(2); // Actual return uses the latest health.
   });
 
-  it("does not keep a healthy pod warm while the tab is hidden", async () => {
-    vi.useFakeTimers();
-    const visibility = vi.spyOn(document, "visibilityState", "get");
-    visibility.mockReturnValue("hidden");
-    renderHook(() =>
-      useProactiveAgentWake({
-        userId: "owner-a",
-        state: "active",
-        health: "healthy",
-      }),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(480_000);
-    });
-    expect(wakePod).not.toHaveBeenCalled();
-    visibility.mockReturnValue("visible");
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    expect(wakePod).toHaveBeenCalledTimes(1);
-    visibility.mockReturnValue("hidden");
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-      await vi.advanceTimersByTimeAsync(480_000);
-    });
-    expect(wakePod).toHaveBeenCalledTimes(1);
-  });
+  it.each(["healthy", "sleeping", "unknown"])(
+    "does not wake a %s pod while the tab is hidden",
+    async (health) => {
+      vi.useFakeTimers();
+      const visibility = vi.spyOn(document, "visibilityState", "get");
+      visibility.mockReturnValue("hidden");
+      renderHook(() =>
+        useProactiveAgentWake({
+          userId: "owner-a",
+          state: "active",
+          health,
+        }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(480_000);
+      });
+      expect(wakePod).not.toHaveBeenCalled();
+      visibility.mockReturnValue("visible");
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(wakePod).toHaveBeenCalledTimes(1);
+      visibility.mockReturnValue("hidden");
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(480_000);
+      });
+      expect(wakePod).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("does not wake again within the cooldown window", async () => {
     const { result } = renderHook(() =>
