@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2854,
+  "finding_count": 2855,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4516,7 +4516,7 @@
       "limit": 250,
       "path": "consent-protocol/api/routes/kai/run_manager.py",
       "symbol": "KaiAnalyzeRunManager",
-      "value": 481
+      "value": 537
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5839,7 +5839,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
       "symbol": "RIAIAMService",
-      "value": 9524
+      "value": 9527
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7072,7 +7072,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/kai/run_manager.py",
       "symbol": "_run_worker",
-      "value": 124
+      "value": 140
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8629,7 +8629,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/operons/kai/llm.py",
       "symbol": "stream_gemini_response",
-      "value": 213
+      "value": 221
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13309,7 +13309,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
       "symbol": "_queue_ria_invite_email_delivery",
-      "value": 124
+      "value": 127
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18133,7 +18133,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/kai/run_manager.py",
       "symbol": null,
-      "value": 688
+      "value": 745
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18142,7 +18142,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/kai/stream.py",
       "symbol": null,
-      "value": 3041
+      "value": 3047
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18691,7 +18691,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/operons/kai/llm.py",
       "symbol": null,
-      "value": 1063
+      "value": 1071
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19834,7 +19834,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
       "symbol": null,
-      "value": 10417
+      "value": 10423
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20203,7 +20203,7 @@
       "limit": 500,
       "path": "consent-protocol/server.py",
       "symbol": null,
-      "value": 1626
+      "value": 1634
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21490,7 +21490,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 1001
+      "value": 1003
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26008,7 +26008,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 848
+      "value": 867
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26153,7 +26153,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 558
+      "value": 600
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26639,7 +26639,7 @@
       "limit": 250,
       "path": "deploy/observability/tests/test_reconcile_capacity.py",
       "symbol": "CapacityObservabilityTest",
-      "value": 329
+      "value": 411
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -27719,7 +27719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 623
+      "value": 665
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -30155,7 +30155,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model_story.py",
       "symbol": null,
-      "value": 610
+      "value": 621
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30183,6 +30183,15 @@
       "path": "consent-protocol/hushh_mcp/services/drive_request_bulk_service.py",
       "symbol": null,
       "value": 520
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/test_kai_analyze_run_manager.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 86,
+      "limit": 80,
+      "symbol": "test_run_manager_stream_resume_replays_and_continues",
+      "key": "function_size|consent-protocol/tests/test_kai_analyze_run_manager.py|test_run_manager_stream_resume_replays_and_continues|function exceeds the advisory gene budget"
     }
   ],
   "inspected_files": 6625,
@@ -71418,5 +71427,135 @@
     "source_sha256": "b7c7b3e6a35127f3282c9bbc2be88e97a0bac54e6aec3c9e0ba4c735b57f92db",
     "reviewer": "adk_authority_review",
     "review": "Two per-case existing Shared fixture decorators. Actual hub content guard remains active, and private/unknown refusal coverage stays in its owner suite. No runtime, function-size, budget, scanner, exclusion or other ceiling changes. Original full-core failures retained; unchanged restart timeout is not raised."
+  },
+  "scope_commerce_runtime_main_concurrent_union_20261017": {
+    "source_head": "750db14051173801f3e79573297db24fda15714e",
+    "main": "fd3b00b3c160a5473efcbd32f139df8b6ccc7a7d",
+    "shared_branch": "09f3d53a10725c982d65c008ece594732d42a4ff",
+    "reviewer": "architecture_review",
+    "prior_baseline_sha256": "c76afaa61a248659a58ce87dec380d10be53386579c1e6d01b607d386a55b467",
+    "boundary": "17 independently reviewed size occurrences:16 existing replacements and1 append. Preserve2854 prior rows, all history and nonvalue fields. Nine match main;four composed metrics remain within main. Three additive unions preserve shutdown, timeout and monitoring contracts. The last slot is the provider-bound consent fixture. No new runtime authority, scanner change, dependency/import exception or budget increase.",
+    "verification": "All17 one-line growth negative controls refuse;48 focused failure-recovery and consent/deployment controls pass. These are source checks, not payment acceptance.",
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/ria_iam_service.py|RIAIAMService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 9527,
+        "source_sha256": "e98816fa247fc41763a5d3a15a0a9c9713f3c2535071e58a2c57855b684f499d",
+        "prior_value": 9524
+      },
+      {
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 600,
+        "source_sha256": "9850fc6ffb330e7361642070e26a7e5019b8393a4760c446cef3e2f92ca35ce3",
+        "prior_value": 558
+      },
+      {
+        "key": "class_size|consent-protocol/api/routes/kai/run_manager.py|KaiAnalyzeRunManager|class exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 537,
+        "source_sha256": "3f31222f33d6d504f0a3844c02b343469da5950044ef0ef56a218e8c5f4989d9",
+        "prior_value": 481
+      },
+      {
+        "key": "class_size|deploy/observability/tests/test_reconcile_capacity.py|CapacityObservabilityTest|class exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 411,
+        "source_sha256": "15eb22f8515a6d4b2408106ec4f232a7f9774905bb37b136e1647cd2b514ba45",
+        "prior_value": 329
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/operons/kai/llm.py|stream_gemini_response|function exceeds the advisory gene budget",
+        "rank": 0,
+        "value": 221,
+        "source_sha256": "36bdabaa5800f85288ee9c84a39dbee8fbc3e4dc0ab5b6fd7beba359fc0e1484",
+        "prior_value": 213
+      },
+      {
+        "key": "function_size|consent-protocol/api/routes/kai/run_manager.py|_run_worker|function exceeds the advisory gene budget",
+        "rank": 0,
+        "value": 140,
+        "source_sha256": "3f31222f33d6d504f0a3844c02b343469da5950044ef0ef56a218e8c5f4989d9",
+        "prior_value": 124
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/ria_iam_service.py|_queue_ria_invite_email_delivery|function exceeds the advisory gene budget",
+        "rank": 0,
+        "value": 127,
+        "source_sha256": "e98816fa247fc41763a5d3a15a0a9c9713f3c2535071e58a2c57855b684f499d",
+        "prior_value": 124
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_kai_analyze_run_manager.py|test_run_manager_stream_resume_replays_and_continues|function exceeds the advisory gene budget",
+        "rank": 0,
+        "value": 86,
+        "source_sha256": "6bd47c42f123445cf92c77b15d3666e54401fc0c7605b0fc5c863e28b46847c6"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/ria_iam_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 10423,
+        "source_sha256": "e98816fa247fc41763a5d3a15a0a9c9713f3c2535071e58a2c57855b684f499d",
+        "prior_value": 10417
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/kai/stream.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 3047,
+        "source_sha256": "c4cde5d7a5ad0fe2471760cdc152adfe88c2fbb5945396afea3b66e750970863",
+        "prior_value": 3041
+      },
+      {
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 1634,
+        "source_sha256": "c0f3173aac92fd4cd859e889d9394177eb930f6bae68ff99ddba2697737ce360",
+        "prior_value": 1626
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/operons/kai/llm.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 1071,
+        "source_sha256": "36bdabaa5800f85288ee9c84a39dbee8fbc3e4dc0ab5b6fd7beba359fc0e1484",
+        "prior_value": 1063
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 1003,
+        "source_sha256": "e8055eea148aa5b5242c2855243e78fa42ce41b69bec558133fd4abe72949553",
+        "prior_value": 1001
+      },
+      {
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 867,
+        "source_sha256": "3ca83071e249fd1b5856fe4619b58e11a54f9223111435d28d033dcebeccf88b",
+        "prior_value": 848
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/kai/run_manager.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 745,
+        "source_sha256": "3f31222f33d6d504f0a3844c02b343469da5950044ef0ef56a218e8c5f4989d9",
+        "prior_value": 688
+      },
+      {
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 665,
+        "source_sha256": "9850fc6ffb330e7361642070e26a7e5019b8393a4760c446cef3e2f92ca35ce3",
+        "prior_value": 623
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model_story.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "value": 621,
+        "source_sha256": "45ac95463a40274c3e94e558995a52708ad8458397daa1fc1bedb15023b81cd5",
+        "prior_value": 610
+      }
+    ]
   }
 }

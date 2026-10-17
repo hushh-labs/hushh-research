@@ -87,13 +87,27 @@ controls reject missing response cleanup and ignored coalescing maximum wait. Th
 scheduler-sensitive payout timing test is replaced by a deterministic queued
 maximum-wait case; exact debounce/cap arithmetic and payload coverage remain.
 This repair is not yet deployed. Main integration preserves migration bodies and
-rollbacks; the canonical manifest and all environment contracts verify head 406. The final integration pin is main `188d55c0544869efa235f276b3291043ec7a4ded`;
+rollbacks; the canonical manifest and all environment contracts verify head 406. The integration pin is main `fd3b00b3c160a5473efcbd32f139df8b6ccc7a7d`;
 concurrent Puppy controls and BYOC cleanup tests remain intact. Four authored
 capability descriptions retain hosting-aware AI choices and private-cloud
 account-deletion prerequisites. Exact-revision rejection declarations cover the
 two main graph predecessors (`8845cf8eae4a24fb` and `bae648fb1e85fb89`);
 current compatible workflow runs are not silently reinterpreted. Existing
 evolution declarations and execution guards remain unchanged.
+
+Root checkout integration `750db14051173801f3e79573297db24fda15714e`
+also preserves shared-branch `09f3d53a10725c982d65c008ece594732d42a4ff`.
+Its extracted stream/checkpoint helpers and production deployment dependencies
+are reused. The previous core completed frontend checks and 21,237 backend
+cases but failed eleven Drive/Azure fixture and dependency checks. The combined
+source passes all 48 nearest recovery/negative-control cases, all 472 Back cases
+and 14 monitoring provisioner tests. The Azure story now supplies explicit,
+provider-bound consent to the real checkpoint validator. No consent or hosting
+guard is bypassed. Seventeen independently reviewed size observations preserve
+all earlier baseline rows and unchanged budgets; each additional-line negative
+control still fails. Combined core, hosted CI, Dev promotion and paid delivery
+remain required. The two clean, preserved worktrees last changed over five days
+ago were removed; implementation remains on the original root branch.
 
 The `2026-10-17T12:34:30Z` read-only provider preflight verifies the same funding
 and capital totals, balanced liabilities, settled backing and conserved fees.
