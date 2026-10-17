@@ -92,6 +92,10 @@ tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_owner_meeting_notes_scenario.py
 tests/services/test_drive_request_payment.py
 tests/services/test_drive_autoshare_pay_then_stream_postgres.py
+# Pay once, then stream: the real request pipeline against a fake Drive and
+# Stripe. Checkout opens mid-search, nothing is shared before payment, every
+# match is shared once after it, and every paid request settles exactly once.
+tests/services/test_drive_pay_stream_acceptance_postgres.py
 tests/test_drive_request_owner_payouts.py
 tests/test_stripe_connect_bank_payouts.py
 # Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
