@@ -1765,9 +1765,11 @@ class OneLocationAgentService:
         try:
             from hushh_mcp.services.system_push_delivery import durable_push_receipt
 
-            receipt = durable_push_receipt(user_id, notification_type, safe_data) if (
-                show_alert and str(safe_data.get("sync_only", "")).lower() != "true"
-            ) else None
+            receipt = (
+                durable_push_receipt(user_id, notification_type, safe_data)
+                if (show_alert and str(safe_data.get("sync_only", "")).lower() != "true")
+                else None
+            )
             if receipt is not None:
                 return receipt > 0
             rows = (

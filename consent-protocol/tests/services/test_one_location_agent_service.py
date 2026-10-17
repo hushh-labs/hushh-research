@@ -5984,7 +5984,9 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
     }
-    assert "location_access_request" not in {item["notification_type"] for item in service.notifications}
+    assert "location_access_request" not in {
+        item["notification_type"] for item in service.notifications
+    }
 
 
 def test_public_invite_label_is_a_name_and_never_an_email_handle() -> None:

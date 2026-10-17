@@ -118,16 +118,21 @@ def _sse_event_id(payload: dict[str, object]) -> str:
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
     event_type = str(payload.get("type") or "").strip()
-    if event_type in SYSTEM_PUSH_NOTIFICATION_TYPES or event_type.startswith("location_circle_") or event_type in {
-        "location_settings_changed",
-        "location_pkm_changed",
-        "connection_request",
-        "connection_request_cancelled",
-        "connection_request_resolved",
-        "connection_removed",
-        "connection_graph_changed",
-        "direct_message",
-    }:
+    if (
+        event_type in SYSTEM_PUSH_NOTIFICATION_TYPES
+        or event_type.startswith("location_circle_")
+        or event_type
+        in {
+            "location_settings_changed",
+            "location_pkm_changed",
+            "connection_request",
+            "connection_request_cancelled",
+            "connection_request_resolved",
+            "connection_removed",
+            "connection_graph_changed",
+            "direct_message",
+        }
+    ):
         return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
