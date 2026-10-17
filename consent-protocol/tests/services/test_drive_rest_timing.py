@@ -100,7 +100,7 @@ async def test_permission_failure_timing_uses_only_safe_code(caplog):
         )
 
     assert (
-        "drive_permission_rest.timing operation=create outcome=permission_outcome_unknown duration_ms="
+        "drive_permission_rest.timing operation=create outcome=permission.outcome.unknown duration_ms="
         in caplog.text
     )
     assert "private-file-id" not in caplog.text

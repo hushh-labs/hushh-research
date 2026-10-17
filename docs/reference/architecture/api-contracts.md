@@ -3205,7 +3205,7 @@ only opaque job/share IDs, never a list of Drive IDs or recipient emails.
 | --- | --- |
 | `POST /` | `{searchJobId,clientRequestId,audience:"trusted_circle"}`. Idempotently freezes the completed result IDs and currently eligible, verified recipient identities under an exact review digest. No Google permission or recipient message is created. |
 | `GET /` and `GET /{id}` | Owner's recent review and durable share status: file/recipient counts, exclusions, review revision/digest, and separate queued, confirmed, already-present, skipped, failed, and uncertain effect counts. An uncertain provider write requires review; a queued approval is never called delivered. |
-| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest before and after approval. Each file includes bounded per-recipient `outcomes` with recorded status and allowlisted `reasonCode`; original links remain available. No content downloads. |
+| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest before and after approval. Each file includes bounded per-recipient `outcomes` with recorded status, an allowlisted `reasonCode` released apps parse and, for a newer code, the exact additive `reasonDetail`; original links remain available. No content downloads. |
 | `POST /{id}/approve` | `{revision,reviewDigest,confirmed:true}` from the current exact-set review. HTTP 202 queues file-by-recipient Viewer grants; it does not mean Google access or notification has succeeded. |
 | `POST /{id}/retry` | `{revision,reviewDigest,confirmed:true}` explicitly requeues only a pre-POST `skipped/provider_unavailable` effect with no receipt or lease, in the same frozen manifest. Requires a current owner, exact revision/digest, live connection generation, current recipient relationship and unexpired originating request. Confirmed, stopped, and uncertain effects are never replayed. Returns HTTP 202. |
 | `POST /{id}/stop` | Empty body; fences remaining grants. Already confirmed Google permissions remain and are reported honestly. |
@@ -3225,6 +3225,33 @@ from PKM and is not a strict client-key zero-knowledge store.
 Only one bulk share can be prepared for a saved search, including across chats or
 repeated requests with different client IDs; reopening recovers the same review
 or progress rather than queueing duplicate grants.
+
+Google's answers to a grant are classified, never echoed. `invalidSharingRequest`,
+which Google also returns after a successful share whose email could not be sent,
+is uncertain: read-only reconciliation records the exact requested Viewer grant as
+a confirmed grant that Stop and expiry can remove. Without that grant the effect
+fails as `recipient_needs_google_account` (the address is not a Google account;
+per-file email stays off), `drive_policy_blocked` (Workspace or shared-drive
+sharing rules) or `permission_rejected`. `sharingRateLimitExceeded` returns the
+effect, and the rest of its batch, to the queue. The wait follows the effect's
+attempt number (5, 10, 20, then 40 minutes), and each retry repeats the absence
+check before any POST. Refusals share the effect's five attempts with its other
+retryable failures and reconciliation reads, so a refusal on the fifth attempt
+fails as `sharing_rate_limited`. A reconciliation read that fails for a passing
+reason (quota, 5xx, timeout) never settles an uncertain effect: it stays `unknown`
+and is read again, with longer waits up to an hour, until a read settles it. The
+exact-file lane counts its own refusals instead (a fifth refusal settles), and a
+grant waiting out the limit releases its file claim, so a confirmed Stop's removal
+or another grant of that file never waits on the timer.
+
+`issues[].reasonCode` and a file outcome's `reasonCode` use only the codes every
+released app parses, because native apps bundle their web assets and refuse any
+other code. A newer code arrives there as its nearest known one
+(`recipient_needs_google_account` and `drive_policy_blocked` as
+`permission_rejected`, `sharing_rate_limited` as `provider_unavailable`). The exact
+code is additive: `issueDetails: [{reasonCode,count}]` beside `issues`, and
+`reasonDetail` on a file outcome, present only when they differ. Clients use them
+only when they know every code, and otherwise keep the known codes.
 
 Owner status includes `issues: [{reasonCode,count}]`, `retryableCount` and `canRetry`.
 The displayed partition is `shared + alreadyShared + skipped + failed + needsReview

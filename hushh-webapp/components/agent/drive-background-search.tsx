@@ -665,5 +665,8 @@ const DRIVE_SHARE_ISSUE_COPY: Record<import("@/lib/services/drive-sharing-servic
   permission_rejected: "Google Drive denied sharing. Check the file’s permissions in Drive.",
   permission_outcome_unknown: "Access has not been confirmed. Check it in Drive before retrying.",
   permission_catalog_incomplete: "Google Drive could not confirm existing access. Check it before retrying.",
+  sharing_rate_limited: "Google Drive limited how many files you could share at once. Try again later.",
+  recipient_needs_google_account: "The recipient’s email isn’t a Google account. They need to link one first.",
+  drive_policy_blocked: "Your Google Workspace settings block sharing this file with them.",
   unavailable: "Sharing could not finish. Check the file in Drive.",
 };

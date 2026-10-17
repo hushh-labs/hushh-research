@@ -1753,6 +1753,24 @@ describe("exact-file document review", () => {
       expect(state.startRequestSearch).not.toHaveBeenCalled();
     });
 
+    // 2026-10-18: the owner saw 35 candidates and 3 held files with no reason
+    // for the rest. Drive's count of matches this account can't share is owner-only.
+    it("tells the owner how many automatic matches only their owners can share", async () => {
+      const automatic = (unshareableCount: number) => partial({ durableAvailable: true, trustedAuto: true,
+        ownerAllowed: true, autoshare: true, bulkShare: null,
+        search: durableSearch({ status: "running", matched: 35, unshareableCount }) });
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(automatic(32));
+      const view = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByText("32 of these can only be shared by their owners.")).toBeVisible();
+      view.unmount();
+
+      state.review.mockResolvedValue(automatic(0));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByText(/35 file candidates so far/)).toBeVisible();
+      expect(screen.queryByText(/can only be shared by/)).toBeNull();
+    });
+
     // The server resumes automatic batches only for a complete search.
     it.each([
       ["failed", "Search failed"],

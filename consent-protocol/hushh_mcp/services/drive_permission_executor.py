@@ -8,7 +8,10 @@ from dataclasses import asdict
 from firebase_admin import auth as firebase_auth
 
 from api.utils.firebase_admin import get_firebase_auth_app
-from hushh_mcp.services.drive_permission_store import DrivePermissionStore
+from hushh_mcp.services.drive_permission_store import (
+    RECONCILED_CREATE_PROVENANCE,
+    DrivePermissionStore,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     VerifiedGoogleRecipient,
@@ -18,9 +21,14 @@ from hushh_mcp.services.drive_sharing_contract import (
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import (
+    SHARE_HINTS,
     DrivePermissionError,
     GoogleDrivePermissionAdapter,
+    same_expiration,
 )
+
+# Reasons a reconciled absence may carry instead of a generic rejection.
+SHARE_REFUSAL_CODES = frozenset({"recipient_needs_google_account", "drive_policy_blocked"})
 
 
 async def require_recipient_identity(recipient: dict) -> None:
@@ -89,6 +97,37 @@ def existing_individual_permission(snapshot, *, email: str) -> dict | None:
         ):
             return dict(permission)
     return None
+
+
+def attributable_reader(permission: dict, *, email: str, expiration_time: str | None) -> bool:
+    """Whether a reconciled ACL is exactly the direct Viewer grant a create asked for.
+
+    Callers use this only after a complete pre-POST absence check and a create
+    Google answered with invalidSharingRequest. Another role, an expiry other
+    than the one sent, or inherited access is never attributed: it stays
+    present_unattributed and One never deletes it.
+    """
+    details = permission.get("permissionDetails")
+    return (
+        permission.get("type") == "user"
+        and permission.get("role") == "reader"
+        and isinstance(permission.get("emailAddress"), str)
+        and permission["emailAddress"].casefold() == email.casefold()
+        and permission.get("deleted") is not True
+        and permission.get("pendingOwner") is not True
+        and same_expiration(permission.get("expirationTime"), expiration_time)
+        and (
+            details is None
+            or isinstance(details, list)
+            and all(
+                isinstance(item, dict)
+                and item.get("inherited") is False
+                and item.get("permissionType") == "file"
+                and item.get("role") == "reader"
+                for item in details
+            )
+        )
+    )
 
 
 def verified_issuer(credentials: dict) -> dict:
@@ -199,16 +238,41 @@ class DrivePermissionExecutor:
             unknown = dispatched and (
                 not isinstance(error, DrivePermissionError) or error.outcome_unknown
             )
+            if dispatched and not unknown and str(error) == "sharing_rate_limited":
+                # Google refused the share itself. Wait minutes; the next claim
+                # repeats the complete absence check before any later POST.
+                if await self.store.defer_rate_limited(job):
+                    return "deferred"
             state = "unknown" if unknown else "rejected" if dispatched else "not_dispatched"
             code = "permission_outcome_unknown" if unknown else "permission_unavailable"
             if isinstance(error, DriveReadError):
                 code = str(error)
-            await self.store.settle(
-                job, state=state, evidence={"managed": False}, safe_error_code=code
-            )
+            evidence: dict = {"managed": False}
+            if unknown and isinstance(error, DrivePermissionError) and error.share_hint:
+                # Sealed in the receipt so read-only reconciliation can record
+                # a grant that exists, or why none was created.
+                evidence["share_hint"] = error.share_hint
+            await self.store.settle(job, state=state, evidence=evidence, safe_error_code=code)
             return state
         # Cancellation or storage failure leaves the durable lease/dispatching
         # evidence intact. A later worker must reconcile with GET, never re-POST.
+
+    def _share_hint(self, job) -> str | None:
+        """The fixed hint this executor sealed when Google answered the create."""
+        if not job.get("receipt_envelope"):
+            return None
+        try:
+            receipt = self.store.sharing_cipher.open(
+                job["receipt_envelope"],
+                user_id=job["user_id"],
+                resource_id=str(job["operation_id"]),
+                purpose="permission-receipt",
+            )
+        except DriveReadError:
+            # An unreadable receipt proves nothing: keep the conservative path.
+            return None
+        hint = receipt.get("share_hint") if isinstance(receipt, dict) else None
+        return hint if hint in SHARE_HINTS else None
 
     async def reconcile(self, *, user_id: str, operation_id: str) -> str:
         target = await self.store.reconciliation_target(user_id=user_id, operation_id=operation_id)
@@ -246,6 +310,42 @@ class DrivePermissionExecutor:
         except DriveReadError:
             # GET failure proves neither absence nor safe repeatability.
             return "unknown"
+        hint = self._share_hint(job) if job["kind"] == "grant" else None
+        if (
+            hint
+            and present is not None
+            and attributable_reader(present, email=plan["recipient"]["email"], expiration_time=None)
+        ):
+            # A complete absence check preceded the POST, and Google's answer can
+            # follow a real share. The exact requested grant is One's to manage.
+            await self.store.settle(
+                job,
+                state="succeeded",
+                evidence={
+                    "reconciled": list(snapshot.permissions),
+                    "created": {
+                        "permission_id": present["id"],
+                        "email": present["emailAddress"],
+                        "expiration_time": present.get("expirationTime"),
+                    },
+                    "managed": True,
+                    "provenance": RECONCILED_CREATE_PROVENANCE,
+                },
+            )
+            return "succeeded"
+        if hint and hint != "shared_without_email" and present is None:
+            # No grant exists: report Google's refusal, never a blind retry.
+            await self.store.settle(
+                job,
+                state="rejected",
+                evidence={
+                    "reconciled": list(snapshot.permissions),
+                    "managed": False,
+                    "provenance": "reconciled_absence_only",
+                },
+                safe_error_code=hint if hint in SHARE_REFUSAL_CODES else "permission_rejected",
+            )
+            return "rejected"
         state = (
             ("needs_review" if job["kind"] == "revoke" else "present_unattributed")
             if present is not None

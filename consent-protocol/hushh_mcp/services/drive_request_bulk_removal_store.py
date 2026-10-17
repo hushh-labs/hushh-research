@@ -12,10 +12,19 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_bulk_share_store import (
+    RECONCILED_CREATE_PROVENANCE,
+    DriveBulkShareStore,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 
+# A confirmed create, or the exact requested grant that read-only
+# reconciliation found after Google answered the create with
+# invalidSharingRequest (which can follow a real share). Nothing else is One's.
+MANAGED_CREATE_PROVENANCES = frozenset(
+    {"successful_create_after_absence_check", RECONCILED_CREATE_PROVENANCE}
+)
 # Sealed inside a removal plan when the owner removed access to one file from
 # their shared-files list. That explicit owner action, not a request-wide Stop,
 # is the removal's authority. Only server code can write a sealed plan.
@@ -29,7 +38,7 @@ def managed_bulk_plan(*, receipt: dict, file: dict, recipient: dict) -> dict | N
     email = receipt.get("email")
     if (
         receipt.get("managed") is not True
-        or receipt.get("provenance") != "successful_create_after_absence_check"
+        or receipt.get("provenance") not in MANAGED_CREATE_PROVENANCES
         or not isinstance(issuer, dict)
         or not isinstance(issuer.get("subject"), str)
         or not isinstance(issuer.get("oauthClientId"), str)

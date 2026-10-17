@@ -102,6 +102,9 @@ class DrivePermissionWorker:
                                 "present_unattributed",
                                 "absent",
                                 "needs_review",
+                                # Google's sharing rate limit: requeued behind
+                                # a minutes-long timer, never re-POSTed blindly.
+                                "deferred",
                             }
                             else "unavailable"
                         ] += 1
