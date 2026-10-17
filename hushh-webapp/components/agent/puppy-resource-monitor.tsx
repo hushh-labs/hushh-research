@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { AlertTriangle, Cloud, Cpu, Loader2 } from "@/components/icons";
+import { PuppyMachineTrigger, PUPPY_MACHINE_LABEL } from "@/components/agent/puppy-chat-controls";
 
 import {
   Dialog,
@@ -362,7 +363,7 @@ function useSheetPresentation(): boolean {
   );
 }
 
-const PANEL_TITLE = "This machine";
+const PANEL_TITLE = PUPPY_MACHINE_LABEL;
 const PANEL_DESCRIPTION =
   "What Puppy One is running on, and the work it has scheduled.";
 
@@ -398,9 +399,12 @@ const PANEL_DESCRIPTION =
  */
 export function PuppyMachineSheet({
   className,
+  ribbon = false,
   active = true,
 }: {
   className?: string;
+  /** Place warnings across the ribbon, independently of its compact trigger. */
+  ribbon?: boolean;
   /**
    * Whether the surface this strip belongs to is on screen.
    *
@@ -465,15 +469,7 @@ export function PuppyMachineSheet({
     if (!open) setAsSheet(livePresentation);
   }, [livePresentation, open]);
 
-  const trigger = (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Cpu className="size-3.5" aria-hidden />
-      {PANEL_TITLE}
-    </button>
-  );
+  const trigger = <PuppyMachineTrigger />;
 
   // The container is already the boundary. A second bordered card inside it
   // would be a box drawn around a box.
@@ -499,12 +495,12 @@ export function PuppyMachineSheet({
   );
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
-      {notice ? <LinkNotice state={notice} /> : null}
+    <div className={cn(ribbon ? "contents" : "flex min-w-0 flex-col gap-2", className)}>
+      {notice ? <div className={cn("min-w-0 [overflow-wrap:anywhere]", ribbon && "col-span-2 row-start-2")}><LinkNotice state={notice} /></div> : null}
       {hasAnswer || readable || (!onMachine && link?.state === "unavailable") ? (
-      <div className="flex justify-end">
+      <div className={cn("flex justify-end", ribbon && "col-start-2 row-start-1 self-start")}>
         {asSheet ? (
-          <Sheet open={open} onOpenChange={setOpen} modal>
+          <Sheet open={active && open} onOpenChange={setOpen} modal>
             <SheetTrigger asChild>{trigger}</SheetTrigger>
             <SheetContent
               side="bottom"

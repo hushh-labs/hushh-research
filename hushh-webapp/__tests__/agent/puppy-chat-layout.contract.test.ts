@@ -45,7 +45,7 @@ describe("Puppy One chat layout", () => {
     );
     expect(surface).not.toMatch(/"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-3/);
     // One's 896px measure, and no card frame around the conversation.
-    expect(surface).toContain("max-w-4xl");
+    expect(surface).toContain("max-w-[var(--app-bottom-shell-max-width)]");
     expect(surface).not.toContain("rounded-2xl border border-border/60 bg-background");
   });
 

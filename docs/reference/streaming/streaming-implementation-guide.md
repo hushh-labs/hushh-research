@@ -422,6 +422,17 @@ with `PUPPY_CANCELLED`; the bounded browser stop wait reports
 proves a device-side stop acknowledgement. The UI retains a stopping state until
 the authoritative request settles; late deltas cannot repopulate a cancelled turn.
 
+### Local Hermes chat
+
+The localhost `/api/hermes/chat/stream` bridge follows Hermes’s existing
+session-stream lifetime: request abort and downstream cancellation abort the
+same upstream request, including session preparation. The bridge releases its
+reader and removes listeners on settlement. Hiding the mounted Puppy surface
+does not abort a turn. The Stop control distinguishes an owner cancellation
+from a connection failure and preserves partial text. This is transport
+cancellation under the local Hermes disconnect contract, not a direct-pod Stop
+receipt or proof that an already delivered tool effect was undone.
+
 ## Typed-chat emoji reactions
 
 One may call `react_to_message(emoji)` during the normal typed-chat turn. The

@@ -59,10 +59,10 @@ export function PuppyOneSurface({
   useEffect(() => setLocalBridge(isLocalHost()), []);
   // On a deployed origin the readings control shares the chat's header row,
   // so the chat opens on one quiet line instead of two stacked strips.
-  const sheet = <PuppyMachineSheet className="shrink-0" active={active} />;
+  const sheet = <PuppyMachineSheet ribbon active={active && !composerDisabled} />;
   const panel = (activePanel: boolean, panelClassName?: string) =>
     localBridge === null ? null : localBridge ? (
-      <HermesChatPanel active={activePanel} sharedDock={sharedDock} composerDisabled={composerDisabled} className={panelClassName} />
+      <HermesChatPanel active={activePanel} sharedDock={sharedDock} composerDisabled={composerDisabled || !activePanel} accessory={sheet} className={panelClassName} />
     ) : (
       <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} composerDisabled={composerDisabled || !activePanel} />
     );
@@ -75,10 +75,11 @@ export function PuppyOneSurface({
         // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
         // underneath the navigation. The fallback covers a mount outside the
         // workspace, where the variable is not defined.
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-5 sm:px-5",
+        "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-0 sm:px-5",
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
+      inert={!active || composerDisabled}
       data-agent-surface="puppy"
     >
       {/* The measure lives on an INNER wrapper, because One puts its gutters
@@ -98,7 +99,6 @@ export function PuppyOneSurface({
             through your private pod.
           </p>
         ) : null}
-        {localBridge ? sheet : null}
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
@@ -121,7 +121,8 @@ export function PuppyOneSurface({
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
                   sharedDock={sharedDock}
-                  composerDisabled={composerDisabled}
+                  composerDisabled={composerDisabled || !active || activeConversationId !== conversation.id}
+                  accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ) : (

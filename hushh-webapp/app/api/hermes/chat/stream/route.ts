@@ -82,10 +82,33 @@ export async function POST(request: NextRequest) {
   // this machine and nothing reaches a model vendor.
   if (onDevice) upstreamBody.provider = "lmstudio";
 
+  // Hermes's local session-stream contract interrupts on disconnect. Keep the
+  // upstream lifetime attached to this reader, including Stop before admission.
+  // Remote pod turns use their separate durable turn/cancellation authority.
+  const lifetime = new AbortController();
+  let closed = false;
+  let downstream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const detach = () => {
+    if (!closed) { closed = true; downstream?.close(); }
+    lifetime.abort();
+  };
+  request.signal.addEventListener("abort", detach, { once: true });
+  if (request.signal.aborted) detach();
   const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      closed = true; // The consumer has already closed the downstream stream.
+      detach();
+      request.signal.removeEventListener("abort", detach);
+    },
     async start(controller) {
+      downstream = controller;
+      if (closed) {
+        controller.close();
+        request.signal.removeEventListener("abort", detach);
+        return;
+      }
       const messageId = `msg_${crypto.randomUUID()}`;
-      let closed = false;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       const send = (frame: Record<string, unknown>) => {
         if (!closed) controller.enqueue(agui(frame));
       };
@@ -99,6 +122,7 @@ export async function POST(request: NextRequest) {
 
       let activeSession = sessionId;
       try {
+        lifetime.signal.throwIfAborted();
         if (!activeSession) {
           const created = await fetch(`${config.baseUrl}/api/sessions`, {
             method: "POST",
@@ -107,7 +131,7 @@ export async function POST(request: NextRequest) {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({}),
-            signal: AbortSignal.timeout(15_000),
+            signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15_000)]),
           });
           if (created.ok) {
             const payload = (await created.json().catch(() => ({}))) as {
@@ -138,6 +162,7 @@ export async function POST(request: NextRequest) {
               Accept: "text/event-stream",
             },
             body: JSON.stringify(upstreamBody),
+            signal: lifetime.signal,
           },
         );
         if (!upstream.ok || !upstream.body) {
@@ -152,7 +177,7 @@ export async function POST(request: NextRequest) {
         send({ type: "RUN_STARTED", threadId, runId: activeSession });
         send({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
 
-        const reader = upstream.body.getReader();
+        reader = upstream.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let finished = false;
@@ -228,7 +253,13 @@ export async function POST(request: NextRequest) {
           controller.close();
         }
       } catch {
-        fail("Puppy One is not answering on this machine.");
+        if (!lifetime.signal.aborted) fail("Puppy One is not answering on this machine.");
+      } finally {
+        request.signal.removeEventListener("abort", detach);
+        if (reader) {
+          await reader.cancel().catch(() => undefined);
+          reader.releaseLock();
+        }
       }
     },
   });
