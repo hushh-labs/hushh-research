@@ -205,6 +205,85 @@ test('unrelated PRs inherit a merged baseline without receipts; relevant and unt
   }
 });
 
+test('PR merge refs review against their tested first parent, not a stale event base; PR input drift still blocks', async () => {
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-merge-ref-'));
+  const origin = path.join(fixture, 'origin');
+  const previous = Object.fromEntries(['UI_CONTRACT_BASE_SHA', 'CI', 'GITHUB_EVENT_PATH'].map(key => [key, process.env[key]]));
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, env:fixtureGitEnv, encoding: 'utf8', stdio: 'pipe' }).trim();
+  const write = (file, text) => fs.writeFile(path.join(origin, 'hushh-webapp', file), text);
+  const commit = message => { git(origin, 'add', '.'); git(origin, 'commit', '-m', message); return git(origin, 'rev-parse', 'HEAD'); };
+  try {
+    await fs.mkdir(path.join(origin, 'hushh-webapp/app'), { recursive: true });
+    await fs.mkdir(path.join(origin, 'hushh-webapp/components'), { recursive: true });
+    const inputs = ['app/page.tsx', 'components/config.json'];
+    await write(inputs[0], 'export default function Page(){return null;}');
+    await write(inputs[1], '{"query":"all"}');
+    await write('app/globals.css', 'body{}');
+    git(origin, 'init', '-b', 'main');
+    git(origin, 'config', 'user.name', 'UI fixture');
+    git(origin, 'config', 'user.email', 'ui-fixture@example.test');
+    git(origin, 'config', 'commit.gpgsign', 'false');
+    const forkPoint = commit('A: PR fork point');
+    const heads = {};
+    for (const [branch, file, text] of [['css-only', 'app/globals.css', 'body{margin:0}'], ['ui-input', inputs[1], '{"query":"pr"}']]) {
+      git(origin, 'checkout', '-b', branch, forkPoint);
+      await write(file, text);
+      heads[branch] = commit(`P: ${branch}`);
+    }
+    // main then changes a hashed input, and no receipt exists for its tree.
+    git(origin, 'checkout', 'main');
+    await write(inputs[0], 'export default function Page(){return "main";}');
+    commit('B: main moves on');
+    for (const branch of Object.keys(heads)) {
+      git(origin, 'checkout', '-b', `${branch}-merge`, 'main');
+      git(origin, 'merge', '--no-ff', '--no-edit', branch);
+    }
+    // actions/checkout fetches refs/pull/N/merge at depth 2: once main moves on, the fork point is absent.
+    const clone = (branch, ...depth) => {
+      const dir = path.join(fixture, `${branch}${depth.length ? '-shallow' : ''}`);
+      git(fixture, 'clone', '--quiet', ...depth, '--branch', `${branch}-merge`, `file://${origin}`, dir);
+      return path.join(dir, 'hushh-webapp');
+    };
+    const cssOnly = clone('css-only', '--depth=2');
+    const uiInput = clone('ui-input', '--depth=2');
+    const fullHistory = clone('css-only');
+    assert.throws(() => git(cssOnly, 'cat-file', '-e', `${forkPoint}^{commit}`));
+    git(fullHistory, 'cat-file', '-e', `${forkPoint}^{commit}`);
+    process.env.CI = 'true';
+    process.env.GITHUB_EVENT_PATH = path.join(fixture, 'event.json');
+    const revision = 'd'.repeat(64);
+    const check = async (root, head, expected) => {
+      await fs.writeFile(process.env.GITHUB_EVENT_PATH, JSON.stringify({ pull_request: { base: { sha: forkPoint }, head: { sha: head } } }));
+      for (const kind of ['back', 'search']) {
+        const run = syncReviewReceipt(root, kind, revision, {}, true, inputs);
+        await (expected ? assert.rejects(run, expected) : run);
+      }
+    };
+    // ui-contracts pins UI_CONTRACT_BASE_SHA to the event base; Web Core reads only the event.
+    for (const pinned of [forkPoint, undefined]) {
+      if (pinned) process.env.UI_CONTRACT_BASE_SHA = pinned;
+      else delete process.env.UI_CONTRACT_BASE_SHA;
+      await check(cssOnly, heads['css-only']);
+      await check(fullHistory, heads['css-only']);
+      await check(uiInput, heads['ui-input'], /stale/);
+    }
+    // HEAD^1 is trusted only when HEAD^2 is the event's head. Otherwise the stale fork
+    // point applies: missing at depth 2, and with full history it counts main's change.
+    for (const root of [cssOnly, fullHistory]) await check(root, heads['ui-input'], /stale/);
+    // An unreadable event only skips the merge-ref rule; a pinned ancestor base still decides.
+    process.env.GITHUB_EVENT_PATH = path.join(fixture, 'missing-event.json');
+    process.env.UI_CONTRACT_BASE_SHA = git(fullHistory, 'rev-parse', 'HEAD^1');
+    for (const kind of ['back', 'search']) await syncReviewReceipt(fullHistory, kind, revision, {}, true, inputs);
+    await assert.rejects(fs.access(path.join(cssOnly, 'contracts/ui-review')));
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test('legacy Search stamp migration preserves nested authored metadata', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'search-migrate-'));
   try {
