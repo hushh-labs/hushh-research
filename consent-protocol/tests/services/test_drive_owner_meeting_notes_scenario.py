@@ -430,6 +430,13 @@ async def run_owner_request(monkeypatch, sharing, bulk, files):
         "drivePages": drive_fake.pages,
         "driveRows": drive_fake.rows,
         "committed": sorted(item["id"] for item in committed.values()),
+        # Kept only for the owner's possible-matches list (D3), with the
+        # evidence that found them; claims never send these on their own.
+        "possible": {
+            item["id"]: item["evidenceKind"]
+            for item in committed.values()
+            if item.get("evidenceKind") not in (None, "title")
+        },
         "unshareable": {
             item["id"]: item.get("unavailableReason")
             for item in committed.values()
@@ -496,7 +503,14 @@ async def test_meeting_notes_request_shares_exactly_the_in_period_notes_a_may_sh
     # Candidates: the in-period meeting notes, whoever owns them. A viewer's
     # copy is a candidate Drive will not let A share.
     in_period_notes = A_IN_PERIOD_NOTES | COLLEAGUE_IN_PERIOD_NOTES
-    assert set(run["committed"]) == in_period_notes
+    assert set(run["committed"]) - set(run["possible"]) == in_period_notes
+    # The owner's possible matches: each in-period file A may share whose
+    # title names no meeting note. Drive found them by content; the stand-up
+    # copy's title names the ask only through a loose synonym ("Stand Up").
+    listed = {file_id for file_id in possible_matches if files[file_id]["canShare"]}
+    assert run["possible"] == {
+        file_id: "synonym" if file_id == "a-standup-copy" else "content" for file_id in listed
+    }
     assert run["unshareable"] == (
         {}
         if colleague_can_share
