@@ -8,6 +8,7 @@ through the same owner, grant and projection checks as production.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import subprocess
@@ -19,10 +20,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import drive_content_dates as content_dates
 from hushh_mcp.services import drive_owner_metadata_index as gear1
 from hushh_mcp.services import google_drive_rest_transport as rest
 from hushh_mcp.services.drive_owner_search_service import _in_requested_period
 from hushh_mcp.services.drive_title_dates import (
+    PeriodDecision,
     in_requested_period,
     parse_title_dates,
     period_decision,
@@ -603,9 +606,10 @@ async def test_gear_one_never_constructs_or_calls_a_model(monkeypatch):
     )
     assert [c.file["title"] for c in result.candidates] == ["Schwab_BankStatement_20260914.pdf"]
     assert "gemini" in await gear1.owner_vocabulary(OWNER, connection_generation=7, indexer=indexer)
-    # Importing Gear 1 and its transport loads no model SDK at all.
+    # Importing Gear 1, its content date check and transport loads no model SDK.
     probe = (
         "import sys, hushh_mcp.services.drive_owner_metadata_index, "
+        "hushh_mcp.services.drive_content_dates, "
         "hushh_mcp.services.google_drive_rest_transport; "
         "print(sorted(m for m in sys.modules if m.startswith(('google.genai', 'vertexai'))))"
     )
@@ -632,3 +636,111 @@ async def test_logs_carry_no_names_ids_or_request_words(monkeypatch, caplog):
     assert "drive_metadata_index.refresh" in logged and "drive_metadata_index.match" in logged
     for private in ("kavya", "kavia", "diagnosis", "ravi", "salary", file_id("p", 0), OWNER):
         assert private not in logged.lower()
+
+
+def undated(identity, name, mime, *, created, basis="created"):
+    return gear1.MetadataCandidate(
+        file={
+            "id": identity,
+            "title": name,
+            "mimeType": mime,
+            "createdTime": created,
+            "modifiedTime": created,
+            "viewUrl": None,
+        },
+        score=1.0,
+        matched=("exact",),
+        listing_day=None,
+        date_basis=basis,
+    )
+
+
+async def test_undated_documents_take_the_date_on_their_first_dated_line(caplog):
+    texts = {
+        file_id("c", 1): "ACME BANK\nStatement period: September 1, 2026 - September 30, 2026",
+        file_id("c", 2): "Invoice\nInvoice date: 14-06-2026\nDue 20-09-2026",
+        file_id("c", 3): None,
+        file_id("c", 4): "Notes without any written date",
+    }
+    reads, active, peak = [], [0], [0]
+
+    async def read_text(identity):
+        reads.append(identity)
+        active[0] += 1
+        peak[0] = max(peak[0], active[0])
+        await asyncio.sleep(0)
+        active[0] -= 1
+        if texts[identity] is None:
+            raise DriveReadError("provider_unavailable")
+        return texts[identity]
+
+    fence = AsyncMock()
+    pdf, doc = "application/pdf", "application/vnd.google-apps.document"
+    candidates = [
+        undated(file_id("c", 1), "Account statement.pdf", pdf, created="2026-10-20T10:00:00Z"),
+        undated(file_id("c", 2), "Scan 17.pdf", pdf, created="2026-09-10T10:00:00Z"),
+        undated(file_id("c", 3), "Board memo", doc, created="2026-09-10T10:00:00Z"),
+        undated(file_id("c", 4), "Weekly notes", doc, created="2026-09-12T10:00:00Z"),
+        undated(
+            file_id("c", 5), "Memo 2026-09-14", pdf, created="2026-09-14T10:00:00Z", basis="title"
+        ),
+        undated(file_id("c", 6), "Holiday clip", "video/mp4", created="2026-09-14T10:00:00Z"),
+    ]
+    caplog.set_level(logging.DEBUG)
+    decisions = await content_dates.check_content_dates(
+        OWNER,
+        candidates,
+        SEPTEMBER_IST,
+        require_current=fence,
+        read_text=read_text,
+        concurrency=2,
+    )
+    # Titled files and non-documents are never read; at most two reads at once.
+    assert sorted(reads) == [file_id("c", number) for number in (1, 2, 3, 4)]
+    assert peak[0] <= 2 and fence.await_count == 2 * 4
+    # Written period wins over a late download; a later due date does not count.
+    assert decisions[file_id("c", 1)] == PeriodDecision(True, "2026-09-01", "content")
+    assert decisions[file_id("c", 2)] == PeriodDecision(False, None, "content")
+    # Unreadable: no decision, so the caller keeps its created-time decision.
+    assert file_id("c", 3) not in decisions
+    assert decisions[file_id("c", 4)] == PeriodDecision(True, "2026-09-12", "created")
+    logged = "\n".join(record.getMessage() for record in caplog.records).lower()
+    assert "drive_content_dates.check" in logged
+    for private in ("acme", "statement period", "invoice", file_id("c", 1).lower()):
+        assert private not in logged
+
+
+async def test_a_failed_fence_cancels_every_outstanding_content_read():
+    started = []
+
+    async def read_text(identity):
+        started.append(identity)
+        await asyncio.sleep(0.05)
+        return "Sep 2, 2026"
+
+    checks = []
+
+    async def fence():
+        checks.append(len(checks))
+        if len(checks) == 3:
+            raise DriveReadError("connection_changed")
+
+    candidates = [
+        undated(
+            file_id("f", number),
+            f"Memo {number}",
+            "application/pdf",
+            created="2026-09-10T10:00:00Z",
+        )
+        for number in range(6)
+    ]
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await content_dates.check_content_dates(
+            OWNER,
+            candidates,
+            SEPTEMBER_IST,
+            require_current=fence,
+            read_text=read_text,
+            concurrency=2,
+        )
+    assert len(started) == 2
