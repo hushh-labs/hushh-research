@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary
+from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary, issue_list
 from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
 from hushh_mcp.services.drive_request_recovery_view import (
     RECOVERY_REQUEST_STATUSES,
@@ -327,6 +327,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
             if bulks:
                 counts = Counter()
                 issues = Counter()
+                details = Counter()
                 for bulk in bulks:
                     active_request = request_id if bulk["progressive_batch"] else None
                     total = (
@@ -348,12 +349,17 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     )
                     counts.update(summary["counts"])
                     issues.update({item["reasonCode"]: item["count"] for item in summary["issues"]})
+                    details.update(
+                        {
+                            item["reasonCode"]: item["count"]
+                            for item in summary.get("issueDetails", summary["issues"])
+                        }
+                    )
                 bulk_summary = {
                     "counts": dict(counts),
-                    "issues": [
-                        {"reasonCode": reason, "count": count}
-                        for reason, count in sorted(issues.items())
-                    ],
+                    # Codes released clients parse; exact newer codes are additive.
+                    "issues": issue_list(issues),
+                    **({"issueDetails": issue_list(details)} if details != issues else {}),
                 }
                 bulk_shared = (
                     bulk_summary["counts"]["shared"] + bulk_summary["counts"]["alreadyShared"]

@@ -105,9 +105,13 @@ async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
     )
     with sharing.db.engine.begin() as connection:
         connection.execute(
+            # The owner's Allow already created this order, so mark that one
+            # paid instead of asserting that none exists yet.
             text("""INSERT INTO drive_request_payment_orders(
               request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
-              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())"""),
+              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE
+                SET status='paid',paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     return review

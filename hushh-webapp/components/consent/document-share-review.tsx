@@ -201,6 +201,9 @@ const ISSUE_COPY: Record<DriveBulkReasonCode, { reason: string; action: string }
   permission_rejected: { reason: "Google Drive denied sharing.", action: "Check the file's sharing permissions in Google Drive." },
   permission_outcome_unknown: { reason: "The sharing result has not been confirmed.", action: "Check access in Google Drive before trying again." },
   permission_catalog_incomplete: { reason: "Google Drive could not confirm existing access.", action: "Check access in Google Drive before trying again." },
+  sharing_rate_limited: { reason: "Google Drive limited how many files you could share at once.", action: "Sharing waits and retries a few times before it stops." },
+  recipient_needs_google_account: { reason: "The recipient's email isn't a Google account.", action: "They need to link a Google account, then request again." },
+  drive_policy_blocked: { reason: "Your Google Workspace settings block sharing this file with them.", action: "Ask your Workspace admin or shared drive manager." },
   unavailable: { reason: "Sharing could not be completed.", action: "Check the file in Google Drive." },
 };
 
@@ -360,6 +363,17 @@ function queueLabel(queue: { queuedAt?: string; queueDelayed?: boolean } | undef
 /** Confirmed access so far across this request's batches. */
 function sharingProgressLabel(counts: DriveBulkShareCounts): string {
   return `Sharing files · ${(counts.shared + counts.alreadyShared).toLocaleString()} shared so far`;
+}
+
+/**
+ * Owner-only: matches without confirmed Drive sharing permission for this
+ * account, usually because someone else owns them. Automatic sharing leaves
+ * them out; the requester never receives search counts.
+ */
+function ownerOnlyMatchesLabel(count: number): string {
+  return count === 1
+    ? "1 of these can only be shared by its owner."
+    : `${count.toLocaleString()} of these can only be shared by their owners.`;
 }
 
 function needsSearchRefresh(review: SharingReview | undefined): boolean {
@@ -1720,6 +1734,9 @@ function UnlockedDocumentReview({
         {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
         {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} file candidates so far
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
+        {search && review.preparationError !== "date_range_required" && search.unshareableCount ? (
+          <HelperText>{ownerOnlyMatchesLabel(search.unshareableCount)}</HelperText>
+        ) : null}
         {/* An Allow can be withdrawn until a batch is frozen: nothing is charged or shared before that. */}
         {review.ownerAllowed === true && snapshot?.status.status === "pending" &&
           !bulkShare && batchCount === 0 && !review.aggregateCounts ? (
