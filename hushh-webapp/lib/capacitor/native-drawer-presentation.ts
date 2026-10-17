@@ -5,7 +5,7 @@ import {
   nativeDrawerAcknowledged as acknowledged,
   type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
   type NativeDrawerProjection, type NativeDrawerReceipt,
-  type NativeDrawerReadmission,
+  type NativeDrawerReadmission, type NativeDrawerPresentationState,
 } from "./native-drawers";
 
 export type NativeDrawerActions = {
@@ -39,6 +39,10 @@ export class NativeDrawerPresentation {
   private handle: PluginListenerHandle | null = null;
   private isolationHandle: PluginListenerHandle | null = null;
   private readmissionHandle: PluginListenerHandle | null = null;
+  private completionHandle: PluginListenerHandle | null = null;
+  private completionRequired = false;
+  private settledUpdate = 0;
+  private presentedUpdate = 0;
   private readmissionGeneration = 0;
   private listening = false;
   private backSettlements = false;
@@ -73,6 +77,13 @@ export class NativeDrawerPresentation {
       }
       if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
       this.backSettlements = capability.profileNavigationStack === true && this.identity.family === "profile";
+      this.completionRequired = capability.presentationCompletion === true;
+      if (this.completionRequired) {
+        if (!this.plugin.getPresentationState) { this.quarantine(); return false; }
+        const completion = await this.plugin.addListener("presentationSettled", event => this.acceptCompletion(event));
+        if (this.disposed) { await completion.remove(); return false; }
+        this.completionHandle = completion;
+      }
       // Listener installation creates no view. If it arrives after retirement,
       // remove that exact handle rather than leaking a callback into next owner.
       const handle = await this.plugin.addListener("choice", event => { void this.choose(event); });
@@ -149,6 +160,33 @@ export class NativeDrawerPresentation {
     this.inFlight = this.drain().finally(() => { this.inFlight = null; this.pump(); });
   }
 
+  private acceptCompletion(event: NativeDrawerPresentationState): void {
+    const state = this.current?.state;
+    if (this.disposed || !state || !this.ownerIsCurrent() || event.settled !== true ||
+        !receiptMatches(event, state, "active")) return;
+    this.settledUpdate = state.updateSequence;
+    this.notifyPresented();
+  }
+
+  private notifyPresented(): void {
+    const state = this.current?.state;
+    if (!state || this.disposed || !this.ownerIsCurrent() || this.applied !== state.updateSequence ||
+        this.presentedUpdate >= state.updateSequence || this.completionRequired && this.settledUpdate !== state.updateSequence) return;
+    this.presentedUpdate = state.updateSequence;
+    this.onApplied?.(state);
+  }
+
+  private async readPresentation(state: NativeDrawerProjection): Promise<void> {
+    try {
+      const result = await acknowledged(this.plugin.getPresentationState!(this.identity));
+      if (this.disposed || this.current?.state.updateSequence !== state.updateSequence) return;
+      if (!result.valid || !receiptMatches(result, state, "active")) { this.quarantine(); return; }
+      this.acceptCompletion(result);
+    } catch {
+      if (!this.disposed && this.current?.state.updateSequence === state.updateSequence) this.quarantine();
+    }
+  }
+
   private async drain(): Promise<void> {
     while (this.pending && !this.disposed && this.phase !== "quarantined") {
       const state = this.pending;
@@ -161,7 +199,10 @@ export class NativeDrawerPresentation {
         if (this.current?.state.updateSequence === state.updateSequence) {
           this.applied = state.updateSequence;
           this.setPhase("active");
-          this.onApplied?.(state);
+          // Register completion before apply; a zero-duration transition may
+          // finish before its receipt. Read back once to close that event race.
+          this.notifyPresented();
+          if (this.completionRequired) void this.readPresentation(state);
         }
       } catch {
         // Apply may have succeeded without a receipt. Never reveal a duplicate
@@ -236,6 +277,23 @@ export class NativeDrawerPresentation {
       this.destinations.get(event.updateSequence) !== profileDestinationKey(this.current.state);
   }
 
+  private provesRetirement(receipt: NativeDrawerReceipt | null, highestUpdate: number): boolean {
+    return !!receipt && sameNativeDrawer(receipt, this.identity) && receipt.phase === "retired" &&
+      Number.isSafeInteger(receipt.updateSequence) && receipt.updateSequence >= 0 && receipt.updateSequence <= highestUpdate &&
+      (!this.latestReceipt || receipt.updateSequence >= this.latestReceipt.updateSequence);
+  }
+
+  private async confirmedRetirement(highestUpdate: number): Promise<boolean> {
+    try {
+      if (this.provesRetirement(await acknowledged(this.plugin.retire(this.identity)), highestUpdate)) return true;
+    } catch { /* An uncertain request does not authorize a repeated operation. */ }
+    if (!this.completionRequired || !this.plugin.getPresentationState) return false;
+    try {
+      const state = await acknowledged(this.plugin.getPresentationState(this.identity));
+      return state.valid && state.settled === true && this.provesRetirement(state, highestUpdate);
+    } catch { return false; }
+  }
+
   private setPhase(phase: NativeDrawerPresentationPhase) {
     if (this.phase === phase) return;
     this.phase = phase;
@@ -266,25 +324,25 @@ export class NativeDrawerPresentation {
     const handle = this.handle;
     const isolationHandle = this.isolationHandle;
     const readmissionHandle = this.readmissionHandle;
+    const completionHandle = this.completionHandle;
     this.handle = null;
     this.isolationHandle = null;
     this.readmissionHandle = null;
+    this.completionHandle = null;
     // Listener cleanup may stall; it must not delay native privacy withdrawal.
     // A disposed callback cannot invoke an operation even if removal is late.
     if (handle) void acknowledged(handle.remove()).catch(() => undefined);
     if (readmissionHandle) void acknowledged(readmissionHandle.remove()).catch(() => undefined);
+    if (completionHandle) void acknowledged(completionHandle.remove()).catch(() => undefined);
     // Keep public isolation metadata observable through withdrawal. Otherwise
     // the final uncover event may be missed and base controls stay blocked.
     // Native retirement tombstones this identity even before admission. Send
     // withdrawal immediately; a delayed apply cannot revive the private body.
     let reconciled = false;
     try {
-      const receipt = highestUpdate > 0 ? await acknowledged(this.plugin.retire(this.identity)) : null;
       // A newer queued projection may have been withdrawn before dispatch.
       // Absence is proven by identity/retired phase, not its unapplied update.
-      if (highestUpdate > 0 && (!receipt || !sameNativeDrawer(receipt, this.identity) || receipt.phase !== "retired" ||
-          !Number.isSafeInteger(receipt.updateSequence) || receipt.updateSequence < 0 || receipt.updateSequence > highestUpdate ||
-          this.latestReceipt && receipt.updateSequence < this.latestReceipt.updateSequence)) {
+      if (highestUpdate > 0 && !await this.confirmedRetirement(highestUpdate)) {
         this.setPhase("quarantined"); return false;
       }
       if (isolationHandle) await acknowledged(reconcileNativeDrawerIsolation(this.plugin));

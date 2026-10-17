@@ -579,6 +579,7 @@ function ProfilePageContent({
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
+  const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
@@ -4423,7 +4424,7 @@ function ProfilePageContent({
           <VoicePreferencesPanel
             userId={user.uid}
             vaultOwnerToken={vaultOwnerToken}
-            getIdToken={user.getIdToken ? () => user.getIdToken() : null}
+            getIdToken={voiceGetIdToken}
           />
         ),
       });

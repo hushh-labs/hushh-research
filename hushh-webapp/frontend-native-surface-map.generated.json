@@ -6303,7 +6303,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.device",
-          "purpose": "Help the person understand and use the device screen through its generated controls.",
+          "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10382,5 +10382,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a5669c7c3774f71406ddd7eee7f0ef967fe000b32b81e98b1b3b8391dff4fd49"
+  "content_sha256": "ed9aa75d6f1f5b5b2533e4ed87d4bb5d02de4a1baa712dbbf82f86532cc7b53c"
 }

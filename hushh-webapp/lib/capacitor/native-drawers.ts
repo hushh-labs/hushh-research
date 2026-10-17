@@ -60,6 +60,8 @@ export type NativeDrawerReceipt = NativeDrawerIdentity & {
   privacyGeneration: number;
   phase: "active" | "retired";
 };
+/** Metadata only: admission is not proof of a completed UIKit transition. */
+export type NativeDrawerPresentationState = NativeDrawerReceipt & { settled: boolean };
 export type NativeDrawerChoice = NativeDrawerIdentity & {
   updateSequence: number;
   privacyGeneration: number;
@@ -74,7 +76,8 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean }>;
+  getPresentationState?(options: NativeDrawerIdentity): Promise<({ valid: true } & NativeDrawerPresentationState) | { valid: false }>;
   applyProfileSupportScene?(options: Parameters<NativeSupportScenePort["applyProfileSupportScene"]>[0]): ReturnType<NativeSupportScenePort["applyProfileSupportScene"]>;
   confirmProfileSupportAction?(options: Parameters<NativeSupportScenePort["confirmProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["confirmProfileSupportAction"]>;
   settleProfileSupportAction?(options: Parameters<NativeSupportScenePort["settleProfileSupportAction"]>[0]): ReturnType<NativeSupportScenePort["settleProfileSupportAction"]>;
@@ -91,6 +94,7 @@ export interface HushhNativeDrawersPlugin {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
+    (eventName: "presentationSettled", listener: (event: NativeDrawerPresentationState) => void): Promise<PluginListenerHandle>;
   };
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;

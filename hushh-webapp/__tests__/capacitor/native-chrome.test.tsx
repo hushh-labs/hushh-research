@@ -13,6 +13,7 @@ import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control
 import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
+import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -258,7 +259,7 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
-  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+  getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
   applyProfileSupportScene: vi.fn(), confirmProfileSupportAction: vi.fn(), settleProfileSupportAction: vi.fn(), retireProfileSupportScene: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
@@ -545,6 +546,7 @@ describe("private native drawer action boundary", () => {
     const listeners = new Set<(event: NativeDrawerChoice) => void>();
     const isolationListeners = new Set<(event: NativeDrawerIsolation) => void>();
     const readmissionListeners = new Set<(event: NativeDrawerReadmission) => void>();
+    const completionListeners = new Set<(event: NativeDrawerPresentationState) => void>();
     let isolation = { ...nativeDrawerIsolation() };
     const remove = vi.fn(async () => undefined);
     const apply = vi.fn(async (projection: NativeDrawerProjection) => ({ ...projection, phase: "active" as const }));
@@ -552,22 +554,81 @@ describe("private native drawer action boundary", () => {
     const plugin: HushhNativeDrawersPlugin = {
       getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, ...isolation }),
       apply, retire, confirmChoice: vi.fn(async () => ({ valid: true })),
-      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void)) => {
+      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested" | "presentationSettled", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void) | ((event: NativeDrawerPresentationState) => void)) => {
         if (name === "choice") listeners.add(callback as (event: NativeDrawerChoice) => void);
         else if (name === "readmissionRequested") readmissionListeners.add(callback as (event: NativeDrawerReadmission) => void);
+        else if (name === "presentationSettled") completionListeners.add(callback as (event: NativeDrawerPresentationState) => void);
         else isolationListeners.add(callback as (event: NativeDrawerIsolation) => void);
         return { remove: async () => { listeners.delete(callback as (event: NativeDrawerChoice) => void);
           readmissionListeners.delete(callback as (event: NativeDrawerReadmission) => void);
+          completionListeners.delete(callback as (event: NativeDrawerPresentationState) => void);
           isolationListeners.delete(callback as (event: NativeDrawerIsolation) => void); await remove(); } };
       },
     };
     return { plugin, apply, retire, remove, emit: (event: NativeDrawerChoice) => listeners.forEach(callback => callback(event)),
       readmit: (event: NativeDrawerReadmission) => readmissionListeners.forEach(callback => callback(event)),
+      complete: (event: NativeDrawerPresentationState) => completionListeners.forEach(callback => callback(event)),
       isolate: (isolated: boolean, notify = true) => {
         isolation = { generation: isolation.generation + 1, isolated };
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
+
+  it("transfers destination coverage only after current native completion, including completion before its apply receipt", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, presentationCompletion: true });
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(), phase: "active" as const, valid: true as const, settled: false }));
+    const presented = vi.fn();
+    const projection = state();
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, vi.fn(), presented);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() };
+    await presentation.listen();
+    presentation.publish(projection, actions);
+    await waitFor(() => expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce());
+    expect(presented).not.toHaveBeenCalled(); // The old admission-only implementation fails here.
+    const completed = { ...projection, phase: "active" as const, settled: true };
+    bridge.complete({ ...completed, ownerEpoch: "retired-owner" });
+    bridge.complete({ ...completed, privacyGeneration: 5 });
+    expect(presented).not.toHaveBeenCalled();
+    bridge.complete(completed); bridge.complete(completed);
+    expect(presented).toHaveBeenCalledTimes(1);
+
+    const next = { ...projection, updateSequence: 2, appearance: "dark" as const };
+    const receipt = deferred<NativeDrawerProjection & { phase: "active" }>();
+    bridge.apply.mockImplementationOnce(() => receipt.promise);
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...next, phase: "active" as const, valid: true as const, settled: true }));
+    presentation.publish(next, actions);
+    bridge.complete({ ...next, phase: "active", settled: true });
+    expect(presented).toHaveBeenCalledTimes(1);
+    receipt.resolve({ ...next, phase: "active" });
+    await waitFor(() => expect(presented).toHaveBeenCalledTimes(2));
+    bridge.complete(completed);
+    expect(presented).toHaveBeenLastCalledWith(next);
+    await presentation.retire();
+    bridge.complete({ ...next, phase: "active", settled: true });
+    expect(presented).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("uses targeted readback after uncertain retirement, releasing fallback only for actual disappearance=%s", async gone => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, presentationCompletion: true });
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(), phase: "active" as const, valid: true as const, settled: true }));
+    const phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce());
+    bridge.retire.mockRejectedValueOnce(new Error("Synthetic lost receipt"));
+    bridge.plugin.getPresentationState = vi.fn(async () => ({ ...state(),
+      phase: gone ? "retired" as const : "active" as const, valid: true as const, settled: true }));
+    expect(await presentation.retire()).toBe(gone);
+    expect(bridge.retire).toHaveBeenCalledOnce();
+    expect(bridge.plugin.getPresentationState).toHaveBeenCalledOnce();
+    expect(phases).toHaveBeenLastCalledWith(gone ? "retired" : "quarantined");
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["account", false], ["account", true], ["support", false], ["support", true],
@@ -3106,8 +3167,10 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileNameScene: true, profileSupportScene: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
+    drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
+      valid: true, settled: true, phase: "active" }));
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));

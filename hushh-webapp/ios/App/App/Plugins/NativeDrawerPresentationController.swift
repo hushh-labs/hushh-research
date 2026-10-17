@@ -37,11 +37,26 @@ final class NativeDrawerModel: ObservableObject {
     var awaitingBackAcknowledgement: Bool { backPending }
     var allowsPageInteraction: Bool { !backPending && !navigationTransitioning }
     weak var profileNavigationController: NativeProfileNavigationController?
+    var navigationDidSettle: (() -> Void)?
     private var navigationPages = [String: NativeProfilePage]()
     #if DEBUG
     var profileAccountAppeared = false
     #endif
     func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
+    fileprivate func completeNativePop(_ path: [String], from state: NativeDrawerProjection) {
+        // Only UIKit's completed pop may reconcile a compatible refresh. Old
+        // setters and arbitrary callbacks still require the exact projection.
+        // A new visit, owner or privacy generation is never compatible.
+        guard state.identity == projection.identity,
+              state.updateSequence <= projection.updateSequence,
+              state.privacyGeneration == projection.privacyGeneration,
+              state.profileDestinationId == projection.profileDestinationId,
+              state.profileSupportDestinationId == projection.profileSupportDestinationId,
+              state.profileStack?.map(\.id) == projection.profileStack?.map(\.id),
+              state.open, projection.open, state.enabled, projection.enabled,
+              state.surfaceOpen == projection.surfaceOpen else { return }
+        requestPath(path, from: projection)
+    }
     func requestPath(_ path: [String], from state: NativeDrawerProjection) {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
@@ -193,6 +208,7 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
     private let rowObserver: ((String, CGRect, Bool) -> Void)?
     private var transitioning = false
     private var applyingProjection = false
+    private var nativePopCallDepth = 0
     private var retired = false
     private weak var lastVisiblePage: UIViewController?
     private var outgoingUserPop: NativeDrawerProjection?
@@ -219,6 +235,48 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
             page.navigationItem.rightBarButtonItem = close
     }
     required init?(coder: NSCoder) { fatalError("Native Profile navigation is programmatic") }
+
+    private func performNativePop<T>(_ operation: () -> T?) -> T? {
+        if applyingProjection || nativePopCallDepth > 0 { return operation() }
+        guard !retired, model.profileNavigationController === self, !transitioning else { return nil }
+        // UIKit may defer willShow until after popViewController returns. Fence
+        // reconciliation before calling super, or a compatible SwiftUI update
+        // can restore the outgoing stack and misclassify the pop as projected.
+        outgoingUserPop = model.projection
+        transitioning = true; model.navigationTransitioning = true
+        reconcileInteraction()
+        nativePopCallDepth += 1
+        let result = operation()
+        nativePopCallDepth -= 1
+        if result == nil {
+            outgoingUserPop = nil
+            transitioning = false; model.navigationTransitioning = false
+            reconcileInteraction()
+        }
+        return result
+    }
+    override func popViewController(animated: Bool) -> UIViewController? {
+        guard viewControllers.count > 1 else { return nil }
+        return performNativePop { super.popViewController(animated: animated) }
+    }
+    override func popToViewController(_ viewController: UIViewController, animated: Bool) -> [UIViewController]? {
+        guard viewControllers.last !== viewController, viewControllers.contains(where: { $0 === viewController }) else { return nil }
+        return performNativePop { super.popToViewController(viewController, animated: animated) }
+    }
+    override func popToRootViewController(animated: Bool) -> [UIViewController]? {
+        guard viewControllers.count > 1 else { return nil }
+        return performNativePop { super.popToRootViewController(animated: animated) }
+    }
+
+    var hasCompletedProjectedDestination: Bool {
+        guard !retired, !transitioning, !applyingProjection,
+              model.profileNavigationController === self,
+              model.navigationPath == (model.projection.profileStack?.map(\.id) ?? []) else { return false }
+        let expected: [UIViewController] = [rootPage] + model.navigationPath.compactMap { pages[$0] }
+        return expected.count == model.navigationPath.count + 1 && viewControllers.count == expected.count &&
+            zip(viewControllers, expected).allSatisfy({ $0.0 === $0.1 }) &&
+            visibleViewController === expected.last && lastVisiblePage === expected.last
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -248,7 +306,8 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         guard !retired, model.profileNavigationController === self else { return }
-        outgoingUserPop = !applyingProjection && lastVisiblePage !== viewController ? model.projection : nil
+        if applyingProjection { outgoingUserPop = nil }
+        else if outgoingUserPop == nil, lastVisiblePage !== viewController { outgoingUserPop = model.projection }
         transitioning = true
         model.navigationTransitioning = true
         reconcileInteraction()
@@ -269,9 +328,10 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         // Programmatic projection changes are never echoed as user operations.
         let visiblePath = viewControllers.dropFirst().compactMap { controller in pages.first { $0.value === controller }?.key }
         if !projected, let outgoing, visiblePath.count < model.navigationPath.count {
-            model.requestPath(visiblePath, from: outgoing)
+            model.completeNativePop(visiblePath, from: outgoing)
         }
         reconcile()
+        model.navigationDidSettle?()
     }
     private func reconcileInteraction() {
         let admitted = model.interactionEnabled && model.allowsPageInteraction
@@ -337,6 +397,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
     var requestReadmission: (() -> Void)?
+    var presentationDidSettle: ((NativeDrawerProjection) -> Void)?
+    private var settledUpdateSequence = 0
+    var presentationSettled: Bool {
+        !motion.retired && viewIfLoaded?.window != nil && !view.bounds.isEmpty && animator == nil && !dragging && !intentPending && !awaitingReadmission &&
+            model.allowsPageInteraction && settledUpdateSequence == model.projection.updateSequence &&
+            (!model.projection.open || model.projection.profileStack == nil ||
+                model.profileNavigationController?.hasCompletedProjectedDestination == true)
+    }
     #if DEBUG
     private var observedCloseSequence = 0
     private var observedCloseStage = "none"
@@ -397,6 +465,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pan.delegate = self
         view.addGestureRecognizer(pan)
         model.close = { [weak self] in self?.close() }
+        model.navigationDidSettle = { [weak self] in self?.schedulePresentationCompletion() }
         model.requestDelete = { [weak self] row, state in self?.confirmDelete(row, from: state) }
         applyAppearance()
         pose(0)
@@ -434,6 +503,31 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         alignHeader()
         // Compatible theme/content layouts never rewind an active drag/settle.
         if changed || animator == nil { pose(motion.progress) }
+        reportPresentationCompletion()
+    }
+
+    private func schedulePresentationCompletion() {
+        // SwiftUI may not have attached its navigation controller during apply.
+        // The next layout and UIKit didShow are completion evidence, not the
+        // bridge's admission receipt or a guessed animation delay.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.motion.retired else { return }
+            self.view.layoutIfNeeded()
+            self.reportPresentationCompletion()
+        }
+    }
+    private func reportPresentationCompletion() {
+        let state = model.projection
+        guard !motion.retired, viewIfLoaded?.window != nil, !view.bounds.isEmpty,
+              animator == nil, !dragging, !intentPending, !awaitingReadmission,
+              !model.navigationTransitioning, motion.committedOpen == state.open,
+              model.navigationPath == (state.profileStack?.map(\.id) ?? []),
+              !state.open || state.profileStack == nil || model.profileNavigationController != nil else { return }
+        if state.open, state.profileStack != nil,
+           model.profileNavigationController?.hasCompletedProjectedDestination != true { return }
+        guard settledUpdateSequence != state.updateSequence else { return }
+        settledUpdateSequence = state.updateSequence
+        presentationDidSettle?(state)
     }
 
     func update(_ projection: NativeDrawerProjection) {
@@ -451,6 +545,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         let compatibleTerminal = intentPending && !changedOpen && model.projection.enabled == projection.enabled &&
             model.projection.privacyGeneration == projection.privacyGeneration
         model.update(projection)
+        schedulePresentationCompletion()
         applyAppearance()
         alignHeader()
         if compatibleTerminal {
@@ -470,6 +565,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             let target: CGFloat = projection.open ? 1 : 0
             guard motion.commit(open: projection.open, generation: motion.generation) else { return }
             pose(target)
+            reportPresentationCompletion()
             return
         }
         if intentPending && projection.open == motion.committedOpen && animator == nil {
@@ -483,6 +579,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         // Preparing a closed drawer must not briefly block the existing page.
         if model.projection.open { settle(open: true, userIntent: false) }
         else { pose(0) }
+        schedulePresentationCompletion()
     }
     private func applyAppearance() {
         guard let theme = HushhNativeControlAppearance(appearance: model.projection.appearance,
@@ -501,6 +598,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     func beginDrag() {
         guard !motion.retired else { return }
+        settledUpdateSequence = 0
         let width = travel
         let transform = host.view.layer.presentation()?.affineTransform() ?? host.view.transform
         let current = min(1, max(0, 1 - abs(transform.tx) / width))
@@ -595,6 +693,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
                 }
             }
             self.pose(target)
+            self.reportPresentationCompletion()
             UIAccessibility.post(notification: .screenChanged, argument: open ? self.host.view : nil)
         }
         animator = next
@@ -648,6 +747,8 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.endEditing(true)
         model.choose = nil
         model.close = nil
+        model.navigationDidSettle = nil
+        presentationDidSettle = nil
         requestReadmission = nil
         model.requestDelete = nil
         model.search = ""; model.clearDetails()

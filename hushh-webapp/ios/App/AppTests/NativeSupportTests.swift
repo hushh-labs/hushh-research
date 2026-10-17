@@ -1085,6 +1085,8 @@ final class NativeSupportTests: XCTestCase {
         controller.update(revisited)
         await requireRow("theme-selector")
         XCTAssertTrue(navigation.topViewController === preferencesPage, "Reopening a sibling page retains its hosting controller")
+        XCTAssertNil(navigation.popToViewController(preferencesPage, animated: true))
+        XCTAssertTrue(navigation.hasCompletedProjectedDestination, "A no-op pop must not strand transition quarantine")
         XCTAssertTrue(controller.host === host)
         func choiceMenu(in view: UIView) -> NativeDrawerMenuControl? {
             if let menu = view as? NativeDrawerMenuControl,
@@ -1113,31 +1115,85 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(preferencesPage.view.isUserInteractionEnabled)
         XCTAssertTrue(themeMenu.isUserInteractionEnabled, "A transition-time render must not strand the retained menu")
         XCTAssertFalse(themeMenu.accessibilityElementsHidden, "UIKit completion must restore menu accessibility too")
+
+        navigation.popViewController(animated: true)
+        XCTAssertEqual(backs, 5, "A compatible refresh cannot commit Back before UIKit finishes")
+        func compatibleState(_ update: Int, privacy: Int = 0) -> NativeDrawerProjection {
+            var next = privateDrawerState(update: update, appearance: "dark", privacy: privacy, backEnabled: true)
+            next.surfaceOpen = true
+            next.profileDestinationId = duringTransition.profileDestinationId
+            next.profileStack = duringTransition.profileStack
+            return next
+        }
+        let compatible = compatibleState(13)
+        controller.update(compatible)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 6 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, [])
+        XCTAssertEqual(navigation.viewControllers.count, 1, "A compatible update must not push the popped page back")
+        controller.update(compatibleState(14))
+        navigation.reconcile()
+        XCTAssertEqual(backs, 6, "Refresh while awaiting React Back cannot replay the operation")
+        XCTAssertEqual(navigation.viewControllers.count, 1)
+        returned = privateDrawerState(update: 15, backEnabled: true)
+        returned.surfaceOpen = true; returned.profileStack = []
+        controller.update(returned)
+        await requireRow("row-handle")
+        XCTAssertTrue(controller.model.allowsPageInteraction)
+
+        controller.update(compatibleState(16))
+        await requireRow("theme-selector")
+        navigation.popViewController(animated: true)
+        controller.update(compatibleState(17, privacy: 1))
+        await requireRow("theme-selector")
+        XCTAssertEqual(backs, 6, "A privacy change is not a compatible pop binding")
+        var sibling = privateDrawerState(update: 18, privacy: 1, backEnabled: true)
+        sibling.surfaceOpen = true; sibling.profileDestinationId = "account-after-preferences"
+        sibling.profileStack = account.profileStack
+        controller.model.update(sibling)
+        XCTAssertEqual(navigation.viewControllers.count, 2)
+        XCTAssertFalse(navigation.hasCompletedProjectedDestination,
+            "An equal-depth Account projection is not proof that the visible Preferences controller changed")
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        XCTAssertFalse(controller.presentationSettled)
+        controller.update(sibling)
+        await requireRow("edit-name")
+        XCTAssertTrue(navigation.hasCompletedProjectedDestination)
         controller.retire()
         navigation.navigationController(navigation, didShow: navigation.viewControllers[0], animated: true)
         requestBack()
-        XCTAssertEqual(backs, 5, "A retained retired callback cannot invoke a route operation")
+        XCTAssertEqual(backs, 6, "A retained retired callback cannot invoke a route operation")
     }
 
     @MainActor
-    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() {
+    func testProfileContentHandoffDoesNotReplayTheOuterDrawerSlide() async throws {
         var detail = privateDrawerState(open: false)
         detail.surfaceOpen = true
         let controller = NativeDrawerPresentationController(detail)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         controller.activateInitialPresentation()
+        XCTAssertFalse(controller.presentationSettled, "An offscreen host cannot acknowledge visible presentation")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
         let host = controller.host
+        var completed = [Int]()
+        controller.presentationDidSettle = { completed.append($0.updateSequence) }
         var menu = privateDrawerState(update: 2)
         menu.surfaceOpen = true
         controller.update(menu)
         XCTAssertTrue(controller.motion.committedOpen, "Returning to menu content must not start another outer opening animation")
         XCTAssertEqual(controller.motion.progress, 1)
         XCTAssertTrue(controller.host === host)
+        XCTAssertTrue(controller.presentationSettled)
+        XCTAssertEqual(completed, [2])
         detail = privateDrawerState(open: false, update: 3)
         detail.surfaceOpen = true
         controller.update(detail)
         XCTAssertFalse(controller.motion.committedOpen)
         XCTAssertEqual(controller.motion.progress, 0)
+        XCTAssertEqual(completed, [2, 3])
         XCTAssertFalse(controller.allowsInteraction("row", row: "row-handle"))
         controller.retire()
 
@@ -1147,14 +1203,23 @@ final class NativeSupportTests: XCTestCase {
         closed.surfaceOpen = false
         let opening = NativeDrawerPresentationController(closed)
         opening.view.frame = controller.view.frame
+        window.rootViewController = opening
         opening.activateInitialPresentation()
+        var openingCompletions = 0
+        opening.presentationDidSettle = { _ in openingCompletions += 1 }
         opening.update(menu)
         XCTAssertFalse(opening.motion.committedOpen)
+        XCTAssertFalse(opening.presentationSettled)
+        XCTAssertEqual(openingCompletions, 0, "Projection acceptance is not completed presentation")
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in opening.presentationSettled }, object: nil)], timeout: 2)
+        XCTAssertEqual(openingCompletions, 1)
         opening.retire()
+        XCTAssertFalse(opening.presentationSettled)
 
         // A changed privacy generation cannot take the content-only path.
         let changedPrivacy = NativeDrawerPresentationController(detail)
         changedPrivacy.view.frame = controller.view.frame
+        window.rootViewController = changedPrivacy
         changedPrivacy.activateInitialPresentation()
         var next = privateDrawerState(update: 4, privacy: 1)
         next.surfaceOpen = true

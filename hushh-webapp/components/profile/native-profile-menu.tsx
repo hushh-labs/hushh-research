@@ -79,11 +79,12 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     let current = true;
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
       if (current) {
-        setStackSupported(capability.contractVersion === 1 && capability.supported &&
+        const completedPresentation = capability.presentationCompletion === true && typeof nativeDrawers.getPresentationState === "function";
+        setStackSupported(completedPresentation && capability.contractVersion === 1 && capability.supported &&
           capability.profileNavigationStack === true && capability.profileNameScene === true);
-        setSettingsSupported(capability.contractVersion === 1 && capability.supported &&
+        setSettingsSupported(completedPresentation && capability.contractVersion === 1 && capability.supported &&
           capability.profileNavigationStack === true && capability.profileSettingsPages === true);
-        setSupportSupported(capability.contractVersion === 1 && capability.supported && capability.profileNavigationStack === true &&
+        setSupportSupported(completedPresentation && capability.contractVersion === 1 && capability.supported && capability.profileNavigationStack === true &&
           capability.profileSupportScene === true && [nativeDrawers.applyProfileSupportScene, nativeDrawers.confirmProfileSupportAction,
             nativeDrawers.settleProfileSupportAction, nativeDrawers.retireProfileSupportScene].every(method => typeof method === "function"));
       }
@@ -151,7 +152,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         {retained ? retained.children : children}
       </div>
     </NativeFeaturePage>
-    {account?.editor(destinationId)}
+    {(!nativeAccount || presentedDestination === destinationId) && account?.editor(destinationId)}
     {nativeSettings && presentedDestination === destinationId && settings?.editor?.(destinationId)}
     {nativeSupport && destinationId && presentedDestination === destinationId && support?.editor(destinationId, () => setSupportFailedOwner(lifetime))}
   </>;

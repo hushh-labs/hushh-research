@@ -49,6 +49,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPresentationState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
@@ -124,6 +125,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "terminalReadmission": self?.supported == true,
+                "presentationCompletion": self?.supported == true,
                 "coherentShell": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
@@ -207,9 +209,45 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.notifyListeners("readmissionRequested", data: event, retainUntilConsumed: false)
                 }
                 self.controllers[next.family] = controller
+                controller.presentationDidSettle = { [weak self, weak controller] state in
+                    guard let self, let controller, self.controllers[state.family] === controller,
+                          self.sessionFence.contains(state.identity) else { return }
+                    let privacy = HushhSessionPrivacyShield.shared.snapshot()
+                    guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration else { return }
+                    var event = self.receipt(state, phase: "active")
+                    event["settled"] = true
+                    self.notifyListeners("presentationSettled", data: event, retainUntilConsumed: false)
+                }
                 controller.activateInitialPresentation()
             }
             call.resolve(self.receipt(next, phase: "active"))
+        }
+    }
+    @objc func getPresentationState(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.supported, let identity = self.identity(call),
+                  self.sessionFence.contains(identity) else { call.resolve(["valid": false]); return }
+            if let lease = self.leases[identity.family], lease.retiredIdentity == identity,
+               !self.retiringControllers.values.contains(where: { $0.model.projection.identity == identity }),
+               self.controllers[identity.family]?.model.projection.identity != identity,
+               identity.family != "profile" || self.form == nil && self.retiringForms.isEmpty {
+                // Readback proves actual disappearance, not just that retire
+                // was requested. It cannot replay a choice or dismiss a new owner.
+                var result = self.retiredReceipt(identity, lease: lease)
+                result["valid"] = true; result["settled"] = true
+                call.resolve(result); return
+            }
+            guard let controller = self.controllers[identity.family],
+                  controller.model.projection.identity == identity else { call.resolve(["valid": false]); return }
+            let state = controller.model.projection
+            let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration else {
+                call.resolve(["valid": false]); return
+            }
+            var result = self.receipt(state, phase: "active")
+            result["valid"] = true
+            result["settled"] = controller.presentationSettled
+            call.resolve(result)
         }
     }
     @MainActor private func emit(_ family: String, action: String, row: String?, text: String?) -> Bool {
@@ -398,6 +436,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt(phase: "active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
+            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else {
@@ -535,6 +574,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt("active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
+            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return }
@@ -627,6 +667,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(next.receipt("active")); return
             }
             guard self.form == nil else { call.reject("NATIVE_PROFILE_FORM_OCCUPIED"); return }
+            guard self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
             let owner = self.profileFormOwnerKey(next.identity)
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_SUPPORT_RETIRED"); return }

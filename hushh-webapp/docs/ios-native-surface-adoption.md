@@ -16,6 +16,78 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Complete Profile and linked-workspace program — 2026-10-17
+
+Scope now includes protected and rich Profile bodies and linked workspaces.
+Older entries calling these deliberate retained bodies describe the installed
+baseline, **not exclusions from the approved conversion**. Qualification remains
+one build-time flag; ordinary builds, Android and web keep established renderers.
+iPad qualification is on demand and is not inherited from iPhone.
+
+Main is reconciled through `c233a2a448` in merge `3728973164`. Preserve its
+four-tab navigation and native navigation contract v3; this is independent of
+NativeChrome v2, NativeDock v1 and NativeDrawers v1. The developer's root worktree
+and its unrelated edits were not changed.
+
+| Family | Current presentation / operation owner | Implementation gap |
+| --- | --- | --- |
+| Shared navigation | Retained UIKit Profile stack; `native-profile-menu.tsx` and existing Profile query/Back owners | Current change fences a completed pop across compatible refreshes and separates admission from completed presentation; physical acceptance pending |
+| Account and identity | Native rows/name form; `profile-workspace-page.tsx`, `AccountService`, `AccountIdentityService`, existing photo and phone owners | Native photo/preview, phone/OTP and lifecycle confirmations remain to map |
+| Preferences | Native Appearance/Accent/haptics and Writing style; existing Settings/theme writers | Voice, Finance and provider scenes remain to map; shared Voice endpoint writers now guard synchronous reentry, owner replacement and field-scoped rollback |
+| Security and devices | Native Security/Session rows; `VaultMethodsPanel`, `TrustedDevicesPage` and vault/session services | Complete protected forms, method details, enrollment/removal, recovery and trusted-device scenes remain to map |
+| Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |
+| Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
+| Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |
+| Payouts/pricing | React `DocumentHashcoinPayouts`, `DocumentRequestPricingCard`; existing marketplace writers | Native history, bank entry, redemption, receipts, amount editing and conflicts remain to map; fixture fulfillment must stay sandboxed |
+| Help/Legal | Owned native Help sheet; existing support composer/service; React legal documents | Help has historical physical functional proof only; native document reading/switching remains to map |
+| Wallet Profile/cards | React `wallet-card-workspace`, `wallet-card-setup`, `wallet-card-manage`, payment-card owners under `components/wallet` | Complete native workspace/editor/reveal/sharing scenes remain to map; system camera/Share/Apple Wallet owners stay unchanged |
+| Portfolio import | React `portfolio-import-view`; existing import and explicit encrypted-commit owners | Native selection/progress/cancellation/review remain to map; no competing import store |
+| Referrals/developer | React `referral-dashboard-page` and existing developer owners | Native dashboard/local diagnostics remain to map; reward authority and both developer-build/host restrictions must remain enforced |
+
+Every mapping must include loading, empty, unavailable, error, busy, success,
+cancellation and nested overlay states. Route-bound scenes outlive the Profile
+menu under the same presentation owner. A root navigation test is not proof of
+any rich or protected conversion. No generic executable UI schema, DOM inference,
+credential projection or second operation store is permitted.
+
+The foundation adds negotiated `presentationCompletion`, a `presentationSettled`
+event and targeted `getPresentationState` readback. An `active` apply receipt
+remains admission only. Coverage/form handoffs use current actual layout and
+UIKit transition completion. Events/readbacks are document/owner/revision/update/
+privacy-fenced; a late completion cannot activate a replacement destination.
+Direct stale Back setters remain rejected. Only the owned UIKit completed-pop
+boundary may reconcile the same destination's compatible content/theme refresh.
+The retired Device-preferences path resolves to Preferences, not an empty page.
+
+Hosted reproduction exposed a second ordering boundary: UIKit can defer
+`willShow` until after a pop API returns. A compatible SwiftUI reconciliation in
+that interval restored the outgoing stack and marked the pop as projected.
+The retained navigation owner now fences at the pop entry point, preserves the
+original binding until actual completion, and compares the exact displayed
+controller sequence rather than depth. Offscreen/unattached hosts cannot report
+visible completion. An uncertain retirement uses one targeted absence readback;
+pending native forms/menus still block fallback, and no operation is replayed.
+
+Current local evidence: typecheck, focused ESLint, 234 nearest bridge/Voice/route
+cases, 467 Back hierarchy cases, four hosted native lifecycle/retirement cases,
+static Capacitor/Siri parity, design/accent/brand and source performance contracts
+pass. The native Back regression failed before the pop-entry fence and passes
+after it; stale visit/privacy controls still reject Back. Earlier compile and
+host failures remain in ignored local diagnostics, not relabeled as environment
+failures. The Voice command model was independently reviewed for owner fencing;
+its retained-callback and reordered-write regressions pass. Neither these checks
+nor source performance budgets prove physical rendering or frame pacing.
+
+Founder Wiki discovery/search refreshed, but its advertised constitutional/index
+read addresses returned not-found and the scoped native search returned no page.
+No wiki article was rewritten or promoted to current implementation truth.
+
+Rollback: the dedicated foundation increment, with the existing qualification
+flag left off in ordinary builds. No new physical candidate, broad acceptance,
+cloud deployment or distribution is established by this source change. Dedicated
+disposable UAT fixtures are required for actual saves/destructive outcomes; the
+shared reviewer and real financial fulfillment remain out of scope for mutation.
+
 ### Profile conversion coverage — 2026-10-17
 
 Qualification-only iPhone families are tracked separately from navigation tests.
