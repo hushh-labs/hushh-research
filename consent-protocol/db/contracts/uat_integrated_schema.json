@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 360,
+  "expected_migration_version": 361,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -94,7 +94,8 @@
     "one_referral_record_confirmed_memory_reward",
     "guard_wallet_card_request",
     "mirror_drive_request_payment_obligation",
-    "mark_drive_bulk_share_v1_removal_source"
+    "mark_drive_bulk_share_v1_removal_source",
+    "queue_system_push"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -3203,6 +3204,24 @@
       "bank_payout_scan_cursor",
       "created_at",
       "updated_at"
+    ],
+    "system_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "accepted_at"
+    ],
+    "system_push_outbox": [
+      "id",
+      "source_kind",
+      "source_id",
+      "source_revision",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at",
+      "expires_at",
+      "lease_id",
+      "created_at"
     ],
     "trusted_connections": [
       "id",

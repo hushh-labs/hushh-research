@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const mocks = vi.hoisted(() => {
   const toast = Object.assign(vi.fn(), { dismiss: vi.fn() });
@@ -13,7 +14,6 @@ const mocks = vi.hoisted(() => {
     auth: { user: user as typeof user | null },
     platform: { value: "web", native: false },
     initializeFCM: vi.fn(),
-    appStateListener: null as null | ((state: { isActive: boolean }) => void),
     prepareFCMListeners: vi.fn(),
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
@@ -48,11 +48,6 @@ vi.mock("@capacitor/core", async (importOriginal) => {
     },
   };
 });
-
-vi.mock("@capacitor/app", () => ({ App: { addListener: async (_event: string, listener: (state: { isActive: boolean }) => void) => {
-  mocks.appStateListener = listener;
-  return { remove: async () => {} };
-} } }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.auth.user }),
@@ -777,15 +772,23 @@ describe("connection-request Feed-first foreground policy", () => {
     expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledOnce();
   });
 
-  it("revalidates native permission after Settings resume without prompting", async () => {
+  it.each([
+    { status: "push_blocked" },
+    { status: "push_active", detail: "native_sound_disabled" },
+  ])("revalidates native permission after Settings resume without prompting", async (initial) => {
     mocks.platform.native = true;
     mocks.platform.value = "ios";
-    mocks.initializeFCM.mockResolvedValueOnce({ status: "push_blocked" }).mockResolvedValue({ status: "push_active" });
-    await renderProvider();
-    await vi.waitFor(() => expect(mocks.appStateListener).toBeTypeOf("function"));
-    act(() => mocks.appStateListener?.({ isActive: true }));
-    await vi.waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
-    expect(mocks.initializeFCM.mock.calls[1][2]).toEqual({ requestPermission: false });
+    mocks.initializeFCM.mockResolvedValueOnce(initial).mockResolvedValue({ status: "push_active" });
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    try {
+      await renderProvider();
+      act(() => appInteractionCoordinator.handleLifecycle("background"));
+      now.mockReturnValue(startedAt + 2_000);
+      act(() => appInteractionCoordinator.handleLifecycle("active"));
+      await vi.waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
+      expect(mocks.initializeFCM.mock.calls[1][2]).toEqual({ requestPermission: false, getIdToken: expect.any(Function) });
+    } finally { now.mockRestore(); }
   });
 
 });

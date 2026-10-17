@@ -180,6 +180,7 @@ import {
   type LiveShareStatus,
 } from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
@@ -1992,6 +1993,7 @@ function LocationFeatureRoot({
   return (
     <>
       <SettingsPresentationProvider density="compact">
+        <FeedPushPrompt context="location" />
         {children}
         <LiveShareDurationDialog
           vm={vm}
