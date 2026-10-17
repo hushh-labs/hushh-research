@@ -1037,8 +1037,11 @@ struct NativeDrawerContent: View {
                                 NativeProfilePortraitImage(data: row.portraitData, initials: profileInitials(row.label))
                                     .frame(width: 88, height: 88)
                             }.buttonStyle(.plain).accessibilityLabel("Profile photo options")
-                            Button("Photo options") { model.choice("row", row: row.id) }
-                                .frame(minWidth: 44, minHeight: 44)
+                            Button { model.choice("row", row: row.id) } label: {
+                                Text("Photo options")
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }.frame(maxWidth: .infinity)
                             .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
