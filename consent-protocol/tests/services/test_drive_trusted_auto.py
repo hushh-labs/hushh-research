@@ -416,6 +416,44 @@ async def test_missing_dates_are_visible_and_park_trusted_search(request_bulk, s
         ).scalar_one()
 
 
+def test_another_requests_batch_maps_to_a_wait_not_a_failure():
+    from hushh_mcp.services.drive_trusted_auto_service import _defer_code
+
+    assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_another_requests_batch_is_a_wait_never_a_failed_attempt(request_bulk, sharing):
+    _membership(sharing, "active")
+    request_id = (await _request(sharing))["requestId"]
+
+    def preparation():
+        with sharing.db.engine.connect() as connection:
+            return connection.execute(
+                text("""SELECT preparation_attempts,preparation_error_code
+                  FROM drive_share_requests WHERE request_id=:request"""),
+                {"request": request_id},
+            ).one()
+
+    # A paid sibling request queued its batches first: each approve for this
+    # request collides. Waiting never uses up its three attempts.
+    for _ in range(4):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="share_in_progress"
+        )
+    assert tuple(preparation()) == (0, "trusted_auto_queued")
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "preparationError"
+    ] is None
+    # Three real failures still end automatic preparation.
+    for _ in range(3):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="preparation_unavailable"
+        )
+    assert tuple(preparation()) == (3, "preparation_unavailable")
+
+
 @pytest.mark.asyncio
 async def test_background_defaults_on_but_explicit_off_survives_reconnect(request_bulk, sharing):
     _membership(sharing, "active")

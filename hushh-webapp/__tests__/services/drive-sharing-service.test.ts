@@ -325,6 +325,21 @@ const reply = (payload: unknown, status = 200) =>
 
 describe("private sharing transport", () => {
   beforeEach(() => vi.resetAllMocks());
+  it("loads the owner's review of a running autoshare search", async () => {
+    // The /review payload the server merges for every new Trusted or allowed
+    // request once its search starts: no owner file review.
+    const search = { ...requestSearch(), status: "running" as const, canStop: true,
+      coverage: { ...requestSearch().coverage!, requestedPeriod: {
+        start: "2026-09-02", end: "2026-10-02", timezone: "Asia/Kolkata" },
+      dateBasis: "title_date_then_created_then_modified" as const,
+      timeIntent: "document_coverage" as const, ownerReviewRequired: false,
+      providerPagesExhausted: false } };
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true, autoshare: true,
+      search, bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.search?.coverage).toMatchObject({ ownerReviewRequired: false,
+      dateBasis: "title_date_then_created_then_modified" });
+  });
   it("uses request-bound durable search pages, freezes exclusions, and reads paged delivery", async () => {
     fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true,
       search: requestSearch(), bulkShare: null }));

@@ -16,6 +16,11 @@ from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 
+# Sealed inside a removal plan when the owner removed access to one file from
+# their shared-files list. That explicit owner action, not a request-wide Stop,
+# is the removal's authority. Only server code can write a sealed plan.
+OWNER_FILE_REMOVAL_SCOPE = "owner_file"
+
 
 def managed_bulk_plan(*, receipt: dict, file: dict, recipient: dict) -> dict | None:
     """Return a delete plan only for an authenticated successful create receipt."""
@@ -222,7 +227,11 @@ class DriveRequestBulkRemovalStore(DriveBulkShareStore):
                   WHERE request_id=:request AND user_id=:user""",
                 {"request": row["request_id"], "user": user_id},
             )
-            if request is not None and request["access_stop_requested_at"] is None:
+            if (
+                request is not None
+                and request["access_stop_requested_at"] is None
+                and self._plan(row).get("scope") != OWNER_FILE_REMOVAL_SCOPE
+            ):
                 raise DriveSharingError("approval_superseded")
             lease = str(uuid4())
             state = "queued" if row["state"] == "queued" else "unknown"

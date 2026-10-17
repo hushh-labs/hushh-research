@@ -42,6 +42,7 @@ import {
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
+import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
@@ -785,8 +786,26 @@ function FeedPageSession({
     }
   }, [user, pagination.nextCursor, loadingMore]);
 
+  // The owner's "One sent N files" card opens its file list in place.
+  const [sharedFiles, setSharedFiles] = useState<{
+    requestId: string;
+    recipientLabel: string | null;
+    sharedCount: number;
+  } | null>(null);
+
   const openItem = useCallback(
     (item: FeedItem) => {
+      const requestId = item.metadata?.request_id;
+      if (item.event_type === "document_share_files_sent" && typeof requestId === "string") {
+        const label = item.metadata?.counterpart_label;
+        const count = Number(item.metadata?.shared_count);
+        setSharedFiles({
+          requestId,
+          recipientLabel: typeof label === "string" && label.trim() ? label : null,
+          sharedCount: Number.isSafeInteger(count) && count > 0 ? count : 0,
+        });
+        return;
+      }
       const href = presentFeedItem(item).href;
       if (href) router.push(href);
     },
@@ -1210,6 +1229,18 @@ function FeedPageSession({
         </SettingsPresentationProvider>
       </div>
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
+      {/* Mounted only while open: it reads the vault for owner-only calls. */}
+      {sharedFiles ? (
+        <FeedSharedFilesSheet
+          open
+          onOpenChange={(open) => {
+            if (!open) setSharedFiles(null);
+          }}
+          requestId={sharedFiles.requestId}
+          recipientLabel={sharedFiles.recipientLabel}
+          sharedCount={sharedFiles.sharedCount}
+        />
+      ) : null}
       {/* One price step for every document request row; Allow only opens it. */}
       <DocumentRequestPriceSheet
         moneyPolicy={documentPricePrompt.moneyPolicy ?? "drive_cents"}
@@ -1219,6 +1250,7 @@ function FeedPageSession({
         recipientEmail={documentPricePrompt.recipientEmail}
         periodStart={documentPricePrompt.periodStart}
         periodEnd={documentPricePrompt.periodEnd}
+        periodNote={documentPricePrompt.periodNote}
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
         lockedAmountCents={documentPricePrompt.lockedAmountCents}

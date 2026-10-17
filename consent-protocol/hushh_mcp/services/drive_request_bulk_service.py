@@ -419,6 +419,13 @@ class DriveRequestBulkService:
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
+            # A new automatic request shares every in-period match. An owner
+            # takeover keeps the owner's exact review.
+            **(
+                {"autoshare": True}
+                if authority_mode == "trusted_auto" and context.get("autoshare") is True
+                else {}
+            ),
         )
 
     async def search_status(self, *, user_id, request_id):

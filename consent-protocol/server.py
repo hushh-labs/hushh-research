@@ -151,6 +151,7 @@ from api.routes import (  # noqa: E402
     drive_request_payments,
     drive_request_requester,
     drive_searches,
+    drive_shared_files,
     drive_sharing,
     drive_work_drain,
     external_connectors,
@@ -380,6 +381,7 @@ app.include_router(drive_request_requester.router)
 app.include_router(drive_request_payments.router)
 app.include_router(drive_request_payments.webhook_router)
 app.include_router(drive_searches.router)
+app.include_router(drive_shared_files.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.
 app.include_router(drive_work_drain.router)

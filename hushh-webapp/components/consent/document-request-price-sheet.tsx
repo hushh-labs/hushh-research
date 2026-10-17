@@ -26,6 +26,10 @@ import {
 } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
+import {
+  DOCUMENT_FLOW_SURFACE_TYPE,
+  DOCUMENT_FLOW_TEXT_SCALE,
+} from "@/lib/consent/document-request-flow";
 
 export interface DocumentRequestPriceSheetProps {
   open: boolean;
@@ -38,6 +42,8 @@ export interface DocumentRequestPriceSheetProps {
   recipientEmail?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
+  /** One short line under Period: the note names a longer span than the picked dates. */
+  periodNote?: string | null;
   /**
    * The request's terms have not loaded. Allow stays off until the owner can
    * read what they are allowing.
@@ -153,6 +159,7 @@ function PriceSheet({
   recipientEmail,
   periodStart,
   periodEnd,
+  periodNote = null,
   detailsPending = false,
   paymentRequired,
   estimateCents = null,
@@ -217,6 +224,7 @@ function PriceSheet({
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
+      surfaceClassName={DOCUMENT_FLOW_SURFACE_TYPE}
       showCloseButton={false}
       desktopMaxWidthClassName="sm:!max-w-[520px]"
       footer={
@@ -248,7 +256,7 @@ function PriceSheet({
         />
       }
     >
-      <div className="space-y-3 pb-1 pt-2">
+      <div className={cn("space-y-3 pb-1 pt-2", DOCUMENT_FLOW_TEXT_SCALE)}>
         {detailsPending ? (
           error ? null : (
             <HelperText role="status">Loading request…</HelperText>
@@ -271,6 +279,9 @@ function PriceSheet({
               ) : null}
               <RequestTerm label="Access" value="Viewer, until removed" />
             </dl>
+            {periodText && periodNote ? (
+              <HelperText data-slot="price-sheet-period-note">{periodNote}</HelperText>
+            ) : null}
           </>
         )}
         {paymentRequired ? (

@@ -24,6 +24,10 @@ from hushh_mcp.services.drive_owner_search_store import (
     _legacy_single_query,
     validate_reusable_packet,
 )
+from hushh_mcp.services.drive_request_review_policy import (
+    AUTOSHARE_SELECTION_POLICY,
+    autoshare_selection,
+)
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_PAGE_SIZE_MAX,
@@ -89,6 +93,12 @@ _MONTH_WORDS = {
         1,
     )
 }
+_MONTH_NUMBERS = {
+    name: index
+    for index, name in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+    )
+}
 # Title checks see through "_" and camelCase (_title_words), so title dates
 # must too: "2025_08_14", "2025.08.14" and compact "20250814" are dates. An
 # unread title date falls back to file activity, which would let an
@@ -96,6 +106,22 @@ _MONTH_WORDS = {
 _TITLE_DATE = re.compile(
     r"(?<!\d)(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})(?!\d)"
     r"|(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)"
+)
+# Autoshare also reads day-first and month-name title dates ("16-06-2026",
+# "16/06/2026", "Jun 16, 2026", "16 June 2026"). A day-first date that could
+# also be month-first counts as both, so either reading outside the period
+# keeps the file out of an automatic grant.
+_DAY_FIRST_TITLE_DATE = re.compile(
+    r"(?<!\d)(?<!\d[-/.])(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?!\d)(?![-/.]\d)"
+)
+_MONTH_NAME = (
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+_MONTH_NAME_TITLE_DATE = re.compile(
+    rf"(?<![a-z]){_MONTH_NAME}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})(?!\d)"
+    rf"|(?<!\d)(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MONTH_NAME}\.?,?\s+(\d{{4}})(?!\d)",
+    re.I,
 )
 _TITLE_TIME = re.compile(
     r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
@@ -117,6 +143,142 @@ _MEETING_NOTE_DISCOVERY = (
     "minutes",
     "huddle",
 )
+# The words a Gemini note title can stand in for in an autoshare
+# meeting-notes request. Any other request term must be in the title.
+_MEETING_NOTE_WORDS = frozenset(
+    {
+        "meeting",
+        "meetings",
+        "note",
+        "notes",
+        "minutes",
+        "standup",
+        "standups",
+        "stand up",
+        "stand-up",
+        "sync",
+        "syncs",
+        "huddle",
+        "huddles",
+    }
+)
+# A deterministic plan that replaced a failed planner searches only its own
+# words. A request with any other word beyond period and filler words names a
+# subject or issuer that plan dropped, so its search keeps the owner's review.
+_FALLBACK_PLAN_WORDS = {
+    "meeting_notes": _MEETING_NOTE_WORDS | {"stand", "up"},
+    "statements": frozenset({"brokerage", "broker", "statement", "statements"}),
+}
+_FALLBACK_FILLER_WORDS = frozenset(
+    {
+        *_MONTH_WORDS,
+        "a",
+        "all",
+        "an",
+        "and",
+        "any",
+        "between",
+        "copies",
+        "current",
+        "daily",
+        "date",
+        "dates",
+        "day",
+        "days",
+        "doc",
+        "docs",
+        "document",
+        "documents",
+        "during",
+        "every",
+        "file",
+        "files",
+        "for",
+        "from",
+        "in",
+        "last",
+        "latest",
+        "me",
+        "monthly",
+        "month",
+        "months",
+        "my",
+        "of",
+        "on",
+        "or",
+        "our",
+        "over",
+        "past",
+        "pdf",
+        "pdfs",
+        "please",
+        "previous",
+        "prior",
+        "quarter",
+        "quarterly",
+        "quarters",
+        "recent",
+        "s",
+        "since",
+        "the",
+        "this",
+        "through",
+        "till",
+        "to",
+        "until",
+        "week",
+        "weekly",
+        "weeks",
+        "year",
+        "years",
+        "yesterday",
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+    }
+)
+_FALLBACK_NUMBER = re.compile(r"\d{1,2}(?:st|nd|rd|th)?|(?:19|20)\d{2}")
+_SCHWAB_NAME = re.compile(r"\b(?:charles\s+)?schwab\b", re.I)
+
+
+def _fallback_plan_covers_request(text: str, planner_fallback: dict | None) -> bool:
+    """A failed planner's stand-in plan keeps every word the request used."""
+    if planner_fallback is None:
+        return True
+    vocabulary = _FALLBACK_PLAN_WORDS.get(planner_fallback.get("plan"))
+    if vocabulary is None or not isinstance(text, str):
+        return False
+    if planner_fallback.get("plan") == "statements":
+        # The statement plan binds Schwab as a required entity.
+        text = _SCHWAB_NAME.sub(" ", text)
+    words = re.findall(r"[^\W_]+", text.casefold())
+    return all(
+        word in vocabulary or word in _FALLBACK_FILLER_WORDS or _FALLBACK_NUMBER.fullmatch(word)
+        for word in words
+    )
+
+
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
 # Compound filenames hide their words from whole-word title checks:
 # "MeetingNotes.pdf" and "2026_09_MeetingNotes" contain no standalone "notes".
@@ -131,6 +293,25 @@ def _title_words(title: str) -> str:
 def _title_search(pattern: re.Pattern[str], title: str) -> bool:
     """A title check that also sees the words inside a compound filename."""
     return bool(pattern.search(title) or pattern.search(_title_words(title)))
+
+
+def _other_title_days(title: str) -> list[date]:
+    """Day-first and month-name title dates, read only for autoshare."""
+    days = []
+    for found in _DAY_FIRST_TITLE_DATE.finditer(title):
+        first, second, year = (int(part) for part in found.groups())
+        for day, month in {(first, second), (second, first)}:
+            try:
+                days.append(date(year, month, day))
+            except ValueError:
+                continue
+    for found in _MONTH_NAME_TITLE_DATE.finditer(title):
+        month_name, day, year = found.group(1, 2, 3) if found.group(1) else found.group(5, 4, 6)
+        try:
+            days.append(date(int(year), _MONTH_NUMBERS[month_name[:3].casefold()], int(day)))
+        except ValueError:
+            continue
+    return days
 
 
 _SPAN_PHRASE = re.compile(
@@ -313,9 +494,28 @@ def _filename_candidate(checkpoint: dict, match: dict) -> bool:
     if checkpoint.get("request_owner_review_required") is True:
         exact = checkpoint.get("request_exact_title")
         return not exact or exact in {match["name"], match.get("shortcut_name")}
-    return checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
+    if checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
         checkpoint, match
-    )
+    ):
+        return True
+    # A Gemini meeting note names its event, not the word "meeting". For a
+    # meeting-notes request its title stands in for the meeting words only:
+    # every other request term (a client, a topic) must still be in it.
+    from hushh_mcp.services.drive_content_compilation import _GEMINI_NOTE_TITLE
+
+    if not (
+        autoshare_selection(checkpoint)
+        and not checkpoint.get("request_exact_title")
+        and _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
+        and _title_search(_GEMINI_NOTE_TITLE, match["name"])
+    ):
+        return False
+    subject = [
+        term
+        for term in checkpoint.get("request_subject_terms", [])
+        if term.casefold() not in _MEETING_NOTE_WORDS
+    ]
+    return _trusted_subject_matches({**checkpoint, "request_subject_terms": subject}, match)
 
 
 def _shareability(source: dict) -> dict:
@@ -574,7 +774,8 @@ def compile_request_queries(
             # A Drive full-text index can omit one of several request words
             # even when the original document is relevant. Exhaust a second,
             # broader provider query after the precise one. These rows remain
-            # unverified candidates and cannot authorize automatic sharing.
+            # unverified candidates: an owner reviews them, and an autoshare
+            # search grants one only when its title passes _filename_candidate.
             broader_subject = "(" + " or ".join(groups) + ")"
     else:
         subject = None
@@ -700,7 +901,14 @@ def compile_request_queries(
     return queries, period
 
 
-def _in_requested_period(match: dict, period: dict | None) -> bool:
+def _in_requested_period(match: dict, period: dict | None, *, precedence: bool = False) -> bool:
+    """Title dates decide when present; otherwise the file's own timestamps.
+
+    precedence: the autoshare rule. Only the first present date decides: the
+    title dates (every one inside the period, including day-first and
+    month-name dates), else created time, else modified time. Without it, any
+    title date or either timestamp inside the period matches (file activity).
+    """
     if period is None:
         return True
     start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
@@ -747,8 +955,12 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
             title_days.append(title_day)
         except ValueError:
             continue
+    if precedence:
+        title_days.extend(_other_title_days(match["name"]))
     if title_days:
-        return any(start <= day <= end for day in title_days)
+        inside = [start <= day <= end for day in title_days]
+        # Autoshare never grants a file with any title date outside the period.
+        return all(inside) if precedence else any(inside)
     for key in ("created_time", "modified_time"):
         value = match.get(key)
         if isinstance(value, str):
@@ -761,6 +973,9 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
                 continue
             if start <= day <= end:
                 return True
+            if precedence:
+                # The created time is present and outside: modified never decides.
+                return False
     return False
 
 
@@ -1256,11 +1471,18 @@ class DriveOwnerSearchService:
         evidence_route=None,
         v1_live_request=False,
         planner_fallback=None,
+        autoshare=False,
     ):
-        """Start or resume the owner-approved request's durable metadata search."""
+        """Start or resume the owner-approved request's durable metadata search.
+
+        autoshare: the request's sealed automatic flow. Its trusted search
+        selects every in-period match by title, created, then modified date,
+        so no owner file review is required.
+        """
         if (
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
+            or type(autoshare) is not bool
             or planner_fallback is not None
             and (
                 not isinstance(planner_fallback, dict)
@@ -1298,7 +1520,17 @@ class DriveOwnerSearchService:
             )
         v1_statement_search = v1_live_request
         time_intent = plan.get("time_intent", "document_coverage")
-        owner_review_required = (
+        # The picked dates bound an autoshare search; no period, no selection.
+        autoshare_dates = bool(
+            autoshare
+            and authority_mode == "trusted_auto"
+            and not indexed
+            and period is not None
+            # A stand-in for a failed planner may have dropped the request's
+            # subject or issuer. Only a request it fully covers shares itself.
+            and _fallback_plan_covers_request(query, planner_fallback)
+        )
+        owner_review_required = not autoshare_dates and (
             time_intent == "document_coverage" or authority_mode == "agent_package"
         )
         result_limit = None if indexed else plan.get("result_limit")
@@ -1346,6 +1578,11 @@ class DriveOwnerSearchService:
                 **({"planner_fallback": planner_fallback} if planner_fallback else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
+                **(
+                    {"request_selection_policy": AUTOSHARE_SELECTION_POLICY}
+                    if autoshare_dates
+                    else {}
+                ),
                 "request_coverage_query_version": 1
                 if len(queries) >= 2 and time_intent == "document_coverage"
                 else None,
@@ -1386,6 +1623,8 @@ class DriveOwnerSearchService:
                     "ownerReviewRequired": owner_review_required,
                     "dateBasis": "content_period_unverified"
                     if owner_review_required
+                    else "title_date_then_created_then_modified"
+                    if autoshare_dates
                     else "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
@@ -1627,6 +1866,8 @@ class DriveOwnerSearchService:
                 # Creation, modification and title dates do not establish the
                 # period covered by a document's contents.
                 return True
+            if autoshare_selection(checkpoint):
+                return _in_requested_period(match, period, precedence=True)
             if checkpoint.get("authority_mode") == "trusted_auto":
                 return _in_requested_period(match, period)
             return _in_requested_period(match, period) or (

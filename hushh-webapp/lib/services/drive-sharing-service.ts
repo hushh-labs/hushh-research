@@ -56,6 +56,12 @@ export type DocumentRequestQueue = {
    * server's threshold, since this time. Absent while it moves. Never "paused".
    */
   workDelayedSince?: string;
+  /** The request text names a longer span than its picked dates; the dates win. */
+  periodConflict?: "request_mentions_longer_span";
+  /** Trusted or allowed: every in-period match is sent after payment, no file picking. */
+  autoshare?: boolean;
+  /** Requester view: the owner has not allowed this request yet. */
+  awaitingOwnerAllow?: boolean;
 };
 /** A decision's acknowledgement; a withdrawal also carries the payment view. */
 export type SharingDecision = Record<string, unknown> & {
@@ -965,6 +971,10 @@ function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueu
       typeof queueDelayed === "boolean" ? { queuedAt, queueDelayed } : {}),
     ...(typeof workDelayedSince === "string" && !Number.isNaN(Date.parse(workDelayedSince))
       ? { workDelayedSince } : {}),
+    ...(result.periodConflict === "request_mentions_longer_span"
+      ? { periodConflict: "request_mentions_longer_span" as const } : {}),
+    ...(result.autoshare === true ? { autoshare: true } : {}),
+    ...(result.awaitingOwnerAllow === true ? { awaitingOwnerAllow: true } : {}),
   };
 }
 

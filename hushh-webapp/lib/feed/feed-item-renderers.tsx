@@ -1666,6 +1666,21 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: directMessageFeedHref(item.metadata),
       };
     }
+    case "document_share_files_sent": {
+      // The owner's one card per request, updated as batches are shared. The
+      // Feed opens its file list in place; the route is only the fallback.
+      const count = Number(item.metadata.shared_count);
+      const files = Number.isSafeInteger(count) && count > 0 ? count : 0;
+      const filesLabel = `${files} ${files === 1 ? "file" : "files"}`;
+      return {
+        icon: FileText,
+        domainLabel: "Google Drive",
+        label: who !== "Someone" ? `One sent ${filesLabel} to ${who}` : `One sent ${filesLabel}`,
+        person: counterpartPerson(item.metadata, who),
+        description: "Tap to review",
+        href: ROUTES.ONE_FEED,
+      };
+    }
     case "document_share_request_sent":
     case "document_share_request":
     case "document_share_review_ready":

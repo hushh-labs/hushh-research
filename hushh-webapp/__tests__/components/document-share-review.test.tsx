@@ -805,11 +805,39 @@ describe("exact-file document review", () => {
     expect(screen.getByRole("status")).not.toHaveTextContent("0 file candidates");
   });
 
-  it("tells the requester only that no files were shared", async () => {
+  it("tells the requester who must allow, then what to pay, never a delay", async () => {
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "pending",
+      awaitingOwnerAllow: true });
+    state.delivery.mockResolvedValue({ status: "pending", files: [], sharedCount: 0 });
+    const view = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()}
+      counterpartLabel="Ankit" />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Waiting for Ankit to allow"));
+    expect(screen.getByRole("status")).not.toHaveTextContent(/longer than usual/i);
+    view.unmount();
+
+    const payable = { state: "payable", amountCents: 50, currency: "usd",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(), requestExpiresAt: null,
+      refund: null, nextAction: "pay" };
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "pending",
+      autoshare: true, payment: payable });
+    const paying = render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} counterpartLabel="Document request" />);
+    await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Pay $0.50 to get the files"));
+    paying.unmount();
+
+    // The checkout window passed on this device: never "Pay" or "Finding files".
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "pending",
+      autoshare: true, payment: { ...payable,
+        checkoutExpiresAt: new Date(Date.now() - 60_000).toISOString() } });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} counterpartLabel="Document request" />);
+    await waitFor(() => expect(screen.getAllByRole("status")[0]).toHaveTextContent("Payment link expired"));
+    expect(screen.getAllByRole("status")[0]).not.toHaveTextContent(/Pay \$|Finding files/);
+  });
+
+  it("tells the requester only that no files matched", async () => {
     state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "no_files_shared" });
     state.delivery.mockResolvedValue({ status: "no_files_shared", files: [], sharedCount: 0 });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    expect(await screen.findByRole("status")).toHaveTextContent("No files were shared");
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching files");
     expect(screen.queryByText("No file candidates in this search")).toBeNull();
   });
 
@@ -1129,14 +1157,34 @@ describe("exact-file document review", () => {
     });
 
     it("tells the requester a queued request is waiting, not being prepared", async () => {
-      state.status.mockResolvedValue({ ...pending(), direction: "outgoing",
+      // The server sends autoshare with the queue for every Trusted or allowed request.
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing", autoshare: true,
         queuedAt: new Date(Date.now() - 5 * 60_000).toISOString(), queueDelayed: true });
       state.delivery.mockResolvedValue({ status: "pending", files: [] });
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Taking longer than usual · 5 min"));
       expect(screen.getByText("Your request is saved and continues automatically.")).toBeVisible();
       expect(screen.getByRole("status").querySelector("svg")).toBeNull();
-      expect(screen.getByRole("status")).not.toHaveTextContent(/paused|preparing/i);
+      expect(screen.getByRole("status")).not.toHaveTextContent(/paused|preparing|finding files/i);
+    });
+
+    it("tells the requester a fresh queued request is waiting to start", async () => {
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing", autoshare: true,
+        queuedAt: new Date().toISOString(), queueDelayed: false });
+      state.delivery.mockResolvedValue({ status: "pending", files: [] });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Waiting to start"));
+      expect(screen.getByRole("status")).not.toHaveTextContent(/finding files/i);
+    });
+
+    it("never says files are sending once sharing stalled", async () => {
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing", autoshare: true,
+        workDelayedSince: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString() });
+      state.delivery.mockResolvedValue({ status: "pending", files: [], sharedCount: 5, bulkStatus: "running" });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status"))
+        .toHaveTextContent("Taking longer than usual · 12 min · 5 sent so far"));
+      expect(screen.getByRole("status")).not.toHaveTextContent(/Sending files|Finding files/);
     });
 
     it("keeps an outgoing request readable when recipient verification is unavailable", async () => {
@@ -1221,8 +1269,51 @@ describe("exact-file document review", () => {
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
       await screen.findByRole("dialog", { name: "Set a price" });
-      await waitFor(() => expect(state.overview).toHaveBeenCalled());
       await waitFor(() => expect(priceSheet.props?.moneyPolicy).toBe("legacy_whole_dollars"));
+    });
+
+    it("prices a new request in cents from $0.50, whatever the package flag says", async () => {
+      state.overview.mockResolvedValue({ driveAgentPackagesEnabled: false });
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({ autoshare: true }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+      await screen.findByRole("dialog", { name: "Set a price" });
+      expect(priceSheet.props?.moneyPolicy).toBe("drive_cents");
+    });
+
+    it("allows at the requester's estimate in one tap, with Edit price beside it", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({ autoshare: true, estimateCents: 50,
+        periodConflict: "request_mentions_longer_span",
+        purpose: { purpose: "last 3 months meeting notes", periodStart: "2026-09-02", periodEnd: "2026-10-02" } }));
+      state.allow.mockResolvedValue({ requestId, status: "pending", revision: 0 });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      const allow = await screen.findByRole("button", { name: "Allow" });
+      // Allow is never held behind a search, and the owner never picks files.
+      expect(allow).toBeEnabled();
+      expect(screen.getByText("Allow and Agent One sends every matching file after they pay.")).toBeVisible();
+      expect(screen.getByText("The note says 3 months. We used the picked dates: 2 Sep – 2 Oct.")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Edit price" })).toBeEnabled();
+      expect(screen.queryByRole("checkbox")).toBeNull();
+      // The price sits with the terms, with what the owner gets after fees.
+      const price = screen.getByText("Price").closest("dl");
+      expect(price).toBe(screen.getByText("Share with").closest("dl"));
+      expect(screen.getByText("You get this minus a 3% fee and Stripe's fee.")).toBeVisible();
+      fireEvent.click(allow);
+      await waitFor(() => expect(state.allow).toHaveBeenCalledExactlyOnceWith(
+        "owner-a", requestId, { revision: 0, amountCents: 50 }, expect.any(Function)));
+      expect(screen.queryByRole("dialog", { name: "Set a price" })).toBeNull();
+    });
+
+    it("keeps the price step for a request sealed before the autoshare flow", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({ estimateCents: 100 }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+      await screen.findByRole("dialog", { name: "Set a price" });
+      expect(state.allow).not.toHaveBeenCalled();
+      expect(screen.queryByText("Price")).toBeNull();
     });
 
     it("gives the owner's price sheet the estimate the requester saw, parsed from the real /review reply", async () => {
@@ -1236,7 +1327,8 @@ describe("exact-file document review", () => {
         state.review.mockImplementation((token: string, id: string, guard: () => void) =>
           actual.DriveSharingService.review(token, id, guard));
         render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-        fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+        // Allow takes the estimate in one tap; Edit price opens the sheet.
+        fireEvent.click(await screen.findByRole("button", { name: "Edit price" }));
         await screen.findByRole("dialog", { name: "Set a price" });
         expect(fetchReview).toHaveBeenCalledWith(
           `/api/connectors/google_drive/sharing/requests/${requestId}/review`, expect.anything());
@@ -1358,7 +1450,7 @@ describe("exact-file document review", () => {
         purpose: "Statements", paymentRequired: true, busy: false, error: null });
       // A refused price keeps the decision open and says what to change.
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a whole-dollar price from $1 to $500.");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a price from $0.50 to $500.");
       expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
       expect(changed).not.toHaveBeenCalled();
 
@@ -1685,7 +1777,7 @@ describe("exact-file document review", () => {
     });
 
     it("tells the requester when started sharing has not moved, instead of sharing in progress", async () => {
-      state.status.mockResolvedValue({ ...pending(), direction: "outgoing",
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing", autoshare: true,
         workDelayedSince: new Date(Date.now() - 4 * 60_000 - 5_000).toISOString() });
       state.delivery.mockResolvedValue({ status: "pending", files: [], bulkStatus: "running" });
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
@@ -2195,7 +2287,7 @@ describe("exact-file document review", () => {
       expect(await screen.findByText("Confirmed original")).toBeVisible();
       expect(screen.queryByText("Unshared original")).toBeNull();
       expect(screen.queryByText(/0 failed/)).toBeNull();
-      if (bulkStatus === "running") expect(screen.getByRole("status")).toHaveTextContent("71 files available; more may arrive");
+      if (bulkStatus === "running") expect(screen.getByRole("status")).toHaveTextContent("Sending files · 71 sent so far");
     });
 
     it("explains when an old undated relative request was stopped before sharing", async () => {
