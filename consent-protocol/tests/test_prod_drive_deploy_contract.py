@@ -435,6 +435,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     current_paths = [
         *old_paths,
+        "deploy/email-auth/bind_secrets.sh",
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/account-deletion-fence-decision.py",
@@ -475,6 +476,21 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         ):
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
+    # The current Cloud Build gate sources this helper even for an older app SHA.
+    # Production must remain a no-op: preserving tooling cannot enable email OTP.
+    subprocess.run(  # noqa: S603 - fixed authored shell helper in the synthetic checkout
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail; add_secret() { return 99; }; "
+            "source deploy/email-auth/bind_secrets.sh production",
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     assert (runner / "release-tools/verify-prod-places-readiness.py").read_text() == (
         ROOT / "scripts/ci/verify-prod-places-readiness.py"
     ).read_text()
