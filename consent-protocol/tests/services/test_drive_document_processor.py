@@ -340,27 +340,21 @@ print('isolated')
 
 
 def test_pdf_only_extracts_bounded_pages(monkeypatch):
-    from pdfminer.pdfpage import PDFPage
-    from pdfplumber.page import Page
+    import pypdfium2
 
-    original = PDFPage.create_pages
-    enumerated = []
-    extracted = []
+    loaded = []
+    original = pypdfium2.PdfDocument.__getitem__
 
-    def pages(doc):
-        first = next(original(doc))
-        for number in range(10000):
-            enumerated.append(number)
-            yield first
+    def page(document, index):
+        loaded.append(index)
+        return original(document, index)
 
-    monkeypatch.setattr(PDFPage, "create_pages", pages)
-    monkeypatch.setattr(
-        Page, "extract_text", lambda page: extracted.append(page.page_number) or "synthetic"
-    )
-    parsed = parse_document(pdf(), "application/pdf")
+    monkeypatch.setattr(pypdfium2.PdfDocument, "__getitem__", page)
+    parsed = parse_document(joined_pdf(*(pdf() for _ in range(102))), "application/pdf")
     assert parsed.truncated
-    assert len(parsed.pages) == len(extracted) == 100
-    assert len(enumerated) == 101
+    assert len(parsed.pages) == len(loaded) == 100
+    # Page 101 is never loaded, let alone extracted.
+    assert sorted(loaded) == list(range(100))
 
 
 @pytest.mark.parametrize(
