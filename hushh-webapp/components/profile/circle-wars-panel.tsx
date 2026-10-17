@@ -9,7 +9,7 @@ import { CreateCircleFlow } from "@/components/one-location/redesign/circles/nam
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { useBackLayer } from "@/lib/navigation/back-layers";
+import { unwindBackLayer, useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { circleWarsClock, circleWarsRemainingMs, type CircleWarsClock } from "@/lib/referral/circle-wars-clock";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -177,7 +177,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     if (creating) backToCircles(); else setOpen(false);
     return true;
   }, [busy, creating, backToCircles]);
-  useBackLayer(ROUTES.ONE_REFERRALS, open ? (creating ? 3 : 2) : 0, closePicker);
+  useBackLayer(ROUTES.ONE_REFERRALS, open ? (creating ? 1 : 2) : 0, closePicker);
 
   const chooseCircle = () => {
     setOpen(true);
@@ -187,21 +187,23 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
     void loadCircles();
   };
 
-  const create = async (name: string, kind: OneLocationCircleKind) => {
-    if (actionBusy.current) return;
+  const create = async (name: string, kind: OneLocationCircleKind, existingCircleId?: string) => {
+    if (actionBusy.current) throw new Error("A Circle action is already running.");
     actionBusy.current = true;
     pickerSequence.current += 1;
     setBusy(true);
     try {
-      const circle = await OneLocationService.createNamedCircle({ vaultOwnerToken: token, name, kind });
+      const circle = existingCircleId
+        ? await OneLocationService.updateNamedCircle({ vaultOwnerToken: token, circleId: existingCircleId, name, kind })
+        : await OneLocationService.createNamedCircle({ vaultOwnerToken: token, name, kind });
       CacheSyncService.onOneLocationStateMutated(userId, ["workspace", "circles", "sms_roster"], {
-        notificationType: "location_circle_created", circleId: circle.id,
+        notificationType: existingCircleId ? "location_circle_renamed" : "location_circle_created", circleId: circle.id,
       });
-      if (!alive.current) return;
-      setCircles((current) => [...(current ?? []), circle]);
+      if (!alive.current) return circle;
+      setCircles((current) => [...(current ?? []).filter((item) => item.id !== circle.id), circle]);
       setSelected(circle.id);
-      setCreating(false);
       setCirclesError(false);
+      return circle;
     } finally {
       actionBusy.current = false;
       if (alive.current) setBusy(false);
@@ -261,7 +263,7 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
       <DialogContent className="max-h-[85dvh] overflow-y-auto" onEscapeKeyDown={(event) => {
         if (busy || creating) {
           event.preventDefault();
-          closePicker();
+          if (!unwindBackLayer(ROUTES.ONE_REFERRALS)) closePicker();
         }
       }}>
         <DialogHeader className={styles.pickerIntro}>
@@ -269,7 +271,24 @@ function CircleWarsContent({ userId, view, refreshKey, onInvite, onViewRankings,
           <div><DialogTitle>{creating ? "Create a Circle" : "Choose your Circle"}</DialogTitle>
           <DialogDescription>A good team starts with your people.</DialogDescription></div>
         </DialogHeader>
-        {creating ? <><CreateCircleFlow busy={busy} onSubmit={create} /><Button variant="muted" disabled={busy} onClick={backToCircles}>Back to Circles</Button></> : <div className="space-y-4">
+        {creating ? <><CreateCircleFlow key={`${userId}:${token}`} busy={busy} onSubmit={create}
+          pathname={ROUTES.ONE_REFERRALS} backLayerQuery={{}}
+          onLoadPeople={(circleId, options) => OneLocationService.listNamedCircleEligibleConnectionsPage({ vaultOwnerToken: token, circleId, ...options })}
+          onAddPeople={async (circleId, userIds) => {
+            if (actionBusy.current) throw new Error("A Circle action is already running.");
+            actionBusy.current = true;
+            setBusy(true);
+            try {
+              await OneLocationService.createNamedCircleMemberInvites({ vaultOwnerToken: token, circleId, inviteeUserIds: userIds });
+              CacheSyncService.onOneLocationStateMutated(userId, ["workspace", "circles", "sms_roster"], { notificationType: "location_circle_member_added", circleId });
+              await loadCircles();
+            } finally {
+              actionBusy.current = false;
+              if (alive.current) setBusy(false);
+            }
+          }}
+          onComplete={() => setCreating(false)}
+        /><Button variant="muted" disabled={busy} onClick={backToCircles}>Back to Circles</Button></> : <div className="space-y-4">
           {circlesError ? <div role="status"><p>Could not load your Circles.</p><Button variant="muted" onClick={() => void loadCircles()}>Try loading Circles again</Button></div>
             : circles === null ? <p role="status">Loading your Circles…</p>
               : circles.length === 0 ? <p className={styles.pickerEmpty}>You have no Circles yet. Create a Circle to compete with friends.</p> : <fieldset className={styles.choices}><legend className="sr-only">Select an existing Circle</legend>

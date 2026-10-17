@@ -318,6 +318,52 @@ app.add_middleware(ChatKeyMiddleware)
 # REGISTER ROUTERS
 # ============================================================================
 
+from api.routes import email_auth  # noqa: E402
+
+app.include_router(email_auth.router)
+
+
+@app.on_event("startup")
+async def startup_independent_email_delivery():
+    from hushh_mcp.services.email_auth.delivery import run_retention
+
+    async def retention_store():
+        from db.connection import get_pool
+        from hushh_mcp.services.email_auth.store import PostgresEmailAuthStore
+
+        return PostgresEmailAuthStore(await get_pool())
+
+    _track_startup_background_task(
+        asyncio.create_task(run_retention(retention_store), name="email-auth-retention")
+    )
+
+    async def supervise():
+        while True:
+            if os.getenv("EMAIL_AUTH_ENABLED", "").lower() != "true":
+                await asyncio.sleep(2)
+                continue
+            try:
+                from api.routes.email_auth import get_email_auth_service
+                from hushh_mcp.services.email_auth.delivery import (
+                    EmailAuthDeliveryWorker,
+                    MailApiTransport,
+                )
+
+                service = await get_email_auth_service()
+                worker = EmailAuthDeliveryWorker(
+                    service,
+                    MailApiTransport(service.config.mail_api_endpoint, service.config.mail_api_key),
+                )
+                await worker.run()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("email_auth.startup_unavailable")
+                await asyncio.sleep(5)
+
+    _track_startup_background_task(asyncio.create_task(supervise(), name="email-auth-delivery"))
+
+
 # Health check routes (/, /health)
 app.include_router(health.router)
 
@@ -1106,6 +1152,15 @@ async def startup_direct_message_push_worker() -> None:
 
     _track_startup_background_task(
         asyncio.create_task(run_direct_message_push_worker(), name="direct-message-push")
+    )
+
+
+@app.on_event("startup")
+async def startup_system_push_worker() -> None:
+    from hushh_mcp.services.system_push_delivery import run_system_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_system_push_worker(), name="system-push")
     )
 
 

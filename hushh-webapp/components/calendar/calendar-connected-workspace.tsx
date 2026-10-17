@@ -28,7 +28,7 @@ import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
+import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
@@ -74,11 +74,8 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const [view, setView] = useState("today");
   const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const [zonePreference, setZonePreference] = useState(() => ({ account: status.google_email, value: deviceZone, explicit: false }));
-  const zonePreferenceRef = useRef(zonePreference);
-  zonePreferenceRef.current = zonePreference;
-  // A replacement Google account starts with the device fallback immediately,
-  // before its primary-calendar metadata arrives. Explicit settings are local
-  // to the account for this session.
+  // Use the same device timezone as One chat. Google calendar metadata describes
+  // the provider's defaults, not the owner's current display preference.
   const zone = zonePreference.account === status.google_email ? zonePreference.value : deviceZone;
   const [zoneInput, setZoneInput] = useState(zone);
   const [zoneError, setZoneError] = useState("");
@@ -92,22 +89,17 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
   const [alternativeDate, setAlternativeDate] = useState(today);
+  useEffect(() => {
+    if (zonePreference.account === status.google_email) return;
+    const previousToday = calendarDate(nowRef.current, zonePreference.value);
+    const nextToday = calendarDate(nowRef.current, deviceZone);
+    setDate(value => value === previousToday ? nextToday : value);
+    setAlternativeDate(value => value === previousToday ? nextToday : value);
+    setZonePreference({ account: status.google_email, value: deviceZone, explicit: false });
+  }, [status.google_email, deviceZone, zonePreference]);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [duration, setDuration] = useState<15 | 30 | 60>(15);
-  const adoptPrimaryZone = useCallback((calendars: CalendarSource[]) => {
-    const preference = zonePreferenceRef.current;
-    if (preference.account === status.google_email && preference.explicit) return;
-    let primaryZone = calendars.find(calendar => calendar.primary)?.time_zone || zone;
-    try { calendarDate(nowRef.current, primaryZone); } catch { primaryZone = deviceZone; }
-    try {
-      const primaryToday = calendarDate(nowRef.current, primaryZone);
-      const previousToday = calendarDate(nowRef.current, preference.value);
-      setDate(value => value === previousToday ? primaryToday : value);
-      setAlternativeDate(value => value === previousToday ? primaryToday : value);
-      setZonePreference(value => value.account === status.google_email && value.value === primaryZone ? value : { account: status.google_email, value: primaryZone, explicit: false });
-    } catch { /* Invalid provider zones retain the device fallback. */ }
-  }, [zone, deviceZone, status.google_email]);
   const epoch = snapshotVaultSessionEpoch();
   const calendarAccountKey = `${status.google_email}:${connectionRevision || 0}`;
   const [sourceCatalog, setSourceCatalog] = useState<{ key: string; calendars: CalendarSource[] }>({ key: "", calendars: [] });
@@ -198,7 +190,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       if (!firebaseIdToken) throw new Error("Sign in again to load Calendar.");
       const response = await GoogleCalendarService.today({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone });
       if (isCurrent()) {
-        adoptPrimaryZone(response.calendars); rememberCalendars(response.calendar_options || response.calendars);
+        rememberCalendars(response.calendar_options || response.calendars);
         loadedEventKey.current = eventKey; setEvents(response.events); setUnreadableCalendars(response.unreadable_calendars);
         const prior = selection.current;
         // Renewal replaces the token and advances the privacy epoch. Resume
@@ -220,7 +212,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       }
     }
     finally { if (isCurrent()) setEventsLoading(false); if (eventFlight.current?.controller === controller) eventFlight.current = null; }
-  }, [token, date, zone, eventKey, status.google_email, adoptPrimaryZone, rememberCalendars]);
+  }, [token, date, zone, eventKey, status.google_email, rememberCalendars]);
   useEffect(() => { if (tab === "schedule" && view === "today") void loadEvents(); return () => { eventFlight.current?.controller.abort(); }; }, [loadEvents, tab, view]);
   usePeriodicTask("calendar-workspace-events", 30_000, () => Date.now() - lastReadStarted.current.events >= 3000 ? loadEvents() : undefined, { enabled: tab === "schedule" && view === "today" && !selected });
 
@@ -260,10 +252,10 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       if (!isCurrent()) return;
       if (!firebaseIdToken) throw new Error("Sign in again to check availability.");
       const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime: "00:00", endTime: "24:00", durationMinutes: duration, calendarOverrides: JSON.parse(selectionJson) });
-      if (isCurrent()) { const options = response.calendar_options || response.calendars; adoptPrimaryZone(options); rememberCalendars(options); availabilityPreview.current = { key: availabilityKey, value: response }; setAvailability(response); }
+      if (isCurrent()) { const options = response.calendar_options || response.calendars; rememberCalendars(options); availabilityPreview.current = { key: availabilityKey, value: response }; setAvailability(response); }
     } catch (error) { if (isCurrent()) { if (!navigator.onLine) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(formatFailure(error)); } } }
     finally { clearTimeout(timeout); window.removeEventListener("offline", failOffline); if (ownsRequest()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
-  }, [date, zone, duration, availabilityKey, adoptPrimaryZone, selectionJson, rememberCalendars]);
+  }, [date, zone, duration, availabilityKey, selectionJson, rememberCalendars]);
   useEffect(() => { if (view === "free" && tab === "schedule") void checkAvailability(); return () => { availabilityFlight.current?.controller.abort(); }; }, [view, tab, checkAvailability]);
   usePeriodicTask("calendar-workspace-availability", 30_000, () => Date.now() - lastReadStarted.current.availability >= 3000 ? checkAvailability() : undefined, { enabled: tab === "schedule" && view === "free" && !selected && Boolean(availability) && !availabilityError });
   useEffect(() => {
@@ -350,7 +342,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       const overrides = Object.fromEntries(Object.entries(selectionDraft.overrides).filter(([id]) => calendarOptions.some(calendar => calendar.id === id)));
       setAppliedSelection({ key: calendarAccountKey, overrides });
       const preference = { account: status.google_email, value: zoneInput.trim(), explicit: true };
-      zonePreferenceRef.current = preference; setZonePreference(preference); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
+      setZonePreference(preference); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
     } catch (error) { setZoneError(error instanceof RangeError ? "Enter a valid IANA time zone, such as Asia/Kolkata." : formatFailure(error).message); }
   };
   const recovery = (error: Error, availabilityFailure = false) => (
@@ -372,8 +364,8 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   );
   const allDay = (events || []).filter(event => Boolean(event.start?.date));
   const timed = (events || []).filter(event => Boolean(event.start?.dateTime)).sort((a, b) => Date.parse(a.start!.dateTime!) - Date.parse(b.start!.dateTime!));
-  const ongoing = timed.find(event => Date.parse(event.start!.dateTime!) <= now && Date.parse(event.end?.dateTime || "") > now && !event.attendees?.some(attendee => attendee.self && attendee.response_status === "declined"));
-  const highlighted = ongoing || timed.find(event => Date.parse(event.start!.dateTime!) > now && !event.attendees?.some(attendee => attendee.self && attendee.response_status === "declined"));
+  const ongoing = timed.find(event => Date.parse(event.start!.dateTime!) <= now && Date.parse(event.end?.dateTime || "") > now && calendarResponse(event, status.google_email) !== "declined");
+  const highlighted = ongoing || timed.find(event => Date.parse(event.start!.dateTime!) > now && calendarResponse(event, status.google_email) !== "declined");
   const openDetails = (event: CalendarEventSummary, trigger: HTMLButtonElement) => {
     if (submittingRef.current) return;
     selection.current = { event, token, email: status.google_email };
@@ -393,7 +385,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       if (event === highlighted || previous?.[0] === highlighted || !previous) groups.push([event]);
       else previous.push(event);
     });
-    return <div className="space-y-0.5">{groups.map(group => <ul key={`${group[0].calendar_id}:${group[0].id}`} className={group[0] === highlighted ? undefined : scheduleStyles.eventGroup}>{group.map(event => <CalendarTimelineRow key={`${event.calendar_id}:${event.id}`} event={event} zone={zone} active={event === highlighted} ongoing={event === ongoing} now={now} onOpen={openDetails} />)}</ul>)}</div>;
+    return <div className="space-y-0.5">{groups.map(group => <ul key={`${group[0].calendar_id}:${group[0].id}`} className={group[0] === highlighted ? undefined : scheduleStyles.eventGroup}>{group.map(event => <CalendarTimelineRow key={`${event.calendar_id}:${event.id}`} event={event} accountEmail={status.google_email} zone={zone} active={event === highlighted} ongoing={event === ongoing} now={now} onOpen={openDetails} />)}</ul>)}</div>;
   };
   const scheduleLoading = view === "today" ? eventsLoading : availabilityLoading;
   const reconnectRequired = [eventsError, availabilityError].some(error => error instanceof GoogleCalendarError && (error.recovery === "reconnect" || error.recovery === "connect"));
@@ -412,8 +404,9 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
         </DropdownMenuContent></DropdownMenu>
       </>} />
       {connectionNotice}
+      <p className="text-xs text-muted-foreground">Times shown in {zone}</p>
       <TopShellTabs disabled={submitting || busy} tabSet={{ id: "calendar", label: "Calendar", queryParam: null, activeValue: tab, tabs: MAIN_TABS }} onValueChange={setTab} />
-      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} onOfferTimes={invitation => onChat(undefined, undefined, invitation)} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} accountKey={calendarAccountKey} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
+      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} accountKey={calendarAccountKey} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
         <div className="py-1"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel="Schedule views" options={SCHEDULE_TABS} value={view} onValueChange={setView} /></div>
         <CalendarDateNavigation date={date} today={today} disabled={submitting || busy} onChange={setDate} todayRef={refreshButton} />
         {view === "today" ? <section aria-label="Today's events" aria-busy={eventsLoading} className="space-y-3">

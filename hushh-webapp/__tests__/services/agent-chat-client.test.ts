@@ -131,12 +131,15 @@ import {
   isRetryableReceiptStatus,
   recordAgentChatInformationRequest,
   recordAgentChatInformationRequestWithRetry,
+  prepareAgentChatConnectorConfigurations,
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
   type AgentChatStreamHandlers,
 } from "@/lib/services/agent-chat-client";
 import { ApiService } from "@/lib/services/api-service";
+import type { ApiFetchOptions } from "@/lib/services/api-service";
+import * as turnLocation from "@/lib/agent/turn-location";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ChatKeyRefusalError, noteChatKeyAccepted } from "@/lib/vault/one-chat-key";
@@ -296,6 +299,121 @@ describe("One chat key transport", () => {
 });
 
 describe("AG-UI Agent One client", () => {
+  it("marks wire dispatch, response headers and first text without private timing details", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.readBody = true;
+    const marks = vi.spyOn(performance, "mark");
+    let releaseHeaders!: (response: Response) => void;
+    const response = new Promise<Response>(resolve => { releaseHeaders = resolve; });
+    vi.mocked(ApiService.apiFetchStream).mockImplementationOnce(async (_path, init) => {
+      await (init as ApiFetchOptions).beforeDispatch?.();
+      expect((init as ApiFetchOptions).isEffectCurrent?.()).toBe(true);
+      return response;
+    });
+    try {
+      const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Synthetic private message",
+        vaultOwnerToken: "owner-token" });
+      await vi.waitFor(() => expect(marks).toHaveBeenCalledWith("hushh:agent-chat:wire-start"));
+      expect(marks).not.toHaveBeenCalledWith("hushh:agent-chat:response-headers");
+      expect(marks).not.toHaveBeenCalledWith("hushh:agent-chat:first-text");
+      releaseHeaders(new Response("synthetic stream", { status: 200 }));
+      await turn;
+      expect(marks.mock.calls).toEqual([
+        ["hushh:agent-chat:wire-start"],
+        ["hushh:agent-chat:response-headers"],
+        ["hushh:agent-chat:first-text"],
+      ]);
+    } finally {
+      mockTransport.readBody = false;
+      marks.mockRestore();
+    }
+  });
+
+  it("starts the connector catalog while optional location preparation is pending", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    let releaseLocation!: (value: turnLocation.TurnLocation) => void;
+    const location = vi.spyOn(turnLocation, "resolveTurnLocation").mockReturnValue(
+      new Promise(resolve => { releaseLocation = resolve; }),
+    );
+    const loadConnectorConfigurations = vi.fn(async () => []);
+    try {
+      const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+        vaultOwnerToken: "owner-token", loadConnectorConfigurations });
+      expect(loadConnectorConfigurations).toHaveBeenCalledOnce();
+      expect(mockTransport.runAgent).not.toHaveBeenCalled();
+      releaseLocation({ status: "not_granted" });
+      await turn;
+      expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+    } finally {
+      location.mockRestore();
+    }
+  });
+
+  it("refuses dispatch when the vault locks after the catalog is ready but location is pending", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    let releaseLocation!: (value: turnLocation.TurnLocation) => void;
+    const location = vi.spyOn(turnLocation, "resolveTurnLocation").mockReturnValue(
+      new Promise(resolve => { releaseLocation = resolve; }),
+    );
+    try {
+      const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+        vaultOwnerToken: "owner-token", loadConnectorConfigurations: async () => [] });
+      // Let the catalog finish before a later key/location prerequisite does.
+      await Promise.resolve();
+      await Promise.resolve();
+      advanceVaultSessionEpoch();
+      releaseLocation({ status: "not_granted" });
+      await expect(turn).rejects.toThrow("vault session changed");
+      expect(mockTransport.runAgent).not.toHaveBeenCalled();
+    } finally {
+      location.mockRestore();
+    }
+  });
+
+  it("prepares before memory is ready and consumes the current catalog after an intervening change", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const old = {
+      version: 1 as const, connectorId: `custom_${"a".repeat(32)}`,
+      revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", displayName: "Before change",
+      endpoint: "https://example.com/mcp", enabled: true, authentication: { kind: "none" as const },
+    };
+    let releaseCatalog!: (value: (typeof old)[]) => void;
+    const load = vi.fn().mockReturnValueOnce(new Promise(resolve => { releaseCatalog = resolve; }))
+      .mockResolvedValue([{ ...old, displayName: "After change" }]);
+    const prepared = prepareAgentChatConnectorConfigurations({ userId: "user-1", loadConnectorConfigurations: load });
+    expect(load).toHaveBeenCalledOnce();
+    // The existing session cache may be invalidated while memory is loading.
+    releaseCatalog([old]);
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", loadConnectorConfigurations: prepared });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.mcpConfigurations[0].displayName).toBe("After change");
+  });
+
+  it.each(["lock", "owner", "cancel"])("rejects prepared catalog access after %s", async reason => {
+    publishValidatedAuthSessionOwner("user-1");
+    const controller = new AbortController();
+    const prepared = prepareAgentChatConnectorConfigurations({ userId: "user-1",
+      signal: controller.signal, loadConnectorConfigurations: async () => [] });
+    await Promise.resolve();
+    if (reason === "lock") advanceVaultSessionEpoch();
+    else if (reason === "owner") publishValidatedAuthSessionOwner("user-2");
+    else controller.abort();
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", loadConnectorConfigurations: prepared })).rejects.toThrow();
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("retains an early catalog failure until the turn consumes it", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const prepared = prepareAgentChatConnectorConfigurations({ userId: "user-1",
+      loadConnectorConfigurations: async () => { throw new Error("Synthetic catalog unavailable"); } });
+    await Promise.resolve();
+    await expect(streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", loadConnectorConfigurations: prepared })).rejects.toThrow("Synthetic catalog unavailable");
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
   it("loads a transient connector catalog without forwarding refresh credentials", async () => {
     publishValidatedAuthSessionOwner("user-1");
     const loadConnectorConfigurations = vi.fn(async () => [{

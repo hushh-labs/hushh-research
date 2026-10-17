@@ -167,7 +167,7 @@ describe("market route overlays", () => {
     expect(portfolioFlow).toContain("KaiWorkspaceHeader");
   });
 
-  it("lets a stock preview return to recommendations or choose another stock", () => {
+  it("lets a stock preview return to recommendations without the archived global Search", () => {
     const analysis = readFileSync(
       join(process.cwd(), "app/one/kai/analysis/page.tsx"),
       "utf8",
@@ -183,9 +183,8 @@ describe("market route overlays", () => {
     expect(preview).toContain("onChangeStock");
     expect(analysis).toContain("handleBrowseRecommendations");
     expect(analysis).toContain('router.replace(buildKaiMarketRoute("analysis"), { scroll: false })');
-    expect(analysis).toContain("handleChangePreviewStock");
     expect(analysis).toContain("onBrowseRecommendations={handleBrowseRecommendations}");
-    expect(analysis).toContain("onChangeStock={handleChangePreviewStock}");
+    expect(analysis).not.toContain("openKaiCommandBar");
   });
 
   it('labels the preview start button "Start analysis debate" on every surface', () => {

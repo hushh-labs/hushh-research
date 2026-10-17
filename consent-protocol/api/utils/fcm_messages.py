@@ -13,6 +13,7 @@ ONE_LOCATION_SMS_EMERGENCY_PROFILE = "one_location_sms_emergency"
 ONE_LOCATION_SMS_EMERGENCY_CATEGORY = "ONE_LOCATION_SMS_EMERGENCY"
 ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL = "one_location_sms_emergency_v1"
 ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND = "one_location_sms_alarm.wav"
+SYSTEM_ALERT_ANDROID_CHANNEL = "hushh_activity_alerts_v1"
 ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES: frozenset[str] = frozenset(
     {
         "location_share_revoked",
@@ -187,12 +188,14 @@ def build_push_message(
                 title=title,
                 body=body,
                 channel_id=(
-                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None
+                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL
+                    if is_sms_emergency
+                    else SYSTEM_ALERT_ANDROID_CHANNEL
                 ),
                 tag=notification_tag,
                 ticker="Emergency SMS alert" if is_sms_emergency else None,
-                sound="default" if is_sms_emergency else None,
-                priority="max" if is_sms_emergency else None,
+                sound="default",
+                priority="max" if is_sms_emergency else "high",
                 visibility="public" if is_sms_emergency else None,
                 vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
             )

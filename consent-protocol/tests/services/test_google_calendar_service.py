@@ -1703,3 +1703,21 @@ def test_missing_busy_array_remains_unavailable_with_sanitized_field_diagnostics
     assert caught.value.reason_code == "calendar_invalid_response"
     assert "field_path=$.calendars.*.busy expected=array received=missing" in caplog.text
     assert "private-calendar" not in caplog.text
+
+
+def test_midnight_plan_preserves_exact_requested_elapsed_duration() -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    plan = service._validate_plan(
+        action="create",
+        payload={
+            "title": "Late call",
+            "start_at": "2026-10-16T23:30:00+05:30",
+            "end_at": "2026-10-17T00:00:00+05:30",
+            "time_zone": "Asia/Kolkata",
+        },
+    )
+    assert plan["start_at"] == "2026-10-16T18:00:00Z"
+    assert plan["end_at"] == "2026-10-16T18:30:00Z"
+    assert (
+        datetime.fromisoformat(plan["end_at"]) - datetime.fromisoformat(plan["start_at"])
+    ).total_seconds() == 1800

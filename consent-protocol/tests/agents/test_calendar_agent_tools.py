@@ -406,6 +406,9 @@ def test_calendar_confirmation_uses_the_chat_users_timezone_not_plan_utc(monkeyp
     summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
     assert "10:00 AM IST" in summary
     assert "UTC" not in summary
+    assert (
+        context.state["hussh:pending_directive:calendar"]["payload"]["timeZone"] == "Asia/Kolkata"
+    )
 
 
 class _ReadOnlyCalendar:

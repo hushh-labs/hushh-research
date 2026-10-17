@@ -63,13 +63,10 @@ are prompt posture only; generated actions and their guards remain execution aut
 
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
-Search is the shared command palette on the current signed-in route, including
-Chat at `/`. Its `?search=1` marker controls visibility and the selected Search
-segment; typed queries and finance request payloads remain in memory. Opening
-uses contextual client navigation and dismissal removes the marker in place.
-Browser history and refresh restore visibility subject to existing auth/vault
-gates. Pending navigation selects the destination immediately; cancellation
-restores the committed selection.
+App-wide Search is disabled and archived under `archive/app-wide-search/`.
+The shell no longer mounts the palette or handles its keyboard/events. Legacy
+`?search=1` links neither open Search nor change the selected navigation tab.
+Shared voice/action contracts and page-local filters remain active.
 
 - `/`
 - `/welcome?tab=<research|blog|developers>`
@@ -117,7 +114,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/connect`
   - The Connections introduction offers Family, Finance, Investor/RIA, Business, Location, and SMS circle starters inside the existing card. Selecting an idea only previews it; an explicit Create action uses the existing circle service, then opens `?tab=circles&action=circle-detail&circleId=<id>` for the existing member-add flow. Ordinary starters are names using current `family`/`other` kinds, not new agent capabilities or permission grants. SMS uses the canonical system roster provisioning service, never an ordinary named-circle substitute.
   - The existing Circles tab owns list fetching and realtime reconciliation; it relays session-scoped summaries to the introduction. Trusted is provisioned as an empty, manually curated default Circle: accepting a connection never adds anyone to it. Owners add existing connections through the same Circle member flow used by named Circles. Owned starter matches show Open circle; renamed/custom circles remain in the full list. New users can create an empty circle or find people, send a request, and add them after acceptance. This is the same shared web/Capacitor view; navigation and consent review are unchanged.
-  - Custom creation and new named starters open Circle detail with `circleSetup=1`, selecting Members and the inline add-people flow. Setup offers Open chat only after the refreshed server roster includes another member; sharing an invite code alone does not complete it. Opening chat consumes the setup marker with replace. Reopening an owner-only named circle defaults to Members while retaining access to existing chat history. Explicit `circleChat=1` entry remains on Chat after its transient marker is consumed. System circles keep their existing member flow.
+  - Custom creation stays in one two-step layer: Next saves name/type once, then the shared SMS contact rows select existing Circle-eligible connections. Add people completes the member add; Add people later opens the saved owner-only Circle without `circleSetup=1`. Back retains the saved Circle and selection; changing name/type updates it rather than creating another. New named starters still open Circle detail with `circleSetup=1`, selecting Members and the inline add-people flow. Setup offers Open chat only after the refreshed server roster includes another member; sharing an invite code alone does not complete it. Opening chat consumes the setup marker with replace. Reopening an owner-only named circle defaults to Members while retaining access to existing chat history. Explicit `circleChat=1` entry remains on Chat after its transient marker is consumed. System circles keep their existing member flow.
   - The mobile introduction uses a compact radial layout and inline Create action. Browser contracts cover 375×812, 390×844, and 430×932 viewports with top safe-area and bottom-chrome allowances; very short viewports and enlarged text retain the shell's normal scrolling instead of clipping content. Entry motion uses the shared `motion-step-enter` treatment with staggered category reveals and respects reduced motion.
   - `?reviewPerson=<exact-person-id>` opens Connect's existing scope review after an authenticated directory-bounded lookup. Loading the route sends nothing. Incoming requests open their exact Consent Center review; outgoing requests remain pending. A Location prerequisite retains its original person and task until the owner returns with Continue and current Location eligibility is checked again. Closing the review consumes this query so the same target can be reopened.
 - `/one/connect/settings`
@@ -141,7 +138,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/kyc`
 - `/one/career`
 - `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
-  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the five-item bottom navigation on web and Capacitor. Invite opens the device share sheet directly, falling back to copying the invite link. Individual and Circle rankings show ten entries per page. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
+  - The standard shared shell provides Back, the top-right profile avatar, Talk to One, and the four-item bottom navigation on web and Capacitor. Invite opens the device share sheet directly, falling back to copying the invite link. Individual and Circle rankings show ten entries per page. How it works opens the existing coins and rules view; Back closes that view before returning to `/one`. Viewing the dashboard never completes setup, qualifies a referral, or awards points.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`
@@ -355,13 +352,13 @@ private vault and saves the encrypted key through the existing settings route.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.
 
 
-### Search contract gate
+### Shared action/control contract gate (Search tooling)
 
-Search consumes the authored voice action gateway and generated route index. Do not maintain a separate Search action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
+App-wide Search is archived. Its existing contract tooling remains active for the shared voice action gateway, control coverage, and generated route index. Do not maintain a separate action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
 
 Every PR runs **UI Contracts**, independently of changed-path filtering. Both **Preflight Gate** and **CI Status Gate** require combined Back/Search success and reject skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest. Follow the [contributor scaffold](./ui-contract-contributor-guide.md) before editing.
 
-After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, and the shared tooling derives route/action metadata automatically. New route coverage and generated reachability validation remain mandatory.
 
 The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
 

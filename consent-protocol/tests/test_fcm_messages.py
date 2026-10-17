@@ -229,10 +229,15 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     )
 
     assert android.notification.body == body
+    assert android.android.priority == "high"
+    assert android.android.notification.channel_id == "hushh_activity_alerts_v1"
+    assert android.android.notification.sound == "default"
+    assert android.android.notification.priority == "high"
     assert web.notification.body == body
     assert web.webpush.notification.body == body
     assert ios.notification.body == body
     assert ios.apns.payload.aps.alert.body == body
+    assert ios.apns.payload.aps.sound == "default"
 
 
 def test_connection_request_identity_reaches_every_platform() -> None:

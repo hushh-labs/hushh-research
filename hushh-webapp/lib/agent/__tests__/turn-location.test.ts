@@ -44,4 +44,32 @@ describe("resolveTurnLocation", () => {
     expect(await resolveTurnLocation()).toEqual({ status });
     expect(bus.ensure).not.toHaveBeenCalled();
   });
+
+  it("bounds a stalled permission check before a chat can start", async () => {
+    vi.useFakeTimers();
+    try {
+      bus.syncPermission.mockReturnValue(new Promise(() => undefined));
+      let result: Awaited<ReturnType<typeof resolveTurnLocation>> | undefined;
+      void resolveTurnLocation().then(value => { result = value; });
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(result).toEqual({ status: "unavailable" });
+      expect(bus.ensure).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("shares one deadline between permission discovery and a fresh position", async () => {
+    vi.useFakeTimers();
+    try {
+      let permit!: (permission: string) => void;
+      bus.syncPermission.mockReturnValue(new Promise(resolve => { permit = resolve; }));
+      bus.ensure.mockReturnValue(new Promise(() => undefined));
+      let result: Awaited<ReturnType<typeof resolveTurnLocation>> | undefined;
+      void resolveTurnLocation().then(value => { result = value; });
+      await vi.advanceTimersByTimeAsync(1200);
+      permit("granted");
+      await vi.advanceTimersByTimeAsync(300);
+      expect(bus.ensure).toHaveBeenCalledOnce();
+      expect(result).toEqual({ status: "unavailable" });
+    } finally { vi.useRealTimers(); }
+  });
 });

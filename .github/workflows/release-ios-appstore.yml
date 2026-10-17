@@ -5,8 +5,8 @@ name: Release iOS to App Store
 # `backend_target` (default `uat`; `production` for a store binary that talks
 # to one.hushh.ai) + the shared Firebase authority (hushh-pda; config stored in
 # hushh-pda-uat Secret Manager), signs with Apple-managed signing via an App Store
-# Connect API key using the production APNs entitlement (AppRelease.entitlements,
-# required for any store binary), uploads to App Store Connect, sets the required
+# Connect API key, verifies production APNs in a distribution-exported IPA,
+# uploads through Xcode to App Store Connect, sets the required
 # "What's New in This Version" notes, attaches the build, and — when asked — takes
 # the single irreversible "submit for App Store review" action.
 #
@@ -94,9 +94,6 @@ env:
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App
   PBXPROJ: hushh-webapp/ios/App/App.xcodeproj/project.pbxproj
-  # Production APNs entitlement, applied only at archive time so the committed
-  # pbxproj (and local/dev/TestFlight builds) stay on App/App.entitlements.
-  IOS_RELEASE_ENTITLEMENTS: App/AppRelease.entitlements
   # cap:build (Next.js static export) is memory-heavy on the Apple-silicon runner.
   NODE_OPTIONS: --max-old-space-size=8192
 
@@ -552,16 +549,13 @@ jobs:
             -scheme "${XCODE_SCHEME}" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
-      - name: Archive (production entitlements)
+      - name: Archive with target-owned automatic signing
         shell: bash
         run: |
           set -euo pipefail
           set -o pipefail
-          # App-only HUSSH_APP_ENTITLEMENTS override swaps aps-environment development ->
-          # production for the released binary without editing the committed
-          # pbxproj. A store binary must use production APNs regardless of which
-          # backend/Firebase config it talks to, so the shared Firebase project
-          # needs a production APNs key for push to deliver -- see the runbook.
+          # Preserve automatic development signing and each target's entitlement
+          # source. Distribution export re-signs the archive for production APNs.
           xcodebuild \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -575,7 +569,6 @@ jobs:
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             -skipMacroValidation \
             -skipPackagePluginValidation \
-            HUSSH_APP_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
             MARKETING_VERSION="${IOS_MARKETING_VERSION}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
@@ -677,21 +670,14 @@ jobs:
         run: |
           set -euo pipefail
           set -o pipefail
-          EXPORT_PLIST="hushh-webapp/ios/ExportOptions/AppStoreConnect.plist"
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            EXPORT_PLIST="${RUNNER_TEMP}/ExportOptions.dryrun.plist"
-            cp "hushh-webapp/ios/ExportOptions/AppStoreConnect.plist" "$EXPORT_PLIST"
-            /usr/libexec/PlistBuddy -c "Set :destination export" "$EXPORT_PLIST"
-            echo "DRY RUN: exporting signed .ipa without uploading to App Store Connect."
-          fi
-          xcodebuild -exportArchive \
-            -archivePath "${RUNNER_TEMP}/App.xcarchive" \
-            -exportOptionsPlist "$EXPORT_PLIST" \
-            -exportPath "${RUNNER_TEMP}/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "${RUNNER_TEMP}/asc.p8" \
-            -authenticationKeyID "${ASC_KEY_ID}" \
-            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
+          python3 scripts/ci/export-ios-distribution.py \
+            --archive "${RUNNER_TEMP}/App.xcarchive" \
+            --export-path "${RUNNER_TEMP}/export" \
+            --options hushh-webapp/ios/ExportOptions/AppStoreConnect.plist \
+            --p8-path "${RUNNER_TEMP}/asc.p8" \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer-id "${ASC_ISSUER_ID}" \
+            --dry-run "${{ github.event.inputs.dry_run }}" \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
 
       # The same uploaded build can go to the TestFlight groups through

@@ -1,0 +1,119 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { ContactRow, EmptyStateCard } from "@/components/one-location/redesign/contact-picker/atoms";
+import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
+import { PersonSearchInput } from "@/components/one-location/redesign/selectors";
+import { circleInviteSelectionLimit } from "@/lib/one-location/circle-invite-contract";
+import type { OneLocationCircleEligibleConnection, OneLocationCircleEligibleConnectionsPage } from "@/lib/one-location/types";
+import { BLOCKED_CTA } from "./blocked-cta";
+
+export type CirclePeoplePageLoader = (
+  circleId: string,
+  options: { page: number; limit: number; query?: string },
+) => Promise<OneLocationCircleEligibleConnectionsPage>;
+
+/** Circle eligibility owns membership; SMS contributes only its shared picker UI. */
+export function CreateCirclePeopleStep({ circleId, circleName, active, onLoad, onAdd, onComplete, onBack, onSavingChange }: {
+  circleId: string;
+  circleName: string;
+  active: boolean;
+  onLoad: CirclePeoplePageLoader;
+  onAdd: (circleId: string, userIds: string[]) => Promise<unknown>;
+  onComplete: (circleId: string) => void;
+  onBack: () => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [retry, setRetry] = useState(0);
+  const [people, setPeople] = useState<OneLocationCircleEligibleConnection[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [capacity, setCapacity] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const mountedRef = useRef(true);
+  const loaderRef = useRef(onLoad);
+  useEffect(() => { loaderRef.current = onLoad; }, [onLoad]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  useEffect(() => { if (active) headingRef.current?.focus(); }, [active]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setFailed(false);
+    const timer = window.setTimeout(() => {
+      void loaderRef.current(circleId, { page, limit: 50, query: query.trim() || undefined })
+        .then((result) => {
+          if (!active) return;
+          setPeople((current) => page === 1 ? result.eligibleConnections : [
+            ...new Map([...current, ...result.eligibleConnections].map((person) => [person.userId, person])).values(),
+          ]);
+          setCapacity(result.remainingCapacity);
+          setHasMore(result.hasMore);
+        })
+        .catch(() => { if (active) setFailed(true); })
+        .finally(() => { if (active) setLoading(false); });
+    }, query ? 200 : 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [circleId, page, query, retry]);
+
+  const limit = circleInviteSelectionLimit(capacity);
+  const finish = async (addSelected: boolean) => {
+    if (inFlight.current || (addSelected && (!selected.length || selected.length > limit))) return;
+    inFlight.current = true;
+    setSaving(true);
+    onSavingChange(true);
+    try {
+      if (addSelected) await onAdd(circleId, selected);
+      if (mountedRef.current) onComplete(circleId);
+    } catch {
+      if (!mountedRef.current) return;
+      inFlight.current = false;
+      setSaving(false);
+      onSavingChange(false);
+      toast.error("Could not add those people. Try again or add people later.");
+    }
+  };
+
+  return (
+    <section className="motion-step-enter space-y-4" aria-labelledby="create-circle-people-heading">
+      <p className="text-sm text-muted-foreground">Step 2 of 2</p>
+      <h2 id="create-circle-people-heading" tabIndex={-1} ref={headingRef} className="text-xl font-semibold">Add people</h2>
+      <p className="text-[15px] text-muted-foreground">Choose people for {circleName}, or add them later.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" className={BLOCKED_CTA} disabled={saving || loading || !selected.length || selected.length > limit} isLoading={saving} onClick={() => void finish(true)}>
+          Add {selected.length || "people"}{selected.length === 1 ? " person" : selected.length > 1 ? " people" : ""}
+        </Button>
+        <Button type="button" variant="ghost" disabled={saving} onClick={() => void finish(false)}>Add people later</Button>
+      </div>
+      <PersonSearchInput value={query} onChange={(next) => { setQuery(next); setPage(1); setPeople([]); setHasMore(false); }} placeholder="Search contacts" />
+      <p role="status" className="text-sm text-muted-foreground">{selected.length} selected{limit > 0 ? ` · Choose up to ${limit} people` : !loading && !failed ? " · This Circle is full" : ""}</p>
+      {loading && page === 1 ? <p role="status" className="text-sm text-muted-foreground">Loading contacts…</p> : failed ? (
+        <div className="space-y-2">
+          <EmptyStateCard message="Could not load your contacts." />
+          <Button type="button" variant="ghost" onClick={() => setRetry((value) => value + 1)}>Try again</Button>
+        </div>
+      ) : people.length ? (
+        <VirtualContactList items={people} getKey={(person) => person.userId} ariaLabel="Contacts to add" maxHeightClassName="max-h-[36vh]" renderItem={(person) => (
+          <ContactRow label={person.displayName} photoUrl={person.photoUrl} verified={person.isRia} fromContacts={person.connectedFromContacts}
+            selected={selected.includes(person.userId)} busy={saving} ready addDisabled={selected.length >= limit}
+            onAdd={() => { if (!inFlight.current) setSelected((current) => current.includes(person.userId) || current.length >= limit ? current : [...current, person.userId]); }}
+            onRemove={() => { if (!inFlight.current) setSelected((current) => current.filter((id) => id !== person.userId)); }} />
+        )} />
+      ) : <EmptyStateCard message={query.trim() ? "No contacts match that name." : "No connections to add yet. You can add people later."} />}
+      {hasMore && !failed ? <Button type="button" variant="ghost" disabled={loading || saving} onClick={() => setPage((value) => value + 1)}>{loading ? "Loading…" : "Load more contacts"}</Button> : null}
+      <Button type="button" variant="ghost" disabled={saving} onClick={onBack}>Back</Button>
+    </section>
+  );
+}

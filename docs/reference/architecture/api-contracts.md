@@ -70,6 +70,24 @@ are unchanged; the web/native proxy passes this additive field through.
 
 ## Token Hierarchy
 
+### Independent web email login
+
+`/api/auth/email/*` uses browser-bound public authentication challenges, separately
+from vault/consent access. Thin Next proxies preserve the same paths and no-store
+responses. See [Independent Email Authentication](../iam/independent-email-auth.md).
+
+| Endpoint | Request and result |
+| --- | --- |
+| `GET /api/auth/email/capabilities` | Runtime availability; no credentials or private policy evidence. |
+| `POST /api/auth/email/request` | `email`, memory-held `browser_binding`, idempotent `request_key`; current domain approval creates an opaque challenge and encrypted outbox. |
+| `POST /api/auth/email/resend` | Same bounded request shape with a new request key after cooldown; aggregate budgets remain. |
+| `POST /api/auth/email/verify` | `challenge_id`, six-digit `code`, `browser_binding`; atomic proof returns a Firebase custom token for the same verified primary-email UID; no second provider login. |
+
+Pending domain review returns `202` with no sendable challenge, a denied domain `403`,
+rate limits `429` and unavailable dependencies `503`. No response before mailbox proof
+reveals account existence. Validation errors never echo input secrets. Successful
+login grants identity only; the vault and scoped consent retain their own gates.
+
 All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
 
 Founder-language note:
@@ -193,6 +211,9 @@ Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
   never a real bank deposit. `mode:"live"` fails closed in this release.
 - Existing account/onboard/manage/bank-payout endpoints use the explicitly
   configured Connect mode. Existing earnings history retains its payment mode.
+- `GET /account/bank-payouts` reads the authenticated owner's mode-bound local
+  ledger without provider credentials or webhook signing secrets. Provider
+  operations and webhook verification retain their credential requirements.
 - `POST /connect/sandbox-webhook`: public ingress with mandatory raw-body Stripe
   signature and test-mode/account validation. Legacy live webhook is unchanged.
 
@@ -364,7 +385,13 @@ The UAT workflow enables it with the existing UAT encryption-key binding;
 `WALLET_CARD_ACCESS_UAT_ENABLED=false` is the UAT rollback switch. The workflow
 omits the substitution when an older selected build config does not declare it.
 Other deploy lanes retain the default-off setting until their own prerequisites
-are provisioned.
+are provisioned. HTTP 503 distinguishes `WALLET_CARD_ACCESS_DISABLED` (flag off)
+from `WALLET_CARD_ACCESS_NOT_READY` (required sharing schema absent). Unexpected
+storage failures retain the generic `WALLET_CARD_ACCESS_UNAVAILABLE` failure.
+The sharing-history client retains verified history and pauses automatic focus,
+visibility and timer refresh only for the two explicit readiness reasons. Manual
+retry, a confirmed sharing change, or a new owner/vault session can read again;
+no readiness result is stored in browser persistence.
 After these changes land on green `main`, dispatch **Deploy to UAT** with scope
 `auto` and that exact commit SHA; confirm the resolved scope includes both the
 backend flag and the Wallet readiness UI. Verify sharing readiness, creation, recipient access and revocation
@@ -2044,10 +2071,29 @@ Connect directory search keeps the existing exact-name, name-prefix and
 word-prefix ranking. It also matches case-insensitive literal email fragments
 (including before `@`) and digit fragments of verified phone numbers from the
 first character. Phone formatting (`+`, spaces, parentheses and hyphens) is
-ignored; national numbers match stored international numbers without assuming
+ignored, including Unicode phone digits, pasted direction markers and dashes.
+International `00` and optional national trunk prefixes are normalized while
+preserving the original digits and countries' significant leading zeros;
+national numbers match stored international numbers without assuming
 a fixed country-code or national-number length. Contact-only matches follow
 name matches in stable alphabetical order. Matching and eligibility checks
-happen before pagination, and email/phone response labels remain masked.
+happen before pagination, and email/phone response labels remain masked. Directory
+phone labels exclude the country calling code and expose only the first two and
+last two national digits, with `*` for every middle digit: `+91 9876543210`
+becomes `98******10`. Significant national leading zeros are preserved. Ambiguous
+legacy numbers without a region and legacy last-four masks are omitted rather
+than guessing a prefix; raw phone values never enter the directory response.
+
+Existing accounts whose provider-verified phone never reached the identity
+cache need a one-time index repair. Run
+`python scripts/backfill_actor_identity_cache.py --missing-phones-only --limit 1000`
+from `consent-protocol` to count candidates; add `--execute` to repair them.
+This bounded repair uses fresh enabled Firebase evidence and the canonical
+serialized writer. Add `--all` to continue through bounded batches past
+phone-less profiles. It preserves existing verified phone bindings, including
+claims committed during provider lookup, and changes neither discoverability
+nor referral/reward state.
+
 Voice and chat name resolvers use `name_only=true` matching so contact
 fragments cannot interfere with person disambiguation or near-spelling fallback.
 
@@ -3845,3 +3891,24 @@ or private meetings are part of the synthetic regression fixtures.
 
 Provider contracts: [Meet conferences](https://developers.google.com/workspace/meet/api/reference/rest/v2/conferenceRecords/list)
 and [Meet artifacts](https://developers.google.com/workspace/meet/api/guides/artifacts).
+
+### Optional adviser claim readiness
+
+`POST /api/ria/claim/lookup` retains HTTP 503 with a safe `{detail:{code,message}}`
+when optional profile claiming is unavailable. `RIA_CLAIM_NOT_CONFIGURED` means
+its identity-service configuration is absent; `RIA_REGISTRY_UNAVAILABLE` means
+that configured dependency failed. Neither is a no-match result. Existing
+one-time onboarding probes and explicit claim retries keep their current flow.
+
+### Location and consent summary read projections
+
+The Consent Center summary uses the Location contributor's narrow count
+projection. It retains the full state's owner-bound, capped rowsets and expiry
+mappers, without loading picker recommendations, recipient keys or standing
+preferences. Full lists and strict complete source inventory keep their existing
+contracts. Healthy auxiliary Location and recommendation reads use one bound
+SQL statement per projection group; optional schema failures fall back to
+independent section reads with a sanitized `one_location.read_batch_fallback`
+warning. Standing-preference failures still fail visibly. Query budgets and
+latency targets require request-level runtime verification; batching alone does
+not prove those targets.

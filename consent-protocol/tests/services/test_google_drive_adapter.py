@@ -62,6 +62,41 @@ async def test_only_owner_search_opt_in_can_request_a_thousand_file_metadata_pag
 
 
 @pytest.mark.asyncio
+async def test_rest_fence_never_sends_order_by_with_a_full_text_term(adapter, monkeypatch):
+    # Drive answers 400 "Sorting is not supported for queries with fullText
+    # terms"; a caller that forgot to drop the sort must not reach Google.
+    original = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(b'{"files":[]}'))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    full_text = "(name contains 'notes' or fullText contains 'notes') and trashed = false"
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query=full_text,
+            page_size=100,
+            order_by="modifiedTime desc",
+        )
+    assert seen == []
+    # The same query without a sort, and a sorted query whose quoted value
+    # merely contains the word, are both ordinary list calls.
+    await adapter.list_files(access_token="synthetic-token", query=full_text, page_size=100)
+    await adapter.list_files(
+        access_token="synthetic-token",
+        query="name contains 'fullText notes' and trashed = false",
+        page_size=100,
+        order_by="modifiedTime desc",
+    )
+    assert [request.url.params.get("orderBy") for request in seen] == [None, "modifiedTime desc"]
+
+
+@pytest.mark.asyncio
 async def test_owner_search_large_page_is_scoped_at_private_rest_boundary(adapter, monkeypatch):
     original = httpx.AsyncClient
     seen = []

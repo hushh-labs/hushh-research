@@ -31,6 +31,8 @@ OWNER_ALLOWED_VERSION = 1
 DEFAULT_PRICE_CENTS = 50
 MIN_OWNER_PRICE_CENTS = 50
 MAX_OWNER_PRICE_CENTS = 50_000
+LEGACY_REQUEST_POLICY = "oct13_restored"
+LEGACY_DEFAULT_PRICE_CENTS = 1_000
 
 
 def request_has_document_scope(private: Mapping[str, Any]) -> bool:
@@ -66,6 +68,11 @@ def request_has_document_scope(private: Mapping[str, Any]) -> bool:
 def valid_owner_price_cents(value: object) -> bool:
     """US dollars from $0.50 to $500, as integer cents. Booleans are not prices."""
     return type(value) is int and MIN_OWNER_PRICE_CENTS <= value <= MAX_OWNER_PRICE_CENTS
+
+
+def valid_legacy_request_price_cents(value: object) -> bool:
+    """New owner-first requests use the October 13 whole-dollar price contract."""
+    return valid_owner_price_cents(value) and value >= 100 and value % 100 == 0
 
 
 def owner_allowed_record(*, amount_cents: int | None, allowed_at: str) -> dict[str, Any]:

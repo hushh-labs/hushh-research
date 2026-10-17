@@ -36,6 +36,18 @@
       "file": "app/api/app-config/review-mode/session/route.ts"
     },
     {
+      "template": "/api/auth/email/capabilities",
+      "file": "app/api/auth/email/capabilities/route.ts"
+    },
+    {
+      "template": "/api/auth/email/request",
+      "file": "app/api/auth/email/request/route.ts"
+    },
+    {
+      "template": "/api/auth/email/verify",
+      "file": "app/api/auth/email/verify/route.ts"
+    },
+    {
       "template": "/api/auth/session",
       "file": "app/api/auth/session/route.ts"
     },
@@ -4160,6 +4172,7 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.review_notifications",
         "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
@@ -10397,5 +10410,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e16536a46690b3e8963c44b95c7b4a587aaafd5e06e09785a674cf15e8842bd8"
+  "content_sha256": "106a6c44827b2f3d9f27c442d1b9ba1711d659bbd2f8f605841da9e52ea08a29"
 }

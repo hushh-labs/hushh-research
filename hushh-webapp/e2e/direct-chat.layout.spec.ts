@@ -27,6 +27,7 @@ test.beforeAll(async () => {
         { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         { find: "@/lib/one-location/service", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         { find: "@/lib/firebase/config", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
+        { find: "@/lib/services/auth-service", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/components/connect/circles/circle-messages-pane", replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         { find: "next/link", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
@@ -66,6 +67,35 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
 
+test("native session opens a conversation without a browser Firebase user", async ({ page }) => {
+  await mount(page, false, false, true);
+  await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).directChatAuthFixture.tokenRequests)).toEqual(["fixture-owner"]);
+  await expect(page.getByText("This conversation could not be opened. Try again.")).toHaveCount(0);
+});
+
+for (const failure of ["token unavailable", "route mint failed"] as const) {
+  test(`native session can retry after ${failure}`, async ({ page }) => {
+    await mount(page, false, false, true);
+    await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
+    if (failure === "token unavailable") {
+      await page.evaluate(() => (window as any).directChatAuthFixture.setTokenAvailable(false));
+    } else {
+      await fixture(page, "fixture.failNextRouteMint()");
+    }
+    const row = page.getByRole("button", { name: /Arjun Mehta/ });
+    await row.click();
+    await expect(page.getByText("This conversation could not be opened. Try again.")).toBeVisible();
+    await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    expect(await page.evaluate(() => (window as any).directChatFixture.routeRequests.length)).toBe(failure === "token unavailable" ? 0 : 1);
+    await page.evaluate(() => (window as any).directChatAuthFixture.setTokenAvailable(true));
+    await row.click();
+    await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
+  });
+}
+
 test("chat theme follows the device, persists a choice, and keeps the shared navbar centered", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -90,7 +120,8 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   expect(navLabels).toContain("One");
   expect(navLabels).toContain("Connect");
   expect(navLabels).toContain("Feed");
-  expect(navLabels).toContain("Search");
+  expect(navLabels).not.toContain("Search");
+  await expect(navigation.getByRole("radio")).toHaveCount(4);
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
@@ -169,6 +200,7 @@ test("system Back closes message search before returning from a People thread", 
 test("New chat creates a first private conversation and sends two distinct emoji selections", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
+  await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
   await page.getByRole("button", { name: "New chat", exact: true }).first().click();
   const picker = page.getByRole("dialog", { name: "New chat" });
   await expect(picker).toHaveAttribute("aria-modal", "true");
@@ -433,8 +465,9 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(menuBox.x - iconBox.x - iconBox.width)).toBeLessThanOrEqual(3);
-    const bubbleBox = (await emoji.locator("../..").boundingBox())!;
+    const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
     if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
     else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
   }
@@ -463,6 +496,45 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   expect(screenTitle.weight).toBe("600");
   expect(threadTitle.size).toBe("16px");
   expect(threadTitle.weight).toBe("600");
+});
+
+test.describe("compact message layout", () => {
+  test.use({ timezoneId: "UTC", locale: "en-US" });
+  for (const width of [320, 393, 768, 1440]) test(`compact message controls preserve inline timestamps at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await mount(page, width === 393);
+    if (width === 320) await transcript(page).evaluate(element => {
+      // Reproduce CI's 15px classic scrollbar gutter on overlay-scrollbar hosts.
+      const gutter = element.getBoundingClientRect().width - element.clientWidth;
+      if (gutter < 15) element.style.paddingRight = `${parseFloat(getComputedStyle(element).paddingRight) + 15 - gutter}px`;
+    });
+    await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
+    for (const id of ["maya-79", "maya-78"]) {
+      const row = page.locator(`[data-chat-message="${id}"]`);
+      await row.hover();
+      const bubble = row.locator('[data-chat-bubble]');
+      const before = await bubble.boundingBox();
+      await row.getByRole("button", { name: "Message options" }).focus();
+      expect(await bubble.boundingBox()).toEqual(before);
+      const geometry = await bubble.evaluate(element => {
+        const text = element.querySelector(":scope > p")!.getBoundingClientRect();
+        const time = element.querySelector("time")!.getBoundingClientRect();
+        return { textBottom: text.bottom, timeTop: time.top, textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
+      });
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      for (const label of ["React to message", "Message options"]) {
+        const button = row.getByRole("button", { name: label });
+        const rect = (await button.boundingBox())!;
+        expect(rect.width).toBeGreaterThanOrEqual(44);
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        await expect(button).toHaveCSS("background-image", /14px.*15px/);
+      }
+    }
+    await page.screenshot({ path: test.info().outputPath(`compact-message-controls-${width}.png`), animations: "disabled" });
+  });
 });
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);

@@ -54,6 +54,7 @@ import {
 import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { trackEvent } from "@/lib/observability/client";
@@ -671,22 +672,33 @@ export function ConnectCirclesTab({
   ) {
     const form = actions ? (
       <CreateCircleFlow
+        key={`${currentUserId}:${vaultOwnerToken}`}
         busy={busy}
-        onSubmit={async (name, kind) => {
-          const circle = await withBusy(() => actions.createCircle(name, kind));
-          trackEvent("one_location_circle_created", {
+        pathname={ROUTES.CONNECT}
+        backLayerQuery={createDialogOpen ? {} : { action: "create-circle" }}
+        onLoadPeople={actions.loadEligibleConnectionsPage}
+        onAddPeople={async (circleId, userIds) => {
+          await withBusy(() => actions.inviteConnections(circleId, userIds));
+          announceCircleMutation("location_circle_member_added", circleId);
+        }}
+        onSubmit={async (name, kind, existingCircleId) => {
+          const circle = await withBusy(() => actions.createCircle(name, kind, existingCircleId));
+          if (!existingCircleId) trackEvent("one_location_circle_created", {
             route_id: "connect",
             result: "success",
             circle_kind: kind,
           });
+          announceCircleMutation(existingCircleId ? "location_circle_renamed" : "location_circle_created", circle.id);
+          return circle;
+        }}
+        onComplete={(circleId) => {
           // Modal creation pushes details so Back returns to its launch page.
           // The full-page flow replaces the form that just succeeded.
           go(
-            { action: "circle-detail", circleId: circle.id, memberSetup: true },
+            { action: "circle-detail", circleId },
             createDialogOpen ? "push" : "replace",
           );
           onCreateDialogOpenChange?.(false);
-          announceCircleMutation("location_circle_created", circle.id);
         }}
       />
     ) : (
@@ -704,8 +716,10 @@ export function ConnectCirclesTab({
       >
         <DialogContent
           showCloseButton={!busy}
-          srDescription="Name your Circle and choose its type. Next, add your first member."
-          onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+          srDescription="Name your Circle and choose its type. Next, add people now or later."
+          onEscapeKeyDown={(event) => {
+            if (busy || unwindBackLayer(ROUTES.CONNECT, searchParams)) event.preventDefault();
+          }}
           onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
         >
           <DialogHeader>
@@ -845,7 +859,8 @@ export function ConnectCirclesTab({
         onLoadEligibleConnections={actions.loadEligibleConnections}
         onLoadEligibleConnectionsPage={actions.loadEligibleConnectionsPage}
         onInviteConnections={async (circleId, userIds) => {
-          await withBusy(() => actions.inviteConnections(circleId, userIds));
+          // The detail flow owns scoped success feedback for its batch.
+          await withBusy(() => actions.inviteConnections(circleId, userIds, false));
           trackOneLocationJourneyAction({
             action: "circle_member_invited",
             routeId: "connect",

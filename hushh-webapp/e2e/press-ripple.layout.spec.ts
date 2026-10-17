@@ -176,6 +176,45 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
 
 const RIPPLED_CONTROLS = TARGETS.length + 4;
 
+test("welcome starters keep foreground text without a hover background", async ({ page, browserName }) => {
+  for (const motion of ["no-preference", "reduce"] as const) {
+    await openFixture(page, motion);
+    for (const dark of [false, true]) {
+      await page.locator("html").evaluate((element, enabled) => element.classList.toggle("dark", enabled), dark);
+      for (const width of [320, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        const buttons = page.getByTestId("starter-suggestions").getByRole("button");
+        const first = buttons.first();
+        const foreground = await first.evaluate((button) => {
+          const probe = document.createElement("span");
+          probe.style.color = "var(--foreground)";
+          button.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        });
+        await first.hover();
+        await expect(first).toHaveCSS("color", foreground);
+        await expect(first).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        await expect(first.locator(':scope > span[aria-hidden="true"]')).toHaveCSS("color", foreground);
+        await expect.poll(() => first.evaluate((button) => {
+          const host = button.querySelector(".morphy-ripple-host")!;
+          const surface = host.querySelector("md-ripple")?.shadowRoot?.querySelector(".surface");
+          const flat = host.querySelector("[data-ripple-flat]");
+          return surface ? Number(getComputedStyle(surface, "::before").opacity) : flat ? Number(getComputedStyle(flat).opacity) : -1;
+        })).toBe(0);
+        await page.mouse.move(0, 0);
+        await first.focus();
+        // macOS WebKit uses Option+Tab to traverse buttons by default.
+        await first.press(process.platform === "darwin" && browserName === "webkit" ? "Alt+Tab" : "Tab");
+        await expect(buttons.nth(1)).toBeFocused();
+        expect(await buttons.nth(1).evaluate((button) => button.matches(":focus-visible"))).toBe(true);
+        await expect(buttons.nth(1)).not.toHaveCSS("box-shadow", "none");
+      }
+    }
+  }
+});
+
 test("starter suggestions retain compact spacing, aligned tracks and accessible targets", async ({ page }) => {
   await openFixture(page, "no-preference");
   for (const width of [320, 393, 768]) {

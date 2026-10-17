@@ -15,8 +15,8 @@ vi.mock("@/lib/services/circle-wars-service", () => ({ CircleWarsService: { getS
 // The shared Circle form has its own existing behavioral suite. Here its submit
 // port exercises this host's real creation and separate enrollment lifecycle.
 vi.mock("@/components/one-location/redesign/circles/named-circle-flows", () => ({
-  CreateCircleFlow: ({ onSubmit, busy }: { onSubmit: (name: string, kind: string) => Promise<void>; busy: boolean }) =>
-    <button disabled={busy} onClick={() => void onSubmit("New real Circle", "friends").catch(() => {})}>Submit existing Circle form</button>,
+  CreateCircleFlow: ({ onSubmit, onComplete, busy }: { onSubmit: (name: string, kind: string) => Promise<{ id: string }>; onComplete: (circleId: string) => void; busy: boolean }) =>
+    <button disabled={busy} onClick={() => void onSubmit("New real Circle", "friends").then((circle) => onComplete(circle.id)).catch(() => {})}>Submit existing Circle form</button>,
 }));
 
 const team: CircleWarsTeam = {

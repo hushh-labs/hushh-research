@@ -89,10 +89,51 @@ describe("nativeStreamFetch", () => {
 
   it("delegates to apiFetchStream on web", async () => {
     native.isNative = false;
-    const response = await nativeStreamFetch("/api/one/agent-chat", { method: "POST" });
+    const beforeDispatch = vi.fn(async () => undefined);
+    const isEffectCurrent = () => true;
+    const response = await nativeStreamFetch("/api/one/agent-chat", { method: "POST", beforeDispatch, isEffectCurrent });
     expect(await response.text()).toBe("web");
-    expect(apiFetchStream).toHaveBeenCalledWith("/api/one/agent-chat", { method: "POST" });
+    expect(apiFetchStream).toHaveBeenCalledWith("/api/one/agent-chat", { method: "POST", beforeDispatch, isEffectCurrent });
+    // ApiService owns these hooks on web; the native wrapper must not run them twice.
+    expect(beforeDispatch).not.toHaveBeenCalled();
     expect(plugin.open).not.toHaveBeenCalled();
+  });
+
+  it("runs the native dispatch hook after listener setup and checks authority immediately before opening", async () => {
+    openedWith();
+    let release!: () => void;
+    const beforeDispatch = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const isEffectCurrent = vi.fn(() => true);
+    const pending = nativeStreamFetch("/api/one/agent-chat", { method: "POST", beforeDispatch, isEffectCurrent });
+    await Promise.resolve();
+    expect(plugin.listeners.size).toBe(1);
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(plugin.open).not.toHaveBeenCalled();
+    expect(isEffectCurrent).not.toHaveBeenCalled();
+    release();
+    const response = await pending;
+    expect(isEffectCurrent).toHaveBeenCalledOnce();
+    expect(plugin.open).toHaveBeenCalledOnce();
+    expect(plugin.open.mock.calls[0][0]).not.toHaveProperty("beforeDispatch");
+    await response.body!.cancel();
+  });
+
+  it.each(["authority", "cancel"])("does not open after %s changes during dispatch preparation", async reason => {
+    openedWith();
+    let current = true;
+    let release!: () => void;
+    const controller = new AbortController();
+    const pending = nativeStreamFetch("/api/one/agent-chat", {
+      method: "POST", signal: controller.signal, isEffectCurrent: () => current,
+      beforeDispatch: () => new Promise<void>(resolve => { release = resolve; }),
+    });
+    await Promise.resolve();
+    if (reason === "authority") current = false;
+    else controller.abort();
+    release();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(plugin.open).not.toHaveBeenCalled();
+    expect(plugin.listeners.size).toBe(0);
   });
 
   it("streams raw bytes as they arrive, preserving SSE framing across chunks", async () => {
