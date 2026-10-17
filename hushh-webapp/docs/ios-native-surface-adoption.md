@@ -16,6 +16,31 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Native Account confirmations and private result fencing — 2026-10-17
+
+Qualified iPhone builds keep Reset/Delete confirmation content and explicit
+actions in the retained Account navigation stack. NativeDrawers v1 negotiates
+`profileAccountActions`; older wrappers retain their complete React flow. Busy
+state revokes interaction without retiring the host. Immediate/global Back
+cancels the local confirmation; explicit root navigation uses the existing
+Profile query owner. Close cancels idle state rather than restoring a destructive
+confirmation on the next visit. This does not convert photo or phone/OTP forms.
+
+Both existing Reset/Delete preflights now use one bounded feature helper. Its
+visit, auth owner and vault epoch fences reject an old probe after Close/reopen,
+destination departure or owner change. Failed probes do not infer a vaultless
+account; actual reset/erasure and their confirmed/unknown outcomes remain with
+the existing authenticated handlers. No real destructive fixture action is
+performed by the reviewer navigation test.
+
+The shared Secrets reveal owner now rejects late decrypts and retained Hide
+callbacks after owner/epoch replacement, privacy transitions or withdrawn live
+authority. Private results stay memory-only; no keys enter native projections.
+Core behavior replaces the two obsolete preflight source-string assertions and
+one redundant CSS assertion. Negative controls reproduce both stale-result
+defects. Native build and physical evidence for this increment are recorded only
+after the final combined candidate is prepared; source checks are not acceptance.
+
 ### Native Voice preferences — 2026-10-17
 
 The qualified iPhone stack now owns the complete Voice page: Live readiness,
@@ -47,6 +72,14 @@ after installation; this section does not qualify the combined Profile program.
 Rollback: revert the Voice-family increment, or disable the existing single
 custom-native qualification flag. Standard native bottom navigation and ordinary
 web/Android behavior are unchanged.
+
+Source `99ea706d9d` is installed on iPhone, Agent One 1.4.0 (69), UAT-backed
+Debug qualification; executable SHA-256
+`846b7666ec14b96d567903cb12d8d3a5dfba5c41fdfc406d7e9ed1f8024503dc`.
+Product/runner installation and launch pass after a wireless tunnel reconnection.
+The new XCTest attempt times out enabling automation before test entry despite
+healthy paired/unlocked transport and a usable compatible DDI. Device
+reauthorization is requested; no new Voice physical acceptance is inferred.
 
 ### Native Legal reader — 2026-10-17
 
@@ -184,15 +217,13 @@ wrapper keeps the coherent existing detail page instead of accepting a native
 destination whose editor cannot complete or withdraw. This is admission hardening
 for implemented scenes, not completion of the remaining conversion scope.
 
-Local checks pass for the retained Profile/bridge behavior, incomplete-scene
-fallback, two hosted qualification/script cases, focused lint and documentation.
-The current UI receipt refresh is not green: its Back pack reported three
-Location-map failures, and a focused diagnostic still fails two cases. Reports
-include unfinished readiness and a five-second test timeout with late updates.
-Their cause is not confirmed;
-no Map production code, consent check, timeout or test requirement was changed.
-Temporary diagnostics were removed. Back/Search receipts remain stale rather
-than being stamped over that failure. This checkpoint is local, not release proof.
+The latest combined source passes 268 focused cases, lint/typecheck, static
+native parity, design/performance contracts and documentation. The canonical
+UI refresh now passes all 469 Back cases and every UI-contract verifier;
+Back/Search receipts were generated only after that behavior pack passed.
+Earlier Location-map readiness/timeouts remain historical failed evidence with
+unconfirmed cause. No Map code, consent check, timeout or test requirement was
+weakened to obtain the current pass. These local checks are not release proof.
 
 Local foundation checkpoint: `599901c449`. A bounded native recovery follow-up
 now handles readmission that stays stalled: after the existing five-second
@@ -226,14 +257,14 @@ and its unrelated edits were not changed.
 | Family | Current presentation / operation owner | Implementation gap |
 | --- | --- | --- |
 | Shared navigation | Retained UIKit Profile stack; `native-profile-menu.tsx` and existing Profile query/Back owners | Current change fences a completed pop across compatible refreshes and separates admission from completed presentation; physical acceptance pending |
-| Account and identity | Native rows/name form; `profile-workspace-page.tsx`, `AccountService`, `AccountIdentityService`, existing photo and phone owners | Native photo/preview, phone/OTP and lifecycle confirmations remain to map |
-| Preferences | Native Appearance/Accent/haptics and Writing style; existing Settings/theme writers | Voice, Finance and provider scenes remain to map; shared Voice endpoint writers now guard synchronous reentry, owner replacement and field-scoped rollback |
+| Account and identity | Native rows/name form and capability-negotiated Reset/Delete confirmation pages; existing account/identity services | Photo/preview and phone/OTP conversion plus combined native qualification are separate; actual destructive fixture outcomes remain unverified |
+| Preferences | Native Appearance/Accent/haptics, Writing style and complete Voice page; existing Settings/theme/Voice feature writers | Finance and provider scenes need conversion; Voice source/build passes are distinct from pending device qualification |
 | Security and devices | Native Security/Session rows; `VaultMethodsPanel`, `TrustedDevicesPage` and vault/session services | Complete protected forms, method details, enrollment/removal, recovery and trusted-device scenes remain to map |
 | Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |
 | Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
 | Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |
 | Payouts/pricing | React `DocumentHashcoinPayouts`, `DocumentRequestPricingCard`; existing marketplace writers | Native history, bank entry, redemption, receipts, amount editing and conflicts remain to map; fixture fulfillment must stay sandboxed |
-| Help/Legal | Owned native Help sheet and complete native Legal reader; existing support composer/service and authored Legal documents | Help has historical physical functional proof; Legal is implemented locally with capability fallback, not physically qualified |
+| Help/Legal | Owned native Help sheet and complete native Legal reader; existing support composer/service and authored Legal documents | Installed Legal has bounded contents/switch/return proof; full visual, accessibility, external-link and Release acceptance remain separate |
 | Wallet Profile/cards | React `wallet-card-workspace`, `wallet-card-setup`, `wallet-card-manage`, payment-card owners under `components/wallet` | Complete native workspace/editor/reveal/sharing scenes remain to map; system camera/Share/Apple Wallet owners stay unchanged |
 | Portfolio import | React `portfolio-import-view`; existing import and explicit encrypted-commit owners | Native selection/progress/cancellation/review remain to map; no competing import store |
 | Referrals/developer | React `referral-dashboard-page` and existing developer owners | Native dashboard/local diagnostics remain to map; reward authority and both developer-build/host restrictions must remain enforced |

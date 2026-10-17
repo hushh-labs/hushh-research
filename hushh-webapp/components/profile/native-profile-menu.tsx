@@ -27,15 +27,16 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email, groups, actions, onClose, onPresented, stack }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, groups, actions, onClose, onPresented, stack }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
+  enabled?: boolean;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
   onPresented?: (destinationId?: string) => void;
   stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; supportDestinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void; root?: () => void };
 }) {
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
-    title: "Profile", profileMenuRows: true, surfaceOpen, onPresented: state => {
+    title: "Profile", profileMenuRows: true, surfaceOpen, enabled, onPresented: state => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
       onPresented?.(state.profileDestinationId ?? state.profileSupportDestinationId);
     },
@@ -64,7 +65,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
   page: Omit<ComponentProps<typeof NativeFeaturePage>, "open" | "onReady" | "children">;
   children: ReactNode;
-  account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
+  account?: { active: boolean; page: NativeProfilePage; confirmation?: NativeProfilePage; back?: () => void; root?: () => void;
+    rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
   settings?: { active: boolean; requiresVoice?: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
   onVoiceCapability?: (supported: boolean) => void;
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
@@ -75,6 +77,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [supportSupported, setSupportSupported] = useState(false);
   const [legalSupported, setLegalSupported] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
+  const [accountActionsSupported, setAccountActionsSupported] = useState(false);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
   const [presentedDestination, setPresentedDestination] = useState<string | undefined>();
   const hasAccount = account !== undefined;
@@ -89,6 +92,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
           capability.profileNavigationStack === true;
         const stack = navigation && capability.profileNameScene === true && hasNativeProfileScene(nativeDrawers, "account-name");
         setStackSupported(stack);
+        setAccountActionsSupported(stack && capability.profileAccountActions === true);
         setSettingsSupported(stack && capability.profileSettingsPages === true && capability.profileStyleScene === true &&
           hasNativeProfileScene(nativeDrawers, "writing-style"));
         setSupportSupported(stack && capability.profileSupportScene === true && hasNativeProfileScene(nativeDrawers, "support"));
@@ -99,11 +103,11 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); } });
     return () => { current = false; };
   }, [hasAccount, onVoiceCapability]);
-  const nativeAccount = stackSupported === true && account?.active === true;
+  const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported);
   const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
-  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : [];
+  const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
     nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id)]) : "";
   // A new destination visit gets a new token, including A → B → A. Compatible
@@ -146,8 +150,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     <NativeProfileMenu {...menu} open={active && (!webDetail || prepared !== lifetime)}
       stack={stackSupported && account ? { pages: nativePath, destinationId: nativeSupport ? undefined : destinationId,
         supportDestinationId: nativeSupport ? destinationId : undefined,
-        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : [])]), back: page.onBack,
-        ...(nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : {}) } : undefined}
+        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : [])]), back: nativeAccount && account.back ? account.back : page.onBack,
+        ...(nativeAccount && account.confirmation ? { root: account.root ?? account.back ?? page.onBack } : nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : {}) } : undefined}
       onPresented={appliedDestination => {
       setPresentedDestination(appliedDestination);
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }

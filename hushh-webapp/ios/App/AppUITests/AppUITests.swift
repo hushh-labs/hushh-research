@@ -4586,6 +4586,41 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
                 }
                 XCTAssertTrue(close.exists && close.isHittable)
+                if id == "account", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                    for actionID in ["account-reset", "account-delete"] {
+                        let action = app.buttons["native-profile-row-\(actionID)"].firstMatch
+                        guard waitForAdmittedControl(action) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
+                        action.tap()
+                        let cancel = app.buttons["native-profile-row-account-confirmation-cancel"].firstMatch
+                        let warning = app.descendants(matching: .any).matching(identifier: "native-profile-row-account-confirmation-description").firstMatch
+                        guard waitForAdmittedControl(cancel), warning.waitForExistence(timeout: 10) else {
+                            XCTFail("PROFILE_NATIVE_ACCOUNT_CONFIRMATION_NOT_ADMITTED"); return
+                        }
+                        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                            "PROFILE_NATIVE_ACCOUNT_CONFIRMATION_DUPLICATE_WEB_BODY")
+                        // Shared reviewer: exercise only explicit cancellation.
+                        // Real reset/deletion belongs to disposable UAT fixtures.
+                        if actionID == "account-delete" {
+                            close.tap()
+                            guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_CONFIRMATION_CLOSE_DID_NOT_RETURN_CHAT"); return }
+                            opener.tap()
+                            if rootIsAdmitted() {
+                                guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_CONFIRMATION_REOPEN_ACCOUNT_UNAVAILABLE"); return }
+                                root("account").tap()
+                            }
+                            XCTAssertFalse(cancel.exists && cancel.isHittable,
+                                "PROFILE_CLOSE_RESTORED_STALE_ACCOUNT_CONFIRMATION")
+                        } else {
+                            let accountBack = app.navigationBars.buttons["Your account"].firstMatch
+                            guard waitForAdmittedControl(accountBack) else { XCTFail("PROFILE_CONFIRMATION_LOCAL_BACK_UNAVAILABLE"); return }
+                            accountBack.tap()
+                        }
+                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(action) else {
+                            XCTFail("PROFILE_NATIVE_ACCOUNT_CONFIRMATION_PARENT_NOT_RESTORED"); return
+                        }
+                    }
+                    print("PROFILE_NATIVE_ACCOUNT_CONFIRMATIONS reset_cancelled=true delete_cancelled=true returned=true")
+                }
                 // A native parent passing Back is not proof of its nested
                 // bodies. Exercise the real handoff and return in this batch;
                 // the old early-continue skipped precisely these transitions.
@@ -4596,7 +4631,7 @@ final class AppUITests: XCTestCase {
                     guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     child.tap()
                     let nativeMicrophone = app.buttons["native-profile-row-voice-microphone-test"].firstMatch
-                    if childID == "preferences-voice", nativeMicrophone.waitForExistence(timeout: 3) {
+                    if childID == "preferences-voice", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let voiceBack = app.navigationBars.buttons["Preferences"].firstMatch
                         let speaker = app.switches["native-profile-row-voice-speaker-safe"].firstMatch
                         guard waitForAdmittedControl(voiceBack), waitForAdmittedControl(nativeMicrophone),
@@ -4607,9 +4642,23 @@ final class AppUITests: XCTestCase {
                         // no preference on the shared reviewer account.
                         nativeMicrophone.tap()
                         let result = app.descendants(matching: .any).matching(identifier: "native-profile-row-voice-microphone-result").firstMatch
-                        guard result.waitForExistence(timeout: 15), waitForAdmittedControl(nativeMicrophone) else {
+                        let started = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                            !nativeMicrophone.isEnabled || result.exists
+                        }, object: app)
+                        guard XCTWaiter.wait(for: [started], timeout: 5) == .completed else {
+                            XCTFail("PROFILE_NATIVE_MICROPHONE_DID_NOT_START"); return
+                        }
+                        guard waitForAdmittedControl(nativeMicrophone) else {
                             XCTFail("PROFILE_NATIVE_MICROPHONE_DID_NOT_COMPLETE"); return
                         }
+                        // The report follows the settings groups and can be
+                        // below the viewport. Inspect it through real scrolling,
+                        // not an offscreen AX-existence assumption.
+                        for _ in 0..<5 {
+                            if result.exists && result.isHittable { break }
+                            menu.swipeUp()
+                        }
+                        guard result.exists && result.isHittable else { XCTFail("PROFILE_NATIVE_MICROPHONE_REPORT_UNAVAILABLE"); return }
                         XCTAssertFalse(result.label.contains("Microphone check couldn’t finish"), "PROFILE_NATIVE_MICROPHONE_FAILED")
                         voiceBack.tap()
                         guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else {

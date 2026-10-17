@@ -3210,14 +3210,16 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
     drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
-    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session", support = false, legal?: "privacy" | "terms") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const confirmAccount = vi.fn(), cancelAccount = vi.fn();
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete") => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, requiresVoice: settings === "voice", pages: settings === "preferences" || settings === "voice" ? [{ id: "preferences", title: "Preferences", sections: [{ id: "appearance-choices", rows: [
@@ -3234,7 +3236,10 @@ describe("native chrome presentation lease", () => {
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
-      ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
+      ] }] }, ...(confirmation ? { confirmation: { id: confirmation, title: "Confirm account action", sections: [{ id: "account-confirmation", rows: [
+        { id: "account-confirmation-submit", label: "Confirm", enabled: true, destructive: true },
+        { id: "account-confirmation-cancel", label: "Cancel", enabled: true },
+      ] }] }, back: cancelAccount } : {}), rows: new Map([["edit-name", vi.fn()], ["account-confirmation-submit", confirmAccount], ["account-confirmation-cancel", cancelAccount]]), editor: () => null }}>
       <p>React account exception</p>
     </NativeProfilePresentation>;
     const view = render(scene(false));
@@ -3253,6 +3258,32 @@ describe("native chrome presentation lease", () => {
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileDestinationId).not.toBe(firstVisit.profileDestinationId));
       expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+      view.rerender(scene(true, undefined, false, undefined, "account-delete"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["account", "account-delete"]));
+      const confirmation = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(validNativeDrawerProjection(confirmation)).toBe(true);
+      const wrongParent = structuredClone(confirmation);
+      wrongParent.profileStack![0].id = "preferences";
+      expect(validNativeDrawerProjection(wrongParent)).toBe(false);
+      const cancelChoice = { ...confirmation, action: "row", rowId: "account-confirmation-cancel", sequence: 1, interactionGeneration: 1 };
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(cancelChoice)));
+      await waitFor(() => expect(cancelAccount).toHaveBeenCalledOnce());
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(cancelChoice)));
+      expect(cancelAccount).toHaveBeenCalledOnce();
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.map(page => page.id)).toEqual(["account"]));
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback({ ...cancelChoice, sequence: 2, rowId: "account-confirmation-submit" })));
+      await act(async () => { await Promise.resolve(); });
+      expect(confirmAccount).not.toHaveBeenCalled();
+      view.rerender(scene(true, undefined, false, undefined, "account-reset"));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.at(-1)?.id).toBe("account-reset"));
+      const reset = { ...drawerBridge.apply.mock.calls.at(-1)![0], action: "row", rowId: "account-confirmation-submit", sequence: 3, interactionGeneration: 1 };
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(reset)));
+      await waitFor(() => expect(confirmAccount).toHaveBeenCalledOnce());
+      act(() => drawerBridge.listeners.get("choice")?.forEach(callback => callback(reset)));
+      expect(confirmAccount).toHaveBeenCalledOnce();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.retire).not.toHaveBeenCalled();
       view.rerender(scene(false, "preferences"));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("preferences"));
       const preferences = drawerBridge.apply.mock.calls.at(-1)![0];
@@ -3332,6 +3363,16 @@ describe("native chrome presentation lease", () => {
         }
       }
       const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileAccountActions: false });
+      drawerBridge.apply.mockClear();
+      const legacyConfirmation = render(scene(true, undefined, false, undefined, "account-delete"));
+      try {
+        await waitFor(() => expect(legacyConfirmation.getByText("React account exception")).toBeVisible());
+        expect(drawerBridge.apply.mock.calls.some(([state]) => state.profileStack?.some(page => page.id === "account-delete"))).toBe(false);
+      } finally {
+        legacyConfirmation.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
       drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileVoiceSettings: false });
       drawerBridge.apply.mockClear();
       const legacyVoice = render(scene(false, "voice"));

@@ -122,6 +122,7 @@ struct NativeDrawerProjection: Codable {
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
                       (index == 0 ? ["account", "preferences", "voice", "security", "legal", "privacy", "terms"].contains(page.id) :
+                        ["account-reset", "account-delete"].contains(page.id) && stack.first?.id == "account" ||
                         page.id == "voice" && stack.first?.id == "preferences" ||
                         page.id == "session" && stack.first?.id == "security" ||
                         ["privacy", "terms"].contains(page.id) && stack.first?.id == "legal") &&

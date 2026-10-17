@@ -12,6 +12,7 @@ export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
   open: boolean; title: string; searchable?: boolean; loading?: boolean;
   profileMenuRows?: boolean;
+  enabled?: boolean;
   surfaceOpen?: boolean;
   onPresented?: (state: NativeDrawerProjection) => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
@@ -45,7 +46,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return false;
     const next = nextPort.project(live.handles);
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
-      title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
+      title: nextPort.title, open: nextPort.open, enabled: nextPort.enabled !== false, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
       ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId,

@@ -928,6 +928,13 @@ final class NativeSupportTests: XCTestCase {
             ]),
         ])]
         XCTAssertTrue(account.valid)
+        for kind in ["account-reset", "account-delete"] {
+            var confirmation = account
+            confirmation.profileStack = account.profileStack! + [NativeProfilePage(id: kind, title: "Confirm account action", sections: [])]
+            XCTAssertTrue(confirmation.valid)
+            confirmation.profileStack![0] = NativeProfilePage(id: "preferences", title: "Preferences", sections: [])
+            XCTAssertFalse(confirmation.valid, "An account confirmation requires its actual Account parent")
+        }
         XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
         XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))

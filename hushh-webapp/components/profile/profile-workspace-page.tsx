@@ -43,6 +43,8 @@ import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.modu
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
+import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
 import { useNativeVoiceProfile } from "./use-native-voice-profile";
 import { NativeSupportComposer } from "./native-support-composer";
@@ -587,7 +589,7 @@ function ProfilePageContent({
   } = useAuth();
   const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
@@ -600,6 +602,16 @@ function ProfilePageContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const accountPreparation = useRef(new AccountConfirmationPreparation());
+  const dismissAccountConfirmation = useCallback(() => {
+    if (isDeleting || isResetting) return;
+    accountPreparation.current.invalidate();
+    setShowDeleteConfirm(false); setShowResetConfirm(false);
+  }, [isDeleting, isResetting]);
+  const closeNativeProfile = useCallback(() => {
+    if (isDeleting || isResetting) return;
+    dismissAccountConfirmation(); onNativeMenuClose?.();
+  }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
   const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
@@ -773,6 +785,21 @@ function ProfilePageContent({
   useBackLayer(pathname, isVaultUnlocked && activePanel === "account" && activeDetail === "phone" &&
     (presentation !== "native-page" || nativeMenuOpen) ? 2 : 0,
   () => phoneBackStep.current?.() ?? false, isPanePresentation ? { profile_pane: "1" } : undefined);
+  useBackLayer(pathname, presentation === "native-page" && nativeMenuOpen && activePanel === "account" &&
+    !activeDetail && (showDeleteConfirm || showResetConfirm) ? 3 : 0, () => {
+      // Global/voice Back observes the same local confirmation boundary as
+      // UIKit Back. Busy operations consume Back without repeating or closing.
+      if (presentation !== "native-page" || !nativeMenuOpen || activePanel !== "account" || activeDetail ||
+          !showDeleteConfirm && !showResetConfirm) return false;
+      dismissAccountConfirmation(); return true;
+    }, { profile_pane: "1" });
+  useLayoutEffect(() => {
+    // The pane remains mounted while closed. External navigation and late
+    // preflight settlement cannot retain an idle confirmation for a new visit.
+    if (presentation === "native-page" && (!nativeMenuOpen || activePanel !== "account" || activeDetail)) {
+      dismissAccountConfirmation();
+    }
+  }, [presentation, nativeMenuOpen, activePanel, activeDetail, showDeleteConfirm, showResetConfirm, dismissAccountConfirmation]);
   useEffect(() => {
     if (activePanel !== "account" || activeDetail) {
       setNativeAccountException(null); setEditingDisplayName(false);
@@ -782,6 +809,15 @@ function ProfilePageContent({
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const accountPreparationOwner = useRef<string | null>(nativeDetailOwner);
+  useLayoutEffect(() => {
+    // A confirmation is not an authorization that survives owner/vault change.
+    const preparation = accountPreparation.current;
+    preparation.invalidate();
+    accountPreparationOwner.current = nativeDetailOwner;
+    setShowDeleteConfirm(false); setShowResetConfirm(false);
+    return () => { preparation.invalidate(); accountPreparationOwner.current = null; };
+  }, [nativeDetailOwner]);
   const supportOwner = useRef<string | null>(nativeDetailOwner);
   const supportDraftOwner = useRef(nativeDetailOwner);
   useLayoutEffect(() => {
@@ -1688,35 +1724,21 @@ function ProfilePageContent({
     }
   };
 
-  const handleDeleteClick = async () => {
-    if (!user) return;
-
-    let nextHasVault = hasVault;
-    if (nextHasVault === null) {
-      try {
-        nextHasVault = await VaultService.checkVault(user.uid);
-        setHasVault(nextHasVault);
-      } catch (error) {
-        console.warn("[ProfilePage] Failed to check vault existence:", error);
-        // Fail closed: an unavailable vault probe must take the existing
-        // unlock path, and the dialog is rendered only once this state is
-        // reflected in the component.
-        setHasVault(true);
-        nextHasVault = true;
-      }
-    }
-
-    if (!nextHasVault) {
-      setShowDeleteConfirm(true);
-      return;
-    }
-
-    if (vaultAccess.canMutateSecureData) {
-      setShowDeleteConfirm(true);
-    } else {
-      requestVaultUnlock("delete_account");
-    }
+  const prepareAccountConfirmation = async (kind: "delete" | "reset") => {
+    if (!user || isDeleting || isResetting) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const visitOwner = nativeDetailOwner;
+    const epoch = snapshotVaultSessionEpoch();
+    await accountPreparation.current.request({ hasVault,
+      ownerIsCurrent: () => owner?.userId === user.uid && isValidatedAuthSessionOwnerCurrent(owner) &&
+        accountPreparationOwner.current === visitOwner && snapshotVaultSessionEpoch() === epoch,
+      checkVault: () => VaultService.checkVault(user.uid), vaultKnown: setHasVault,
+      canMutate: () => vaultAccess.canMutateSecureData && !!getVaultOwnerToken(),
+      confirm: () => { setShowDeleteConfirm(kind === "delete"); setShowResetConfirm(kind === "reset"); },
+      unlock: () => requestVaultUnlock(kind === "delete" ? "delete_account" : "reset_account"),
+    });
   };
+  const handleDeleteClick = () => prepareAccountConfirmation("delete");
 
   const handleResetAccount = async (): Promise<
     "reset" | "not_reset" | "unknown" | "needs_unlock" | "auth_failed"
@@ -1808,31 +1830,7 @@ function ProfilePageContent({
     }
   };
 
-  const handleResetClick = async () => {
-    if (!user) return;
-
-    let nextHasVault = hasVault;
-    if (nextHasVault === null) {
-      try {
-        nextHasVault = await VaultService.checkVault(user.uid);
-        setHasVault(nextHasVault);
-      } catch (error) {
-        console.warn("[ProfilePage] Failed to check vault existence:", error);
-        nextHasVault = true;
-      }
-    }
-
-    if (!nextHasVault) {
-      setShowResetConfirm(true);
-      return;
-    }
-
-    if (vaultAccess.canMutateSecureData) {
-      setShowResetConfirm(true);
-    } else {
-      requestVaultUnlock("reset_account");
-    }
-  };
+  const handleResetClick = () => prepareAccountConfirmation("reset");
 
   const handleContactDiscoverableToggle = async () => {
     if (!user) return;
@@ -4948,6 +4946,17 @@ function ProfilePageContent({
       { id: "security-sign-out", label: "Sign out", detail: "Sign out on this device.", enabled: true, destructive: true, artworkId: "sign-out" },
     ] },
   ] };
+  const accountConfirmation: NativeProfilePage | undefined = showDeleteConfirm || showResetConfirm ? {
+    id: showDeleteConfirm ? "account-delete" : "account-reset",
+    title: showDeleteConfirm ? deleteDialogTitle : resetDialogTitle,
+    sections: [{ id: "account-confirmation", rows: [
+      { id: "account-confirmation-description", label: showDeleteConfirm ? deleteDialogDescription : resetDialogDescription,
+        enabled: true, readOnly: true },
+      { id: "account-confirmation-submit", label: showDeleteConfirm ? isDeleting ? "Deleting…" : "Delete account" : isResetting ? "Resetting…" : "Reset account",
+        enabled: !isDeleting && !isResetting, pending: isDeleting || isResetting, destructive: true },
+      { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
+    ] }],
+  } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
@@ -4972,26 +4981,37 @@ function ProfilePageContent({
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
       ]), root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: nativePreferences.editor }}
-    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException &&
-      !showDeleteConfirm && !showResetConfirm && !showVaultUnlock,
-      page: nativeAccountPage, rows: new Map([
+    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException && !showVaultUnlock,
+      page: nativeAccountPage, confirmation: accountConfirmation,
+      root: () => {
+        if (isDeleting || isResetting) return;
+        dismissAccountConfirmation(); updateProfileView({ panel: null, detail: null }, "replace");
+      },
+      ...(accountConfirmation ? { back: dismissAccountConfirmation } : {}), rows: new Map([
         ["account-photo", () => setNativeAccountException("photo")],
         ["account-name", () => setEditingDisplayName(true)],
         ["account-phone", () => updateProfileView({ panel: "account", detail: "phone" }, "push")],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
-        ["account-reset", () => { void handleResetClick(); }],
-        ["account-delete", () => { void handleDeleteClick(); }],
+        ["account-reset", handleResetClick],
+        ["account-delete", handleDeleteClick],
+        ["account-confirmation-cancel", dismissAccountConfirmation],
+        ["account-confirmation-submit", async () => {
+          if (isDeleting || isResetting) return;
+          if (showDeleteConfirm) await handleDeleteAccount();
+          else if (showResetConfirm) await handleResetAccount();
+        }],
       ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
         <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      name: user.displayName || "Your account", email: user.email, onClose: () => onNativeMenuClose?.(),
+      enabled: !isDeleting && !isResetting,
+      name: user.displayName || "Your account", email: user.email, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
       owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
-      onClose: () => onNativeMenuClose?.(), onBack: () => backProfilePane(pathname, searchParams) }}>
+      onClose: closeNativeProfile, onBack: () => backProfilePane(pathname, searchParams) }}>
     {page}
   </NativeProfilePresentation>;
 }
