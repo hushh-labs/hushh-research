@@ -482,6 +482,12 @@ class StreamedDrive:
         params = dict(request.url.params)
         if path == "/drives":
             return self._json(200, {"drives": [{"id": SHARED_DRIVE, "name": "Team"}]})
+        if path == "/changes/startPageToken":
+            # The owner name index captures its change cursor before listing.
+            self.events.append(("changes_cursor", None))
+            return self._json(200, {"startPageToken": "c1"})
+        if path == "/changes":
+            return self._json(200, {"changes": [], "newStartPageToken": params["pageToken"]})
         if path != "/files":
             identity = path.removeprefix("/files/")
             if identity in self.target_faults or (
@@ -1194,7 +1200,9 @@ TITLE_EVIDENCE = {"plain", "mom", "minutes", "camel", "gemini", "typo_title", "s
 NEVER_FOUND = {"video", "image", "invoice", "settings"}
 
 
-async def run_brain_search(monkeypatch, files, text, *, autoshare=False, owner_index=None):
+async def run_brain_search(
+    monkeypatch, files, text, *, autoshare=False, owner_index=None, index_factory=None
+):
     drive = StreamedDrive(files)
     drive.faults, drive.empty_pages, drive.target_faults = {}, set(), set()
     monkeypatch.setattr(
@@ -1220,6 +1228,9 @@ async def run_brain_search(monkeypatch, files, text, *, autoshare=False, owner_i
         adapter=GoogleDriveAdapter(),
     )
     store = StreamedSearchStore(drive.events)
+    if index_factory is not None:
+        # Gear 1 listing must run through this same fenced transport.
+        owner_index = index_factory(transport)
     service = DriveOwnerSearchService(
         store=store, transport=transport, **({"owner_index": owner_index} if owner_index else {})
     )
@@ -1334,6 +1345,146 @@ async def test_without_an_index_the_search_starts_on_drive_as_before(monkeypatch
     assert "localIndexFirst" not in checkpoint["coverage_manifest"]
     assert "localIndexCandidates" not in checkpoint["coverage_counts"]
     assert drive.events[0][0] == "list"
+
+
+# Drive tokenizes a camelCase title as one word, so neither "name contains"
+# nor fullText reaches it; the owner name index splits it.
+CAMEL_ONLY = _fixture("camel_only", "QuarterlyMeetingNotes.pdf")
+
+
+def _trap_gemini(monkeypatch):
+    import google.genai.client as genai_client
+
+    from hushh_mcp.services import drive_suggestion_service as suggestion
+
+    reached = []
+
+    def forbidden(*args, **kwargs):
+        reached.append("gemini")
+        raise AssertionError("Gemini reached from the request search")
+
+    async def forbidden_async(*args, **kwargs):
+        return forbidden()
+
+    monkeypatch.setattr(suggestion, "interpret_live_search", forbidden_async)
+    monkeypatch.setattr(suggestion, "plan_live_search", forbidden_async)
+    monkeypatch.setattr(genai_client.Client, "__init__", forbidden)
+    return reached
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("worker", [True, False])
+async def test_worker_owner_index_adds_titles_drive_search_cannot_match(monkeypatch, worker):
+    from hushh_mcp.services import drive_owner_index_port as port
+    from hushh_mcp.services import drive_owner_metadata_index as gear1
+
+    reached = _trap_gemini(monkeypatch)
+    monkeypatch.delenv(port.OWNER_INDEX_FLAG, raising=False)
+    if worker:
+        monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    else:
+        monkeypatch.delenv("DRIVE_WORKER_MODE", raising=False)
+
+    def production_wiring(transport):
+        # The process-wide index lists through the harness's fenced transport;
+        # the service itself takes default_owner_index(), as deployed.
+        indexer = gear1.OwnerMetadataIndexer(transport=transport)
+        monkeypatch.setattr(gear1, "_DEFAULT_INDEXER", indexer)
+        return None
+
+    files = {**PARITY_FILES, "camel_only": CAMEL_ONLY}
+    store, drive = await run_brain_search(
+        monkeypatch, files, "meeting notes", autoshare=True, index_factory=production_wiring
+    )
+    checkpoint = json.loads(store.row["checkpoint"])
+    drive_only = TITLE_EVIDENCE - {"typo_title"}
+    assert reached == []
+    if worker:
+        # Gear 1 found the camelCase title, and it passed the same title,
+        # period and kind checks as Drive's rows before any Drive page.
+        assert _shareable(store) == drive_only | {"camel_only"}
+        assert checkpoint["coverage_manifest"]["localIndexFirst"] is True
+        assert checkpoint["coverage_counts"]["localIndexCandidates"] >= 1
+        assert drive.events[0] == ("changes_cursor", None)
+        assert 1000 in drive.page_sizes  # the fenced owner-search listing page
+        assert not set(store.results) & (NEVER_FOUND | {"old", "body"})
+    else:
+        # Negative control: the API process never lists an index; Drive
+        # alone cannot reach the camelCase title, exactly as before.
+        assert _shareable(store) == drive_only
+        assert "camel_only" not in store.results
+        assert "localIndexFirst" not in checkpoint["coverage_manifest"]
+        assert ("changes_cursor", None) not in drive.events
+        assert 1000 not in drive.page_sizes
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_index_row_drops_gear_one_not_the_search(monkeypatch):
+    # The shared listing projection rejects this row with ExternalMcpError.
+    # The slice must fall through to Drive, not fail and retry forever.
+    malformed = {**_index_row(PARITY_FILES["plain"]), "mimeType": 7}
+    store, _ = await run_brain_search(
+        monkeypatch,
+        PARITY_FILES,
+        "meeting notes",
+        autoshare=True,
+        owner_index=FakeOwnerIndex([malformed]),
+    )
+    checkpoint = json.loads(store.row["checkpoint"])
+    assert checkpoint["coverage_counts"].get("localIndexCandidates", 0) == 0
+    assert _shareable(store) == TITLE_EVIDENCE - {"typo_title"}
+
+
+@pytest.mark.asyncio
+async def test_owner_index_serves_names_only_under_the_job_grant(monkeypatch):
+    from hushh_mcp.services import drive_owner_index_port as port
+    from hushh_mcp.services import drive_owner_metadata_index as gear1
+
+    calls = []
+    row = {
+        "id": "invoice1",
+        "title": "Invoice March.pdf",
+        "mimeType": PDF,
+        "createdTime": "2026-09-15T10:00:00Z",
+        "modifiedTime": "2026-09-15T10:00:00Z",
+        "viewUrl": "https://drive.google.com/file/d/invoice1/view",
+        "capabilities": {"canShare": True},
+    }
+
+    async def listing(*, user_id, tool_name, arguments):
+        calls.append(tool_name)
+        payload = {
+            "changes_start_token": {"startPageToken": "c1"},
+            "list_shared_drives": {"drives": []},
+            "search_files": {"files": [row], "incompleteSearch": False},
+        }[tool_name]
+        return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
+
+    indexer = gear1.OwnerMetadataIndexer(transport=SimpleNamespace(read_owner_search_page=listing))
+    index = port.MetadataOwnerIndex(indexer=indexer, generation=AsyncMock(return_value=1))
+    ask = {"owner_id": "owner", "concepts": [["invoice"]], "period": None, "file_kind": "any"}
+
+    # Without allow_listing (planning, later chunks) Drive is never asked.
+    assert await index.match_owner_files(**ask, connection_generation=1) == []
+    assert await index.owner_vocabulary(owner_id="owner") is None  # nothing listed yet
+    assert calls == []
+    found = await index.match_owner_files(**ask, connection_generation=1, allow_listing=True)
+    assert [(item["id"], item["name"], item["capabilities"]) for item in found] == [
+        ("invoice1", "Invoice March.pdf", {"canShare": True})
+    ]
+    assert calls == ["changes_start_token", "search_files", "list_shared_drives"]
+    assert {"invoice", "march"} <= set(await index.owner_vocabulary(owner_id="owner"))
+    # Names are keyed by grant: no generation, or a reconnect's, sees none.
+    assert await index.match_owner_files(**ask, connection_generation=None) == []
+    assert await index.match_owner_files(**ask, connection_generation=2) == []
+    # The operator's switch, and the API process, keep Gear 1 off.
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    assert isinstance(port.default_owner_index(), port.MetadataOwnerIndex)
+    monkeypatch.setenv(port.OWNER_INDEX_FLAG, "false")
+    assert isinstance(port.default_owner_index(), port.NoOwnerIndex)
+    monkeypatch.delenv(port.OWNER_INDEX_FLAG)
+    monkeypatch.delenv("DRIVE_WORKER_MODE")
+    assert isinstance(port.default_owner_index(), port.NoOwnerIndex)
 
 
 class QueueStore(StreamedSearchStore):

@@ -2062,24 +2062,36 @@ class DriveOwnerSearchService:
             )
         return files, incomplete
 
-    async def _local_index_rows(self, job, checkpoint) -> list[dict]:
+    async def _local_index_rows(self, job, checkpoint, *, allow_listing=False) -> list[dict]:
         brain = _request_brain(checkpoint)
         if brain is None:
             return []
-        parts = brain.parts or (None,)
+        # One lookup per AND group, as the Drive pass compiles them: topics
+        # with each document part, and topics with each standalone phrase.
+        topics = [list(concept.variants) for concept in brain.topics]
+        groups = []
+        for part in brain.parts or (None,):
+            groups.append(
+                topics + [list(concept.variants) for concept in (part.concepts if part else ())]
+            )
+            groups.extend(topics + [[item.phrase]] for item in (part.standalone if part else ()))
+        # File dates do not decide an owner-review request; the period rule
+        # is the one _request_candidates applies to Drive's rows.
+        owner_review = checkpoint.get("request_owner_review_required") is True
         rows: dict[str, dict] = {}
-        for part in parts:
+        for position, concepts in enumerate(groups):
             try:
                 found = await self.owner_index.match_owner_files(
                     owner_id=job["user_id"],
-                    concepts=[
-                        list(concept.variants)
-                        for concept in (*brain.topics, *(part.concepts if part else ()))
-                    ],
-                    period=checkpoint.get("requested_period"),
+                    concepts=concepts,
+                    period=None if owner_review else checkpoint.get("requested_period"),
                     file_kind=checkpoint.get("request_file_kind", "any"),
-                    alternatives=[item.phrase for item in part.standalone] if part else [],
                     limit=MAX_LOCAL_CANDIDATES,
+                    connection_generation=job.get("generation"),
+                    precedence=autoshare_selection(checkpoint),
+                    require_current=lambda: self.store.require_current(job),
+                    # Only the first lookup may list index pages from Drive.
+                    allow_listing=allow_listing and position == 0,
                 )
             except Exception:  # noqa: BLE001 - an accelerator never fails the search
                 logger.info("drive_search.local_index status=unavailable")
@@ -2102,15 +2114,22 @@ class DriveOwnerSearchService:
         Every row passes the same candidate checks as a Drive page, and the
         store dedupes by file ID, so Gear 2 never adds a second copy.
         """
+        from hushh_mcp.services.external_mcp_client import ExternalMcpError
         from hushh_mcp.services.google_drive_rest_transport import _project_page
 
         offset = checkpoint.get("local_offset", 0)
-        rows = await self._local_index_rows(job, checkpoint) if type(offset) is int else []
+        rows = (
+            await self._local_index_rows(job, checkpoint, allow_listing=offset == 0)
+            if type(offset) is int
+            else []
+        )
         chunk = rows[offset : offset + FILE_LIST_PAGE_SIZE] if type(offset) is int else []
         try:
             # The exact projection and fence a Drive REST page goes through.
             candidates = _project_page({"files": chunk}, chunk)["files"]
-        except (DriveReadError, KeyError, TypeError, ValueError):
+        except (DriveReadError, ExternalMcpError, KeyError, TypeError, ValueError):
+            # The shared projection rejects a malformed row with ExternalMcpError;
+            # Gear 1 is dropped for this job and Drive still runs in full.
             logger.info("drive_search.local_index status=invalid_rows")
             candidates, rows = [], []
         files, _ = await self._request_candidates(
