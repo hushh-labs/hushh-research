@@ -12,7 +12,7 @@ export function PuppyControlRibbon({ children, accessory }: {
 }) {
   return (
     <div role="group" aria-label="Puppy controls" data-puppy-controls
-      className={`mx-auto ${BOTTOM_CHROME_COLUMN_CLASSNAME} grid min-h-14 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 py-1`}>
+      className={`mx-auto ${BOTTOM_CHROME_COLUMN_CLASSNAME} grid min-h-14 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] content-center items-center gap-2 border-b border-border/40 py-1`}>
       <div className="flex min-w-0 flex-1 items-center">{children}</div>
       {accessory ? <div className="contents">{accessory}</div> : null}
     </div>
