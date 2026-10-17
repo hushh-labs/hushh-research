@@ -408,8 +408,9 @@ time, total response time, and time to first text. These diagnostics contain
 stage, outcome, duration and count only, never Drive query text or file names.
 `drive_rest.timing` records each Drive list/read operation, and
 `drive_permission_rest.timing` records each permission operation with fixed
-operation and outcome labels. Neither log includes provider URLs, file IDs,
-recipient identities, or request content.
+operation, outcome and provider-reason class labels (`reason=other` counts an
+unrecognized Google reason by class only). Neither log includes provider URLs,
+file IDs, recipient identities, provider messages, or request content.
 The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
 audience or an unverified service-account email.
