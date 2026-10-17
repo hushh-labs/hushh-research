@@ -278,13 +278,15 @@ def period_decision(
     zone = _zone(period.get("timezone")) if period else ZoneInfo("UTC")
     start = date.fromisoformat(period["start"]) if period else None
     end = date.fromisoformat(period["end"]) if period else None
-    created = _timestamp_day(match.get("created_time"), zone)
-    modified = _timestamp_day(match.get("modified_time"), zone)
-    title = resolve_title_dates(
-        parse_title_dates(match.get("name", "")) if raw is None else raw,
-        zone=zone,
-        reference=created or modified,
+    readings = parse_title_dates(match.get("name", "")) if raw is None else raw
+    # File times are parsed only when a year-less title or the fallback needs them.
+    reference = (
+        _timestamp_day(match.get("created_time"), zone)
+        or _timestamp_day(match.get("modified_time"), zone)
+        if any(reading[0] == "yearless" for reading in readings)
+        else None
     )
+    title = resolve_title_dates(readings, zone=zone, reference=reference)
     if title.present:
         if start is None or end is None:
             latest = max(
@@ -303,7 +305,8 @@ def period_decision(
             if first <= end and start <= last:
                 return PeriodDecision(True, max(first, start).isoformat(), "title")
         return PeriodDecision(False, None, "title")
-    for basis, day in (("created", created), ("modified", modified)):
+    for basis, key in (("created", "created_time"), ("modified", "modified_time")):
+        day = _timestamp_day(match.get(key), zone)
         if day is None:
             continue
         if start is None or end is None or start <= day <= end:
@@ -311,6 +314,37 @@ def period_decision(
         if precedence:
             return PeriodDecision(False, day.isoformat(), basis)
     return PeriodDecision(period is None, None, "none")
+
+
+def period_window(period: dict | None) -> tuple[float, float, ZoneInfo] | None:
+    """The period as instants [local midnight of start, local midnight after end).
+
+    A timestamp's local day is inside the period exactly when the timestamp
+    is inside this window, so callers can compare epoch seconds directly.
+    """
+    if not period:
+        return None
+    zone = _zone(period.get("timezone"))
+    first = date.fromisoformat(period["start"])
+    after = date.fromisoformat(period["end"]) + timedelta(days=1)
+    return (
+        datetime(first.year, first.month, first.day, tzinfo=zone).timestamp(),
+        datetime(after.year, after.month, after.day, tzinfo=zone).timestamp(),
+        zone,
+    )
+
+
+def timestamp_seconds(value: object) -> float | None:
+    """Epoch seconds of an RFC 3339 provider time; None when absent or naive."""
+    if not isinstance(value, str):
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        return None
+    return timestamp.timestamp()
 
 
 def in_requested_period(match: dict, period: dict | None, *, precedence: bool = False) -> bool:
@@ -325,5 +359,7 @@ __all__ = [
     "in_requested_period",
     "parse_title_dates",
     "period_decision",
+    "period_window",
     "resolve_title_dates",
+    "timestamp_seconds",
 ]

@@ -50,8 +50,8 @@ new encrypted table (a schema change, deliberately not made here).
 from __future__ import annotations
 
 import asyncio
-import bisect
 import hashlib
+import heapq
 import re
 import sys
 import time
@@ -59,14 +59,16 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.drive_title_dates import (
-    PeriodDecision,
     RawTitleDates,
     parse_title_dates,
     period_decision,
+    period_window,
+    timestamp_seconds,
 )
 from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
 
@@ -107,6 +109,7 @@ _SAFE_ERRORS = frozenset(
 # Token match scores. Exact words outrank spelling forms, prefixes ("state"
 # for "statement", like Drive's own name search), inner words and typos.
 _EXACT, _PLURAL, _JOINED, _TYPO_PREFIX = 1.0, 0.95, 0.97, 0.55
+_TYPO_CHECKS = 256
 _PHRASE_BONUS = 0.03
 _STOPWORDS = frozenset(
     {"a", "an", "and", "all", "any", "by", "for", "from", "in", "my", "of", "on", "or", "the"}
@@ -196,6 +199,26 @@ def _bounded_distance(left: str, right: str, bound: int) -> int:
     return previous[-1]
 
 
+_SHARED_DICTS: dict[tuple, dict] = {}
+
+
+def _shared(value: dict | None) -> dict | None:
+    """One stored copy of each repeated small dict, such as {"canShare": True}."""
+    if value is None:
+        return None
+    try:
+        key = tuple(sorted(value.items()))
+        hash(key)
+    except TypeError:
+        return dict(value)
+    shared = _SHARED_DICTS.get(key)
+    if shared is None:
+        if len(_SHARED_DICTS) >= 256:
+            return dict(value)
+        shared = _SHARED_DICTS.setdefault(key, dict(value))
+    return shared
+
+
 @dataclass(slots=True)
 class _Entry:
     ordinal: int
@@ -211,8 +234,9 @@ class _Entry:
     capabilities: dict | None
     encryption: dict | None
     tokens: tuple[str, ...]
-    phrase: str
     title_dates: RawTitleDates
+    created_ts: float | None
+    modified_ts: float | None
 
     def provider_row(self) -> dict:
         """The exact owner-search projection this entry was built from."""
@@ -270,7 +294,6 @@ def _entry(ordinal: int, row: object) -> _Entry | None:
         and not isinstance(encryption, dict)
     ):
         return None
-    tokens, phrase = name_tokens(name)
     return _Entry(
         ordinal=ordinal,
         file_id=file_id,
@@ -282,11 +305,12 @@ def _entry(ordinal: int, row: object) -> _Entry | None:
         drive_id=sys.intern(drive) if drive is not None else None,
         resource_key=key,
         shortcut=dict(shortcut) if shortcut is not None else None,
-        capabilities=dict(capabilities) if capabilities is not None else None,
-        encryption=dict(encryption) if encryption is not None else None,
-        tokens=tokens,
-        phrase=phrase,
+        capabilities=_shared(capabilities),
+        encryption=_shared(encryption),
+        tokens=name_tokens(name)[0],
         title_dates=parse_title_dates(name),
+        created_ts=timestamp_seconds(created),
+        modified_ts=timestamp_seconds(modified),
     )
 
 
@@ -313,7 +337,6 @@ class MetadataMatchResult:
 class _Variant:
     tokens: tuple[str, ...]
     joined: str | None
-    phrase: str
 
 
 def _parse_concepts(concepts: Sequence[str | Sequence[str]]) -> list[list[_Variant]]:
@@ -328,13 +351,31 @@ def _parse_concepts(concepts: Sequence[str | Sequence[str]]) -> list[list[_Varia
         for variant in variants:
             tokens = _concept_tokens(variant[:200])
             if tokens:
-                joined = "".join(tokens) if len(tokens) > 1 else None
-                kept.append(_Variant(tokens, joined, " ".join(tokens)))
+                kept.append(_Variant(tokens, "".join(tokens) if len(tokens) > 1 else None))
         if kept:
             parsed.append(kept)
     if len(parsed) > 12 or sum(len(variants) for variants in parsed) > 64:
         raise DriveReadError("invalid_argument")
     return parsed
+
+
+def _timestamp_rule(
+    entry: _Entry, window: tuple[float, float, Any] | None, precedence: bool
+) -> tuple[bool, str, float | None]:
+    """Created time, else modified time, decides an undated name (period rule)."""
+    for basis, seconds in (("created", entry.created_ts), ("modified", entry.modified_ts)):
+        if seconds is None:
+            continue
+        if window is None or window[0] <= seconds < window[1]:
+            return True, basis, seconds
+        if precedence:
+            return False, basis, seconds
+    return window is None, "none", None
+
+
+def _contiguous(tokens: tuple[str, ...], phrase: tuple[str, ...]) -> bool:
+    size = len(phrase)
+    return any(tokens[index : index + size] == phrase for index in range(len(tokens) - size + 1))
 
 
 class OwnerMetadataIndex:
@@ -343,9 +384,9 @@ class OwnerMetadataIndex:
     def __init__(self) -> None:
         self._entries: list[_Entry | None] = []
         self._by_id: dict[str, int] = {}
-        self._postings: dict[str, set[int]] = {}
+        # Each entry's tokens are unique, so a posting list never repeats.
+        self._postings: dict[str, list[int]] = {}
         self._grams: dict[str, set[str]] = {}
-        self._sorted: list[str] | None = None
 
     def __len__(self) -> int:
         return len(self._by_id)
@@ -353,22 +394,20 @@ class OwnerMetadataIndex:
     def _add_token(self, token: str, ordinal: int) -> None:
         posting = self._postings.get(token)
         if posting is None:
-            self._postings[token] = {ordinal}
-            self._sorted = None
+            self._postings[token] = [ordinal]
             if len(token) >= 3 and not token.isdigit():
                 for gram in _grams(token):
                     self._grams.setdefault(gram, set()).add(token)
         else:
-            posting.add(ordinal)
+            posting.append(ordinal)
 
     def _drop_token(self, token: str, ordinal: int) -> None:
         posting = self._postings.get(token)
-        if posting is None:
+        if posting is None or ordinal not in posting:
             return
-        posting.discard(ordinal)
+        posting.remove(ordinal)
         if not posting:
             del self._postings[token]
-            self._sorted = None
             if len(token) >= 3 and not token.isdigit():
                 for gram in _grams(token):
                     tokens = self._grams.get(gram)
@@ -402,11 +441,6 @@ class OwnerMetadataIndex:
     def vocabulary(self) -> set[str]:
         return set(self._postings)
 
-    def _vocabulary_sorted(self) -> list[str]:
-        if self._sorted is None:
-            self._sorted = sorted(self._postings)
-        return self._sorted
-
     def _expand(self, token: str) -> dict[str, tuple[float, str]]:
         """Vocabulary words this concept word should match, with a score each."""
         found: dict[str, tuple[float, str]] = {}
@@ -422,40 +456,45 @@ class OwnerMetadataIndex:
         for form in _plural_forms(token):
             if form in self._postings:
                 keep(form, _PLURAL, "plural")
-        vocabulary = self._vocabulary_sorted()
-        start = bisect.bisect_left(vocabulary, token)
-        for word in vocabulary[start:]:
-            if not word.startswith(token):
-                break
-            if word != token:
-                keep(word, 0.75 + 0.2 * len(token) / len(word), "prefix")
-        if len(token) >= 4:
-            inner = sorted((self._grams.get(gram, set()) for gram in _inner_grams(token)), key=len)
-            if inner and inner[0]:
+        # A word that starts with or contains the token holds every one of
+        # its inner trigrams; set intersections find them without a scan.
+        inner = [self._grams.get(gram) for gram in _inner_grams(token)]
+        if all(inner):
+            inner.sort(key=len)
+            starts = self._grams.get("$" + token[:2])
+            for word in starts.intersection(*inner) if starts else ():
+                if word != token and word.startswith(token):
+                    keep(word, 0.75 + 0.2 * len(token) / len(word), "prefix")
+            if len(token) >= 4:
                 for word in inner[0].intersection(*inner[1:]):
                     if token in word and not word.startswith(token):
                         keep(word, 0.6 + 0.2 * len(token) / len(word), "substring")
         if found or len(token) < 4 or not token.isalpha():
             return found
         # Spelling tolerance only for a word the owner's Drive does not have,
-        # so a real word is never diluted by its near neighbours.
+        # so a real word is never diluted by its near neighbours. One edit
+        # changes at most three trigrams; only the closest words by shared
+        # trigrams are checked exactly.
         bound = 1 if len(token) < 8 else 2
         grams = _grams(token)
         shared: dict[str, int] = {}
         for gram in grams:
             for word in self._grams.get(gram, ()):
                 shared[word] = shared.get(word, 0) + 1
-        floor = max(1, len(grams) - 3 * bound - 1)
-        for word, count in shared.items():
-            if count < floor:
-                continue
-            distance = _bounded_distance(token, word, bound)
-            if distance <= bound:
-                keep(word, 0.8 - 0.1 * distance, "typo")
-            elif len(word) > len(token) and len(token) >= 5:
+        size = len(token)
+        floor = max(1, min(len(grams) - 3 * bound, len(grams) - 4))
+        pool = heapq.nlargest(
+            _TYPO_CHECKS, ((count, word) for word, count in shared.items() if count >= floor)
+        )
+        for count, word in pool:
+            if count >= len(grams) - 3 * bound and abs(len(word) - size) <= bound:
+                distance = _bounded_distance(token, word, bound)
+                if distance <= bound:
+                    keep(word, 0.8 - 0.1 * distance, "typo")
+                    continue
+            if size >= 5 and len(word) > size and count >= len(grams) - 4:
                 prefix = min(
-                    _bounded_distance(token, word[:size], 1)
-                    for size in (len(token) - 1, len(token), len(token) + 1)
+                    _bounded_distance(token, word[:cut], 1) for cut in (size - 1, size, size + 1)
                 )
                 if prefix <= 1:
                     keep(word, _TYPO_PREFIX, "typo_prefix")
@@ -473,7 +512,9 @@ class OwnerMetadataIndex:
     def _variant_scores(self, variant: _Variant) -> dict[int, tuple[float, str]]:
         per_token = sorted((self._token_scores(token) for token in variant.tokens), key=len)
         scores: dict[int, tuple[float, str]] = {}
-        if per_token and per_token[0]:
+        if len(per_token) == 1:
+            scores = per_token[0]
+        elif per_token and per_token[0]:
             common = per_token[0].keys()
             for other in per_token[1:]:
                 common = common & other.keys()
@@ -519,50 +560,71 @@ class OwnerMetadataIndex:
         survivors = ordered[0].keys()
         for other in ordered[1:]:
             survivors = survivors & other.keys()
-        phrases = [variant.phrase for variants in parsed for variant in variants]
+        phrases = [v.tokens for variants in parsed for v in variants if len(v.tokens) > 1]
+        window = period_window(period)
+        zone = window[2] if window is not None else UTC
+        single = len(per_concept) == 1
         ranked = []
         for ordinal in survivors:
             entry = self._entries[ordinal]
             if entry is None or mime_filter is not None and not mime_filter(entry.mime or ""):
                 continue
-            decision: PeriodDecision = period_decision(
-                {
-                    "name": entry.name,
-                    "created_time": entry.created,
-                    "modified_time": entry.modified,
-                },
-                period,
-                precedence=precedence,
-                raw=entry.title_dates,
-            )
-            if not decision.in_period:
-                continue
-            score = sum(concept[ordinal][0] for concept in per_concept) / len(per_concept)
-            if any(phrase in entry.phrase for phrase in phrases if " " in phrase):
+            if entry.title_dates:
+                decision = period_decision(
+                    {
+                        "name": entry.name,
+                        "created_time": entry.created,
+                        "modified_time": entry.modified,
+                    },
+                    period,
+                    precedence=precedence,
+                    raw=entry.title_dates,
+                )
+                if not decision.in_period:
+                    continue
+                day = decision.listing_day
+                deciding = (
+                    datetime.fromisoformat(day).replace(tzinfo=zone).timestamp() if day else None
+                )
+                basis = decision.basis
+            else:
+                # Most names carry no date: compare the file's own instants
+                # with the period window, the same rule without date parsing.
+                inside, basis, deciding = _timestamp_rule(entry, window, precedence)
+                if not inside:
+                    continue
+                day = None
+            values = [concept[ordinal] for concept in per_concept]
+            score = values[0][0] if single else sum(value[0] for value in values) / len(values)
+            if phrases and any(_contiguous(entry.tokens, phrase) for phrase in phrases):
                 score += _PHRASE_BONUS
             ranked.append(
                 (
                     min(1.0, round(score, 4)),
+                    deciding if deciding is not None else float("-inf"),
                     entry,
-                    decision,
-                    tuple(concept[ordinal][1] for concept in per_concept),
+                    day,
+                    basis,
+                    tuple(value[1] for value in values),
                 )
             )
         # Stable passes: best score, then newest deciding date, then newest
         # edit, then file ID, so equal inputs always rank identically.
-        ranked.sort(key=lambda item: item[1].file_id)
-        ranked.sort(key=lambda item: item[1].modified or "", reverse=True)
-        ranked.sort(key=lambda item: item[2].listing_day or "", reverse=True)
+        ranked.sort(key=lambda item: item[2].file_id)
+        ranked.sort(key=lambda item: item[2].modified_ts or float("-inf"), reverse=True)
+        ranked.sort(key=lambda item: item[1], reverse=True)
         ranked.sort(key=lambda item: item[0], reverse=True)
         return [
             MetadataCandidate(
                 file=entry.provider_row(),
                 score=score,
                 matched=kinds,
-                listing_day=decision.listing_day,
-                date_basis=decision.basis,
+                listing_day=day
+                if day is not None or deciding == float("-inf")
+                else datetime.fromtimestamp(deciding, zone).date().isoformat(),
+                date_basis=basis,
             )
-            for score, entry, decision, kinds in ranked[:limit]
+            for score, deciding, entry, day, basis, kinds in ranked[:limit]
         ], len(ranked)
 
 

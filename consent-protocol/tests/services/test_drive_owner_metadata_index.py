@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import random
-import string
 import subprocess
 import sys
 import time
@@ -481,11 +480,24 @@ def test_new_title_rule_agrees_with_the_owner_search_rule_on_its_formats():
 
 
 def realistic_names(count):
+    """English-shaped words: shared prefixes and suffixes, frequent letters.
+
+    Uniform random words make every trigram rare; real file names share
+    "ent", "ion" and "re-", which is what stresses the fuzzy lookup.
+    """
     rng = random.Random(5)
-    vocabulary = [
-        "".join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(4, 10)))
-        for _ in range(30_000)
-    ]
+    letters = "etaoinshrdlcumwfgypbvk"
+    weights = [12, 9, 8, 8, 7, 7, 6, 6, 6, 4, 4, 3, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1]
+    prefixes = ["", "", "re", "con", "pre", "dis", "un", "in", "pro", "sub", "trans", "de", "ex"]
+    suffixes = ["", "ment", "tion", "ing", "er", "ly", "ness", "able", "al", "ive", "ent", "ance"]
+    vocabulary = sorted(
+        {
+            rng.choice(prefixes)
+            + "".join(rng.choices(letters, weights, k=rng.randint(3, 5)))
+            + rng.choice(suffixes)
+            for _ in range(36_000)
+        }
+    )[:30_000]
     names = []
     for index in range(count):
         words = [rng.choice(vocabulary) for _ in range(rng.randint(2, 6))]
@@ -500,6 +512,10 @@ def realistic_names(count):
 def test_matching_forty_thousand_names_stays_under_fifty_milliseconds():
     index = gear1.build_index(rest_like(realistic_names(40_000)))
     assert len(index) == 40_000 and len(index.vocabulary()) > 25_000
+
+    def best_of_five(concepts):
+        return min(_timed(lambda: index.match(concepts, SEPTEMBER_IST)) for _ in range(5))
+
     for concepts in (
         ["statment"],
         ["bank", ["statement", "stmt"]],
@@ -507,13 +523,61 @@ def test_matching_forty_thousand_names_stays_under_fifty_milliseconds():
         [["notes", "minutes"], "sync"],
         ["schw"],
     ):
-        best = min(
-            _timed(lambda concepts=concepts: index.match(concepts, SEPTEMBER_IST)) for _ in range(5)
-        )
-        assert best < 0.05, (concepts, best)
+        assert best_of_five(concepts) < 0.05, concepts
+    # A bare suffix matches about a third of all names; it must stay bounded.
+    for concepts in (["tion"], ["con", "ment"]):
+        assert best_of_five(concepts) < 0.15, concepts
     assert index.match(["statment"], SEPTEMBER_IST)[0][0].file["title"] == (
         "Schwab Bank Statement September 2026.pdf"
     )
+
+
+def test_undated_names_follow_period_decision_across_daylight_saving():
+    rng = random.Random(9)
+
+    def stamp():
+        month = rng.choice(["03", "10", "11"])
+        clock = f"{rng.randint(0, 23):02d}:{rng.choice(['00', '30', '59'])}:00"
+        return rng.choice(
+            [None, f"2026-{month}-{rng.randint(1, 28):02d}T{clock}Z", "2026-03-08T09:59:59-01:00"]
+        )
+
+    rows = [
+        {
+            "id": file_id("t", number),
+            "title": f"Ledger {number}",
+            "mimeType": "application/pdf",
+            "createdTime": stamp(),
+            "modifiedTime": stamp(),
+            "viewUrl": None,
+        }
+        for number in range(400)
+    ]
+    index = gear1.build_index(rows)
+    for zone in ("America/Los_Angeles", "Europe/London", "Asia/Kolkata"):
+        for _ in range(12):
+            month = rng.choice(["03", "10", "11"])
+            period = {
+                "start": f"2026-{month}-{rng.randint(1, 14):02d}",
+                "end": f"2026-{month}-{rng.randint(15, 28):02d}",
+                "timezone": zone,
+            }
+            for precedence in (True, False):
+                found, _ = index.match(["ledger"], period, precedence=precedence)
+                expected = {}
+                for row in rows:
+                    decision = period_decision(
+                        {
+                            "name": row["title"],
+                            "created_time": row["createdTime"],
+                            "modified_time": row["modifiedTime"],
+                        },
+                        period,
+                        precedence=precedence,
+                    )
+                    if decision.in_period:
+                        expected[row["id"]] = (decision.listing_day, decision.basis)
+                assert {c.file["id"]: (c.listing_day, c.date_basis) for c in found} == expected
 
 
 def _timed(operation):
