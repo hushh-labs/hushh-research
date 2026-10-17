@@ -1,6 +1,6 @@
 import { createContext } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CircleWarsPanel } from "@/components/profile/circle-wars-panel";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { CircleWarsService, type CircleWarsState, type CircleWarsTeam } from "@/lib/services/circle-wars-service";
@@ -43,9 +43,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(CircleWarsService.getState).mockResolvedValue(empty);
   vi.mocked(CircleWarsService.optIn).mockResolvedValue(active);
-  vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [], total_teams: 0, offset: 0, limit: 25, has_more: false });
+  vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [], total_teams: 0, offset: 0, limit: 10, has_more: false });
   vi.mocked(OneLocationService.listCircles).mockResolvedValue([circle]);
 });
+afterEach(() => vi.useRealTimers());
 
 describe("Circle Wars", () => {
   it("requires explicit selection and enrollment of an existing Circle", async () => {
@@ -105,14 +106,22 @@ describe("Circle Wars", () => {
 
   it("renders real standings, your highlight and server pagination", async () => {
     vi.mocked(CircleWarsService.getState).mockResolvedValue(active);
-    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 25, has_more: true });
+    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 10, has_more: true });
     render(panel({ view: "leaderboard" }));
-    const row = await screen.findByText("#4 My Circle (Your Circle)");
-    expect(row.closest("li")?.className).toContain("border-primary");
+    const row = await screen.findByText("My Circle");
+    expect(screen.queryByRole("timer")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Join Circle Wars" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Invite Friends" })).toBeNull();
+    expect(row.closest("li")).toHaveAttribute("data-viewer", "true");
+    expect(screen.queryByText("1 circle")).toBeNull();
+    expect(screen.queryByText("Rank")).toBeNull();
+    expect(screen.queryByText("Referrals")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(within(row.closest("li")!).getByText("Rank 4")).toBeTruthy();
     expect(screen.getByText("8")).toBeTruthy();
-    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [team], total_teams: 40, offset: 25, limit: 25, has_more: false });
+    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ period: empty.period, teams: [team], total_teams: 40, offset: 10, limit: 10, has_more: false });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(CircleWarsService.getLeaderboard).toHaveBeenLastCalledWith("memory-owner-token", 25));
+    await waitFor(() => expect(CircleWarsService.getLeaderboard).toHaveBeenLastCalledWith("memory-owner-token", 10));
   });
 
   it("does not display old private names after account changes or lock", async () => {
@@ -155,7 +164,7 @@ describe("Circle Wars", () => {
   });
 
   it("does not skip leaderboard pages on repeated presses or failed page reads", async () => {
-    const firstPage = { period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 25, has_more: true };
+    const firstPage = { period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 10, has_more: true };
     vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue(firstPage);
     render(panel({ view: "leaderboard" }));
     const next = await screen.findByRole("button", { name: "Next" });
@@ -163,8 +172,8 @@ describe("Circle Wars", () => {
     vi.mocked(CircleWarsService.getLeaderboard).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPage = reject; }));
     fireEvent.click(next);
     fireEvent.click(next);
-    await waitFor(() => expect(CircleWarsService.getLeaderboard).toHaveBeenLastCalledWith("memory-owner-token", 25));
-    expect(vi.mocked(CircleWarsService.getLeaderboard).mock.calls.every(([, offset]) => (offset ?? 0) <= 25)).toBe(true);
+    await waitFor(() => expect(CircleWarsService.getLeaderboard).toHaveBeenLastCalledWith("memory-owner-token", 10));
+    expect(vi.mocked(CircleWarsService.getLeaderboard).mock.calls.every(([, offset]) => (offset ?? 0) <= 10)).toBe(true);
     await act(async () => rejectPage(new Error("offline")));
     await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).not.toBeDisabled());
     expect(screen.queryByRole("button", { name: "Previous" })).toBeNull();
@@ -195,11 +204,11 @@ describe("Circle Wars", () => {
   });
 
   it("returns to the first leaderboard page when the weekly period rolls over", async () => {
-    const firstPage = { period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 25, has_more: true };
+    const firstPage = { period: empty.period, teams: [team], total_teams: 40, offset: 0, limit: 10, has_more: true };
     vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue(firstPage);
     render(panel({ view: "leaderboard" }));
     const next = await screen.findByRole("button", { name: "Next" });
-    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ ...firstPage, offset: 25, has_more: false });
+    vi.mocked(CircleWarsService.getLeaderboard).mockResolvedValue({ ...firstPage, offset: 10, has_more: false });
     fireEvent.click(next);
     expect(await screen.findByRole("button", { name: "Previous" })).toBeTruthy();
     const newPeriod = { ...empty.period, round_id: "round-two", week_start: "2026-10-19" };
@@ -211,7 +220,7 @@ describe("Circle Wars", () => {
     fireEvent(window, new Event("focus"));
     expect(await screen.findByText(/Circle Wars could not refresh/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("#1 New week Circle (Your Circle)")).toBeTruthy();
+    expect(await screen.findByText("New week Circle")).toBeTruthy();
     expect(CircleWarsService.getLeaderboard).toHaveBeenLastCalledWith("memory-owner-token", 0);
     expect(screen.queryByRole("button", { name: "Previous" })).toBeNull();
     expect(screen.queryByText(/No participating Circles yet/)).toBeNull();
@@ -220,6 +229,22 @@ describe("Circle Wars", () => {
   it("uses the configured weekly timezone", async () => {
     vi.mocked(CircleWarsService.getState).mockResolvedValue({ ...active, period: { ...active.period, timezone: "Asia/Kolkata" } });
     render(panel());
-    expect(await screen.findByText(/Ends in .*Asia\/Kolkata/)).toBeTruthy();
+    expect(await screen.findByRole("timer", { name: /Asia\/Kolkata/ })).toBeTruthy();
+  });
+
+  it("refreshes at the server cutoff and does not spin on an expired response", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
+    const nearCutoff = { ...empty, period: { ...empty.period, server_now: "2026-10-18T23:59:57Z", seconds_remaining: 3 } };
+    vi.mocked(CircleWarsService.getState).mockResolvedValueOnce(nearCutoff).mockResolvedValue({
+      ...empty, period: { ...empty.period, server_now: empty.period.ends_at, seconds_remaining: 0 },
+    });
+    await act(async () => { render(panel()); });
+    expect(CircleWarsService.getState).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("timer")).toHaveTextContent("3s left");
+    await act(async () => { await vi.advanceTimersByTimeAsync(3001); });
+    expect(CircleWarsService.getState).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("timer")).toHaveTextContent("New round starting");
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(CircleWarsService.getState).toHaveBeenCalledTimes(2);
   });
 });

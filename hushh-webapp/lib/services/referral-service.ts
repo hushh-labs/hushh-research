@@ -93,6 +93,8 @@ export type LeaderboardEntry = {
   handle: string;
   /** Profile name visible to this viewer, when no public alias was chosen. */
   display_name?: string | null;
+  /** Portrait returned through the same viewer-permitted profile projection. */
+  photo_url?: string | null;
   points: number;
   is_viewer: boolean;
 };
