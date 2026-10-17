@@ -64,6 +64,23 @@ describe("DocumentRequestPriceSheet", () => {
     expect(screen.queryByRole("button", { name: /Allow/ })).toBeNull();
   });
 
+  it("uses the Feed type scale shared by every dialog in this flow", () => {
+    renderSheet({ priceOnly: true });
+    const dialog = screen.getByRole("dialog", { name: "Set price" });
+    // Header: the 15px title and 11px line of the Feed's shared-files list.
+    expect(dialog).toHaveClass(
+      "[--type-navigation-title-size:15px]",
+      "[--foundation-title3-size:15px]",
+      "[--type-row-description-size:11px]",
+    );
+    // Body: settings rows are sized from CSS variables in the base layer,
+    // which outranks any utility class, so the scale must set the variables.
+    const body = Array.from(dialog.querySelectorAll("div")).find((element) =>
+      element.classList.contains("[--type-row-label-size:13px]"));
+    expect(body).toBeDefined();
+    expect(body).toHaveClass("max-[360px]:[--type-row-label-size:12.5px]");
+  });
+
   it("prefills an asynchronously loaded draft and keeps it editable", () => {
     const { props, rerender } = renderSheet({
       priceOnly: true,

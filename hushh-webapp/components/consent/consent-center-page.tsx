@@ -97,6 +97,7 @@ import {
   priceViewFromEntryMetadata,
   requesterPriceLine,
 } from "@/lib/consent/document-request-requester-view";
+import { DOCUMENT_FLOW_SURFACE_TYPE } from "@/lib/consent/document-request-flow";
 import {
   driveQueryRequestId,
   isDriveQueryEntry,
@@ -4044,6 +4045,10 @@ export function ConsentCenterPage() {
                       : "Choose a consent entry from the list to review details and next actions."
           }
           mobilePresentation="sheet"
+          // A document request uses the header scale of every dialog in its flow.
+          surfaceClassName={
+            isDocumentSelection ? DOCUMENT_FLOW_SURFACE_TYPE : undefined
+          }
           // Grouped background: the request's actionable sections read as cards.
           bodyClassName={
             isDocumentSelection

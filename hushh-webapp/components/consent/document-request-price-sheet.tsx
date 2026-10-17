@@ -26,7 +26,10 @@ import {
 } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
-import { DOCUMENT_FLOW_TEXT_SCALE } from "@/lib/consent/document-request-flow";
+import {
+  DOCUMENT_FLOW_SURFACE_TYPE,
+  DOCUMENT_FLOW_TEXT_SCALE,
+} from "@/lib/consent/document-request-flow";
 
 export interface DocumentRequestPriceSheetProps {
   open: boolean;
@@ -218,6 +221,7 @@ function PriceSheet({
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
+      surfaceClassName={DOCUMENT_FLOW_SURFACE_TYPE}
       showCloseButton={false}
       desktopMaxWidthClassName="sm:!max-w-[520px]"
       footer={

@@ -21,6 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DOCUMENT_FLOW_SURFACE_TYPE } from "@/lib/consent/document-request-flow";
 import {
   DriveSharedFilesService,
   type SharedFile,
@@ -40,10 +41,8 @@ const HOLD_TO_CONFIRM_MS = 600;
 /**
  * The Feed row and Profile type scale (feed-row.tsx; Your account's 13/12
  * scale): 13px titles, 11px secondary lines, 12px actions. The detail panel's
- * own title and description tokens are narrowed on this surface only.
+ * own title and description use the header scale every request dialog shares.
  */
-const SURFACE_TYPE_CLASS =
-  "[--type-navigation-title-size:15px] [--type-navigation-title-line:20px] [--type-navigation-title-weight:600] [--foundation-title3-size:15px] [--foundation-title3-line:20px] [--foundation-title3-weight:600] [--type-row-description-size:11px] [--type-row-description-line:1.35]";
 const ROW_TITLE_CLASS = "block truncate text-[13px] leading-[1.25] max-[360px]:text-[12.5px]";
 const ROW_META_CLASS =
   "mt-px block text-[11px] leading-[1.35] text-[color:var(--app-secondary-label)] max-[360px]:text-[10px]";
@@ -434,7 +433,7 @@ export function FeedSharedFilesSheet({
       open={open}
       onOpenChange={onOpenChange}
       mobilePresentation="sheet"
-      surfaceClassName={SURFACE_TYPE_CLASS}
+      surfaceClassName={DOCUMENT_FLOW_SURFACE_TYPE}
       title={sharedFilesTitle(count, label)}
       description={FEED_SHARED_FILES_HINT}
       headerTextOverflow="wrap"

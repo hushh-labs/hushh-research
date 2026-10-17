@@ -7,8 +7,15 @@
  * Feed row scale for every dialog in this flow: 13px primary text and 11px
  * secondary text, one step smaller at 360px, as in components/feed/feed-row.tsx.
  * Scoped to the sheet's own subtree; buttons keep their touch sizes.
+ *
+ * Settings row slots are sized in the base layer from CSS variables, and a
+ * base-layer important rule outranks any utility, so the variables are set
+ * too (as the Feed row does). The utilities cover the unlayered text classes.
  */
 export const DOCUMENT_FLOW_TEXT_SCALE = [
+  "[--type-row-label-size:13px] [--type-row-label-line:1.25]",
+  "[--type-row-description-size:11px] [--type-row-description-line:1.35]",
+  "max-[360px]:[--type-row-label-size:12.5px] max-[360px]:[--type-row-description-size:10px]",
   "[&_.ui-text-body]:!text-[13px] [&_.ui-text-body]:!leading-[1.25]",
   "[&_.ui-text-row-label]:!text-[13px] [&_.ui-text-row-label]:!leading-[1.25]",
   "[&_.ui-text-medium-row-label]:!text-[13px] [&_.ui-text-medium-row-label]:!leading-[1.25]",
@@ -16,6 +23,18 @@ export const DOCUMENT_FLOW_TEXT_SCALE = [
   "[&_.ui-text-row-description]:!text-[11px] [&_.ui-text-row-description]:!leading-[1.35]",
   "max-[360px]:[&_.ui-text-body]:!text-[12.5px] max-[360px]:[&_.ui-text-row-label]:!text-[12.5px]",
   "max-[360px]:[&_.ui-text-helper-text]:!text-[10px] max-[360px]:[&_.ui-text-row-description]:!text-[10px]",
+].join(" ");
+
+/**
+ * Header scale for every dialog in this flow (pass as a SettingsDetailPanel
+ * surfaceClassName): the Profile pane's 15px semibold title and the Feed row's
+ * 11px secondary line. The title slot reads the title3 token in the base
+ * layer, so both title tokens are narrowed, on this surface only.
+ */
+export const DOCUMENT_FLOW_SURFACE_TYPE = [
+  "[--type-navigation-title-size:15px] [--type-navigation-title-line:20px] [--type-navigation-title-weight:600]",
+  "[--foundation-title3-size:15px] [--foundation-title3-line:20px] [--foundation-title3-weight:600]",
+  "[--type-row-description-size:11px] [--type-row-description-line:1.35]",
 ].join(" ");
 
 const SPAN_PHRASE =
