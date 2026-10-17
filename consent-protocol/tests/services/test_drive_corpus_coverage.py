@@ -807,6 +807,13 @@ def test_hindi_file_name_tokens_are_whole_words():
     )
 
 
+def test_optional_vowel_points_fold_but_indic_vowel_signs_stay():
+    # Arabic harakat and Hebrew niqqud are optional, like Latin accents.
+    assert tokens.fold("مُحَمَّد") == "محمد"
+    assert tokens.fold("עִבְרִית") == "עברית"
+    assert tokens.fold("बैंक") == "बैंक" and tokens.fold("Résumé") == "resume"
+
+
 def test_decomposed_and_precomposed_devanagari_are_one_word():
     precomposed = "क़र्ज"  # क़र्ज (nukta letter U+0958)
     decomposed = "क़र्ज"

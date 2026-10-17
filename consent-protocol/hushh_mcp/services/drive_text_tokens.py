@@ -8,9 +8,9 @@ and N, plus the zero-width joiners Indic spellings use). Python's ``\\w`` and
 
 Underscores and punctuation separate words, as Drive's own index treats them.
 Folding lowercases, turns every Unicode decimal digit into its ASCII digit
-(२०२६ is 2026) and drops accents from Latin, Greek and Cyrillic letters only
-('Résumé' is 'resume'); the marks of other scripts are part of the spelling
-and are never dropped. Text is NFC-normalised first, so precomposed and
+(२०२६ is 2026) and drops optional marks: Latin, Greek and Cyrillic accents
+('Résumé' is 'resume'), Hebrew points and Arabic harakat. Indic vowel signs,
+virama and nukta are part of the spelling and are never dropped. Text is NFC-normalised first, so precomposed and
 decomposed spellings compare equal.
 
 Pure functions: no I/O, no logging, no model.
@@ -56,9 +56,15 @@ WORD_RUN = re.compile(rf"{WORD_CHAR}+")
 LETTER_RUN = re.compile(rf"(?:[^\W\d_]|[{_MARKS}])+|\d+")
 # A code: word runs joined by single _ - . / separators ("INV_2026_HDFC_9981").
 _SEPARATED = re.compile(rf"{WORD_CHAR}+(?:[_\-./]{WORD_CHAR}+)+")
-_LATIN_FAMILY = (
+# Scripts whose marks are optional accents or vowel points: dropped when
+# folding, as before. The marks of Indic and other scripts are mandatory
+# vowels and signs, so they stay.
+_FOLDED_MARK_SCRIPTS = (
     (0x0000, 0x024F),  # Basic Latin to Latin Extended-B
     (0x0370, 0x052F),  # Greek, Cyrillic and Cyrillic Supplement
+    (0x0590, 0x074F),  # Hebrew points, Arabic harakat, Syriac vowels
+    (0x0750, 0x077F),  # Arabic Supplement
+    (0x08A0, 0x08FF),  # Arabic Extended-A
     (0x1C80, 0x1C8F),  # Cyrillic Extended-C
     (0x1E00, 0x1FFF),  # Latin Extended Additional, Greek Extended
     (0x2C60, 0x2C7F),  # Latin Extended-C
@@ -66,13 +72,15 @@ _LATIN_FAMILY = (
     (0xA640, 0xA69F),  # Cyrillic Extended-B
     (0xA720, 0xA7FF),  # Latin Extended-D
     (0xAB30, 0xAB6F),  # Latin Extended-E
+    (0xFB1D, 0xFDFF),  # Hebrew and Arabic presentation forms
+    (0xFE70, 0xFEFF),  # Arabic presentation forms-B
     (0xFF00, 0xFFEF),  # Halfwidth and Fullwidth Forms
 )
 
 
-def _latin_family(character: str) -> bool:
+def _folds_marks(character: str) -> bool:
     code = ord(character)
-    return any(start <= code <= end for start, end in _LATIN_FAMILY)
+    return any(start <= code <= end for start, end in _FOLDED_MARK_SCRIPTS)
 
 
 def ascii_digits(text: str) -> str:
@@ -95,7 +103,11 @@ def normalize(text: str) -> str:
 
 
 def fold(text: str) -> str:
-    """Casefolded, ASCII digits, accents dropped from Latin, Greek and Cyrillic only."""
+    """Casefolded, ASCII digits; optional accents and vowel points dropped.
+
+    Latin, Greek and Cyrillic accents, Hebrew points and Arabic harakat go;
+    Devanagari and other Indic vowel signs are spelling and stay.
+    """
     if text.isascii():
         return text.lower()
     kept: list[str] = []
@@ -105,7 +117,7 @@ def fold(text: str) -> str:
             if not strip:
                 kept.append(character)
             continue
-        strip = _latin_family(character)
+        strip = _folds_marks(character)
         kept.append(character)
     return ascii_digits(unicodedata.normalize("NFC", "".join(kept))).casefold()
 
