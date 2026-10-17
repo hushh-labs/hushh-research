@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from hushh_mcp.services import drive_work_wake as wake
@@ -13,6 +16,8 @@ from hushh_mcp.services import drive_work_wake as wake
 @pytest.fixture(autouse=True)
 def _no_cached_credentials(monkeypatch):
     monkeypatch.setattr(wake, "_cached_credentials", None)
+    monkeypatch.setattr(wake, "_heal_wakes", {})
+    monkeypatch.setattr(wake, "_heal_tasks", set())
     monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
 
 
@@ -179,3 +184,141 @@ async def test_prompt_wake_rejects_adc_project_substitution(monkeypatch):
         wake.httpx, "AsyncClient", lambda **_: pytest.fail("must not call scheduler")
     )
     assert not await wake.wake_drive_work("sharing")
+
+
+def _uat_lane(monkeypatch, enabled="true"):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", enabled)
+    monkeypatch.setattr(wake, "default_credentials", lambda **_: (_Credentials(), "hushh-pda-uat"))
+
+
+def _wake_records(caplog):
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == wake.__name__
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "outcome"), [(403, "permission_denied"), (500, "http_500"), (401, "http_401")]
+)
+async def test_failed_wake_logs_one_warning_with_stage_and_outcome_only(
+    monkeypatch, caplog, status, outcome
+):
+    _uat_lane(monkeypatch)
+    _scheduler(monkeypatch, status)
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    assert not await wake.wake_drive_work("sharing")
+    assert _wake_records(caplog) == [
+        (logging.WARNING, f"drive_work_wake.failed stage=sharing outcome={outcome}")
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "outcome"),
+    [(TimeoutError(), "timeout"), (httpx.ConnectTimeout("t"), "timeout"), (OSError(), "error")],
+)
+async def test_raising_wake_logs_timeout_or_error_class(monkeypatch, caplog, error, outcome):
+    _uat_lane(monkeypatch)
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+        async def post(self, _url, **_kwargs):
+            raise error
+
+    monkeypatch.setattr(wake.httpx, "AsyncClient", Client)
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    assert not await wake.wake_drive_work("v1")
+    assert _wake_records(caplog) == [
+        (logging.WARNING, f"drive_work_wake.failed stage=v1 outcome={outcome}")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_expected_skips_never_warn(monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    _uat_lane(monkeypatch, enabled="false")
+    assert not await wake.wake_drive_work("sharing")
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    assert not await wake.wake_drive_work("sharing")
+    assert _wake_records(caplog) == [
+        (logging.DEBUG, "drive_work_wake.skipped stage=sharing outcome=disabled"),
+        (logging.DEBUG, "drive_work_wake.skipped stage=sharing outcome=not_configured"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_heal_schedules_nothing_and_calls_nothing_while_the_kill_switch_is_off(monkeypatch):
+    _uat_lane(monkeypatch, enabled="false")
+    monkeypatch.setattr(
+        wake, "default_credentials", lambda **_: pytest.fail("must not request credentials")
+    )
+    monkeypatch.setattr(
+        wake.httpx, "AsyncClient", lambda **_: pytest.fail("must not call scheduler")
+    )
+    for _ in range(50):
+        assert wake.heal_queued_drive_work() is None
+    assert wake._heal_tasks == set()
+    assert wake._heal_wakes == {}
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_heal_wakes_each_stage_at_most_once_per_interval(monkeypatch):
+    _uat_lane(monkeypatch)
+    calls = _scheduler(monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr(wake.time, "monotonic", lambda: clock[0])
+
+    for _ in range(50):
+        wake.heal_queued_drive_work()
+    await asyncio.gather(*wake._heal_tasks)
+    assert sorted(url.rsplit("/", 1)[1] for url, _ in calls) == [
+        "drive-work-suggestions-uat:run",
+        "drive-work-v1-uat:run",
+    ]
+
+    clock[0] += 59.9
+    wake.heal_queued_drive_work()
+    assert wake._heal_tasks == set()
+    clock[0] += 0.1
+    wake.heal_queued_drive_work()
+    await asyncio.gather(*wake._heal_tasks)
+    assert len(calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_a_raising_heal_never_reaches_the_read(monkeypatch, caplog):
+    _uat_lane(monkeypatch)
+
+    async def broken(*_stages):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(wake, "wake_drive_work_stages", broken)
+    caplog.set_level(logging.DEBUG, logger=wake.__name__)
+    assert wake.heal_queued_drive_work() is None
+    tasks = set(wake._heal_tasks)
+    assert len(tasks) == 1  # Held by a strong reference until it ends.
+    await asyncio.gather(*tasks)
+    assert wake._heal_tasks == set()
+    assert _wake_records(caplog) == [
+        (logging.WARNING, "drive_work_wake.failed stage=heal outcome=error")
+    ]
+
+
+def test_heal_outside_an_event_loop_is_a_silent_no_op(monkeypatch):
+    _uat_lane(monkeypatch)
+    assert wake.heal_queued_drive_work() is None
+    assert wake._heal_tasks == set()

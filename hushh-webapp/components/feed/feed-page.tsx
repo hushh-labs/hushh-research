@@ -1212,7 +1212,7 @@ function FeedPageSession({
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
       {/* One price step for every document request row; Allow only opens it. */}
       <DocumentRequestPriceSheet
-        moneyPolicy="drive_cents"
+        moneyPolicy={documentPricePrompt.moneyPolicy ?? "drive_cents"}
         open={documentPricePrompt.open}
         requesterLabel={documentPricePrompt.requesterLabel}
         purpose={documentPricePrompt.purpose}

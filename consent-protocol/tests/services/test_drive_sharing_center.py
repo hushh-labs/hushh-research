@@ -3,6 +3,7 @@
 # ruff: noqa: F811 -- imported pytest fixtures
 
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -10,9 +11,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, event, text
 
+from hushh_mcp.services import drive_sharing_center_contributor as contributor
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
+from hushh_mcp.services.drive_request_queue import queue_view, request_queued_since
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor, entry
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_permission_executor import (  # noqa: F401
@@ -710,6 +713,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "recorded_outcome_only",
         "automatic_progress_active",
         "automatic_progress_stage",
+        "automatic_progress_state",
         "accessStopped",
         "owner_attention_required",
         "owner_decision_available",
@@ -902,7 +906,9 @@ async def test_trusted_progress_is_participant_scoped_and_tracks_durable_work(
     request_id = created["requestId"]
     projection = DriveSharingCenterContributor(db=sharing.db)
 
-    async def participants(stage: str | None, active: bool) -> None:
+    states = {"preparing": "queued", "finding": "searching", "sharing": "sharing", None: None}
+
+    async def participants(stage: str | None, active: bool, state: str | None = "") -> None:
         owner = (await projection.page("owner", bucket="incoming_requests", limit=1))["items"][0]
         recipient = (await projection.page("recipient", bucket="outgoing_requests", limit=1))[
             "items"
@@ -912,11 +918,24 @@ async def test_trusted_progress_is_participant_scoped_and_tracks_durable_work(
         for item in (owner, recipient):
             assert item["metadata"]["automatic_progress_active"] is active
             assert item["metadata"]["automatic_progress_stage"] == stage
+            assert item["metadata"]["automatic_progress_state"] == (
+                states[stage] if state == "" else state
+            )
+            assert ("automatic_queued_at" in item["metadata"]) is (stage == "preparing")
             assert "Private six-month statements" not in str(item)
             assert "recipient@example" not in str(item)
         assert owner["metadata"]["owner_attention_required"] is not active
 
     await participants("preparing", True)
+    # Due for over three minutes and still no search: delayed, never "paused".
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_next_at=clock_timestamp()-INTERVAL '4 minutes'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    await participants("preparing", True, "delayed")
     job_id = str(uuid4())
     with sharing.db.engine.begin() as connection:
         connection.execute(
@@ -1249,3 +1268,162 @@ def test_display_sort_does_not_change_lifecycle_tie_reduction():
     events = [{"id": "a", "issued_at": 100}, {"id": "z", "issued_at": 100}]
     assert ConsentCenterService._sort_entries(events) == events
     assert ConsentCenterService._sort_display_entries(events) == list(reversed(events))
+
+
+_QUEUED_AT = datetime(2026, 10, 17, 2, 32, 50, tzinfo=UTC)
+
+
+def _queued_row(**overrides):
+    """An owner-allowed request waiting in the durable queue; no search job yet."""
+    return {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "incoming_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": "trusted_auto_queued",
+        "owner_search_state": None,
+        "trusted_authority_ready": True,
+        "trusted_batch_seen": False,
+        "trusted_work_active": False,
+        "trusted_recovery_needed": False,
+        "owner_allowed": True,
+        "payment_status": None,
+        "automatic_queued_at": _QUEUED_AT,
+        **overrides,
+    }
+
+
+@pytest.mark.parametrize("direction", ["incoming", "outgoing"])
+def test_queued_request_is_waiting_not_preparing_and_keeps_legacy_fields(direction):
+    bucket = "incoming_requests" if direction == "incoming" else "outgoing_requests"
+    now = _QUEUED_AT + timedelta(seconds=40)
+    metadata = entry(_queued_row(direction=direction, bucket=bucket), now=now)["metadata"]
+    # Legacy fields are unchanged for older clients.
+    assert metadata["automatic_progress_active"] is True
+    assert metadata["automatic_progress_stage"] == "preparing"
+    assert metadata["owner_allowed"] is True
+    if direction == "incoming":
+        assert metadata["owner_attention_required"] is False
+        assert metadata["owner_decision_available"] is False
+    # The additive truth: queued since the row became due, with no search.
+    assert metadata["automatic_progress_state"] == "queued"
+    assert metadata["automatic_queued_at"] == "2026-10-17T02:32:50+00:00"
+
+
+@pytest.mark.parametrize(
+    ("waited", "state"),
+    [
+        (timedelta(minutes=3) - timedelta(milliseconds=1), "queued"),
+        (timedelta(minutes=3), "delayed"),
+        (timedelta(minutes=50), "delayed"),
+    ],
+)
+def test_queue_delay_threshold_boundary(waited, state):
+    metadata = entry(_queued_row(), now=_QUEUED_AT + waited)["metadata"]
+    assert metadata["automatic_progress_state"] == state
+    assert metadata["automatic_progress_stage"] == "preparing"
+    assert metadata["automatic_queued_at"] == _QUEUED_AT.isoformat()
+
+
+def test_a_row_scheduled_later_is_queued_from_now_not_the_future():
+    now = _QUEUED_AT - timedelta(minutes=5)
+    metadata = entry(_queued_row(), now=now)["metadata"]
+    assert metadata["automatic_progress_state"] == "queued"
+    assert metadata["automatic_queued_at"] == now.isoformat()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "stage", "state"),
+    [
+        ({"owner_search_state": "running", "trusted_work_active": True}, "finding", "searching"),
+        (
+            {"preparation_error_code": "trusted_auto_active", "owner_search_state": "queued"},
+            "finding",
+            "searching",
+        ),
+        (
+            {
+                "preparation_error_code": "trusted_auto_active",
+                "owner_search_state": "completed",
+                "trusted_work_active": True,
+                "trusted_batch_seen": True,
+            },
+            "sharing",
+            "sharing",
+        ),
+    ],
+)
+def test_started_work_never_reads_as_queued(overrides, stage, state):
+    metadata = entry(_queued_row(**overrides), now=_QUEUED_AT + timedelta(hours=1))["metadata"]
+    assert metadata["automatic_progress_stage"] == stage
+    assert metadata["automatic_progress_state"] == state
+    assert "automatic_queued_at" not in metadata
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        # Waiting for the owner's decision: nothing automatic is queued.
+        {"preparation_error_code": None, "owner_allowed": False, "trusted_authority_ready": False},
+        # A failed search is not progress.
+        {"preparation_error_code": "trusted_auto_active", "owner_search_state": "failed"},
+        # Checkout owns the row while payment is open.
+        {"payment_status": "checkout_open"},
+    ],
+)
+def test_no_progress_state_without_automatic_work(overrides):
+    metadata = entry(_queued_row(**overrides), now=_QUEUED_AT + timedelta(hours=1))["metadata"]
+    assert metadata["automatic_progress_active"] is False
+    assert metadata["automatic_progress_state"] is None
+    assert "automatic_queued_at" not in metadata
+
+
+def test_only_a_delayed_read_heals_the_queue(monkeypatch):
+    calls = []
+    monkeypatch.setattr(contributor, "heal_queued_drive_work", lambda: calls.append(1))
+    queued = entry(_queued_row(), now=_QUEUED_AT + timedelta(minutes=1))
+    delayed = entry(_queued_row(), now=_QUEUED_AT + timedelta(minutes=4))
+    contributor._heal_delayed([queued])
+    assert calls == []
+    contributor._heal_delayed([queued, delayed])
+    assert calls == [1]
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, "queued"),
+        ({"preparation_next_at": _QUEUED_AT - timedelta(minutes=3)}, "delayed"),
+        ({"preparation_next_at": _QUEUED_AT + timedelta(minutes=9)}, "scheduled"),
+        ({"preparation_error_code": "trusted_auto_active"}, None),
+        ({"preparation_error_code": None}, None),  # Waiting for the owner's decision.
+        ({"preparation_error_code": "owner_price_required"}, None),
+        ({"bulk_search_started_at": _QUEUED_AT}, None),
+        ({"access_stop_requested_at": _QUEUED_AT}, None),
+        ({"status": "approved"}, None),
+        ({"expires_at": _QUEUED_AT}, None),
+    ],
+)
+def test_status_queue_view_is_db_backed_and_never_claims_work(changes, expected):
+    row = {
+        "status": "pending",
+        "preparation_error_code": "trusted_auto_queued",
+        "bulk_search_started_at": None,
+        "access_stop_requested_at": None,
+        "preparation_next_at": _QUEUED_AT - timedelta(seconds=30),
+        "expires_at": _QUEUED_AT + timedelta(days=7),
+        **changes,
+    }
+    view = queue_view(request_queued_since(row, _QUEUED_AT), _QUEUED_AT)
+    if expected is None:
+        assert view == {}
+    elif expected == "scheduled":
+        assert view == {"queuedAt": _QUEUED_AT.isoformat(), "queueDelayed": False}
+    else:
+        assert view["queuedAt"] == row["preparation_next_at"].isoformat()
+        assert view["queueDelayed"] is (expected == "delayed")

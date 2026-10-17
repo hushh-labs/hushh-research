@@ -12,6 +12,8 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
 from hushh_mcp.services.drive_request_payment_view import requester_payment_view
+from hushh_mcp.services.drive_request_queue import queue_delayed
+from hushh_mcp.services.drive_work_wake import heal_queued_drive_work
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -72,7 +74,8 @@ WITH participants AS (
     {estimate_known} AS estimate_known,
     {estimate_cents} AS estimate_cents,
     {agent_package} AS agent_package,
-    {v1_live_request} AS v1_live_request
+    {v1_live_request} AS v1_live_request,
+    drive_share_requests.preparation_next_at AS automatic_queued_at
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -81,7 +84,8 @@ WITH participants AS (
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE,
+    NULL::timestamptz
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -148,7 +152,8 @@ _QUERIES = """
       ELSE status END,
     NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE,
+    NULL::timestamptz
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -489,10 +494,11 @@ def _projection(
     return projection
 
 
-def entry(row: Any) -> dict[str, Any]:
+def entry(row: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """Closed presentation shape; cannot enter the generic PKM grant path."""
     if row.get("source") == "query":
         return _query_entry(row)
+    now = now or datetime.now(UTC)
     preparation_code = row.get("preparation_error_code")
     search_state = row.get("owner_search_state")
     evaluation_state = row.get("owner_evaluation_state")
@@ -603,6 +609,24 @@ def entry(row: Any) -> dict[str, Any]:
             if search_state in {"queued", "running", "completed"}
             else "preparing"
         )
+    # "preparing" kept its legacy name, but nothing has started: the request
+    # waits in the durable queue for the scheduled drain. The progress state
+    # says so, and turns "delayed" past the threshold. Never "paused": the
+    # API's drain flag is off in production, where the scheduled drain runs.
+    queued_at = row.get("automatic_queued_at")
+    queued_since = (
+        min(queued_at, now)
+        if automatic_stage == "preparing" and isinstance(queued_at, datetime)
+        else None
+    )
+    progress_state = {
+        "checking": "checking",
+        "sharing": "sharing",
+        "finding": "searching",
+        "preparing": "delayed"
+        if queued_since is not None and queue_delayed(queued_since, now)
+        else "queued",
+    }.get(automatic_stage or "")
     # Allow/Deny belongs only to the owner's own open request task.
     owner_decision_available = bool(
         row["direction"] == "incoming"
@@ -652,6 +676,13 @@ def entry(row: Any) -> dict[str, Any]:
             "recorded_outcome_only": True,
             "automatic_progress_active": automatic_progressing,
             "automatic_progress_stage": automatic_stage,
+            # Additive and truthful: queued | delayed | searching | sharing | checking.
+            "automatic_progress_state": progress_state,
+            **(
+                {"automatic_queued_at": queued_since.isoformat()}
+                if queued_since is not None
+                else {}
+            ),
             "accessStopped": row.get("access_stopped") is True,
             # A Trusted Circle request stays pending while automatic search and
             # sharing run. Only the sharing authority can distinguish that
@@ -872,6 +903,12 @@ SELECT
 """
 
 
+def _heal_delayed(items: list[dict[str, Any]]) -> None:
+    """A read that sees a stalled queue re-wakes it, bounded; never slows the read."""
+    if any(item["metadata"].get("automatic_progress_state") == "delayed" for item in items):
+        heal_queued_drive_work()
+
+
 class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     def _supports_projection(self) -> bool:
         # Existing SQLite-only callers have no Drive domain. Check the dialect
@@ -985,7 +1022,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 "schema_available": True,
             }
 
-        return cast(dict[str, Any], await self._transaction(operation))
+        result = cast(dict[str, Any], await self._transaction(operation))
+        _heal_delayed(result["items"])
+        return result
 
     async def preview(self, user_id: str) -> dict[str, Any]:
         """A bounded legacy snapshot with exact totals from the same statement."""
@@ -1040,4 +1079,6 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 counts[row["bucket"]] = row["total"]
             return {"buckets": buckets, "counts": counts, "schema_available": True}
 
-        return cast(dict[str, Any], await self._transaction(operation))
+        result = cast(dict[str, Any], await self._transaction(operation))
+        _heal_delayed([item for items in result["buckets"].values() for item in items])
+        return result
