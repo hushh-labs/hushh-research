@@ -18,6 +18,7 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Native Legal reader — 2026-10-17
 
+Source checkpoint: `c459cf1332` (local, not pushed or installed on iPhone).
 The qualification build now has a complete SwiftUI Privacy/Terms reader in the
 retained UIKit Profile stack: full authored sections, paragraphs, subheadings,
 lists, inline links, effective date/version, contents scrolling and See also.
@@ -155,7 +156,7 @@ and its unrelated edits were not changed.
 | Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
 | Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |
 | Payouts/pricing | React `DocumentHashcoinPayouts`, `DocumentRequestPricingCard`; existing marketplace writers | Native history, bank entry, redemption, receipts, amount editing and conflicts remain to map; fixture fulfillment must stay sandboxed |
-| Help/Legal | Owned native Help sheet; existing support composer/service; React legal documents | Help has historical physical functional proof only; native document reading/switching remains to map |
+| Help/Legal | Owned native Help sheet and complete native Legal reader; existing support composer/service and authored Legal documents | Help has historical physical functional proof; Legal is implemented locally with capability fallback, not physically qualified |
 | Wallet Profile/cards | React `wallet-card-workspace`, `wallet-card-setup`, `wallet-card-manage`, payment-card owners under `components/wallet` | Complete native workspace/editor/reveal/sharing scenes remain to map; system camera/Share/Apple Wallet owners stay unchanged |
 | Portfolio import | React `portfolio-import-view`; existing import and explicit encrypted-commit owners | Native selection/progress/cancellation/review remain to map; no competing import store |
 | Referrals/developer | React `referral-dashboard-page` and existing developer owners | Native dashboard/local diagnostics remain to map; reward authority and both developer-build/host restrictions must remain enforced |
@@ -219,7 +220,8 @@ Opening nine destinations does not establish nine native form conversions.
 | Help & feedback | Complete native sheet over the retained Profile root; existing support composer/service | Exact candidate installed; physical edit/cancel, keyboard, type selection and Chat-draft continuity pass. Visual/accessibility/Release acceptance remains separate |
 | Voice | React readiness, microphone check, switches and Location/Connect defaults | Native body still missing; not counted as converted |
 | Photo | React preview/options and existing native camera/library/crop | Complete native presentation still missing |
-| Protected vault/phone/provider forms, Devices, Connectors, Invite, Privacy, Terms | Established React content handoff | Deliberate retained bodies, not native form conversions |
+| Privacy, Terms | Complete native reader behind `profileLegalReader`; existing authored content and Profile routing | Local implementation/host contracts pass; new body not installed or physically qualified |
+| Protected vault/phone/provider forms, Devices, Connectors, Invite | Established React content handoff | Retained baseline bodies, not completed approved native conversions |
 
 Help negotiates `profileSupportScene` within NativeDrawers v1. Its private,
 memory-only message replica is separate from public chrome metadata and uses
