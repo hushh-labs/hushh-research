@@ -27,7 +27,7 @@ Opening nine destinations does not establish nine native form conversions.
 | Name editor | Owned native form; existing authenticated account writer | Implemented; no new physical acceptance in this continuation |
 | Writing style / communication | Owned native form and finite menus; existing encrypted Settings writer | Ten edit/cancel cycles passed on the earlier installed candidate |
 | Appearance, Accent, App haptics | Native menus/switch; existing theme and Settings owners | Earlier physical Preferences journey passed; no broad admission change |
-| Help & feedback | New complete native sheet over the retained Profile root; existing support composer/service | Implementation and focused qualification in progress, not released |
+| Help & feedback | Complete native sheet over the retained Profile root; existing support composer/service | Focused checks and exact device build pass; new physical family acceptance pending |
 | Voice | React readiness, microphone check, switches and Location/Connect defaults | Native body still missing; not counted as converted |
 | Photo | React preview/options and existing native camera/library/crop | Complete native presentation still missing |
 | Protected vault/phone/provider forms, Devices, Connectors, Invite, Privacy, Terms | Established React content handoff | Deliberate retained bodies, not native form conversions |
@@ -43,6 +43,19 @@ guard rejects duplicate submission. Accepted delivery cannot clear a newer draft
 or a different unsent draft when voice supplied an override. Uncertain delivery
 retains the message, is narrated as uncertain and is never automatically retried.
 Native retirement scrubs message and reply information before dismissal.
+
+The support candidate is built from `ae030c921acd42e56c1945786f5a2ee9ae9c4741`
+with the same fresh web export, production profile and qualified native renderer.
+The executable SHA-256 is
+`fcbd57425e3d15ebc83b079aa6cb8ef9839060fbba7626b8a3a009bd25ebf2d6`;
+strict signature verification and the unchanged product-assets validator pass.
+Focused evidence: 186 bridge/support cases, 22 support/outcome cases, the native
+host IME/acknowledgment/one-shot-send/scrubbing regression, typecheck, focused
+lint, plugin parity and generated UI contracts. The new attach-only Help check
+selects all three kinds, edits/restores multiline text and cancels without Send;
+it has not yet run against an installed support candidate. Installation remains
+separate: the empty-draft preparation could not prove that One had no unsent
+draft, and another candidate restart requires approval. No real email was sent.
 
 The previously built artwork candidate (web `d1c2b333c8`, native/test source
 `055789f04f`, executable hash recorded below) is now installed on the iPhone.
