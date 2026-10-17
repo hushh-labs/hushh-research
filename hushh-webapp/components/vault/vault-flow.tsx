@@ -299,14 +299,12 @@ function VaultFlowHeader({
   icon,
   title,
   description,
-  hint,
   setupPresentation = false,
 }: {
   user: User;
   icon: LucideIcon;
   title: string;
   description: string;
-  hint?: string | null;
   setupPresentation?: boolean;
 }) {
   // Presentation only: the current authenticated owner supplies the identity.
@@ -341,11 +339,6 @@ function VaultFlowHeader({
           {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
         </span>
       </div>
-      {hint ? (
-        <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[color:var(--app-accent-tint)] px-3.5 py-2.5 type-footnote text-muted-foreground">
-          {hint}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -377,7 +370,6 @@ export function VaultFlow({
   const [copied, setCopied] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [vaultMode, setVaultMode] = useState<VaultMode>("passphrase");
-  const [unlockHint, setUnlockHint] = useState<string | null>(null);
   const [availableGeneratedMethod, setAvailableGeneratedMethod] =
     useState<GeneratedVaultKeyMode | null>(null);
   const [unlockWithPassphraseFallback, setUnlockWithPassphraseFallback] =
@@ -728,7 +720,6 @@ export function VaultFlow({
           }
           setVaultMode("passphrase");
           setUnlockWithPassphraseFallback(false);
-          setUnlockHint(null);
           // Fresh vault creation is part of the same canonical credential
           // surface as unlock. Do not insert a second education screen here:
           // it adds height above the native keyboard and makes callers such as
@@ -738,7 +729,6 @@ export function VaultFlow({
         }
 
         try {
-          setUnlockHint(null);
           const vaultData = await vaultStatePromise;
           if (!isCurrent()) return;
           const preferPassphraseForAutomation =
@@ -782,9 +772,6 @@ export function VaultFlow({
           if (primaryPrefersQuickMethod && !nextQuickMethod) {
             setVaultMode("passphrase");
             setUnlockWithPassphraseFallback(true);
-            setUnlockHint(
-              toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED")
-            );
           } else if (
             preferPassphraseForAutomation &&
             VaultService.getWrapperByMethod(vaultData, "passphrase")
@@ -2005,7 +1992,6 @@ export function VaultFlow({
                     ? "Confirm with your device."
                     : "Enter your password."
                 }
-                hint={unlockHint}
               />
               {error ? (
                 <Alert
@@ -2203,13 +2189,7 @@ export function VaultFlow({
                     : Fingerprint
                 }
                 title="Enable quicker unlock?"
-                description={`You can keep password unlock, or enable ${
-                  recommendedQuickMethod === "generated_default_web_prf" ||
-                  recommendedQuickMethod ===
-                    "generated_default_native_passkey_prf"
-                    ? "passkey"
-                    : biometricLabel
-                } and still retain password and recovery-key backup.`}
+                description="Your password and recovery key still work."
               />
 
               {error ? (

@@ -44,7 +44,11 @@ test.beforeAll(async () => {
         "@/lib/observability/client",
         "@/lib/utils/native-download",
         "@/lib/utils/clipboard",
-        "@/components/vault/lost-vault-delete-panel",
+        "@/hooks/use-auth",
+        "@/lib/services/auth-service",
+        "@/lib/services/account-service",
+        "@/lib/firebase/config",
+        "@/lib/flows/delete-account",
       ].map(find => ({ find, replacement: boundaries })),
       { find: "@", replacement: root },
     ] },
@@ -84,6 +88,48 @@ test.beforeAll(async () => {
 
 test.afterAll(() => {
   if (outDir) fs.rmSync(outDir, { recursive: true, force: true });
+});
+
+test("locked-vault recovery stays compact and the quick-unlock description fits two lines", async ({ page }, testInfo) => {
+  for (const width of [320, 393, 402, 430]) {
+    await page.setViewportSize({ width, height: 852 });
+    await page.setContent(`<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root" data-flow="unlock" data-email="you@gmail.com"></div></body></html>`);
+    await page.evaluate(() => {
+      if (!crypto.randomUUID) Object.defineProperty(crypto, "randomUUID", { value: () => "visual-unlock-attempt" });
+    });
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const password = page.getByLabel("Vault password");
+    await expect(password).toBeVisible();
+    await expect(page.getByText(/older domain/)).toHaveCount(0);
+    await password.fill("visual-fixture-password");
+    await page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Enable quicker unlock?" })).toBeVisible();
+    const description = page.locator("[data-vault-flow-header] > p");
+    await expect(description).toHaveText("Your password and recovery key still work.");
+    expect(await description.evaluate(element => element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight))).toBeLessThanOrEqual(2.05);
+    await page.getByRole("button", { name: "Enable Passkey", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Your password still works.");
+    if (width === 393) await page.screenshot({ path: testInfo.outputPath("quick-unlock-393.png") });
+  }
+});
+
+test("deletion verification shows the centered Google mark beside its label", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.setContent(`<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root" data-flow="delete"></div></body></html>`);
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+  const provider = page.getByRole("button", { name: "Continue with Google" });
+  await expect(provider).toBeVisible();
+  const delta = await provider.evaluate(element => {
+    const button = element.getBoundingClientRect();
+    const content = element.querySelector("[data-auth-provider-content]")!.getBoundingClientRect();
+    const icon = element.querySelector("[data-auth-provider-icon] svg")!.getBoundingClientRect();
+    return { center: Math.abs(button.x + button.width / 2 - content.x - content.width / 2), iconWidth: icon.width };
+  });
+  expect(delta.center).toBeLessThanOrEqual(1);
+  expect(delta.iconWidth).toBe(24);
+  await page.screenshot({ path: testInfo.outputPath("delete-verification-393.png") });
 });
 
 const scenarios = [
