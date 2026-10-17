@@ -1,0 +1,35 @@
+{
+  "provider": "gemini",
+  "scenarios_run": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "results": [
+    {
+      "scenario": "01_bull_megacap_aapl.yaml",
+      "ok": true,
+      "latency_ms": 11679,
+      "provider_used": "gemini",
+      "model_used": "gemini-3.1-pro-preview",
+      "text": "```json\n{\n  \"decision\": \"buy\",\n  \"confidence\": 0.85,\n  \"thesis\": \"The stock represents a compelling opportunity as its strong fundamentals and positive market sentiment are supported by a moderate valuation.\",\n  \"key_risk\": \"The primary risk involves potential for increased regulatory scrutiny in key global markets, which could impact its services business and ecosystem dominance.\"\n}\n```",
+      "usage": {}
+    },
+    {
+      "scenario": "07_bear_secular_int.yaml",
+      "ok": true,
+      "latency_ms": 12842,
+      "provider_used": "gemini",
+      "model_used": "gemini-3.1-pro-preview",
+      "text": "```json\n{\n  \"decision\": \"sell\",\n  \"confidence\": 0.9,\n  \"thesis\": \"The company is in a secular decline with deteriorating fundamentals, including negative sales, rising debt, and an unsustainable dividend.\",\n  \"key_risk\": \"The main risk to a short thesis is a potential acquisition by a competitor or private equity at a premium.\"\n}\n```",
+      "usage": {}
+    },
+    {
+      "scenario": "11_ambiguous_dis.yaml",
+      "ok": true,
+      "latency_ms": 13971,
+      "provider_used": "gemini",
+      "model_used": "gemini-3.1-pro-preview",
+      "text": "```json\n{\n  \"decision\": \"hold\",\n  \"confidence\": 0.6,\n  \"thesis\": \"Strength in Parks and the potential for streaming profitability are balanced by the secular decline in linear networks, creating a period of strategic uncertainty.\",\n  \"key_risk\": \"The primary risk is that the streaming segment fails to achieve sufficient profitability to offset the accelerating decline in the legacy linear TV business.\"\n}\n```",
+      "usage": {}
+    }
+  ]
+}

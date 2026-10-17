@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from typing import Optional
 
@@ -54,6 +55,16 @@ class ConsentScope(str, Enum):
     AGENT_KAI_INFER = "agent.kai.infer"
     AGENT_KAI_CHAT = "agent.kai.chat"
     AGENT_KAI_EXECUTE = "agent.kai.execute"
+
+    # Inference provider scopes (added by Kai LLM provider adapter).
+    AGENT_KAI_INFERENCE = "agent.kai.inference"
+    AGENT_KAI_INFERENCE_CLOUD = "agent.kai.inference.cloud"
+    AGENT_KAI_INFERENCE_CLOUD_GEMINI = "agent.kai.inference.cloud.gemini"
+    AGENT_KAI_INFERENCE_CLOUD_OPENAI = "agent.kai.inference.cloud.openai"
+    AGENT_KAI_INFERENCE_CLOUD_ANTHROPIC = "agent.kai.inference.cloud.anthropic"
+    AGENT_KAI_INFERENCE_PRIVATE = "agent.kai.inference.private"
+    AGENT_KAI_INFERENCE_PRIVATE_SELF_HOSTED = "agent.kai.inference.private.self_hosted"
+    AGENT_KAI_INFERENCE_PRIVATE_LOCAL = "agent.kai.inference.private.local"
 
     AGENT_NAV_REVIEW = "agent.nav.review"
     AGENT_NAV_REVOKE = "agent.nav.revoke"
@@ -297,7 +308,7 @@ KAI_OPTIMIZE_MAX_OUTPUT_TOKENS = 16384
 # Debate synthesis output budget.
 KAI_SYNTHESIS_MAX_OUTPUT_TOKENS = 8192
 # Keep reasoning mode enabled for optimize/debate quality.
-KAI_LLM_THINKING_ENABLED = True
+KAI_LLM_THINKING_ENABLED = os.getenv("KAI_LLM_THINKING_ENABLED", "true").lower() != "false"
 # Generic default for non-import LLM paths.
 KAI_LLM_THINKING_LEVEL = "MEDIUM"
 # Stream thought chunks for telemetry/progress surfaces.

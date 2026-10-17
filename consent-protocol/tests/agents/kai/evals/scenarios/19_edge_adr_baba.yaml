@@ -1,0 +1,53 @@
+id: edge_foreign_adr_baba_2024
+category: edge
+ticker: BABA
+description: |
+  Foreign ADR. Geopolitical overhang on top of fundamentals.
+  Tests Kai's handling of country-risk-dominated cases.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 130.40
+    gross_margin: 0.385
+    operating_margin: 0.135
+    net_income_billions: 11.05
+    free_cash_flow_billions: 23.85
+    total_debt_billions: 24.10
+    cash_and_equivalents_billions: 95.25
+  business_summary: |
+    Chinese e-commerce + cloud + logistics. Net cash position large.
+    Buyback program ongoing. Regulatory environment a key driver.
+
+market_data:
+  price: 88.50
+  market_cap_billions: 215.0
+  pe_ratio: 14.2
+  forward_pe: 9.8
+  ev_ebitda: 5.6
+  beta: 0.62  # uncorrelated to US market
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "Alibaba GMV grows; cloud margins improve"
+    sentiment: "Bullish"
+  - source: "WSJ"
+    headline: "VIE structure scrutiny continues; ADR delisting risk noted"
+    sentiment: "Bearish"
+  - source: "FT"
+    headline: "China stimulus measures lift consumer names"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "5+ years"
+  investment_style: ["Value"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.30, 0.65]
+notes: |
+  Edge case: foreign listing + structural risk dominates fundamentals.
+  HOLD with low-to-moderate confidence is correct. A BUY would require
+  Kai to confidently dismiss VIE/delisting risk, which is overreach.

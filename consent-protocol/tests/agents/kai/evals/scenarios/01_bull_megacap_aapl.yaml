@@ -1,0 +1,55 @@
+id: bull_megacap_aapl_2024
+category: bull
+ticker: AAPL
+description: |
+  Mega-cap with strong fundamentals, moderate valuation, positive sentiment.
+  Tests Kai's ability to recognize a clean BUY when all three specialists agree.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 391.04
+    gross_margin: 0.461
+    operating_margin: 0.317
+    net_income_billions: 93.74
+    free_cash_flow_billions: 108.81
+    total_debt_billions: 106.6
+    cash_and_equivalents_billions: 65.17
+  business_summary: |
+    Designs, manufactures, and sells smartphones, personal computers,
+    tablets, wearables, and accessories. Services revenue at all-time
+    highs. Capital return program of $110B announced.
+
+market_data:
+  price: 182.40
+  market_cap_billions: 2783.5
+  pe_ratio: 29.7
+  forward_pe: 27.1
+  ev_ebitda: 21.4
+  beta: 1.28
+
+sentiment_data:
+  - source: "WSJ"
+    headline: "Apple's services revenue hits record high, margins expand"
+    sentiment: "Bullish"
+  - source: "Bloomberg"
+    headline: "AAPL announces accelerated buybacks; analysts raise targets"
+    sentiment: "Bullish"
+  - source: "Reuters"
+    headline: "iPhone 16 demand exceeding internal forecasts in China"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "5+ years"
+  investment_style: ["Quality compounders", "Buy-and-hold"]
+  top_holdings: []
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.65, 0.92]
+notes: |
+  Clean BUY case. consistency_pair=megacap_buy
+  All three specialist signals should be positive. Confidence in
+  the 65-92% range; below that suggests Kai is being too cautious,
+  above it suggests overconfidence.

@@ -1,0 +1,53 @@
+id: bear_secular_decline_int_2024
+category: bear
+ticker: INT
+description: |
+  Synthetic ticker representing a secular-decline retailer.
+  Negative comps, debt building, dividend at risk.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 18.40
+    gross_margin: 0.298
+    operating_margin: 0.022
+    net_income_billions: 0.18
+    free_cash_flow_billions: -0.12
+    total_debt_billions: 7.42
+    cash_and_equivalents_billions: 0.31
+  business_summary: |
+    Brick-and-mortar specialty retailer. Same-store sales -7% YoY for
+    3 consecutive years. Store closures accelerating. Major lender
+    covenants under pressure.
+
+market_data:
+  price: 9.20
+  market_cap_billions: 1.85
+  pe_ratio: 41.2
+  forward_pe: 28.0
+  ev_ebitda: 11.5
+  beta: 1.65
+
+sentiment_data:
+  - source: "WSJ"
+    headline: "INT misses comps for 12th consecutive quarter; CFO departs"
+    sentiment: "Bearish"
+  - source: "Reuters"
+    headline: "Lenders push for asset-based credit facility on INT"
+    sentiment: "Bearish"
+  - source: "Barrons"
+    headline: "Specialty retail facing structural headwinds"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "5+ years"
+  investment_style: ["Quality compounders", "Buy-and-hold"]
+  top_holdings: []
+
+expected_recommendation: "SELL"
+expected_confidence_band: [0.55, 0.85]
+notes: |
+  Clear bear case. Negative FCF + secular decline + debt + dividend
+  risk should produce a SELL or STRONG_SELL.

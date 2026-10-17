@@ -1,0 +1,53 @@
+id: ambiguous_mixed_signals_dis_2024
+category: ambiguous
+ticker: DIS
+description: |
+  Mixed signals: legacy linear declining, parks strong, streaming
+  improving but ROIC question. Tests Kai's calibration on uncertainty.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 91.36
+    gross_margin: 0.355
+    operating_margin: 0.130
+    net_income_billions: 4.97
+    free_cash_flow_billions: 8.56
+    total_debt_billions: 45.72
+    cash_and_equivalents_billions: 6.00
+  business_summary: |
+    Entertainment conglomerate. Parks/Experiences ~60% of operating
+    income. DTC reaching profitability. Linear in secular decline.
+    CEO succession ongoing.
+
+market_data:
+  price: 102.50
+  market_cap_billions: 186.0
+  pe_ratio: 37.4
+  forward_pe: 19.5
+  ev_ebitda: 13.2
+  beta: 1.42
+
+sentiment_data:
+  - source: "WSJ"
+    headline: "Disney parks attendance softens; streaming profitable"
+    sentiment: "Neutral"
+  - source: "Bloomberg"
+    headline: "Activist pressure subsides; CEO confidence cited"
+    sentiment: "Neutral"
+  - source: "Reuters"
+    headline: "Disney content slate strong for 2025"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "3-5 years"
+  investment_style: ["Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.45, 0.72]
+notes: |
+  Genuinely ambiguous. HOLD preferred; high confidence here would be
+  miscalibrated.

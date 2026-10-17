@@ -1,0 +1,49 @@
+id: bear_overvalued_growth_xyz_2024
+category: bear
+ticker: XYZ
+description: |
+  Synthetic ticker. Profitless growth with deteriorating unit
+  economics, rising stock-based comp, and slowing top-line.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 4.80
+    gross_margin: 0.622
+    operating_margin: -0.18
+    net_income_billions: -0.81
+    free_cash_flow_billions: -0.45
+    total_debt_billions: 2.15
+    cash_and_equivalents_billions: 1.92
+  business_summary: |
+    Software-as-a-service in a competitive niche. Net revenue
+    retention slipping below 105%. Stock-based comp ~25% of revenue.
+    No path to GAAP profitability stated.
+
+market_data:
+  price: 78.40
+  market_cap_billions: 19.6
+  pe_ratio: 0  # not meaningful (loss)
+  forward_pe: 0
+  ev_ebitda: 0
+  beta: 2.10
+
+sentiment_data:
+  - source: "Bloomberg"
+    headline: "XYZ Q3 misses on rev; guidance cut for 2025"
+    sentiment: "Bearish"
+  - source: "Reuters"
+    headline: "SaaS multiples compress; XYZ trades at 4x sales after print"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "5+ years"
+  investment_style: ["Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "SELL"
+expected_confidence_band: [0.50, 0.80]
+notes: |
+  Profitless growth + decelerating + rich on EV/Sales. Should be SELL.

@@ -1,0 +1,53 @@
+id: bull_megacap_msft_2024
+category: bull
+ticker: MSFT
+description: |
+  Mega-cap with strong fundamentals, premium but defensible valuation,
+  positive AI tailwinds. Pairs with AAPL for consistency check --
+  similar quality profile, different sector exposure.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 245.12
+    gross_margin: 0.696
+    operating_margin: 0.443
+    net_income_billions: 88.14
+    free_cash_flow_billions: 74.07
+    total_debt_billions: 67.02
+    cash_and_equivalents_billions: 75.53
+  business_summary: |
+    Productivity software, cloud (Azure), AI infrastructure (OpenAI),
+    gaming. Azure growth re-accelerated to 31% on AI demand.
+
+market_data:
+  price: 415.20
+  market_cap_billions: 3088.0
+  pe_ratio: 35.1
+  forward_pe: 31.5
+  ev_ebitda: 24.8
+  beta: 0.91
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "Microsoft Azure AI revenue beats; Copilot adoption accelerates"
+    sentiment: "Bullish"
+  - source: "FT"
+    headline: "Analysts raise MSFT targets on enterprise AI penetration"
+    sentiment: "Bullish"
+  - source: "WSJ"
+    headline: "Microsoft commits $80B AI capex; FCF still grows"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "5+ years"
+  investment_style: ["Quality compounders", "Buy-and-hold"]
+  top_holdings: []
+
+expected_recommendation: "BUY"
+expected_confidence_band: [0.62, 0.90]
+notes: |
+  Clean BUY case, slightly less convicted than AAPL because of
+  premium multiple. consistency_pair=megacap_buy

@@ -1,0 +1,151 @@
+# deploy/kai-self-hosted/docker-compose.yml
+#
+# Self-hosted Kai reference deployment.
+#
+# Goal: stand up a fully self-contained Kai backend that performs all
+# inference on a local NVIDIA GPU via vLLM, with no calls to Gemini /
+# OpenAI / Anthropic. Use this to demonstrate the "consent-first" promise
+# end-to-end for enterprise customers who require on-prem inference.
+#
+# Prerequisites (host):
+#   - Docker 24+ with the NVIDIA container toolkit installed.
+#   - One CUDA GPU with >= 16 GB VRAM (24 GB recommended for AWQ Llama 3.1 8B).
+#   - HuggingFace token with access to the chosen model
+#     (export HF_TOKEN=hf_... before `docker compose up`).
+#
+# Usage:
+#   cp deploy/kai-self-hosted/.env.example .env
+#   # Fill APP_SIGNING_KEY, VAULT_DATA_KEY, HF_TOKEN
+#   docker compose -f deploy/kai-self-hosted/docker-compose.yml up -d
+#   curl http://localhost:8000/v1/models   # vLLM
+#   curl http://localhost:8080/health      # Kai backend
+#
+# Tear down:
+#   docker compose -f deploy/kai-self-hosted/docker-compose.yml down -v
+
+services:
+
+  # ---------------------------------------------------------------------
+  # vLLM serves an OpenAI-compatible /v1/chat/completions endpoint.
+  # Default model: Llama 3.1 8B Instruct AWQ (single 24 GB GPU friendly).
+  # ---------------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:v0.7.3
+    container_name: kai-vllm
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - VLLM_LOGGING_LEVEL=INFO
+    command:
+      - "--model=${KAI_VLLM_MODEL:-hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4}"
+      - "--quantization=${KAI_VLLM_QUANTIZATION:-awq_marlin}"
+      - "--max-model-len=${KAI_VLLM_MAX_MODEL_LEN:-8192}"
+      - "--gpu-memory-utilization=${KAI_VLLM_GPU_MEM_UTIL:-0.9}"
+      - "--port=8000"
+      - "--host=0.0.0.0"
+      - "--api-key=${KAI_VLLM_API_KEY:-EMPTY}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/v1/models || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 240s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Postgres for Kai's consent and audit tables.
+  # ---------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: kai-postgres
+    environment:
+      POSTGRES_USER: kai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kai_local_only_change_me}
+      POSTGRES_DB: kai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kai -d kai"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # Redis used by Kai for caching and pub/sub.
+  # ---------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: kai-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # The Kai backend itself, configured to route inference to the
+  # self-hosted vLLM service via the new provider adapter.
+  # ---------------------------------------------------------------------
+  kai-backend:
+    build:
+      context: ../..
+      dockerfile: consent-protocol/Dockerfile
+    container_name: kai-backend
+    depends_on:
+      vllm:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # --- Inference adapter ---
+      KAI_PROVIDERS_CONFIG: /app/consent-protocol/config/kai_inference_providers.yaml
+      KAI_SYNTHESIS_PROVIDER: vllm
+      KAI_VLLM_BASE_URL: http://vllm:8000/v1
+      KAI_VLLM_API_KEY: ${KAI_VLLM_API_KEY:-EMPTY}
+
+      # --- Required by Kai backend ---
+      APP_SIGNING_KEY: ${APP_SIGNING_KEY}
+      VAULT_DATA_KEY: ${VAULT_DATA_KEY}
+      DATABASE_URL: postgresql+asyncpg://kai:${POSTGRES_PASSWORD:-kai_local_only_change_me}@postgres:5432/kai
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      ENVIRONMENT: self-hosted
+
+      # --- Disable cloud creds explicitly. The adapter will refuse to
+      # ---  reach cloud providers anyway (consent-scoped), but unsetting
+      # ---  these makes the "no data leaves the box" claim auditable.
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_APPLICATION_CREDENTIALS: ""
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  postgres-data:

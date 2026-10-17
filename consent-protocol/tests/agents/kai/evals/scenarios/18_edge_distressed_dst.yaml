@@ -1,0 +1,50 @@
+id: edge_distressed_turnaround_dst_2024
+category: edge
+ticker: DST
+description: |
+  Distressed-debt-to-equity turnaround. Coming out of restructuring.
+  Tests Kai's handling of post-bankruptcy capital structures.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 5.40
+    gross_margin: 0.225
+    operating_margin: 0.082
+    net_income_billions: 0.18
+    free_cash_flow_billions: 0.31
+    total_debt_billions: 1.85  # post-restructure, much lower
+    cash_and_equivalents_billions: 0.42
+  business_summary: |
+    Emerged from Chapter 11 in early 2024. New management. Debt
+    reduced from $5.2B pre-petition. Three-year turnaround plan.
+
+market_data:
+  price: 4.10
+  market_cap_billions: 1.95
+  pe_ratio: 10.8
+  forward_pe: 8.5
+  ev_ebitda: 4.2
+  beta: 2.85
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "DST emerges from Ch.11; new CEO outlines plan"
+    sentiment: "Neutral"
+  - source: "Distressed Investor Daily"
+    headline: "DST equity coverage debated; legal claims overhang"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Aggressive"
+  time_horizon: "1-3 years"
+  investment_style: ["Special situations", "Value"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.25, 0.60]
+notes: |
+  Edge case: post-bankruptcy execution risk. Aggressive profile only
+  marginally raises confidence. HOLD with low confidence is correct;
+  BUY at high confidence would be miscalibrated.
