@@ -73,7 +73,6 @@ import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import { isAgentWalletCard, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
-import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
