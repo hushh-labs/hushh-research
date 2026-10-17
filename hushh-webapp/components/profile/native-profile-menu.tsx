@@ -62,8 +62,13 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
       if (!stack) return { ...projected, sections };
       // Additive capability: old wrappers keep their established ordinary row.
       const pages = portraitSupported ? stack.pages : stack.pages.map(page => ({ ...page, sections: page.sections.map(section => ({
-        ...section, rows: section.rows.map(({ portrait: _portrait, portraitData: _data, ...row }) => row.id === "account-photo"
-          ? { ...row, label: "Profile photo", artworkId: "account", chevron: true } : row),
+        ...section, rows: section.rows.map(({ portrait: _portrait, portraitData: _data, ...row }) => {
+          if (row.id !== "account-photo") return row;
+          // Identity copy belongs beside the supported portrait, not beneath
+          // an older wrapper's ordinary photo-action row. Mail has its own row.
+          const { detail: _detail, ...photo } = row;
+          return { ...photo, label: "Profile photo", artworkId: "account", chevron: true };
+        }),
       })) }));
       return { ...projected, sections, profileStack: pages, profileDestinationId: stack.destinationId,
         profileSupportDestinationId: stack.supportDestinationId, actions: { ...projected.actions,

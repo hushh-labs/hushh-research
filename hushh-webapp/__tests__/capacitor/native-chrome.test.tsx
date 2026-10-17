@@ -3334,12 +3334,15 @@ describe("native chrome presentation lease", () => {
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       phone={{ active: phone, editor: options => options.native && options.destinationId ? <p data-testid="public-phone-sheet">{options.destinationId}</p> : null }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
-      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
+      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-portrait", rows: [
+        { id: "account-photo", label: "Public sample", detail: "sample@example.test", enabled: true, portrait: true },
+      ] }, { id: "account-info", rows: [
         { id: "edit-name", label: "Display name", enabled: true },
+        { id: "account-mail", label: "Mail", detail: "sample@example.test", enabled: true, readOnly: true },
       ] }] }, ...(confirmation ? { confirmation: { id: confirmation, title: "Confirm account action", sections: [{ id: "account-confirmation", rows: [
         { id: "account-confirmation-submit", label: "Confirm", enabled: true, destructive: true },
         { id: "account-confirmation-cancel", label: "Cancel", enabled: true },
-      ] }] }, back: cancelAccount } : {}), rows: new Map([["edit-name", vi.fn()], ["account-confirmation-submit", confirmAccount], ["account-confirmation-cancel", cancelAccount]]), editor: () => null }}>
+      ] }] }, back: cancelAccount } : {}), rows: new Map([["account-photo", vi.fn()], ["edit-name", vi.fn()], ["account-confirmation-submit", confirmAccount], ["account-confirmation-cancel", cancelAccount]]), editor: () => null }}>
       <p>React account exception</p>
     </NativeProfilePresentation>;
     const view = render(scene(false));
@@ -3349,6 +3352,10 @@ describe("native chrome presentation lease", () => {
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
       const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(firstVisit.profileStack?.[0].sections[0].rows[0]).toEqual({
+        id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true,
+      });
+      expect(firstVisit.profileStack?.[0].sections[1].rows[1].detail).toBe("sample@example.test");
       expect(firstVisit.revision).toBe(identity.revision);
       expect(view.queryByText("React account exception")).toBeNull();
       expect(bridge.acquireContentPane).not.toHaveBeenCalled();
@@ -3494,6 +3501,15 @@ describe("native chrome presentation lease", () => {
         }
       }
       const capability = await drawerBridge.getCapabilities();
+      drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profilePortrait: true });
+      const supportedPortrait = render(scene(true));
+      try {
+        await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0].sections[0].rows[0].portrait).toBe(true));
+        expect(drawerBridge.apply.mock.calls.at(-1)![0].profileStack?.[0].sections[0].rows[0].detail).toBe("sample@example.test");
+      } finally {
+        supportedPortrait.unmount(); drawerBridge.getCapabilities.mockResolvedValue(capability);
+        await act(async () => { await Promise.resolve(); });
+      }
       drawerBridge.getCapabilities.mockResolvedValue({ ...capability, profileTrustedDevices: false });
       drawerBridge.apply.mockClear();
       const legacyDevices = render(scene(false, "devices"));
