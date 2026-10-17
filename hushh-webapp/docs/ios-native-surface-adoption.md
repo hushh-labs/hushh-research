@@ -24,6 +24,27 @@ baseline, **not exclusions from the approved conversion**. Qualification remains
 one build-time flag; ordinary builds, Android and web keep established renderers.
 iPad qualification is on demand and is not inherited from iPhone.
 
+Local foundation checkpoint: `599901c449`. A bounded native recovery follow-up
+now handles readmission that stays stalled: after the existing five-second
+terminal deadline it requests fresh presentation once, then after two further
+seconds enters the existing full-window native recovery cover. Fresh updates
+and retirement cancel that armed deadline. The current controller, document,
+owner, privacy generation and active-app state are rechecked before escalation.
+The cover is installed before private presenters retire. Try again and Restart
+session remain user actions; there is no automatic reload, sign-out, action
+replay or retirement-token bypass. Restart copy explicitly warns about vault
+locking and possible unsent-draft loss. Four nearest hosted privacy/recovery
+cases pass, including delayed-update/retirement cancellation and the genuinely
+stalled case. These are not physical-device acceptance.
+
+**Remaining foundation gate:** staged resume is not implemented. Current Auth
+release can precede reconstruction, while native admission rejects shielded
+state. Additive prepare-versus-uncover coordination is required across the
+existing privacy owner, native presenters and current JS consumers; adding only
+a local readiness wait would deadlock. Keep private replicas scrubbed and actions
+rejected until the authorized destination is ready. This gap blocks full native
+qualification and must not be described as fixed by the recovery escape path.
+
 Main is reconciled through `c233a2a448` in merge `3728973164`. Preserve its
 four-tab navigation and native navigation contract v3; this is independent of
 NativeChrome v2, NativeDock v1 and NativeDrawers v1. The developer's root worktree

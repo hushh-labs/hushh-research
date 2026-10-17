@@ -391,12 +391,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var awaitingReadmission = false
     private var formCovered = false
     private var intentTimeout: DispatchWorkItem?
+    private var readmissionTimeout: DispatchWorkItem?
     private var retirementCompletions = [() -> Void]()
     private var detached = false
     private var deleteConfirmation: HushhNativeChromePresenter?
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
     var requestReadmission: (() -> Void)?
+    var requestRecovery: (() -> Void)?
     var presentationDidSettle: ((NativeDrawerProjection) -> Void)?
     private var settledUpdateSequence = 0
     var presentationSettled: Bool {
@@ -555,6 +557,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             return
         }
         intentTimeout?.cancel(); intentTimeout = nil
+        readmissionTimeout?.cancel(); readmissionTimeout = nil
         awaitingReadmission = false
         if contentHandoff {
             // The acknowledged detail plane replaces menu content inside the
@@ -731,9 +734,21 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             // never revive its action eligibility or replay the terminal intent.
             self.settle(open: self.model.projection.open, userIntent: false)
             self.requestReadmission?()
+            self.boundReadmissionRecovery()
         }
         intentTimeout = deadline
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
+    }
+    private func boundReadmissionRecovery() {
+        guard !motion.retired, awaitingReadmission else { return }
+        readmissionTimeout?.cancel()
+        let deadline = DispatchWorkItem { [weak self] in
+            guard let self, !self.motion.retired, self.awaitingReadmission else { return }
+            self.readmissionTimeout = nil
+            self.requestRecovery?()
+        }
+        readmissionTimeout = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: deadline)
     }
     /// Clears the private model and callbacks only after child detachment.
     func retire(completion: @escaping () -> Void = {}) {
@@ -743,6 +758,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         motion.retire()
         model.profileNavigationController?.retire()
         intentTimeout?.cancel(); intentTimeout = nil
+        readmissionTimeout?.cancel(); readmissionTimeout = nil
         animator?.stopAnimation(true); animator = nil
         view.endEditing(true)
         model.choose = nil
@@ -750,6 +766,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         model.navigationDidSettle = nil
         presentationDidSettle = nil
         requestReadmission = nil
+        requestRecovery = nil
         model.requestDelete = nil
         model.search = ""; model.clearDetails()
         invalidateInteractions = nil

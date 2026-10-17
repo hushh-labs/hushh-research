@@ -55,6 +55,12 @@ struct HushhSessionPrivacyState {
         inactiveCycleOpen = false
     }
 
+    mutating func protectForPresentationRecovery() {
+        guard !shielded else { return }
+        protectForAppInactive()
+        markAppActive() // This is an active-app failure, not a fabricated lifecycle event.
+    }
+
     @discardableResult
     mutating func completeSessionValidation(
         generation requestedGeneration: Int,
@@ -187,6 +193,19 @@ final class HushhSessionPrivacyShield: NSObject {
             scheduleRecovery()
         }
         publishState()
+    }
+
+    /// Escalate a stalled native presentation into the existing user-controlled
+    /// recovery surface. Never reload, sign out or replay a feature operation.
+    func protectForPresentationRecovery() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard lifecycleIsActive, UIApplication.shared.applicationState == .active, !state.shielded else { return }
+        state.protectForPresentationRecovery()
+        cancelRecovery()
+        installOverlayIfNeeded() // Cover the actual window before retiring private presenters.
+        recoveryPanel?.isHidden = false
+        publishState()
+        UIAccessibility.post(notification: .screenChanged, argument: recoveryTitle)
     }
 
     func snapshot() -> Snapshot {
@@ -359,7 +378,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let detail = UILabel(frame: .zero)
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.text = "Your private information is still hidden. Try again, or restart this session."
+        detail.text = "Your private information is hidden. Try again. Restarting locks the vault and may discard unsent drafts."
         detail.textColor = .secondaryLabel
         detail.font = .preferredFont(forTextStyle: .subheadline)
         detail.adjustsFontForContentSizeCategory = true

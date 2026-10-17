@@ -208,6 +208,15 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     event["interactionGeneration"] = lease.interactionGeneration
                     self.notifyListeners("readmissionRequested", data: event, retainUntilConsumed: false)
                 }
+                controller.requestRecovery = { [weak self, weak controller] in
+                    guard let self, let controller, self.controllers[next.family] === controller else { return }
+                    let state = controller.model.projection
+                    let shield = HushhSessionPrivacyShield.shared
+                    let privacy = shield.snapshot()
+                    guard self.supported, self.sessionFence.contains(state.identity), shield.acceptsDocument(state.documentId),
+                          privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration else { return }
+                    shield.protectForPresentationRecovery()
+                }
                 self.controllers[next.family] = controller
                 controller.presentationDidSettle = { [weak self, weak controller] state in
                     guard let self, let controller, self.controllers[state.family] === controller,

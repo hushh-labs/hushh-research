@@ -1230,36 +1230,57 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testUnacknowledgedDrawerCloseRequestsFreshPresentationWithoutReplayingClose() {
-        let controller = NativeDrawerPresentationController(privateDrawerState())
-        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-        controller.activateInitialPresentation()
-        let host = controller.host
-        var choices = 0, invalidations = 0
-        controller.model.choose = { action, _, _ in
-            XCTAssertEqual(action, "close")
-            choices += 1
-            return true // Deliberately do not acknowledge the authored Close.
+        for outcome in ["refreshed", "retired", "stalled"] {
+            let controller = NativeDrawerPresentationController(privateDrawerState())
+            controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            controller.activateInitialPresentation()
+            let host = controller.host
+            var choices = 0, invalidations = 0
+            controller.model.choose = { action, _, _ in
+                XCTAssertEqual(action, "close")
+                choices += 1
+                return true // Deliberately do not acknowledge the authored Close.
+            }
+            controller.invalidateInteractions = { invalidations += 1 }
+            let refresh = expectation(description: "Timed-out presentation requests readmission")
+            let recovery = expectation(description: "Only stalled readmission escalates native recovery")
+            recovery.isInverted = outcome != "stalled"
+            controller.requestRecovery = {
+                XCTAssertFalse(controller.model.interactionEnabled)
+                XCTAssertEqual(choices, 1)
+                recovery.fulfill()
+            }
+            controller.requestReadmission = {
+                XCTAssertFalse(controller.model.interactionEnabled)
+                XCTAssertGreaterThanOrEqual(invalidations, 2, "Timeout must invalidate the original action token")
+                // Let the recovery deadline arm first. A fresh projection or
+                // retirement must then cancel it, not merely avoid arming it.
+                if outcome != "stalled" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if outcome == "retired" { controller.retire() }
+                        else { controller.update(self.privateDrawerState(update: 2)) }
+                    }
+                }
+                refresh.fulfill()
+            }
+            controller.settle(open: false, userIntent: true)
+            wait(for: [refresh], timeout: 7)
+            wait(for: [recovery], timeout: 3)
+            XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
+            if outcome != "retired" {
+                if outcome == "stalled" { controller.update(privateDrawerState(update: 2)) }
+                let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
+                }, object: controller)
+                XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
+                    "Fresh owner presentation must restore interaction after settlement")
+            }
+            XCTAssertTrue(controller.host === host)
+            XCTAssertEqual(choices, 1)
+            controller.retire()
+            XCTAssertNil(controller.requestReadmission)
+            XCTAssertNil(controller.requestRecovery)
         }
-        controller.invalidateInteractions = { invalidations += 1 }
-        let refresh = expectation(description: "Timed-out presentation requests readmission")
-        controller.requestReadmission = {
-            XCTAssertFalse(controller.model.interactionEnabled)
-            XCTAssertGreaterThanOrEqual(invalidations, 2, "Timeout must invalidate the original action token")
-            refresh.fulfill()
-        }
-        controller.settle(open: false, userIntent: true)
-        wait(for: [refresh], timeout: 7)
-        XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
-        controller.update(privateDrawerState(update: 2))
-        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
-        }, object: controller)
-        XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
-            "Fresh owner presentation must restore interaction after settlement")
-        XCTAssertTrue(controller.host === host)
-        XCTAssertEqual(choices, 1)
-        controller.retire()
-        XCTAssertNil(controller.requestReadmission)
     }
 
     #if DEBUG
@@ -2714,6 +2735,16 @@ final class NativeSupportTests: XCTestCase {
                 appIsActive: true
             )
         )
+        state.protectForPresentationRecovery()
+        XCTAssertTrue(state.shielded)
+        XCTAssertEqual(state.generation, currentGeneration + 1)
+        state.protectForPresentationRecovery()
+        XCTAssertEqual(state.generation, currentGeneration + 1, "Recovery is idempotent while already covered")
+        XCTAssertFalse(state.completeSessionValidation(generation: currentGeneration, appIsActive: true))
+        let recovering = state.generation
+        XCTAssertTrue(state.completeSessionValidation(generation: recovering, appIsActive: true))
+        state.protectForAppInactive()
+        XCTAssertEqual(state.generation, recovering + 1, "The next real inactive cycle must have its own authority")
     }
 
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
