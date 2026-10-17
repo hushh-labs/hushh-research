@@ -21,6 +21,8 @@ const candidates = ["Asha Rao", "Alex Chen", "Jordan Lee"].map(
 export function LivingCirclePanelFixture() {
   const [state, setState] = useState("new");
   const [members, setMembers] = useState([owner]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [submitting, setSubmitting] = useState(false);
   const visibleMembers: OneLocationCircleMember[] =
     state === "populated"
       ? [
@@ -43,6 +45,7 @@ export function LivingCirclePanelFixture() {
           onChange={(event) => {
             setState(event.target.value);
             setMembers([owner]);
+            setSelected(new Set());
           }}
         >
           {[
@@ -77,16 +80,28 @@ export function LivingCirclePanelFixture() {
         remainingCapacity={state === "full" ? 0 : 20 - visibleMembers.length}
         loading={state === "loading"}
         error={state === "error" ? "Connections unavailable" : null}
-        addingUserId={null}
+        selectedUserIds={selected}
+        submitting={submitting}
         onAdd={(userId) => {
-          const candidate = candidates.find(
-            (person) => person.userId === userId,
-          );
-          if (candidate)
+          setSelected((current) => {
+            const next = new Set(current);
+            if (next.has(userId)) next.delete(userId);
+            else next.add(userId);
+            return next;
+          });
+        }}
+        onSubmit={() => {
+          setSubmitting(true);
+          // A deliberately slow save proves selection does not wait on writes.
+          window.setTimeout(() => {
             setMembers((current) => [
               ...current,
-              { ...owner, ...candidate, role: "member" },
+              ...candidates.filter((person) => selected.has(person.userId))
+                .map((person) => ({ ...owner, ...person, role: "member" as const })),
             ]);
+            setSelected(new Set());
+            setSubmitting(false);
+          }, 600);
         }}
         onRemove={(userId) => {
           setMembers((current) =>

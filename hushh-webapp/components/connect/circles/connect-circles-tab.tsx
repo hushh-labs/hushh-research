@@ -859,7 +859,8 @@ export function ConnectCirclesTab({
         onLoadEligibleConnections={actions.loadEligibleConnections}
         onLoadEligibleConnectionsPage={actions.loadEligibleConnectionsPage}
         onInviteConnections={async (circleId, userIds) => {
-          await withBusy(() => actions.inviteConnections(circleId, userIds));
+          // The detail flow owns scoped success feedback for its batch.
+          await withBusy(() => actions.inviteConnections(circleId, userIds, false));
           trackOneLocationJourneyAction({
             action: "circle_member_invited",
             routeId: "connect",
