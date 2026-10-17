@@ -35,7 +35,7 @@ export type WalletViewEvent =
   | { type: "disabled" }
   | { type: "vault_unavailable" }
   | { type: "load_started" }
-  | { type: "load_succeeded"; cardIds: readonly string[] }
+  | { type: "load_succeeded"; cardIds: readonly string[]; quiet?: boolean }
   | { type: "load_failed"; message: string }
   | { type: "focus"; cardId: string }
   | { type: "unfocus" }
@@ -67,6 +67,7 @@ export function walletViewReducer(
     case "load_failed":
       return { kind: "error", message: event.message };
     case "load_succeeded": {
+      if (event.quiet && state.kind === "add") return state;
       // A quiet refresh keeps the owner's place when the card still exists.
       if (state.kind === "list" && state.focusedCardId) {
         return event.cardIds.includes(state.focusedCardId)

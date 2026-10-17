@@ -32,7 +32,7 @@ describe("GmailVerificationOnboarding", () => {
     vi.clearAllMocks();
     mocks.getStaleFirst.mockResolvedValue(false);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(false);
-    mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved." });
+    mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
   });
 
   it("keeps the setup check accessible with a visible KYC workspace placeholder", async () => {
@@ -82,7 +82,7 @@ describe("GmailVerificationOnboarding", () => {
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     expect(onDetailsChange).toHaveBeenCalledWith("");
     expect(mocks.toastInfo).toHaveBeenCalledWith(
-      "Saving your KYC details in the background…",
+      "Saving your KYC details privately in the background…",
     );
     expect(mocks.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user_1",
@@ -166,7 +166,7 @@ describe("GmailVerificationOnboarding", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Paste details" }));
     expect(await screen.findByRole("textbox", { name: "KYC details" })).toBeVisible();
-    expect(screen.getByText("Encrypted with 256-bit AES · Stored in your vault")).toBeVisible();
+    expect(screen.getByText("Encrypted with 256-bit AES · Stored in your private vault")).toBeVisible();
   });
 
   it("keeps Skip for now as the way into the KYC workspace and closing keeps the draft", async () => {

@@ -63,13 +63,23 @@ device notification delivery.
 
 ## UAT background processing pause
 
-Set the repository variable `DRIVE_WORK_DRAIN_UAT_ENABLED=false` to keep both
-the UAT API drain and the private worker disabled on release. The worker still
-requires the pinned image, scanner and fresh revision attestation. A paused
-release verifies all three retained scheduler jobs are paused and never dispatches
-them; queued work and stored files remain intact.
+Dispatch `deploy-uat.yml` with `preserve_paused_drive_worker=true` to disable
+the UAT API drain and retain the existing private worker and its three paused
+scheduler jobs. The workflow captures and verifies that exact paused baseline;
+queued work and stored files remain intact. The ordinary dispatch path activates
+legacy Drive processing, regardless of the older
+`DRIVE_WORK_DRAIN_UAT_ENABLED` variable. Keep the explicit preservation input on
+incident releases until background processing is authorized to resume.
 
 Pausing Scheduler alone does not prevent explicit `jobs.run` calls. During an
 incident pause, withdraw the UAT runtime account's `roles/cloudscheduler.jobRunner`
 grant as well, until a serving disabled drain is verified. Restore that grant
 only with an explicitly authorized background-processing resume.
+
+The isolated V1 UAT lane has its own switch:
+`DRIVE_V1_WORK_DRAIN_UAT_ENABLED=false`. With
+`preserve_paused_drive_worker=true`, this deploys and attests the V1 image with
+its drain disabled, requires an existing paused V1 scheduler baseline, and
+verifies that baseline again after promotion. It never resumes or dispatches the
+job, and reports paused-state proof separately from a fresh Scheduler 200. Use
+the preservation input and the V1 switch together during a complete processing pause.

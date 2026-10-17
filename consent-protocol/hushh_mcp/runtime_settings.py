@@ -71,6 +71,10 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
+    "email_auth_enabled": "EMAIL_AUTH_ENABLED",
+    "email_auth_risk_manifest": "EMAIL_AUTH_RISK_MANIFEST",
+    "email_auth_mail_api_endpoint": "EMAIL_AUTH_MAIL_API_ENDPOINT",
+    "email_auth_mail_from": "EMAIL_AUTH_MAIL_FROM",
     "wallet_artwork_providers_enabled": "HUSHH_WALLET_ARTWORK_PROVIDERS_ENABLED",
     "wallet_artwork_providers_path": "HUSHH_WALLET_ARTWORK_PROVIDERS_PATH",
     "wallet_artwork_catalog_path": "HUSHH_WALLET_ARTWORK_CATALOG_PATH",

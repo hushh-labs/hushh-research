@@ -112,7 +112,7 @@ export function GmailVerificationOnboarding({
     setProfileReady(true);
     setPasteOpen(false);
     onDetailsChange("");
-    toast.info("Saving your KYC details in the background…");
+    toast.info("Saving your KYC details privately in the background…");
     void saveTask
       .then((result) => {
         if (!result.success) {
@@ -125,7 +125,7 @@ export function GmailVerificationOnboarding({
           );
           return;
         }
-        toast.success(result.message || "KYC details saved.");
+        toast.success(result.message || "KYC details saved privately.");
       })
       .catch(() => {
         console.error("[PKM_INGEST] kyc_background_save_failed", {
@@ -179,13 +179,13 @@ export function GmailVerificationOnboarding({
               Set up KYC
             </h2>
             <p className="text-xs text-muted-foreground">
-              Open your vault before importing details for future KYC
+              Open your private vault before importing details for future KYC
               replies.
             </p>
           </div>
         </div>
         <Button type="button" onClick={onRequestVaultUnlock} className="w-full justify-center h-10 font-semibold rounded-full">
-          Open vault
+          Open private vault
         </Button>
       </SurfaceInset>
     );

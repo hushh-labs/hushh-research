@@ -1778,6 +1778,43 @@ export class ApiService {
 
   // ==================== Auth ====================
 
+  /** Email login is web-only until native transport/return paths are accepted. */
+  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify",
+    body?: Record<string, string>): Promise<T> {
+    if (Capacitor.isNativePlatform()) {
+      throw new Error("Email sign-in is currently available in the web app.");
+    }
+    const response = await apiFetch(`/api/auth/email/${action}`, {
+      method: action === "capabilities" ? "GET" : "POST",
+      cache: "no-store",
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const parsed = await response.json().catch(() => ({}));
+    const payload = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    if (!response.ok || response.status === 202) {
+      const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
+      throw new EmailAuthRequestError(
+        typeof payload.error === "string" ? payload.error : "email_auth_unavailable",
+        typeof payload.message === "string" ? payload.message : "Email sign-in is unavailable. Try again.",
+        response.status,
+      );
+    }
+    const opaque = (value: unknown) => typeof value === "string" && value.length >= 20 && value.length <= 4096;
+    const valid = action === "capabilities"
+      ? typeof payload.enabled === "boolean" && typeof payload.microsoft === "boolean"
+      : action === "request"
+        ? payload.status === "accepted" && opaque(payload.challenge_id)
+          && typeof payload.destination === "string" && payload.destination.length <= 254
+          && typeof payload.expires_at === "string" && Number.isFinite(Date.parse(payload.expires_at))
+          && typeof payload.resend_at === "number" && Number.isFinite(payload.resend_at)
+        : payload.status === "authenticated" && opaque(payload.custom_token);
+    if (!valid) {
+      const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
+      throw new EmailAuthRequestError("invalid_auth_response", "Restart email sign-in and try again.", 502);
+    }
+    return payload as T;
+  }
+
   /**
    * Create/update session
    */

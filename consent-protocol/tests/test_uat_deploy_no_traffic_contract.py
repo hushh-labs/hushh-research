@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -8,13 +9,90 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
 import yaml
+from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    ("supported", "backend", "flag", "allowed"),
+    [
+        (False, True, "false", True),
+        (False, True, "true", False),
+        (True, True, "true", True),
+        (False, False, "true", False),
+    ],
+)
+def test_email_auth_release_admits_only_supported_enabled_backends(
+    tmp_path, supported, backend, flag, allowed
+):
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    sync = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step["name"] == "Sync canonical hosted runtime secrets"
+    )
+    guard = sync["run"].split(
+        '\n"${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \\\n'
+    )[0]
+    guard = guard.replace("${{ env.PROTOCOL_PYTHON }}", sys.executable)
+    guard = guard.replace("${{ steps.scope.outputs.deploy_backend }}", str(backend).lower())
+    ops = tmp_path / "scripts/ops"
+    ops.mkdir(parents=True)
+    (ops / "sync_backend_runtime_secrets.py").write_text(
+        "# --email-auth-enabled\n" if supported else "# legacy compiler\n"
+    )
+    if supported:
+        (ops / "email_auth_uat_release.py").write_text(
+            "from pathlib import Path\nPath('preflight-ran').touch()\n"
+        )
+    result = subprocess.run(  # noqa: S603 - authored guard and temporary synthetic inputs
+        [shutil.which("bash") or "bash", "-c", guard],
+        cwd=tmp_path,
+        env={**os.environ, "UAT_EMAIL_AUTH_ENABLED": flag},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is allowed
+    assert (tmp_path / "preflight-ran").exists() is (supported and backend)
+
+
+@pytest.mark.parametrize("environment", ["uat", "production", "dev"])
+def test_email_auth_secret_bindings_are_uat_only(environment):
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    body = next(step["args"][1] for step in build["steps"] if step["id"] == "deploy-backend")
+    source = next(line.strip() for line in body.splitlines() if "source deploy/email-auth/" in line)
+    source = source.replace("${_DEPLOY_ENV}", environment)
+    result = subprocess.run(  # noqa: S603 - authored helper with synthetic environment
+        [
+            shutil.which("bash") or "bash",
+            "-c",
+            'add_secret() { echo "$1=$2"; }; ' + source,
+        ],
+        cwd=REPO_ROOT,
+        env=os.environ,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == (
+        [
+            "EMAIL_AUTH_VERIFIER_KEY=EMAIL_AUTH_VERIFIER_KEY",
+            "EMAIL_AUTH_PAYLOAD_KEY=EMAIL_AUTH_PAYLOAD_KEY",
+            "EMAIL_AUTH_LOOKUP_KEY=EMAIL_AUTH_LOOKUP_KEY",
+            "MAIL_API_KEY=EMAIL_AUTH_MAIL_API_KEY",
+        ]
+        if environment == "uat"
+        else []
+    )
 
 
 @pytest.mark.parametrize(
@@ -144,7 +222,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "#!/bin/bash\n"
         'printf "%s\\n" "$*" >> "$GCLOUD_CALLS_PATH"\n'
         'if [[ "$1 $2 $3" == "run jobs executions" ]]; then echo "azure-pwm-exec-1"; fi\n'
-        'if [[ "$1 $2" == "logging read" ]]; then printf \'{"azure_pwm_runtime_probe_result":"%s"}\\n\' "$PROBE_VERDICT"; fi\n',
+        'if [[ "$1 $2" == "logging read" ]]; then printf \'[{"jsonPayload":{"azure_pwm_runtime_probe_result":"%s"}}]\\n\' "$PROBE_VERDICT"; fi\n',
         encoding="utf-8",
     )
     fake_gcloud.chmod(0o755)
@@ -193,8 +271,61 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             )
             assert "--clear-secrets" in invoked
             assert "run.googleapis.com/execution_name" in invoked
+            assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
         else:
             assert not invoked
+
+
+@pytest.mark.parametrize(("timeouts", "should_pass"), [(1, True), (2, False)])
+def test_azure_pwm_phi_probe_retries_one_timeout_but_never_waives_a_second(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    timeouts: int,
+    should_pass: bool,
+) -> None:
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = 0
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        @property
+        def chat(self):
+            return SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= timeouts:
+                raise APITimeoutError(request=httpx.Request("POST", "https://example.test"))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
+
+    monkeypatch.setattr(module, "AsyncOpenAI", lambda **_kwargs: FakeClient())
+    config = {"phi_endpoint": "https://example.test/", "phi_deployment": "synthetic-phi"}
+    if should_pass:
+        asyncio.run(module._probe_phi(config, "synthetic-token"))
+    else:
+        with pytest.raises(APITimeoutError):
+            asyncio.run(module._probe_phi(config, "synthetic-token"))
+    assert calls == 2
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [event["result"] for event in events] == (
+        ["start", "timeout", "start", "ok"]
+        if should_pass
+        else ["start", "timeout", "start", "timeout"]
+    )
+    assert all(
+        set(event) == {"azure_pwm_runtime_probe_stage", "result", "elapsed_ms", "attempt"}
+        for event in events
+    )
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:

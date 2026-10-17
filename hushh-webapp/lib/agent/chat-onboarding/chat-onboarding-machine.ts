@@ -134,6 +134,20 @@ export function isAwaitingTypedName(state: ChatOnboardingState | null): boolean 
   return state?.step === "name_typing";
 }
 
+/** Steps where a picked name is the person's live choice, not yet in memory. */
+const PICKED_NAME_STEPS: ReadonlySet<ChatOnboardingStep> = new Set(["focus", "tone", "confirm", "saving"]);
+
+/**
+ * The name the person picked that memory does not hold yet, so One's label can
+ * use it at once instead of saying "One" until the last question is confirmed.
+ * Display only: the value stays a session draft. A name being saved, or one
+ * that failed to save, is not returned, because the label follows what memory
+ * actually holds.
+ */
+export function pickedPreferredName(state: ChatOnboardingState | null): string | null {
+  return state && PICKED_NAME_STEPS.has(state.step) ? state.draft.name : null;
+}
+
 function emptyState(progress: ChatOnboardingProgress): ChatOnboardingState {
   return { progress, step: "done", draft: { name: null, tone: null }, turns: [], seq: 0 };
 }

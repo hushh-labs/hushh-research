@@ -295,6 +295,7 @@ steps:
         add_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
         add_secret ADVISORS_API_KEY ADVISORS_API_KEY
         add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
+        source deploy/email-auth/bind_secrets.sh "${_DEPLOY_ENV}"
         add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
         add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
         add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
@@ -561,26 +562,35 @@ steps:
           echo "Azure PWM UAT runtime probe execution is missing." >&2
           exit 1
         fi
-        probe_line=""
+        probe_entries=""
         for _attempt in 1 2 3 4 5 6; do
-          probe_line="$(gcloud logging read \
-            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND textPayload:azure_pwm_runtime_probe_result" \
+          probe_entries="$(gcloud logging read \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR textPayload:azure_pwm_runtime_probe_result)" \
             --project="$PROJECT_ID" --limit=1 --freshness=1h \
-            --format='value(textPayload)' 2>/dev/null || true)"
-          if [[ -n "${probe_line}" ]]; then
+            --format=json 2>/dev/null || true)"
+          if [[ -n "${probe_entries}" && "${probe_entries}" != "[]" ]]; then
             break
           fi
           sleep 5
         done
-        PROBE_LINE="${probe_line}" python3 - <<'PY'
+        PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
         import json
         import os
 
         try:
-            verdict = json.loads(os.environ["PROBE_LINE"])
+            entries = json.loads(os.environ["PROBE_ENTRIES"])
         except (KeyError, json.JSONDecodeError):
             raise SystemExit("Azure PWM UAT runtime probe verdict is missing") from None
-        if verdict != {"azure_pwm_runtime_probe_result": "ok"}:
+        verdicts = []
+        for entry in entries:
+            payload = entry.get("jsonPayload")
+            if payload is None and isinstance(entry.get("textPayload"), str):
+                try:
+                    payload = json.loads(entry["textPayload"])
+                except json.JSONDecodeError:
+                    continue
+            verdicts.append(payload)
+        if {"azure_pwm_runtime_probe_result": "ok"} not in verdicts:
             raise SystemExit("Azure PWM UAT runtime probe did not pass")
         PY
         echo "Azure PWM UAT runtime probe passed."

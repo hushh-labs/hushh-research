@@ -58,6 +58,22 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await mount(page, width === 393, true);
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Hi 🙂");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const row = page.locator("[data-chat-message]").filter({ hasText: "Hi 🙂" });
+  await expect(row).toBeVisible();
+  const geometry = await row.evaluate(element => {
+    const text = [...element.querySelectorAll("p")].find(node => node.textContent === "Hi 🙂")!.getBoundingClientRect();
+    const time = [...element.querySelectorAll("time")].at(-1)!.getBoundingClientRect();
+    return { textBottom: text.bottom, timeTop: time.top };
+  });
+  expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+  await page.screenshot({ path: test.info().outputPath(`inline-circle-time-${width}.png`), animations: "disabled" });
+});
+
 test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
   await mount(page, false, true);
   const own = page.locator('[data-chat-message="reply"]');
@@ -140,6 +156,34 @@ test("Circle edit failure keeps the draft and retries the identical sealed chang
   expect(attempts).toHaveLength(2);
   expect(attempts[0]).toEqual(attempts[1]);
 });
+
+for (const width of [320, 393, 1440]) {
+  test(`Circle creation offers contacts and deferral in the same layer at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.route("http://localhost/circle-create-fixture*", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+    await page.goto("http://localhost/circle-create-fixture?workspace=1&create=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const dialog = page.getByRole("dialog", { name: "Create a Circle" });
+    await dialog.getByRole("textbox", { name: "Circle name" }).fill("Weekend friends");
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(dialog.getByRole("heading", { name: "Add people" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Add people later" })).toBeInViewport();
+    const add = dialog.getByRole("button", { name: "Add Kushal Trivedi", exact: true });
+    await expect(add).toBeVisible();
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`circle-create-contacts-${width}.png`), animations: "disabled" });
+    if (width === 320) {
+      await dialog.getByRole("button", { name: "Add people later" }).click();
+      await expect(page.getByRole("tab", { name: "Chat", exact: true })).toBeEnabled();
+    } else {
+      await add.click();
+      await dialog.getByRole("button", { name: "Add 1 person", exact: true }).click();
+      await expect(page.getByRole("tab", { name: "Chat", exact: true })).toBeEnabled();
+    }
+    await expect(dialog).not.toBeVisible();
+  });
+}
 
 for (const width of [320, 1440]) {
   for (const dark of [false, true]) {

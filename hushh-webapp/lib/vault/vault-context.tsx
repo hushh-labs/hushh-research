@@ -803,6 +803,18 @@ export function VaultProvider({ children }: VaultProviderProps) {
             error,
           );
         });
+        // Wallet joins the same protected read on entry. Start before optional
+        // Firebase-authenticated warming; never retain credentials in its cache.
+        void import("@/lib/services/wallet-presentation-resource")
+          .then(({ WalletPresentationResource }) => {
+            if (mountedRef.current && sessionEpochRef.current === epoch && authStateRef.current.ready && authStateRef.current.user?.uid === userId) {
+              return WalletPresentationResource.load({ userId, vaultKey: key, vaultOwnerToken: token });
+            }
+            return undefined;
+          }).catch(() => {});
+        void import("@/lib/services/wallet-card-artwork-service").then(({ loadWalletCardArtwork }) => {
+          for (const kind of ["profile", "referral", "nws"] as const) void loadWalletCardArtwork(kind).catch(() => {});
+        }).catch(() => {});
         if (isLocalCrmBuildEnabled()) {
           void import("@/lib/services/connected-systems-resource-service")
             .then(({ ConnectedSystemsResourceService }) =>
