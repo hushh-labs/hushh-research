@@ -16,6 +16,7 @@ export type NativeDrawerPort = {
   surfaceOpen?: boolean;
   onPresented?: (state: NativeDrawerProjection) => void;
   onHidden?: (state: NativeDrawerProjection) => void;
+  onAbsenceConfirmed?: (privacyGeneration: number) => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
 };
 
@@ -31,6 +32,13 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
   const contentHandoffSupported = useRef(false);
   const current = useRef({ port, theme }); current.current = { port, theme };
   const privacyRef = useRef(privacy); privacyRef.current = privacy;
+  const absentLease = useRef<{ isCurrent: () => boolean; privacy: number; delivered: boolean } | null>(null);
+  const reportAbsence = () => {
+    const known = absentLease.current;
+    if (!known || known.delivered || current.current.port.open || !known.isCurrent()) return;
+    known.delivered = true;
+    current.current.port.onAbsenceConfirmed?.(known.privacy);
+  };
   const replica = useRef<{ presentation: NativeDrawerPresentation; update: number; privacy: number;
     owner: string; epoch: number; handles: Map<string, string>; fingerprint: string | null } | null>(null);
   useLayoutEffect(() => {
@@ -96,6 +104,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       privacy?.generation === undefined || privacy.shielded || !privacy.appIsActive) return;
     const identity = createNativeDrawerIdentity(port.family);
     if (!identity) return;
+    absentLease.current = null;
     const owner = port.owner, epoch = port.vaultEpoch, generation = privacy.generation;
     let active = true;
     const isCurrent = () => active && current.current.port.ready && current.current.port.owner === owner &&
@@ -104,6 +113,12 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers, isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
+      // Only the existing retirement owner emits `retired`, after confirmed
+      // disappearance. Quarantine/timeout must never release a modal handoff.
+      if (next === "retired" && isCurrent()) {
+        absentLease.current = { isCurrent, privacy: generation, delivered: false };
+        reportAbsence();
+      }
     }, state => {
       if (!isCurrent() || state.open !== current.current.port.open) return;
       if (state.open) current.current.port.onPresented?.(state);
@@ -114,8 +129,13 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     replica.current = instance; setPhase("preparing");
     void (async () => { if (await presentation.listen() && isCurrent()) publish(); })()
       .catch(() => { if (active) { setPhase("blocked"); void presentation.retire(); } });
-    return () => { active = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
+    return () => {
+      active = false;
+      if (absentLease.current?.isCurrent === isCurrent) absentLease.current = null;
+      if (replica.current === instance) replica.current = null;
+      void presentation.retire();
+    };
   }, [supported, port.family, port.ready, port.owner, port.vaultEpoch, privacy?.generation, privacy?.shielded, privacy?.appIsActive, admission]);
-  useLayoutEffect(() => { publish(); });
+  useLayoutEffect(() => { publish(); reportAbsence(); });
   return supported === false ? "web" : phase;
 }

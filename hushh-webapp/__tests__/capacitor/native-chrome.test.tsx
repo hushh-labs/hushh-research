@@ -3539,7 +3539,7 @@ describe("native chrome presentation lease", () => {
     }
   });
 
-  it("admits a Profile detail modal only after its parent and current native menu exit complete", async () => {
+  it.each(["completed", "retired", "retired-before-parent", "uncertain"] as const)("admits a Profile detail modal only after its parent and %s menu disappearance", async outcome => {
     measureSlot();
     vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
     publishValidatedAuthSessionOwner("owner-a");
@@ -3547,14 +3547,26 @@ describe("native chrome presentation lease", () => {
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
       profileMenuRows: true, profileContentHandoff: true, presentationCompletion: true, generation: 0, isolated: false });
     let closed: NativeDrawerProjection | undefined;
-    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    let returning: NativeDrawerProjection | undefined, holdReturn = false, retirementReadback = false;
+    const returnGate = deferred<unknown>();
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && holdReturn) { returning = state; return returnGate.promise; }
+      if (state.open && outcome === "retired-before-parent") throw new Error("synthetic-early-retirement");
+      if (!state.open) {
+        closed = state;
+        if (outcome !== "completed") throw new Error("synthetic-hide-uncertainty");
+      }
+      return { ...state, phase: "active" };
+    });
     drawerBridge.getPresentationState.mockImplementation(async () => {
       const state = drawerBridge.apply.mock.calls.at(-1)![0];
-      if (!state.open) closed = state;
+      if (!state.open) { closed = state; retirementReadback = true; }
       return { ...state, phase: "active", valid: true, settled: state.open };
     });
-    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
-      updateSequence: drawerBridge.apply.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 }));
+    drawerBridge.retire.mockImplementation(async identity => {
+      if (outcome === "uncertain") throw new Error("synthetic-retirement-uncertainty");
+      return { ...identity, phase: "retired", updateSequence: drawerBridge.apply.mock.calls.at(-1)![0].updateSequence, privacyGeneration: 0 };
+    });
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
       coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
     bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
@@ -3580,8 +3592,27 @@ describe("native chrome presentation lease", () => {
     const view = render(scene(true));
     await waitFor(() => expect(back).toBeDefined());
     expect(view.queryByText("Public photo preview")).toBeNull();
+    if (outcome === "retired-before-parent") await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
     await act(async () => activation.resolve({ ...back!, phase: "active" }));
+    if (outcome === "retired-before-parent") {
+      await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+      expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      return;
+    }
     await waitFor(() => expect(closed).toBeDefined());
+    if (outcome !== "completed") {
+      await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
+      if (outcome === "retired") await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+      else {
+        await waitFor(() => expect(retirementReadback).toBe(true));
+        expect(view.queryByText("Public photo preview")).toBeNull();
+      }
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      return;
+    }
     expect(view.queryByText("Public photo preview")).toBeNull();
     const firstClosed = closed!;
     const complete = (state: NativeDrawerProjection) => act(() => {
@@ -3589,10 +3620,17 @@ describe("native chrome presentation lease", () => {
     });
     complete(firstClosed);
     await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
+    holdReturn = true;
     view.rerender(scene(false));
     expect(view.queryByText("Public photo preview")).toBeNull();
-    await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)![0].open).toBe(true));
+    await waitFor(() => expect(returning).toBeDefined());
+    // Re-enter the same context while its old content is still painted and
+    // root return is pending. A fresh callback closure is not fresh admission.
     view.rerender(scene(true));
+    complete(firstClosed);
+    expect(view.queryByText("Public photo preview")).toBeNull();
+    holdReturn = false;
+    await act(async () => returnGate.resolve({ ...returning!, phase: "active" }));
     await waitFor(() => expect(closed?.updateSequence).toBeGreaterThan(firstClosed.updateSequence));
     complete(firstClosed);
     expect(view.queryByText("Public photo preview")).toBeNull();

@@ -64,8 +64,14 @@ diagnostics distinguish this from a missing image or an accessibility role.
 The correction gates that existing modal on the current detail visit's parent
 readiness and the native menu's actual exit completion, using the existing
 presentation owner, privacy generation and ordered receipt. It does not bypass
-modal isolation, add a timeout, or retry an action. Its nearest regression fails
-when early modal mounting is restored; installation/physical proof is recorded
+modal isolation, add a timeout, or retry an action. Interrupted same-context
+re-entry requires a fresh parent binding acknowledgement without remounting the
+pane. Confirmed native retirement can satisfy absence; quarantine cannot.
+That evidence is retained for the current lease when retirement precedes parent
+readiness, and delivered once the port closes. The incoming detail owns its
+fallback; a second failure pane must not block that same handoff.
+Its nearest regression fails when early modal mounting, a stale visit binding,
+or a missing confirmed-absence callback is restored. Installation/physical proof is recorded
 separately after the combined candidate is prepared. No full visual,
 accessibility, staged-resume or Release-performance acceptance is inferred.
 

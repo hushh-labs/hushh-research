@@ -29,9 +29,12 @@ export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat
 
 /** App-owned content layer in the existing WebView. The feature owns Back and
  * dismissal; no URL/operation is derived from the rendered DOM. */
-export function NativeFeaturePage({ open, title, owner, context, onBack, onReady, children, layer = "profile-pane", authoredHeader = false,
+export function NativeFeaturePage({ open, title, owner, context, admissionKey, onBack, onReady, children, layer = "profile-pane", authoredHeader = false,
   bodyClassName, pane = false, side = "right", contentInset, onClose, backLabel, backEnabled = true, closeLabel = "Close Profile", onOpenAutoFocus, onCloseAutoFocus, onEscapeKeyDown, onKeyDown, ...attributes }: {
   open: boolean; title: string; owner: string | null; context: string; onBack: () => void; onReady?: () => void; children: ReactNode;
+  /** Fresh authored visits can reuse a painted pane, but need a current Back
+   * binding acknowledgement before an owned nested modal is admitted. */
+  admissionKey?: string;
   layer?: NativeFeatureLayer;
   /** Rich editors keep their existing Title/Cancel/Done row, not a second header. */
   authoredHeader?: boolean;
@@ -55,7 +58,8 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const paneState = useNativeContentPane(node, owner, pane, layer);
   const [readyControls, setReadyControls] = useState({ back: "", close: "" });
-  const readinessContext = JSON.stringify([context, paneState.identity]);
+  const bindingContext = admissionKey ? JSON.stringify([context, admissionKey]) : context;
+  const readinessContext = JSON.stringify([bindingContext, paneState.identity]);
   const lifetime = JSON.stringify([owner, paneState.identity]);
   const bindingReady = !pane || paneState.phase === "web" || paneState.phase === "native" &&
     readyControls.back === readinessContext && (!onClose || readyControls.close === lifetime);
@@ -96,7 +100,7 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
       onKeyDown={onKeyDown}
       onPointerDownOutside={event => event.preventDefault()}>
       {!authoredHeader && <header className="native-feature-page-header">
-        <NativeFeatureBack owner={owner} context={context} layer={layer} label={backLabel ?? (layer === "profile-pane" ? "Back in Profile" : "Back to Chat")}
+        <NativeFeatureBack owner={owner} context={bindingContext} layer={layer} label={backLabel ?? (layer === "profile-pane" ? "Back in Profile" : "Back to Chat")}
           contentPane={paneState.identity} eligible={open && backEnabled && (!pane || paneState.phase === "native" || paneState.phase === "web")}
           nativeEligible={!pane || paneState.phase === "native"}
           onBack={onBack} onReady={pane ? () => controlReady("back") : onReady} />
