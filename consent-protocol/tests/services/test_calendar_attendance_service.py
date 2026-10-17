@@ -543,3 +543,150 @@ def test_public_options_cannot_cross_a_reconnect_during_availability_read(
 
     with pytest.raises(GoogleConnectionError):
         asyncio.run(service.public_options(token=capability))
+
+
+def test_plain_decline_sends_exact_reason_once_after_confirmation(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            send_message=True,
+            message="I have a family commitment.",
+        )
+    )
+    assert review["recipient"] == "organizer@example.com"
+    assert review["message"] == "I have a family commitment."
+    assert not mail.sends
+    result = _confirm(service, review)
+    assert result["calendar"] == "declined" and result["email"] == "sent"
+    assert _confirm(service, review) == result
+    assert len(mail.sends) == 1
+    assert mail.sends[0]["draft_payload"]["body"] == review["message"]
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_exact_proposal_derives_duration_and_rechecks_acknowledged_busy_time(monkeypatch, changed):
+    service, calendar, _, mail = _service(monkeypatch)
+
+    async def inventory(*args, **kwargs):
+        return [
+            {"id": "primary", "primary": True},
+            {"id": "en.indian#holiday@group.v.calendar.google.com"},
+        ]
+
+    monkeypatch.setattr(service, "_included_calendars", inventory)
+    state = {"changed": False}
+
+    async def freebusy(**kwargs):
+        assert kwargs["calendar_ids"] == ["primary"]
+        return {
+            "calendars": {
+                "primary": {
+                    "busy": [
+                        {
+                            "start": "2030-10-15T04:30:00Z",
+                            "end": "2030-10-15T05:15:00Z"
+                            if state["changed"]
+                            else "2030-10-15T05:00:00Z",
+                        }
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(calendar, "freebusy", freebusy)
+    monkeypatch.setattr(
+        calendar,
+        "_reject_new_conflicts",
+        GoogleCalendarService._reject_new_conflicts,
+        raising=False,
+    )
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            offer_times=True,
+            exact_time=True,
+            send_message=True,
+            message="Please move our call.",
+            date="2030-10-15",
+            time_zone="Asia/Kolkata",
+            start_time="10:00",
+            end_time="11:00",
+            duration_minutes=30,
+        )
+    )
+    assert review["openings"][0]["duration_minutes"] == 60
+    assert review["conflicts"] and review["rescheduling_link"] is None
+    assert "10:00" in review["message"] and "11:00" in review["message"]
+    assert "60 minutes" in review["message"]
+    state["changed"] = changed
+    result = _confirm(service, review)
+    assert result["calendar"] == ("failed" if changed else "declined")
+    assert len(mail.sends) == (0 if changed else 1)
+
+
+def test_decline_requires_reason_and_mail_never_follows_failed_rsvp(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    with pytest.raises(GoogleConnectionError):
+        asyncio.run(
+            service.review(user_id="owner", event_id="event/id", send_message=True, message="  ")
+        )
+    review = asyncio.run(
+        service.review(
+            user_id="owner", event_id="event/id", send_message=True, message="Unavailable."
+        )
+    )
+    calendar.fail_patch = GoogleConnectionError("Permission required", status_code=403)
+    assert _confirm(service, review)["email"] == "not_sent"
+    assert not mail.sends
+
+
+def test_exact_proposal_preserves_midnight_and_fails_closed_on_unreadable_calendar(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+
+    async def inventory(*args, **kwargs):
+        return [{"id": "primary", "primary": True}]
+
+    monkeypatch.setattr(service, "_included_calendars", inventory)
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            offer_times=True,
+            exact_time=True,
+            send_message=True,
+            message="Late call please.",
+            date="2030-10-15",
+            time_zone="Asia/Kolkata",
+            start_time="23:30",
+            end_time="24:00",
+            duration_minutes=1,
+        )
+    )
+    assert review["openings"][0] == {
+        "start_at": "2030-10-15T18:00:00Z",
+        "end_at": "2030-10-15T18:30:00Z",
+        "duration_minutes": 30,
+    }
+
+    async def unreadable(**kwargs):
+        return {"calendars": {"primary": {"errors": [{"reason": "notFound"}]}}}
+
+    monkeypatch.setattr(calendar, "freebusy", unreadable)
+    with pytest.raises(GoogleConnectionError) as failure:
+        asyncio.run(
+            service.review(
+                user_id="owner",
+                event_id="event/id",
+                offer_times=True,
+                exact_time=True,
+                date="2030-10-15",
+                time_zone="UTC",
+                start_time="10:00",
+                end_time="11:00",
+            )
+        )
+    assert failure.value.reason_code == "calendar_unreadable"
+    assert not mail.sends
