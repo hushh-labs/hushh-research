@@ -51,6 +51,33 @@ message cases for direct and Circle chat. Record build, OS/browser and permissio
 | Switch account while cleanup awaits | Old callbacks cannot clear the new key's notifications or badge |
 | One installation rejects delivery | Only unaccepted installations retry within the existing delivery limit |
 
+## SMS, Location and relationship alerts
+
+The non-chat delivery worker uses migration 361's source-transaction outbox.
+Deploy the additive migration and backend before testing fresh native builds;
+web deployment alone does not update an installed native wrapper. TestFlight
+and App Store distributions both require production APNs. The release lanes
+verify signed archive entitlements/profile before upload; a green archive
+check is not evidence that an iPhone displayed or sounded an alert.
+
+Use two connected accounts. Record the candidate commit, app version/build,
+OS, environment, permission and channel/sound state for each result.
+
+| Event or recovery | Foreground | Background, locked, normally terminated |
+| --- | --- | --- |
+| SMS / Save My Soul | One red emergency popup and one alarm cue; no duplicate after SSE/FCM replay | Visible emergency OS alert and sound when permitted; tap opens the authorized Location surface |
+| Location share and location request | Feed and current Location state refresh | Visible OS alert with the normal notification sound |
+| Circle add and connection request | Feed and relationship state refresh | Visible OS alert with normal sound; no alert from silent roster synchronization |
+| Temporary provider outage or backend restart | Committed source retains the intent | Only devices without accepted delivery retry; a successful device is not replayed for another device's failure |
+| SMS capture/encryption fails | No location alert before the first encrypted envelope commits | No premature system alarm |
+| Revoke/expiry while retry waits | Reconcile current source; never resurrect a stopped SMS popup | Suppress stale alerts on retry |
+| Notification/sound disabled, then enabled in Settings | Location exposes explicit setup/settings recovery; resume repairs registration without another permission prompt | Re-test new events after enabling; OS controls remain authoritative |
+| Token rotates, logout, or account changes | Register through the active native auth session; reject stale callbacks | Never send an old account's alert to the transferred installation |
+
+Local PostgreSQL/provider mocks establish queue, replay, authority and retry
+behavior. They do not establish APNs/FCM physical receipt. The user will verify
+fresh TestFlight and Android builds on physical devices before acceptance.
+
 ## Platform boundaries
 
 Sound depends on notification permission, Focus/Do Not Disturb, Android channel

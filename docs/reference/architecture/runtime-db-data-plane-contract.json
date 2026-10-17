@@ -1941,6 +1941,23 @@
       "trust_boundary": "Current exact-domain policy, keyed single-use verifier, browser binding, durable budgets and fresh verified Firebase primary-email checks under UID finalization authority. No WorkOS dependency or consent/vault authority.",
       "plaintext_posture": "public_domain_policy_and_keyed_metadata_with_aes_gcm_encrypted_destinations_and_mail_payloads",
       "expected_row_growth": "bounded_by_send_and_discovery_limits_with_short_expiry"
+    },
+    {
+      "id": "system_push_delivery",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "system_push_outbox",
+        "system_push_device_deliveries"
+      ],
+      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts.",
+      "retention_policy": "Intent expires within one day or the earlier share deadline, with at most twelve attempts. Expired intents and cascading device receipts are pruned after three days. No historical backfill.",
+      "deletion_behavior": "Recipient actor deletion cascades to intents and receipts. Source removal, expiry, key revocation and account tombstones suppress further delivery; no source content is copied.",
+      "utilization_policy": "Retry only unaccepted installations; provider acceptance never authorizes a domain action or establishes read or device receipt.",
+      "plaintext_posture": "opaque_source_revision_recipient_and_device_delivery_metadata_only",
+      "expected_row_growth": "one_intent_per_source_transition_and_one_receipt_per_registered_installation",
+      "trust_boundary": "Current source status and exact request/membership epoch, recipient registry locks and account lifecycle barriers. No coordinates, encrypted envelope, private message, provider token or rendered notification text is stored."
     }
   ]
 }

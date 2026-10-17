@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   native: false,
   deliveryMode: "inbox_only",
+  deliveryDetail: null as string | null,
   retry: vi.fn(),
   openSettings: vi.fn(),
 }));
@@ -15,6 +16,7 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/components/consent/notification-provider", () => ({
   useConsentNotificationState: () => ({
     deliveryMode: state.deliveryMode,
+    deliveryDetail: state.deliveryDetail,
     retryPushRegistration: state.retry,
     isRetryingPushRegistration: false,
   }),
@@ -43,6 +45,7 @@ describe("FeedPushPrompt", () => {
   beforeEach(() => {
     state.native = false;
     state.deliveryMode = "inbox_only";
+    state.deliveryDetail = null;
     state.retry.mockReset();
   });
   afterEach(() => {
@@ -91,6 +94,16 @@ describe("FeedPushPrompt", () => {
     rerender(<FeedPushPrompt />);
     fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
     await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+  });
+  it("does not hide quiet OS settings behind a successfully registered token", async () => {
+    state.native = true;
+    state.deliveryMode = "push_active";
+    state.deliveryDetail = "native_sound_disabled";
+    render(<FeedPushPrompt context="location" />);
+    expect(await screen.findByText(/Device alerts or sounds are off/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(state.openSettings).toHaveBeenCalled());
+    expect(state.retry).not.toHaveBeenCalled();
   });
 
 });

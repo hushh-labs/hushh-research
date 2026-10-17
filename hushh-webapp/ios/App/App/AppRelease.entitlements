@@ -5,13 +5,13 @@
 
   Identical to App.entitlements EXCEPT aps-environment = production, so the
   released binary registers for the Apple Push Notification *production*
-  gateway. App.entitlements keeps aps-environment = development for local
-  `npm run ios:run`, Xcode debug installs, and the TestFlight (UAT) pipeline.
+  gateway. TestFlight also uses the production APNs gateway. App.entitlements
+  keeps development APNs for local `npm run ios:run` and Xcode debug installs.
 
-  Applied only by the production release workflow via an archive-time build
+  Applied by both distribution workflows via an archive-time build
   setting override:
       HUSSH_APP_ENTITLEMENTS = App/AppRelease.entitlements
-  (see .github/workflows/release-ios-appstore.yml). The committed pbxproj is
+  (ship-ios-testflight.yml and release-ios-appstore.yml). The committed pbxproj is
   left resolving to App/App.entitlements so no local/dev workflow changes.
 -->
 <plist version="1.0">

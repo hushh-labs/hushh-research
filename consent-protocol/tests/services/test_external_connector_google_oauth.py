@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import jwt
@@ -43,6 +44,48 @@ async def test_drive_catalog_readiness_requires_configured_oauth_and_return(serv
         "connector_unavailable", status_code=503
     )
     assert await service.connection_available() is False
+
+
+async def test_expired_drive_catalog_metadata_never_refreshes_a_token(service):
+    row = dict(
+        status="connected",
+        envelope_version=2,
+        credential_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+        connection_generation=1,
+        credential_version=2,
+    )
+    credential = dict(
+        profile="live",
+        subject="synthetic-subject",
+        grantedScopes=list(oauth.LIVE_SCOPES),
+        oauthClientId="synthetic-client",
+        accessToken="synthetic-token",
+    )
+    service.lifecycle.read = AsyncMock(return_value=row)
+    service.lifecycle.claim_refresh = AsyncMock(side_effect=AssertionError("refresh attempted"))
+    service.credentials = SimpleNamespace(open_credential=Mock(return_value=credential))
+    service._configuration = AsyncMock(
+        return_value=(
+            SimpleNamespace(
+                capability_policy=oauth.DRIVE_POLICY, oauth_scopes=oauth.REGISTRY_SCOPES
+            ),
+            "synthetic-client",
+            "synthetic-secret",
+        )
+    )
+    assert await service.current_credential(
+        user_id="owner", required_profile="live", refresh=False
+    ) == (row, credential)
+    service.lifecycle.claim_refresh.assert_not_awaited()
+    with pytest.raises(AssertionError, match="refresh attempted"):
+        await service.current_credential(user_id="owner", required_profile="live")
+    credential["grantedScopes"] = []
+    with pytest.raises(oauth.DriveOAuthError, match="reconnect_required"):
+        await service.current_credential(user_id="owner", required_profile="live", refresh=False)
+    credential["grantedScopes"] = list(oauth.LIVE_SCOPES)
+    row["envelope_version"] = 1
+    with pytest.raises(oauth.DriveOAuthError, match="reconnect_required"):
+        await service.current_credential(user_id="owner", required_profile="live", refresh=False)
 
 
 @pytest.fixture(scope="module")

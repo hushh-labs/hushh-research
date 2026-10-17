@@ -4,6 +4,82 @@
 > **Last Updated**: September 2026
 > **Scope**: Web (FCM), iOS/Android (Capacitor Firebase Messaging)
 
+### Delivery audit (2026-10-17)
+
+The existing APNs/FCM integration was present. The source audit found these
+specific reliability gaps:
+
+| Existing gap | Corrected owning path |
+| --- | --- |
+| Location/SMS and Circle delivery depended on process-local executors; connection sends could fail after the domain transaction committed. | Source-transaction intents and the leased `system_push_delivery.py` worker retain core alerts across restarts and transient provider failure. |
+| A granted native permission or registered token could coexist with disabled alerts/sounds. | `HushhNotifications.getNotificationSettings()` reports OS/app/channel settings; the existing explicit recovery control is available throughout Location. |
+| Native token refresh depended on the separate web Firebase auth observer. | Refresh uses the active native AuthProvider identity getter and retains session, deletion and installation-owner fences. |
+| Location alert types were missing from the authenticated live-event allowlist. | Core alert types preserve their popup payload through the existing PostgreSQL/SSE path, independently of FCM readiness. |
+| Routine Android alerts had no explicit normal notification channel. | A high-importance activity channel has the default notification sound; existing user channel choices are preserved. |
+| TestFlight did not explicitly select the distribution APNs entitlement used by App Store. | Both release lanes select production APNs and verify the signed archive/profile before upload. This configuration risk was found in source; it is not proof that an installed TestFlight binary had the wrong entitlement. |
+
+Provider acceptance, a successful archive guard and physical receipt are
+separate evidence. Fresh signed TestFlight and Android builds still require
+the device matrix in the release checklist below. No physical-device receipt
+or sound result is inferred from mocked-provider tests.
+
+The local Windows check compiled the Android native sources and ran their unit
+tests. It did not produce an installable candidate: Next's selective native
+export matched slash-separated routes against Windows-separated paths and
+exported only the fallback page. That incomplete export was not packaged, and
+its runtime attestation was removed from the export directory. Full bundled-web
+and signed iOS archive proof remains with the canonical release lanes.
+
+Platform references: [Firebase iOS receipt](https://firebase.google.com/docs/cloud-messaging/ios/receive-messages),
+[Firebase Android receipt](https://firebase.google.com/docs/cloud-messaging/android/receive-messages),
+[Android message priority](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-priority),
+[Apple APNs entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/aps-environment).
+
+### Durable SMS, Location and relationship delivery
+
+Migration `361_system_push_outbox.sql` commits delivery intent with initial
+location shares, location requests, Circle membership activation and connection
+requests. Emergency SMS is queued only when its first encrypted envelope has
+committed. Request approvals retain their separate notification, without an
+additional share-created alert. Historical sources are not backfilled.
+
+`system_push_delivery.py` leases source references, rechecks current status,
+expiry, request revision, membership epoch and installation ownership, and
+records provider acceptance per installation. A failed phone retries without
+resending to successful phones. No-device and provider failures remain pending
+within twelve attempts and the source deadline, capped at one day. Deadlines
+and source revocation suppress stale alerts. Receipt rows cascade with intents;
+expired intents are pruned after three days. The queue stores no coordinates,
+envelopes, message content, rendered notification copy or provider tokens.
+
+PostgreSQL NOTIFY accelerates the worker; five-second polling repairs missed
+doorbells and process restarts. Authenticated SSE carries the same transition
+id independently of Firebase registration, so an open web app can receive the
+live emergency popup even when device push registration failed. SSE remains
+subject to the environment's existing enablement policy and never substitutes
+for closed-app OS push.
+
+Native distribution builds use production APNs for both TestFlight and App
+Store. Both workflows verify the signed archive and its provisioning profile
+before upload; this is archive evidence, not physical-device delivery proof.
+Android routine alerts use `hushh_activity_alerts_v1`, high importance and the
+default notification sound. SMS retains its separate alarm channel. Existing
+user channel settings are never reset.
+
+Registration retries transient failures after 2, 10 and 30 seconds without
+requesting permission again, and repairs on resume/focus/network recovery.
+Location exposes explicit setup/retry/settings controls. A registered native
+token can still report disabled alerts or sounds; `push_active` means backend
+registration succeeded, not that sound is enabled or a phone received a push.
+New wrappers expose OS alert, sound and emergency-channel readiness; older
+wrappers retain their existing registration behavior until updated.
+
+OS permission, Focus, channel mute, offline state and Android force-stop remain
+platform boundaries. Inactive apps use visible APNs/FCM payloads, not a promise
+that JavaScript or a silent background task will run. Foreground routine Feed
+policy and the dedicated SMS alarm/popup policy remain unchanged. Verify new
+signed builds using the [physical acceptance checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
+
 
 ## Visual Context
 
@@ -185,7 +261,7 @@ still receives emergency presentation.
 
 `alerted: true` in the location API means at least one registered device's push
 was queued for dispatch. It does not confirm provider acceptance or device
-receipt. A failed executor submission returns `false`. The sender reports
+  receipt. Durable queue failure or no reachable registered device returns `false`. The sender reports
 saved shares and requested device notifications separately, and attempts every
 ready SMS contact even if another contact fails.
 
@@ -197,14 +273,14 @@ duplicate pushes, already-opened shares and unwatched shares remain suppressed.
 | Surface | Emergency behavior |
 | ------- | ------------------ |
 | Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |
-| Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap enters Feed |
+| Background web / PWA | Persistent browser notification with emergency vibration metadata; body tap opens Shared with me |
 | Android | Dedicated `one_location_sms_emergency_v1` high-importance channel using the device alarm sound, red notification light, and emergency vibration pattern |
 | iOS background/terminated | `ONE_LOCATION_SMS_EMERGENCY` category, custom `one_location_sms_alarm.wav` sound generated in the app's `Library/Sounds`, badge, and an Open live location action |
 | iOS foreground | Shared red in-app emergency card and alarm; Capacitor's Firebase Messaging router presents only the badge to prevent a duplicate banner and duplicate sound |
 
-The explicit iOS **Open live location** safety action is the only notification
-action that bypasses Feed and opens the validated One Location target. A normal
-notification body tap, including an emergency body tap, still enters Feed.
+Incoming location-share body taps, including emergency body taps, open
+**Shared with me**. The explicit iOS **Open live location** safety action opens
+the validated grant target directly. Other routine body taps enter Feed.
 
 This profile does **not** bypass Focus or Do Not Disturb. Android explicitly
 keeps channel DND bypass disabled. iOS Critical Alerts are not requested because

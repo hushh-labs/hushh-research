@@ -33,6 +33,7 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_url,
 )
 from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.system_push_delivery import SYSTEM_PUSH_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 
 
 def _is_user_state_event_type(event_type: str) -> bool:
-    return event_type.startswith("location_circle_") or event_type in {
+    return event_type in SYSTEM_PUSH_NOTIFICATION_TYPES or event_type.startswith("location_circle_") or event_type in {
         # A committed Drive outbox event wakes authenticated readers. Its
         # payload contains only opaque ids; the Feed and Consent Center remain
         # the authorities for the current request state.
@@ -1169,6 +1170,12 @@ async def _probe_listen_connection(conn) -> None:
     await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=LISTENER_PROBE_TIMEOUT_SECONDS)
 
 
+def _system_push_ready_callback(connection, pid, channel, payload: str) -> None:
+    from hushh_mcp.services.system_push_delivery import wake_system_push_worker
+
+    wake_system_push_worker()
+
+
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
@@ -1201,6 +1208,7 @@ async def run_consent_listener():
                 await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
                 await conn.add_listener("consent_audit_new", _notify_callback)
                 await conn.add_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                await conn.add_listener("system_push_ready", _system_push_ready_callback)
                 _listener_active = True
                 logger.info(
                     "Consent NOTIFY listener active (consent_audit_new, %s)",
@@ -1225,6 +1233,7 @@ async def run_consent_listener():
                     try:
                         await conn.remove_listener("consent_audit_new", _notify_callback)
                         await conn.remove_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                        await conn.remove_listener("system_push_ready", _system_push_ready_callback)
                         await conn.execute("UNLISTEN consent_audit_new")
                         await conn.execute(f"UNLISTEN {USER_STATE_CHANNEL}")
                     except Exception as exc:  # noqa: BLE001 - best-effort cleanup

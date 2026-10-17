@@ -35,6 +35,7 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.system_push_delivery import SYSTEM_PUSH_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ def _sse_event_id(payload: dict[str, object]) -> str:
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
     event_type = str(payload.get("type") or "").strip()
-    if event_type.startswith("location_circle_") or event_type in {
+    if event_type in SYSTEM_PUSH_NOTIFICATION_TYPES or event_type.startswith("location_circle_") or event_type in {
         "location_settings_changed",
         "location_pkm_changed",
         "connection_request",

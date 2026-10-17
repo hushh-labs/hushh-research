@@ -81,7 +81,7 @@ async def test_abandoned_handoff_schedules_active_memory_cleanup(monkeypatch):
 def runtime(monkeypatch):
     created = []
 
-    async def resolve(context, connector_id):
+    async def resolve(context, connector_id, *, metadata_only=False):
         return ResolvedMcpConnection(
             McpConnectionBinding(context.user_id, connector_id, 1, 1, "https://example.com/mcp"),
             {"Authorization": "synthetic"},
