@@ -308,27 +308,39 @@ async def test_source_refund_proof_requires_actual_original_intent_and_actor(pro
 async def test_bank_receipt_proof_rejects_wrong_source_and_unreconciled_actual_cost(provider):
     service, _facts = provider
     withdrawal_id = uuid4()
-    metadata = {
-        "payer_ref": _opaque("buyer"),
-        "withdrawal_id": str(withdrawal_id),
-        "scope_operation_id": str(uuid4()),
-    }
     adapter = service.adapter = _FinancialAdapter()
-    payout = await adapter.create("payout", {"metadata": metadata, "amount": 50})
-    transfer = await adapter.create(
-        "transfer",
-        {
-            "metadata": metadata,
-            "amount": 51,
-            "destination": "acct_seller",
-            "transfer_group": "fixture",
-        },
+    writer = ScopeCommerceProviderService(_OperationStore(), adapter=adapter, config=service.config)
+    metadata = writer._metadata(_derived_id(str(withdrawal_id), "payout"), "buyer")
+    metadata["withdrawal_id"] = str(withdrawal_id)
+    payout_request = {"metadata": metadata, "amount": 50, "stripe_account": "acct_seller"}
+    transfer_request = {
+        "metadata": writer._metadata(str(withdrawal_id), "buyer"),
+        "amount": 51,
+        "destination": "acct_seller",
+        "transfer_group": f"scope_{withdrawal_id}",
+    }
+    payout = await adapter.create("payout", payout_request)
+    transfer = await adapter.create("transfer", transfer_request)
+    service.config.countries["US"] = CountryPayoutPolicy(1, 30, 0, 0)
+    requests = {
+        (payout["id"], "payout"): payout_request,
+        (transfer["id"], "transfer"): transfer_request,
+    }
+
+    async def operation(_sql, provider_id, kind):
+        return {"request_json": requests[provider_id, kind]}
+
+    async def journal_kind(*_args):
+        return "withdrawal_reserve_manual"
+
+    async def allocations(*_args):
+        return [{"purchase_id": uuid4()}]
+
+    connection = SimpleNamespace(
+        fetchrow=operation,
+        fetchval=journal_kind,
+        fetch=allocations,
     )
-
-    async def operation(*_args):
-        return {"request_json": {"metadata": metadata, "stripe_account": "acct_seller"}}
-
-    connection = SimpleNamespace(fetchrow=operation)
     row = {
         "withdrawal_id": withdrawal_id,
         "payout_id": payout["id"],
@@ -338,6 +350,26 @@ async def test_bank_receipt_proof_rejects_wrong_source_and_unreconciled_actual_c
         "status": "succeeded",
         "settled_micro_usd": 530000,
     }
+    proof = await service._withdrawal_receipt(connection, row, "buyer")
+    assert proof["transferVerified"] and proof["bankPayoutVerified"] and proof["feeReceiptsMatched"]
+    for key, invalid in {
+        "id": "tr_other",
+        "livemode": True,
+        "destination": "acct_other",
+        "currency": "eur",
+        "amount": 52,
+        "transfer_group": "scope_other",
+    }.items():
+        original = transfer[key]
+        transfer[key] = invalid
+        with pytest.raises(CommerceProviderError, match="sandbox_transfer_receipt_mismatch"):
+            await service._withdrawal_receipt(connection, row, "buyer")
+        transfer[key] = original
+    original = transfer_request["metadata"]["scope_operation_id"]
+    transfer_request["metadata"]["scope_operation_id"] = str(uuid4())
+    with pytest.raises(CommerceProviderError, match="sandbox_transfer_receipt_mismatch"):
+        await service._withdrawal_receipt(connection, row, "buyer")
+    transfer_request["metadata"]["scope_operation_id"] = original
     assert await service._bank_receipt(connection, row, "buyer") == (True, True)
     transaction_id = payout["balance_transaction"]
     transaction = await adapter.retrieve("balance_transaction", transaction_id)

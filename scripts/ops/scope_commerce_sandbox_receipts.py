@@ -300,7 +300,9 @@ class WithdrawalProof:
                 or transfer.get("destination") != account_id
                 or transfer.get("currency") != "usd"
                 or transfer.get("amount") != request["amount"]
-                or request["metadata"].get("withdrawal_id") != str(row["withdrawal_id"])
+                or request["metadata"].get("scope_operation_id") != str(row["withdrawal_id"])
+                or request.get("transfer_group") != f"scope_{row['withdrawal_id']}"
+                or transfer.get("transfer_group") != request["transfer_group"]
             ):
                 raise CommerceProviderError("sandbox_transfer_receipt_mismatch")
             transfer_verified = True

@@ -20914,7 +20914,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_information_request_service.py",
       "symbol": null,
-      "value": 1064
+      "value": 1092
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26252,7 +26252,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_scope_commerce_sandbox.py",
       "symbol": null,
-      "value": 532
+      "value": 564
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -71576,6 +71576,35 @@
         "prior_value": 584,
         "value": 601,
         "source_sha256": "eb375938b944d82177e99ed769275fad068c2e766f0c3f54497c82b3f4bf49ce"
+      }
+    ]
+  },
+  "scope_commerce_actual_transfer_receipt_review_20261017": {
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_scope_commerce_sandbox.py||module exceeds the advisory operon budget",
+        "path": "consent-protocol/tests/test_scope_commerce_sandbox.py",
+        "rank": 0,
+        "before": 532,
+        "after": 564,
+        "source_sha256": "d022c115c5e5e7df06327570afe1c25ed87d43df4e91c2ed843001582375ece8",
+        "parent_revision": "04d1bd1c28f49faa8a9bd3ad50dbcafb135955f7",
+        "review": "Independent architecture_review qualifies existing core withdrawal-receipt regression: production transfer operation metadata differs from payout metadata. One existing case now checks complete withdrawal proof and wrong-binding controls while preserving original bank-source/fee negatives. Function remains 75 lines; no duplicate test or new function. Budgets, scanner, other findings and historical reviews are unchanged.",
+        "verification": "Original source fails sandbox_transfer_receipt_mismatch; all 23 nearest Sandbox cases pass. Runtime canonical provider readback verifies transfer, simulated bank payout, fee conservation, liabilities and settled backing."
+      }
+    ]
+  },
+  "scope_commerce_authenticated_export_identity_review_20261017": {
+    "reviewer": "architecture_review",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/services/test_information_request_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1064,
+        "after": 1092,
+        "source_sha256": "e995b5f2c005889f0c040d13b809a9e067d94a24496167bf1e0ccf90deb82fe7",
+        "review": "Extend the existing read-receipt regression through UUID-typed canonical row normalization and actual encrypted export projection, preserving exact authenticated AAD spelling; different UUID negative uses the same projection and records no read. Existing test functions remain 47/28 lines. Pure production helper remains within budget, with no import cycle or new authority. No scanner, budget, other ceiling or historical review change.",
+        "verification": "59 nearest tests pass; original projection fails the regression. Read-only actual Dev UUID row satisfies all current binding predicates only with corrected local projection. Deployment/browser decryption remain unverified."
       }
     ]
   }

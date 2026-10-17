@@ -56,6 +56,7 @@ from hushh_mcp.services.consent_event_authority import (
     append_event_receipt,
     owner_lineage_is_active,
 )
+from hushh_mcp.services.consent_export_storage import normalized_export_identity
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
@@ -331,6 +332,7 @@ class ConsentDBService:
             )
             or "X25519-AES256-GCM"
         )
+        envelope_aad = self._parse_metadata(row.get("envelope_aad")) or None
 
         return {
             "consent_token": str(row.get("consent_token") or "").strip() or None,
@@ -350,7 +352,7 @@ class ConsentDBService:
             "source_manifest_revision": row.get("source_manifest_revision"),
             "refresh_status": self._normalize_refresh_status(row.get("refresh_status")),
             "refresh_policy": normalize_refresh_policy(row.get("refresh_policy")),
-            "export_id": str(row.get("export_id") or "").strip() or None,
+            "export_id": normalized_export_identity(row, envelope_aad),
             "envelope_version": int(row.get("envelope_version") or 1),
             "grant_id": str(row.get("grant_id") or "").strip() or None,
             "app_id": str(row.get("app_id") or "").strip() or None,
@@ -359,7 +361,7 @@ class ConsentDBService:
             or None,
             "payload_algorithm": str(row.get("payload_algorithm") or "AES-256-GCM").strip()
             or "AES-256-GCM",
-            "envelope_aad": self._parse_metadata(row.get("envelope_aad")) or None,
+            "envelope_aad": envelope_aad,
             "envelope_aad_sha256": str(row.get("envelope_aad_sha256") or "").strip() or None,
             "ciphertext_sha256": str(row.get("ciphertext_sha256") or "").strip() or None,
             "ciphertext_bytes": int(row.get("ciphertext_bytes") or 0) or None,

@@ -10,10 +10,25 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from hushh_mcp.consent.export_envelope import normalize_refresh_policy
 
 logger = logging.getLogger(__name__)
+
+
+def normalized_export_identity(row: dict, aad: dict | None) -> str | None:
+    """Preserve authenticated v2 spelling after PostgreSQL's UUID projection."""
+    stored = str(row.get("export_id") or "").strip() or None
+    if row.get("envelope_version") != 2 or not isinstance(aad, dict) or aad.get("version") != 2:
+        return stored
+    original = aad.get("export_id")
+    if stored is None or not isinstance(original, str) or not original:
+        return stored
+    try:
+        return original if UUID(stored) == UUID(original) else stored
+    except ValueError:
+        return stored
 
 
 async def store_export(service: Any, values: dict, *, connection: Any = None) -> bool:

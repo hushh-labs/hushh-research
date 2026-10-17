@@ -23,28 +23,33 @@ test("secure paid readback requires a visible current card and every exact-proof
   const complete = { passed: true, canonical_recipient_decryption: true, exact_projected_payload: true,
     current_grant: true, current_paid_term: true };
   try {
-    for (const failure of [null, ...Object.keys(complete), "unready", "hidden"]) {
+    for (const failure of [null, ...Object.keys(complete), "unready", "hidden", "representative", "representativeRevoked", "representativeWithoutAdapter", "wrongPerson", "wrongScope"]) {
       let invoked = false;
-      const proof = { ...complete, ...(failure in complete ? { [failure]: false } : {}) };
+      const proof = { ...complete, ...(failure in complete ? { [failure]: false } : {}), ...(failure === "representativeRevoked" ? { current_grant: false } : {}) };
+      const representativeId = failure?.startsWith("representative") ? "synthetic-representative" : record.requestId;
       globalThis.document = { getElementById: () => ({ closest: () => ({
         dataset: { itemState: failure === "unready" ? "loading" : "ready" },
         querySelector: () => ({ getAttribute: () => failure === "hidden" ? "true" : "false" }),
       }) }) };
       const actor = {
         harness: { navigateInApp: async () => {}, assertVaultContinuity: async () => {} },
-        session: { page: { evaluate: async () => ({ ok: true, value: { personRef: fixture.personRef,
-          grants: [{ requestId: record.requestId, scopeRef: fixture.scopeRef, status: "granted" }] } }),
+        session: { page: { evaluate: async () => ({ ok: true, value: { personRef: failure === "wrongPerson" ? "another-person" : fixture.personRef,
+          grants: [{ requestId: representativeId, scopeRef: failure === "wrongScope" ? "another-scope" : fixture.scopeRef, status: "granted" }] } }),
           locator: () => ({ waitFor: async () => {} }),
           waitForFunction: async (predicate, id) => { if (!predicate(id)) throw Error("CARD_NOT_READY"); } },
           capture: { identityToken: async () => "synthetic-token", assertNoCriticalApiFailures() {} },
           readOnlyGuard: { assertNoBlockedMutation() {} } },
         assertCommerce() {},
-        verifyExactReadback: async () => { invoked = true; return proof; },
+        verifyExactReadback: async (_actor, original, originalFixture, presentedRequestId) => {
+          assert.equal(original, record); assert.equal(originalFixture, fixture);
+          assert.equal(presentedRequestId, representativeId); invoked = true; return proof;
+        },
       };
-      if (failure === null) await exactCommerceReadback(actor, record, fixture);
+      if (failure === "representativeWithoutAdapter") delete actor.verifyExactReadback;
+      if (failure === null || failure === "representative") await exactCommerceReadback(actor, record, fixture);
       else await assert.rejects(exactCommerceReadback(actor, record, fixture),
-        /EXACT_PAID_BROWSER_READBACK_MISMATCH|CARD_NOT_READY/);
-      assert.equal(invoked, failure !== "unready" && failure !== "hidden");
+        /EXACT_PAID_BROWSER_READBACK_MISMATCH|CARD_NOT_READY|PAID_ACTIVE_PROFILE_BINDING_MISMATCH/);
+      assert.equal(invoked, !["unready", "hidden", "wrongPerson", "wrongScope", "representativeWithoutAdapter"].includes(failure));
     }
   } finally {
     if (originalDocument === undefined) delete globalThis.document;

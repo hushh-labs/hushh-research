@@ -117,9 +117,14 @@ export async function assertNoExport(actor, record) {
 export async function exactCommerceReadback(actor, record, fixture) {
   await actor.harness.navigateInApp(actor.session.page, `/people/${encodeURIComponent(fixture.personRef)}`);
   const profile = await checkedCall(actor.session, `/api/one/people/${encodeURIComponent(fixture.personRef)}`);
-  commerceEvidence(profile.personRef === fixture.personRef && profile.grants?.some(grant =>
-    grant.requestId === record.requestId && grant.scopeRef === fixture.scopeRef && grant.status === "granted"), "PAID_ACTIVE_PROFILE_BINDING_MISMATCH");
-  const headingId = `shared-item-${record.requestId.replace(/[^A-Za-z0-9_-]/g, "")}`;
+  // Profile intentionally lists one representative per shared section. Its
+  // presentation never substitutes for the original purchase's exact proof.
+  const exactAdapter = typeof actor.verifyExactReadback === "function";
+  const representative = profile.grants?.find(grant =>
+    grant.scopeRef === fixture.scopeRef && grant.status === "granted" && opaqueId(grant.requestId) &&
+    (exactAdapter || grant.requestId === record.requestId));
+  commerceEvidence(profile.personRef === fixture.personRef && representative, "PAID_ACTIVE_PROFILE_BINDING_MISMATCH");
+  const headingId = `shared-item-${representative.requestId.replace(/[^A-Za-z0-9_-]/g, "")}`;
   const secureCard = actor.session.page.locator(`article[aria-labelledby="${headingId}"]`);
   if (typeof actor.verifyExactReadback === "function") {
     await secureCard.waitFor({ state: "visible", timeout: 45_000 });
@@ -130,7 +135,7 @@ export async function exactCommerceReadback(actor, record, fixture) {
     }, headingId, { timeout: 45_000 });
     // The formatted card is intentionally lossy. It proves reachable delivery;
     // a separately source-bound browser crypto adapter proves exact projected JSON.
-    const proof = await actor.verifyExactReadback(actor, record, fixture);
+    const proof = await actor.verifyExactReadback(actor, record, fixture, representative.requestId);
     commerceEvidence(proof?.passed === true && proof.canonical_recipient_decryption === true &&
       proof.exact_projected_payload === true && proof.current_grant === true &&
       proof.current_paid_term === true, "EXACT_PAID_BROWSER_READBACK_MISMATCH");

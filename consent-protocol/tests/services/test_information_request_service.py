@@ -694,9 +694,24 @@ async def test_exports_records_export_read_once_per_hour_per_request(monkeypatch
     service, bundle_id, request_id = await _granted_service()
     clock = {"now": 1_800_000_000.0}
     monkeypatch.setattr(information_request_module.time, "time", lambda: clock["now"])
+    # PostgreSQL's UUID column returns a different spelling than the sealed AAD.
+    export_id = uuid.UUID("95aa4cc2b97646b9a7336ae64177eb91")
+    stored = service.consent.exports["tok_granted"]
+    stored["export_id"] = export_id
+    stored["wrapped_key_bundle"].update(
+        wrapped_export_key="wrapped",
+        wrapped_key_iv="iv",
+        wrapped_key_tag="tag",
+        sender_public_key="public",
+    )
+    stored["envelope_aad"]["export_id"] = export_id.hex
+    service.consent.exports["tok_granted"] = ConsentDBService()._normalize_export_row(stored)
 
     first = await service.exports(requester_user_id="viewer", bundle_id=bundle_id)
-    assert first["exports"][0]["encryptedExport"]["encrypted_data"] == "ciphertext"
+    envelope = first["exports"][0]["encryptedExport"]
+    assert envelope["encrypted_data"] == "ciphertext"
+    assert envelope["export_envelope"]["export_id"] == export_id.hex
+    assert envelope["export_envelope"]["aad"] == stored["envelope_aad"]
     clock["now"] += 30 * 60
     await service.exports(requester_user_id="viewer", bundle_id=bundle_id)
 
@@ -739,6 +754,7 @@ async def test_exports_records_export_read_once_per_hour_per_request(monkeypatch
         ("export", "connector_key_id", "another-key"),
         ("export", "export_revision", 99),
         ("aad", "grant_id", "another-request"),
+        ("aad", "export_id", "95aa4cc2b97646b9a7336ae64177eb92"),
         ("aad", "expires_at_ms", 1),
         ("aad", "recipient_key_fingerprint", "another-key"),
         ("aad", "revision", "invalid"),
@@ -753,7 +769,19 @@ async def test_exports_rejects_swapped_or_expired_bindings_without_read_receipt(
     elif surface == "metadata":
         service.consent.events[request_id]["metadata"][field] = invalid
     elif surface == "aad":
-        service.consent.exports["tok_granted"]["envelope_aad"][field] = invalid
+        stored = service.consent.exports["tok_granted"]
+        stored["envelope_aad"][field] = invalid
+        if field == "export_id":
+            stored["export_id"] = uuid.UUID("95aa4cc2b97646b9a7336ae64177eb91")
+            stored["wrapped_key_bundle"].update(
+                wrapped_export_key="wrapped",
+                wrapped_key_iv="iv",
+                wrapped_key_tag="tag",
+                sender_public_key="public",
+            )
+            service.consent.exports["tok_granted"] = ConsentDBService()._normalize_export_row(
+                stored
+            )
     else:
         service.consent.exports["tok_granted"][field] = invalid
 

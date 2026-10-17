@@ -24,38 +24,85 @@ consented scope requests. Source checks, focused contracts and isolated local
 PostgreSQL acceptance establish the bounded behavior below; they do not establish Stripe acceptance, connected-account readiness,
 complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Both reviewers' signed funding settlements and platform capital on
-shared Dev are separately verified below; they do not prove a consumer purchase
-or payout.
+shared Dev and an automatic payout from matured terms are separately verified
+below; they do not prove complete paid delivery or the acceptance sequence.
 
 ### Current Dev evidence — 2026-10-17 UTC
 
-The governed [Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/39024698527)
-completed successfully at `5b493370ae24aee429eb9440cbd7bdd70759c54d`.
-Both services served that exact source at 100% traffic; local core and
-[full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39022976568)
-passed. This is deployment evidence, not completed financial acceptance.
-Memory → Saved exposes category-level **Sharing & price** and eligible
-whole-bundle prices. Both reviewers reached those controls at phone width with
-vault continuity. The counterpart's separate Memory-edit check retains an
-unresolved legacy free-grant lineage failure.
+The governed [application release](https://github.com/hushh-labs/hushh-research/actions/runs/39050162065)
+and [backend/pod publication](https://github.com/hushh-labs/hushh-research/actions/runs/39052082764)
+completed successfully at `7b0d4c2a225d3093d5f5944201468480d3a5fba4`.
+Both shared Dev services independently served that exact source at 100% traffic.
+Its exact `CI Status Gate` passed. Memory → Saved exposes category and eligible
+whole-bundle **Sharing & price**; Payments and earnings retains separate purchase
+balance, information-access earnings and document/answer earnings.
 
-The renewed Dashboard/SDK proof confirms the dedicated Sandbox and test mode.
-Existing funding is $10.50 per reviewer and cumulative tagged capital is $15;
-these receipts must not be repeated. **No completed paid scope exchange is yet
-established.** The corrected rehearsal passes canonical schema, reviewer unlock,
-Sandbox pins and the public recipient-registry authentication boundary. The
-primary had no historical public recipient registration before setup; the
-counterpart had one active registration. At `2026-10-17T11:29:48Z`, normal application setup created the primary
-recipient key in its encrypted vault and verified public registration. The
-operator observed no private key. Its separate synthetic denial-control request
-is unapproved and requires owner decline during cleanup. The latest rehearsal verified all four existing funding returns through cold
-recovery, set the synthetic one-cent tariff, and obtained normal owner approval.
-The resulting authorization remains inactive and export retrieval was denied.
-The buyer price-review step failed before quote confirmation; no reservation or
-earnings movement is established. Reservation and encrypted delivery remain next. A coherent connector-domain
-snapshot returned 404; that observation alone does not exclude a legacy combined
-blob. The normal application loader retains responsibility for compatibility.
-No purchase confirmation or additional funding was submitted in these attempts.
+Existing signed funding remains $10.50 per reviewer and cumulative tagged capital
+is $15. Do not repeat those operations. The fresh canonical rehearsal obtained
+normal owner approvals, exact buyer confirmations, funded reservations and
+recipient-bound sealed exports for $0.01, $4.50 early revocation and $4.50 manual
+maturity. All three passed pre-activation retrieval denial. Their original terms
+have now ended without successful browser delivery proof. The one-cent term was
+`2026-10-17T18:06:07.720Z` through `2026-10-17T19:06:07.720Z`; timestamps and
+financial records remain unchanged. Buyer nonuse is not refundable. Exact browser
+delivery, revocation refunds and the manual/automatic acceptance sequence
+remain unverified. Fresh provider readback at `2026-10-17T22:37:41.482086Z`
+verified an $8.19 automatic weekly withdrawal from those matured terms, including
+its transfer, simulated bank payout and actual fee receipts. This proves that
+bounded payout, not successful UI delivery or live bank settlement.
+The [same-source admission pause](https://github.com/hushh-labs/hushh-research/actions/runs/39057104575)
+completed successfully, retaining reconciliation and access enforcement. A
+[governed same-source resume](https://github.com/hushh-labs/hushh-research/actions/runs/39074407311)
+completed successfully. One bounded fresh $0.01 delivery rehearsal reuses existing
+funds. Its first preflight stopped before creating a request or spending because
+the operator verifier expected payout-style `withdrawal_id` metadata on a transfer.
+The corrected verifier checks the production transfer's `scope_operation_id` and
+both saved/returned canonical transfer groups; it changes no provider records or
+financial writers. Actual receipt predicates, 23 nearest tests, an original-code
+failure control and independent source review establish that correction. Fresh
+provider/ledger readback verifies balanced liabilities, settled backing and fee
+conservation. The same rehearsal then reserved and sealed one cent, passed
+pre-activation denial, and became active at `2026-10-17T22:51:11.130Z`, with its
+original expiry at `2026-10-17T23:51:11.130Z`. Recipient delivery exposed a concrete
+read-projection defect: PostgreSQL returns a hyphenated UUID while authenticated
+AAD retains the same UUID's original compact spelling. The exact binding guard
+therefore suppresses the export. The source correction preserves the original AAD
+spelling only for matching v2 UUID identities; it never rewrites ciphertext, AAD,
+expiry or financial records. All 59 nearest tests pass, including different-ID
+denial without a read receipt; the original projection fails the regression.
+A read-only check of that actual Dev row passes every existing binding predicate
+with the corrected local projection. Deployment and browser decryption remain
+unverified. No replacement purchase was made for this diagnosis.
+Live activity remains disabled.
+
+Two rehearsal assumptions required correction: the informational release dialog
+must be acknowledged through its normal **Got it** control, and Profile deliberately
+collapses identical shared sections. The corrected verifier requires the same
+person and exact scope in the visible representative, then verifies the unchanged
+original purchase's request, term, recipient and exact decrypted payload separately.
+It preserves strict original-request checks without that crypto adapter. All 20
+nearest tests pass, including wrong-person/scope, revoked-original and missing-adapter
+negatives; the original representative assertion fails its regression control.
+The root checkpoint handoff preserves every byte and records its hash separately
+from the corrected verifier and unchanged application/crypto source bindings.
+This is verifier evidence, not completed financial acceptance or a new deployment.
+
+The connector-domain repair at `4c1ab89ecc294f8c21a3f2162ed9d5d2e9d4b8ee`
+passed local core, 42 focused checks and all 25 hosted CI jobs. Its deployment is
+held until the financial rehearsal hands back the shared environment. One's
+owner OAuth and authenticated account/balance reads remain acceptance work.
+
+### Earlier Dev observations
+
+The primary's normal application recipient setup on October 17 created its key
+inside the encrypted vault and verified public registration; the operator observed
+no private key. Both reviewers' funding returns passed separate cold recovery.
+An earlier unreserved request's quote expired during headless dialog diagnosis;
+its original timestamps and authorization were preserved, never extended. The
+fresh run reuses existing balances. An unapproved synthetic denial-control request
+still requires owner decline during cleanup. A prior connector snapshot returned
+404; that observation alone does not exclude a legacy combined blob, whose
+compatibility remains the normal application loader's responsibility.
 
 A request-review attempt exposed pointer obstruction at the footer. Source
 inspection also identified pending-summary bookkeeping events that discard the
