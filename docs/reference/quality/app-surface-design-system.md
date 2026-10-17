@@ -669,6 +669,12 @@ skill at `references/foundation-design-system.md`.
 
 Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
 
+App-owned `NativeFeaturePage` content uses the shared feature-page layer below
+sheets and dialogs, even though it reuses Dialog for focus and Back ownership.
+Its page/scrim consume `--z-feature-page`/`--z-feature-page-overlay`; nested
+primitives keep their normal tokens. Do not lift all sheets or create local
+z-index overrides to correct an incorrectly layered parent page.
+
 Rules:
 
 1. The canonical scrim is `bg-[color:var(--app-scrim-color)]` with `backdrop-filter` and `-webkit-backdrop-filter` set to `var(--app-scrim-filter)`, sitting directly below its surface. Desktop gets a 24% dim with a 12px blur; touch screens (`pointer: coarse`) get a 40% dim with a lighter 4px blur. The smaller touch radius keeps the background visibly out of focus without restoring the full-screen 12px filter that starved sheet motion in the Galaxy S24 Ultra trace (2026-09-22). Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) and `PopoverContent withBackdrop` all carry it; never restate the values.

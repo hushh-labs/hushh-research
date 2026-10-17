@@ -50,18 +50,23 @@ Photo preview/actions still use the existing React exception and are **not**
 counted as complete native photo-operation conversion. Unsupported wrappers
 retain their ordinary row.
 
-The combined header/height source is installed at `c6c317b4f2`. Credential-free
+The combined header/height source was first installed at `c6c317b4f2`. Credential-free
 automation admission and the normal configured passphrase unlock pass. A bounded
 four-destination Payouts/Pricing/Memory/World Model traversal passes entry, full
 height, Back, Chat/draft return and one-WebView checks; these rich bodies remain
 React. The actual photo check caught a text-sized native button hit target;
 installed `ea6d11dee6` fixes its label frame and passes that geometry assertion.
-The next photo action exposed a separate admission deadlock: the React sheet
-mounted before its parent pane's Back/Close admission, blocking those controls
-and leaving its own existing actions covered and untappable. Sanitized device
-diagnostics distinguish this from a missing image or an accessibility role.
+The next photo action was present but covered and untappable. Header-disabled
+diagnostics alone did not prove an admission deadlock: those controls also
+correctly disable beneath an admitted modal. The guarded `a5bdfc49f0` candidate
+still reproduced the tap failure. Optimized product-CSS hit testing then proved
+the layering defect: a full-page parent borrowed Dialog's 801 tier, covering its
+nested Sheet at 712. The shared feature-page tier now sits below sheets/dialogs;
+normal primitives retain their existing layers. Chromium and WebKit reproduce
+the old failure by restoring the borrowed Dialog tier and pass the corrected
+sheet → preview → return interaction.
 
-The correction gates that existing modal on the current detail visit's parent
+The independently characterized admission-race correction gates that modal on the current detail visit's parent
 readiness and the native menu's actual exit completion, using the existing
 presentation owner, privacy generation and ordered receipt. It does not bypass
 modal isolation, add a timeout, or retry an action. Interrupted same-context
@@ -2888,6 +2893,12 @@ calling a handler directly; neither is a reason to record an unobserved pass.
    or history depth alone cannot prove that an intermediate page was visited.
    Unknown ancestry keeps the coherent fallback before reveal; verify entry and
    return together, not only the settled destination.
+8. A full-page content layer using Dialog for focus/Back ownership does not
+   inherit Dialog's modal z-index. Use the shared feature-page tier below nested
+   sheets/dialogs. Verify actual topmost hit targets using optimized product CSS
+   before device packaging; element existence or covered-header diagnostics do
+   not prove which layer intercepts a tap. Keep a negative control at the broken
+   tier and preserve modal isolation.
 
 Material inspection follows Apple's [effect-view restrictions](https://developer.apple.com/documentation/uikit/uivisualeffectview)
 and [Liquid Glass guidance](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views):

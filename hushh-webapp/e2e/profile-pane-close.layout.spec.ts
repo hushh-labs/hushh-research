@@ -185,6 +185,34 @@ async function withNativeFeatureFixture(run: (fixture: { css: string; modules: s
 }
 
 test.describe("Profile pane custom close layout", () => {
+  test("keeps nested sheets above the real feature page with optimized product CSS", async ({ page }) => {
+    await withNativeFeatureFixture(async ({ css, modules, script }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.setContent(`<style>${modules}${css}</style><div id="root" data-pane="true" data-overlays="true"></div>`);
+      await page.addScriptTag({ content: script });
+      const options = page.getByRole("button", { name: "Photo options", exact: true });
+      await options.click();
+      const preview = page.getByRole("button", { name: "View photo", exact: true });
+      const receivesTouch = () => preview.evaluate(node => {
+        const bounds = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        return hit === node || !!hit && node.contains(hit);
+      });
+      await expect.poll(receivesTouch).toBe(true);
+      // Actual shipped layering: the borrowed Dialog tier covers the nested
+      // sheet, even though its button exists and is otherwise visible.
+      const broken = await page.addStyleTag({ content: '.native-feature-page[data-slot="dialog-content"] { z-index:var(--z-dialog); }' });
+      await expect.poll(receivesTouch).toBe(false);
+      await broken.evaluate(node => node.remove());
+      await preview.click();
+      await expect(page.getByRole("dialog", { name: "Photo preview" })).toBeVisible();
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(options).toBeVisible();
+      await options.click();
+      await expect.poll(receivesTouch).toBe(true);
+    });
+  });
+
   test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
     await withNativeFeatureFixture(async ({ css, modules, script }) => {
       for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {

@@ -247,6 +247,7 @@ textarea {
      from here, so the order below is the only place the ladder is decided:
 
        chrome (persistent bars, 100..160)
+         < app-owned feature pages (700, 701)
          < sheet / drawer (711, 712)
          < boot surface (790)
          < dialog / alert dialog (800, 801)
@@ -262,6 +263,8 @@ textarea {
      contract test in __tests__/ui/layer-order.contract.test.ts pins both
      the token values and which primitive consumes which token. */
   --z-chrome: 118;
+  --z-feature-page-overlay: 700;
+  --z-feature-page: 701;
   --z-sheet-overlay: 711;
   --z-sheet: 712;
   /* The one boot surface (components/app-ui/boot-surface.tsx): above
@@ -3089,6 +3092,9 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
  * A CSS `translate: none` beside `transform: none` is dropped by production
  * optimization, leaving the utility's -50% translation and an offscreen Back. */
 .native-feature-page[data-slot="dialog-content"] {
+  /* A feature page uses Dialog for focus/Back ownership, not its modal tier.
+   * Its own nested sheets and dialogs must remain above this page. */
+  z-index: var(--z-feature-page);
   inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
   transform: none;
   width: 100%;
@@ -3101,6 +3107,9 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   animation: none;
   box-shadow: none;
   overflow: hidden;
+}
+.native-feature-page-overlay[data-slot="dialog-overlay"] {
+  z-index: var(--z-feature-page-overlay);
 }
 .native-feature-page-overlay:not(.native-feature-pane-overlay)[data-slot="dialog-overlay"] {
   inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
