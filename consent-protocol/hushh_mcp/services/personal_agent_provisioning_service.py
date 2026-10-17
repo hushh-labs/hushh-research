@@ -3395,129 +3395,35 @@ class PersonalAgentProvisioningService:
 
     async def _erase_reserved_runtime_grant(self, *, user_id: str) -> None:
         await self._erase_reserved_grant(user_id=user_id, repository=False)
+        current = await self._registry.get(user_id)
+        erasure = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        inventory = erasure.get("substrateInventory") or {}
+        quota_role = "roles/serviceusage.serviceUsageConsumer"
+        if (
+            any(b.get("role") == quota_role for b in inventory.get("plannedBindings", []))
+            or any(
+                b.get("role") == quota_role or b.get("step") == "iam_pod_sa_quota"
+                for b in inventory.get("bindingObservations", [])
+            )
+            or "quota" in (erasure.get("runtimeGrantErasure") or {})
+        ):
+            await self._erase_reserved_grant(user_id=user_id, repository=False, quota=True)
 
     async def _erase_reserved_repository_grant(self, *, user_id: str) -> None:
         await self._erase_reserved_grant(user_id=user_id, repository=True)
 
-    async def _erase_reserved_grant(self, *, user_id: str, repository: bool) -> None:
-        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+    async def _erase_reserved_grant(
+        self, *, user_id: str, repository: bool, quota: bool = False
+    ) -> None:
+        from hushh_mcp.services.personal_agent_grant_erasure import erase_reserved_grant
 
-        if not personal_agent_substrate_teardown_enabled():
-            raise RuntimeError("runtime grant erasure guarded")
-        state_key = "repositoryGrantErasure" if repository else "runtimeGrantErasure"
-        retain_name = (
-            "retain_erasure_repository_grant_receipt"
-            if repository
-            else "retain_erasure_runtime_grant_receipt"
+        await erase_reserved_grant(
+            registry=self._registry,
+            backend_for=self._reserved_cleanup_backend,
+            user_id=user_id,
+            repository=repository,
+            quota=quota,
         )
-        current = await self._registry.get(user_id)
-        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
-        snapshot = reservation.get("registrySnapshot") or {}
-        reserve = getattr(self._registry, "reserve_erasure_grant_release", None)
-        retain = getattr(self._registry, retain_name, None)
-        if (
-            not current
-            or current.get("status") != "suspended"
-            or reservation.get("ownerId") != user_id
-            or snapshot.get("user_id") != user_id
-            or reserve is None
-            or retain is None
-            or not await reserve(user_id=user_id, reservation=reservation)
-        ):
-            raise RuntimeError("runtime grant erasure reservation unavailable")
-        current = await self._registry.get(user_id)
-        saved = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
-        attempt = reservation["attemptId"]
-        if (
-            not current
-            or current.get("status") != "suspended"
-            or saved.get("ownerId") != user_id
-            or saved.get("attemptId") != attempt
-            or saved.get("registrySnapshot") != snapshot
-            or saved.get("grantRelease")
-            != {
-                "ownerId": user_id,
-                "attemptId": attempt,
-                "project": snapshot.get("user_cloud_project"),
-                "status": "reserved",
-            }
-        ):
-            raise RuntimeError("runtime grant reservation readback unconfirmed")
-        inventory = saved.get("substrateInventory") or {}
-        identity = (saved.get("writerDisabled") or {}).get("runtimeIdentity") or {}
-        if repository:
-            observations = [
-                o
-                for o in inventory.get("resourceObservations", [])
-                if isinstance(o, dict)
-                and o.get("type") == "artifact_repository"
-                and o.get("id") == "one-pod"
-                and o.get("disposition") == "created"
-            ]
-            if len(observations) != 1:
-                raise RuntimeError("repository grant creation provenance unresolved")
-            identity = observations[0].get("identity") or {}
-        bindings = [
-            b
-            for b in inventory.get("bindingObservations", [])
-            if isinstance(b, dict)
-            and b.get("step")
-            == ("artifact_repo_grant_copy_writer" if repository else "iam_pod_sa_vertex")
-            and (repository or b.get("member") == f"serviceAccount:{identity.get('email')}")
-        ]
-        if len(bindings) != 1:
-            raise RuntimeError("runtime grant provenance unresolved")
-        evidence = {
-            "repositoryIdentity" if repository else "runtimeIdentity": identity,
-            "bindingObservation": bindings[0],
-        }
-        erase = getattr(
-            self._reserved_cleanup_backend(snapshot),
-            "erase_repository_grant" if repository else "erase_runtime_grant",
-            None,
-        )
-        if erase is None:
-            raise RuntimeError("runtime grant erasure unsupported")
-        loop = asyncio.get_running_loop()
-
-        async def append(stage: str, raw: dict) -> bool:
-            observed = await self._registry.get(user_id)
-            state = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
-            if (
-                not observed
-                or observed.get("status") != "suspended"
-                or state.get("ownerId") != user_id
-                or state.get("attemptId") != attempt
-                or state.get("registrySnapshot") != snapshot
-                or state.get("substrateInventory") != inventory
-            ):
-                return False
-            receipt = {**raw, "ownerId": user_id, "attemptId": attempt}
-            if not await retain(user_id=user_id, reservation=state, stage=stage, receipt=receipt):
-                return False
-            observed = await self._registry.get(user_id)
-            state = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
-            return bool(
-                observed
-                and observed.get("status") == "suspended"
-                and state.get("ownerId") == user_id
-                and state.get("attemptId") == attempt
-                and (state.get(state_key) or {}).get(stage) == receipt
-            )
-
-        def checkpoint(stage: str, raw: dict) -> bool:
-            return asyncio.run_coroutine_threadsafe(append(stage, raw), loop).result(timeout=30)
-
-        states = {}
-        for stage, receipt in (saved.get(state_key) or {}).items():
-            if (
-                not isinstance(receipt, dict)
-                or receipt.get("ownerId") != user_id
-                or receipt.get("attemptId") != attempt
-            ):
-                raise RuntimeError("runtime grant recovery owner unverified")
-            states[stage] = {k: v for k, v in receipt.items() if k not in {"ownerId", "attemptId"}}
-        await erase(evidence=evidence, state=states, retain_receipt=checkpoint)
 
     async def _erase_reserved_bootstrap_grants(self, *, user_id: str) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled

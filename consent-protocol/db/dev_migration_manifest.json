@@ -78,7 +78,8 @@
     "960_owner_erasure_provider_outcomes.sql",
     "961_azure_setup_erasure_binding.sql",
     "962_azure_owner_cleanup_admission.sql",
-    "963_personal_agent_operator_mail_custody.sql"
+    "963_personal_agent_operator_mail_custody.sql",
+    "964_personal_agent_runtime_quota_grant.sql"
   ],
   "deferred_release_migrations": [
     {

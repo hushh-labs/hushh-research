@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hushh_mcp.services.compute_backend import (  # noqa: E402
@@ -160,7 +162,8 @@ def test_activation_order_leads_with_the_primary() -> None:
 # -- BYOC preconditions: what "Vertex established" can honestly mean pre-pod --------
 
 
-def test_preconditions_are_established_only_when_both_halves_hold() -> None:
+@pytest.mark.parametrize("quota", [False, True])
+def test_preconditions_require_api_vertex_and_quota_use(quota) -> None:
     session = _Session(
         get=_Response(200, {"state": "ENABLED"}),
         post=_Response(
@@ -170,7 +173,19 @@ def test_preconditions_are_established_only_when_both_halves_hold() -> None:
                     {
                         "role": "roles/aiplatform.user",
                         "members": ["serviceAccount:one-pod-x@acme.iam.gserviceaccount.com"],
-                    }
+                    },
+                    *(
+                        [
+                            {
+                                "role": "roles/serviceusage.serviceUsageConsumer",
+                                "members": [
+                                    "serviceAccount:one-pod-x@acme.iam.gserviceaccount.com"
+                                ],
+                            }
+                        ]
+                        if quota
+                        else []
+                    ),
                 ]
             },
         ),
@@ -181,8 +196,9 @@ def test_preconditions_are_established_only_when_both_halves_hold() -> None:
         token=FAKE_BEARER,
         session=session,
     )
-    assert result["established"] is True
-    assert result["missing"] == []
+    assert result["established"] is quota
+    assert result["podHasServiceUsageConsumer"] is quota
+    assert len(result["missing"]) == (0 if quota else 1)
 
 
 def test_the_api_being_enabled_is_not_enough_without_the_binding() -> None:
@@ -235,7 +251,7 @@ def test_preconditions_report_rather_than_raise_when_unreadable() -> None:
         session=session,
     )
     assert result["established"] is False
-    assert len(result["missing"]) == 2
+    assert len(result["missing"]) == 3
 
 
 # -- the gate actually consults the policy -----------------------------------------

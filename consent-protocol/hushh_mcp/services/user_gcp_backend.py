@@ -544,6 +544,8 @@ class UserGcpBackend:
         slug = _slug(spec.hushh_id)
         name = _service_name(spec.hushh_id)
         project = self._user_project or "<user-project>"
+        from hushh_mcp.services.gcp_runtime_grants import runtime_grant_plan
+
         pod_sa = f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
         kms_key = f"one-pod-{slug}-key"
         bucket = f"one-pod-{slug}-blobs"
@@ -687,18 +689,7 @@ class UserGcpBackend:
                     "on": pod_sa,
                     "note": "lets the bootstrap deploy a service that RUNS AS the pod account, and nothing else",
                 },
-                {
-                    "member": pod_sa,
-                    "role": "roles/aiplatform.user",
-                    "on": f"project:{project}",
-                    "project_level": True,
-                    "note": (
-                        "PROJECT-LEVEL runtime grant. Vertex has "
-                        "no per-resource binding to scope to. This is your agent calling "
-                        "Vertex as itself, on your own quota and your own bill -- which "
-                        "is what lets it work without you handing hushh an AI key"
-                    ),
-                },
+                *runtime_grant_plan(project, pod_sa),
                 {
                     "member": invoker,
                     "role": "roles/run.invoker",
@@ -1577,7 +1568,7 @@ class UserGcpBackend:
             {
                 "type": "iam_binding",
                 "id": "runtime-project-grant",
-                "role": "roles/aiplatform.user",
+                "role": evidence["bindingObservation"]["role"],
                 "member": f"deleted:serviceAccount:{identity['email']}?uid={identity['uniqueId']}",
             }
         )

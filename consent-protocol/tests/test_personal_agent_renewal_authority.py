@@ -684,91 +684,28 @@ def test_setup_authorization_survives_retry_and_rejects_foreign_receipts(provisi
 
 
 @pytest.mark.parametrize(
-    "invalid,with_files,notification_custody",
+    "invalid,with_files,notification_custody,with_quota",
     [
-        (None, False, False),
-        (None, True, False),
-        (None, False, True),
+        (None, False, False, False),
+        (None, True, False, False),
+        (None, False, True, False),
+        (None, False, False, True),
         *[
-            (value, False, False)
+            (value, False, False, False)
             for value in ("owner", "attempt", "engine", "extra", "guard", "provenance")
         ],
     ],
 )
 def test_erasure_memory_binding_is_append_only_and_attempt_bound(
-    provision_pg, invalid, with_files, notification_custody
+    provision_pg, invalid, with_files, notification_custody, with_quota
 ):
     pg = provision_pg
-    pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/920_personal_agent_substrate_inventory.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/921_personal_agent_writer_revocation.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/922_personal_agent_bucket_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/923_personal_agent_mail_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/924_personal_agent_kms_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/925_personal_agent_secret_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/926_personal_agent_runtime_account_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/927_personal_agent_project_grant_fence.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/928_byoc_authorization_receipts.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/929_personal_agent_runtime_grant_erasure.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/929_personal_agent_runtime_grant_erasure.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/929_personal_agent_runtime_grant_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/930_personal_agent_repository_grant_erasure.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/930_personal_agent_repository_grant_erasure.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/930_personal_agent_repository_grant_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/931_personal_agent_repository_inventory.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/931_personal_agent_repository_inventory.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/931_personal_agent_repository_inventory.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/932_personal_agent_repository_retention.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/932_personal_agent_repository_retention.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/932_personal_agent_repository_retention.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/933_personal_agent_bootstrap_grant_erasure.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/933_personal_agent_bootstrap_grant_erasure.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/933_personal_agent_bootstrap_grant_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/934_personal_agent_erasure_resource_coverage.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/934_personal_agent_erasure_resource_coverage.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/934_personal_agent_erasure_resource_coverage.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/935_personal_agent_erasure_finalization.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/936_personal_agent_stale_erasure_recovery.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/940_personal_agent_erasure_guard_composition.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/940_personal_agent_erasure_guard_composition.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/940_personal_agent_erasure_guard_composition.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/rollback/941_personal_agent_files_erasure.rollback.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/941_personal_agent_files_erasure.sql")
-    pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
-    pg.apply_file(
-        ROOT / "db/migrations/rollback/942_personal_agent_erasure_validation_cost.rollback.sql"
-    )
-    pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
-    if notification_custody:
-        for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
-            number = int(path.name.split("_", 1)[0])
-            if 943 <= number <= 956 and number not in (944, 945):
-                if number == 954:
-                    pg.execute(
-                        "ALTER TABLE vault_keys ADD COLUMN IF NOT EXISTS setup_capability_ids TEXT"
-                    )
-                pg.apply_file(path)
+    from tests.fixtures.gcp_runtime_grants import install_erasure_schema
+
+    install_erasure_schema(pg, notification_custody=notification_custody)
+    if with_quota:
+        pg.apply_file(ROOT / "db/migrations/parked/964_personal_agent_runtime_quota_grant.sql")
+        pg.apply_file(ROOT / "db/migrations/parked/964_personal_agent_runtime_quota_grant.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -817,6 +754,20 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(
             }
         ],
     }
+    if with_quota:
+        quota_binding = {
+            **inventory["bindingObservations"][0],
+            "step": "iam_pod_sa_quota",
+            "role": "roles/serviceusage.serviceUsageConsumer",
+        }
+        inventory["bindingObservations"].append(quota_binding)
+        inventory["plannedBindings"] = [
+            {
+                "member": runtime_email,
+                "role": quota_binding["role"],
+                "on": "project:synthetic-project",
+            }
+        ]
     repository_identity = {
         "name": "projects/synthetic-project/locations/us-central1/repositories/one-pod",
         "format": "DOCKER",
@@ -1594,6 +1545,41 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(
         "acknowledgement"
         not in provision_row(pg)["backend_metadata"]["erasure"]["runtimeGrantErasure"]
     )
+    if with_quota:
+        # A valid Vertex deletion cannot hide a pending quota obligation.
+        assert not retain_repository("admission", repository_receipt)
+        quota_receipt = {**grant_receipt, "bindingObservation": quota_binding}
+        assert not retain_runtime_grant("deletion", {**quota_receipt, "status": "observed_absent"})
+        assert not retain_runtime_grant("admission", {**quota_receipt, "ownerId": "foreign-owner"})
+        assert not retain_runtime_grant(
+            "admission",
+            {
+                **quota_receipt,
+                "runtimeIdentity": {**runtime_identity, "uniqueId": "999999999"},
+            },
+        )
+        assert not retain_runtime_grant(
+            "admission",
+            {
+                **quota_receipt,
+                "bindingObservation": {**quota_binding, "role": "roles/editor"},
+            },
+        )
+        assert retain_runtime_grant("admission", quota_receipt)
+        assert not retain_runtime_grant("admission", quota_receipt)
+        assert not retain_repository("admission", repository_receipt)
+        assert retain_runtime_grant("deletion", {**quota_receipt, "status": "observed_absent"})
+        assert retain_runtime_grant("deletion", {**quota_receipt, "status": "observed_absent"})
+        saved_runtime = provision_row(pg)["backend_metadata"]["erasure"]["runtimeGrantErasure"]
+        assert (
+            saved_runtime["deletion"]["bindingObservation"] == grant_receipt["bindingObservation"]
+        )
+        assert saved_runtime["quota"]["deletion"]["bindingObservation"] == quota_binding
+        # CAS/trigger disallows overwriting one slot while appending the other.
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            pg.execute(
+                "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{erasure,runtimeGrantErasure,deletion,status}','\"changed\"') WHERE user_id='synthetic-owner'"
+            )
     assert not retain_repository("admission", {**repository_receipt, "ownerId": "foreign-owner"})
     assert not retain_repository(
         "admission",
@@ -1984,6 +1970,12 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(
     archive = pg.execute(
         "SELECT metadata FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'"
     )[0][0]
+    if with_quota:
+        assert (
+            archive["receipts"]["runtimeQuotaGrantDeletion"]["bindingObservation"] == quota_binding
+        )
+    else:
+        assert "runtimeQuotaGrantDeletion" not in archive["receipts"]
     assert archive["ownerId"] == "synthetic-owner"
     assert archive["attemptId"] == "attempt-one"
     assert (

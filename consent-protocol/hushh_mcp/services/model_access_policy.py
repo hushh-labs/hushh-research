@@ -178,10 +178,11 @@ def byoc_vertex_preconditions(
 ) -> dict[str, Any]:
     """Is Vertex ADC actually establishable in the USER's project, before we build?
 
-    Checks the two conditions whose absence makes pod ADC impossible:
+    Checks the declared prerequisites for owner-project ADC:
 
     1. ``aiplatform.googleapis.com`` is enabled in their project.
     2. the pod's service account holds ``roles/aiplatform.user`` there.
+    3. it holds ``roles/serviceusage.serviceUsageConsumer`` for quota use.
 
     Read-only, and it grants nothing: a missing binding is reported so the bootstrap
     can add it deliberately, never quietly acquired here. Returns a verdict dict
@@ -197,6 +198,7 @@ def byoc_vertex_preconditions(
         "podServiceAccount": pod_service_account,
         "vertexApiEnabled": False,
         "podHasAiplatformUser": False,
+        "podHasServiceUsageConsumer": False,
         "established": False,
         "missing": [],
     }
@@ -220,14 +222,25 @@ def byoc_vertex_preconditions(
     )
     if getattr(policy, "status_code", 0) == 200:
         member = f"serviceAccount:{pod_service_account}"
-        result["podHasAiplatformUser"] = any(
-            b.get("role") == "roles/aiplatform.user" and member in (b.get("members") or [])
+        roles = {
+            b.get("role")
             for b in policy.json().get("bindings", [])
-        )
+            if member in (b.get("members") or []) and "condition" not in b
+        }
+        result["podHasAiplatformUser"] = "roles/aiplatform.user" in roles
+        result["podHasServiceUsageConsumer"] = "roles/serviceusage.serviceUsageConsumer" in roles
     if not result["podHasAiplatformUser"]:
         result["missing"].append(f"{pod_service_account} lacks roles/aiplatform.user")
 
-    result["established"] = bool(result["vertexApiEnabled"] and result["podHasAiplatformUser"])
+    if not result["podHasServiceUsageConsumer"]:
+        result["missing"].append(
+            f"{pod_service_account} lacks roles/serviceusage.serviceUsageConsumer"
+        )
+    result["established"] = bool(
+        result["vertexApiEnabled"]
+        and result["podHasAiplatformUser"]
+        and result["podHasServiceUsageConsumer"]
+    )
     logger.info(
         "byoc_vertex_preconditions project=%s established=%s missing=%d",
         project,

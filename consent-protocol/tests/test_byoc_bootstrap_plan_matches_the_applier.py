@@ -3,7 +3,7 @@
 `render_bootstrap_plan` is what a person reads before authorizing their project.
 `UserGcpBootstrap.plan_calls` is what then runs in it. They diverged in EIGHT roles,
 and the direction that matters most is the one where the applier granted something the
-plan never mentioned -- including `roles/aiplatform.user`, the ONLY project-level grant
+plan never mentioned -- including `roles/aiplatform.user`, a project-level grant
 in the whole design.
 
 This is `test_byoc_authorization_script_matches_the_applier`'s doctrine applied to the
@@ -87,10 +87,18 @@ def test_the_project_level_grant_is_declared_as_project_level() -> None:
     without knowing Vertex's IAM model.
     """
     _, plan = _plan()
-    vertex = [b for b in plan["iam"] if b["role"] == "roles/aiplatform.user"]
-    assert vertex, "the only project-wide grant is missing from the consent artifact"
-    assert vertex[0].get("project_level") is True
-    assert "project:" in str(vertex[0].get("on", ""))
+    roles = {"roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer"}
+    runtime = [b for b in plan["iam"] if b["role"] in roles]
+    assert {b["role"] for b in runtime} == roles
+    calls = [
+        c for c in UserGcpBootstrap(project=_PROJECT).plan_calls(plan) if c.get("project_level")
+    ]
+    for binding in runtime:
+        assert binding.get("project_level") is True
+        assert binding["on"] == "project:" + _PROJECT
+        call = next(c for c in calls if c["bindings"][0]["role"] == binding["role"])
+        assert call["bindings"][0]["members"] == ["serviceAccount:" + binding["member"]]
+        assert call["read_url"].endswith("/projects/" + _PROJECT + ":getIamPolicy")
 
 
 def test_every_plan_role_is_either_applied_or_explicitly_accounted_for() -> None:

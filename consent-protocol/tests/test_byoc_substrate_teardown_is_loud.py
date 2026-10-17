@@ -260,47 +260,18 @@ async def test_shared_artifact_repository_refuses_without_provider_access(monkey
 
 
 @pytest.mark.parametrize("case", ["deleted", "original", "foreign_uid", "pending"])
-async def test_runtime_project_grant_cleanup_targets_exact_deleted_identity(case):
-    email = "one-pod-owner@proj-x.iam.gserviceaccount.com"
-    uid = "123456789012345678901"
-    member = f"deleted:serviceAccount:{email}?uid={uid}"
-    role = "roles/aiplatform.user"
-    evidence = {
-        "runtimeIdentity": {
-            "name": f"projects/proj-x/serviceAccounts/{email}",
-            "projectId": "proj-x",
-            "email": email,
-            "uniqueId": uid,
-        },
-        "bindingObservation": {
-            "step": "iam_pod_sa_vertex",
-            "policyResource": "https://cloudresourcemanager.googleapis.com/v1/projects/proj-x:getIamPolicy",
-            "role": role,
-            "member": f"serviceAccount:{email}",
-            "disposition": "added",
-            "beforeEtag": "before",
-            "afterEtag": "after",
-        },
-    }
-    action = {
-        "type": "iam_binding",
-        "id": "runtime-grant",
-        "role": role,
-        "member": member.replace(uid, "999999999999999999999") if case == "foreign_uid" else member,
-    }
-    other = member.replace(uid, "888888888888888888888")
-    policy = {
-        "version": 3,
-        "etag": "current",
-        "bindings": [
-            {
-                "role": role,
-                "members": [member, other]
-                + ([f"serviceAccount:{email}"] if case == "original" else []),
-            }
-        ],
-    }
-    absent = {"version": 3, "etag": "after", "bindings": [{"role": role, "members": [other]}]}
+@pytest.mark.parametrize(
+    "role,step",
+    [
+        ("roles/aiplatform.user", "iam_pod_sa_vertex"),
+        ("roles/serviceusage.serviceUsageConsumer", "iam_pod_sa_quota"),
+        ("roles/editor", "iam_pod_sa_quota"),
+    ],
+)
+async def test_runtime_project_grant_cleanup_targets_exact_deleted_identity(case, role, step):
+    from tests.fixtures.gcp_runtime_grants import runtime_policy_fixture
+
+    evidence, action, policy, absent, other = runtime_policy_fixture(case, role, step)
     session = _Session()
     reads = iter([_Resp(200, policy), _Resp(200, absent)])
     session.rule("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
@@ -321,7 +292,7 @@ async def test_runtime_project_grant_cleanup_targets_exact_deleted_identity(case
         grant_erasure_state=state,
         retain_grant_receipt=retain,
     )
-    if case == "deleted":
+    if case == "deleted" and role != "roles/editor":
         await deleter(action)
         assert retained[-1][1]["status"] == "observed_absent"
         write = next(call for call in session.calls if ":setIamPolicy" in call[1])
@@ -331,7 +302,7 @@ async def test_runtime_project_grant_cleanup_targets_exact_deleted_identity(case
             await deleter(action)
         assert not any(":setIamPolicy" in call[1] for call in session.calls)
         assert not retained
-    if case == "foreign_uid":
+    if case == "foreign_uid" or role == "roles/editor":
         assert not session.calls
 
 

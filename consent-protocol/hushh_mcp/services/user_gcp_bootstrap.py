@@ -1191,33 +1191,9 @@ class UserGcpBootstrap:
                 "tolerate": [],
             }
         )
-        # Vertex has no per-resource binding, so model access for the pod is granted at
-        # PROJECT level, the one place BYOC grants project-wide, called out not buried:
-        # `roles/aiplatform.user` lets the pod call Vertex as itself, on the person's bill.
-        calls.append(
-            {
-                "step": "iam_pod_sa_vertex",
-                "kind": "merge_binding",
-                "read_url": (
-                    "https://cloudresourcemanager.googleapis.com/v1/projects/"
-                    f"{project}:getIamPolicy"
-                ),
-                "read_method": "POST",
-                "write_url": (
-                    "https://cloudresourcemanager.googleapis.com/v1/projects/"
-                    f"{project}:setIamPolicy"
-                ),
-                "policy_envelope": "policy",
-                "bindings": [
-                    {
-                        "role": "roles/aiplatform.user",
-                        "members": [f"serviceAccount:{pod_sa}"],
-                    }
-                ],
-                "tolerate": [],
-                "project_level": True,
-            }
-        )
+        from hushh_mcp.services.gcp_runtime_grants import runtime_grant_calls
+
+        calls.extend(runtime_grant_calls(project, pod_sa))
         from hushh_mcp.services.pod_files.provisioning import bootstrap_calls
 
         if plan.get("gmailNotifications"):

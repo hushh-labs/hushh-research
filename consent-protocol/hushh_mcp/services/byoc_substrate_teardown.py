@@ -285,12 +285,17 @@ def substrate_resources(
         {"type": "secret", "id": f"{account_id}-signing-key"},
         {"type": "service_account", "id": sa_email},
         {
-            # The ONLY project-level grant bootstrap makes (user_gcp_bootstrap.plan_calls,
-            # step iam_pod_sa_vertex). Every other binding dies with its resource; this one
-            # outlives the SA delete as an inert deleted: member unless removed here.
+            # Project grants outlive SA deletion as inert deleted: members. Names
+            # identify obligations; only recorded creation evidence permits cleanup.
             "type": "iam_binding",
             "id": f"roles/aiplatform.user:{sa_email}",
             "role": "roles/aiplatform.user",
+            "member": f"serviceAccount:{sa_email}",
+        },
+        {
+            "type": "iam_binding",
+            "id": f"roles/serviceusage.serviceUsageConsumer:{sa_email}",
+            "role": "roles/serviceusage.serviceUsageConsumer",
             "member": f"serviceAccount:{sa_email}",
         },
         {"type": "kms_key", "id": f"one-pod-{slug}-key"},
@@ -1211,6 +1216,7 @@ def build_gcp_deleter(
                 _binding_observation,
                 _service_account_creation_identity,
             )
+            from hushh_mcp.services.gcp_runtime_grants import runtime_grant_target_matches
 
             raw = grant_evidence if isinstance(grant_evidence, dict) else {}
             identity_key = "runtimeIdentity" if kind == "iam_binding" else "bootstrapIdentity"
@@ -1236,16 +1242,7 @@ def build_gcp_deleter(
             ):
                 raise SubstrateDeleteError("grant authorization evidence invalid")
             if kind == "iam_binding":
-                if (
-                    action.get("role") != "roles/aiplatform.user"
-                    or binding["step"] != "iam_pod_sa_vertex"
-                    or binding["disposition"] != "added"
-                    or binding["member"] != f"serviceAccount:{identity['email']}"
-                    or action.get("member")
-                    != f"deleted:serviceAccount:{identity['email']}?uid={identity['uniqueId']}"
-                    or binding["policyResource"]
-                    != f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}:getIamPolicy"
-                ):
+                if not runtime_grant_target_matches(action, binding, identity, project):
                     raise SubstrateDeleteError("runtime grant authorization evidence invalid")
             elif kind == "artifact_repository_iam_binding":
                 if (

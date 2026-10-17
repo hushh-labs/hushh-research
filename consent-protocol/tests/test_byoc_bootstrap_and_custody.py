@@ -301,31 +301,19 @@ def test_the_bucket_is_created_after_the_key_and_names_it() -> None:
     assert bucket_call["body"]["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"] is True
 
 
-def test_exactly_one_grant_is_project_level_and_it_is_vertex() -> None:
-    """Least privilege is still the claim; the claim's SHAPE changed, so this did too.
-
-    This test used to assert that NO step grants a project-level role. That was true
-    while the pod only needed a key and a bucket, both of which take per-resource
-    bindings. Vertex does not: `roles/aiplatform.user` has no per-resource form, so
-    model access for the pod has to be granted on the project.
-
-    Asserting "none" would now be asserting something false, and the useful property is
-    not "zero project-level grants" but "exactly one, and we know which". A second one
-    appearing is the regression worth catching.
-    """
+def test_runtime_project_grants_are_exactly_vertex_and_quota_use() -> None:
     boot = UserGcpBootstrap(project=USER_PROJECT, session=_Session([]))
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     calls = boot.plan_calls(plan)
-
     project_level = [c for c in calls if c.get("project_level")]
-    assert len(project_level) == 1
-    assert project_level[0]["bindings"][0]["role"] == "roles/aiplatform.user"
-
-    # Every OTHER IAM write still targets a named key or bucket.
+    assert {(c["step"], c["bindings"][0]["role"]) for c in project_level} == {
+        ("iam_pod_sa_vertex", "roles/aiplatform.user"),
+        ("iam_pod_sa_quota", "roles/serviceusage.serviceUsageConsumer"),
+    }
+    assert len(project_level) == 2
     for call in calls:
-        if call.get("kind") != "merge_binding" or call.get("project_level"):
-            continue
-        assert "cloudresourcemanager" not in call["write_url"]
+        if call.get("kind") == "merge_binding" and not call.get("project_level"):
+            assert "cloudresourcemanager" not in call["write_url"]
 
 
 def test_a_failed_step_is_reported_rather_than_raised() -> None:
@@ -847,20 +835,6 @@ def test_an_unreadable_policy_fails_rather_than_writing_blind() -> None:
     assert result["ok"] is False
     assert "could not read" in result["detail"]
     assert "synthetic-private-provider-detail" not in json.dumps(result)
-
-
-def test_the_vertex_grant_is_the_one_project_level_binding_and_is_marked() -> None:
-    """Vertex has no per-resource binding, so this one is project-scoped by necessity.
-
-    Marked rather than buried, so the disclosure can name it instead of a reader
-    discovering it in a policy dump later.
-    """
-    boot = UserGcpBootstrap(project=USER_PROJECT, session=_Session([]))
-    plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
-    project_level = [c for c in boot.plan_calls(plan) if c.get("project_level")]
-    assert len(project_level) == 1
-    assert project_level[0]["step"] == "iam_pod_sa_vertex"
-    assert project_level[0]["bindings"][0]["role"] == "roles/aiplatform.user"
 
 
 def test_a_bucket_name_owned_by_someone_else_is_not_treated_as_success() -> None:

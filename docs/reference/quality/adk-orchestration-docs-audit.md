@@ -30,7 +30,7 @@ Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabl
 | Published pod release | `2026.10-dev.22+0b1d4202d9b1.250aea9e`, immutable `sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1`; image source `0b1d4202d9` | Archive generation `1792232007802820`, SHA-256 `7ee5ee95c5fcfa3d9ecc2096cc813a3e3b66f6139c2d10707e76033bfe4e6208`. Empty predecessor list: no installation offered until exact-image recovery qualification |
 | Personal Azure pod | Settings-approved operation `op_19b2108a5a8e4feca31d251ec4444084`; verified 22:31:26 UTC; revision `ca-hussh-one-pod--u0f70485d740a`, installed Dev 21 digest `72b049df…842b001b` | Same service and attached identity; 1 vCPU, 2 GiB, min 0/max 1, one worker, HTTP threshold 8, relay grace 600 s. No account or device reset |
 | Prior Dev 21 qualification | Both disposable clouds recovered 4,195,328 Files bytes using native identities, then upgraded from exact predecessor. Azure also retained encrypted chat/settings and completed another real response. Temporary Jobs deleted and absence verified | GCP live chat continuity and live rollback remain unverified; isolated evidence is distinct from personal Settings approval |
-| New Dev 22 native recovery | Exact `250aea9e…fc69f1` image recovers the retained 4,195,328-byte Files fixture on both clouds using native identities; keys remain inside the runtime. Both temporary Jobs were deleted and absence verified | GCP log-read 429 reconciled without rerunning its successful worker. Azure authenticated replacement retained Files, settings, key identity and the exact encrypted chat; the subsequent response reached `RUN_FINISHED` (13.089 s first content / 20.401 s completion). GCP chat returned `AGENT_ERROR` before replacement. A native-identity model probe independently returns Vertex `403 PERMISSION_DENIED` despite enabled billing/API and the existing Vertex AI User grant; no IAM or model fallback change was made. The local Dev 23 descriptor admits only exact Dev 21 digest `72b049df…842b001b` for the proven Azure owner transition, reusing the published image; it is not yet published or installed. GCP chat acceptance is not inferred |
+| New Dev 22 native recovery | Exact `250aea9e…fc69f1` image recovers the retained 4,195,328-byte Files fixture on both clouds using native identities; keys remain inside the runtime. Both temporary Jobs were deleted and absence verified | GCP log-read 429 reconciled without rerunning its successful worker. Azure authenticated replacement retained Files, settings, key identity and the exact encrypted chat; the subsequent response reached `RUN_FINISHED` (13.089 s first content / 20.401 s completion). GCP chat returned `AGENT_ERROR` before replacement. A native-identity model probe independently returns Vertex `403 PERMISSION_DENIED` despite enabled billing/API and the existing Vertex AI User grant; a fixture-only Service Usage Consumer grant was tried, then removed by an etag-preserving exact diff with independent readback. A fresh synthetic turn still failed after seven minutes; this is not the established chat fix and no model fallback occurred. The local Dev 23 descriptor admits only exact Dev 21 digest `72b049df…842b001b` for the proven Azure owner transition, reusing the published image; it is not yet published or installed. GCP chat acceptance is not inferred |
 
 The workflow-only Admin repair and `azfx` removal landed separately through
 [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121), with live protection
@@ -114,10 +114,22 @@ coverage. Focused UI checks, browser collection, typecheck and design checks pas
 streamed-command replay and session-renewal scroll regressions retain failing
 old-source controls. Workflow history now survives either merge-parent order,
 with exact retired revisions still refused;48 focused checks and two old-source
-failures prove this correction. The Dev 22 descriptor requires a new image, but the actual deployment disabled
-pod-image building. No Dev 22 image or offer was published; its predecessor list
-stays empty until exact-image recovery qualifies a transition. No install is offered
-by a version label alone.
+failures prove this correction. Dev 22 image publication and exact Azure recovery
+are verified above; its live predecessor list remains empty until the separately
+reviewed Dev 23 offer serves. No install is offered by a version label alone.
+
+A subsequent source review confirmed a missing GCP quota-use grant and its cleanup
+obligation. The local correction discloses/applies the exact Consumer role and
+extends the existing deletion journal, archive and finalization dependency. Dev-only
+964 preserves legacy receipts; rollback locks custody and refuses unresolved
+provision attempts. Focused checks: 320 provisioning/IAM, 18 orchestration, ten real
+PostgreSQL erasure cases and two schema replay/rollback cases pass. Restoring the
+old Vertex-only completion prerequisite makes the quota-boundary test fail. The prior core
+on `702ad9939d` was deliberately interrupted for this repair; it is not a green
+candidate. The cohesive grant/protocol extraction then passed 420 focused checks
+and four real-PostgreSQL parity/rollback cases; changed Python files pass the
+unchanged architecture ratchet. Personal pods and the serving `0b1d4202d9` release
+are unchanged.
 
 Historical anchor: the [architecture baseline](./architecture-fitness-baseline.json)
 owns reviewed spans, hashes, parents and negative controls. Budgets 500/250/80 and

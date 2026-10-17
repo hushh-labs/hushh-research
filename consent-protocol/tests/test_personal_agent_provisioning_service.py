@@ -1563,46 +1563,20 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
 @pytest.mark.parametrize(
     "failure", [None, "foreign_owner", "preflight", "readback", "admission", "owner_changed"]
 )
-@pytest.mark.parametrize("repository", [False, True])
+@pytest.mark.parametrize("repository,quota", [(False, False), (False, True), (True, False)])
 async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
-    monkeypatch, failure, repository
+    monkeypatch, failure, repository, quota
 ):
     import asyncio
     from copy import deepcopy
 
     service = _svc()
     registry = service._registry
-    identity = {
-        "email": "runtime@synthetic-project.iam.gserviceaccount.com",
-        "uniqueId": "123456789012345678901",
-    }
-    binding = {"step": "iam_pod_sa_vertex", "member": f"serviceAccount:{identity['email']}"}
-    identity_key = "repositoryIdentity" if repository else "runtimeIdentity"
-    state_key = "repositoryGrantErasure" if repository else "runtimeGrantErasure"
-    method = "erase_repository_grant" if repository else "erase_runtime_grant"
-    if repository:
-        identity = {
-            "name": "projects/synthetic-project/locations/us-central1/repositories/one-pod",
-            "format": "DOCKER",
-            "createTime": "2026-09-08T00:00:00Z",
-        }
-        binding["step"] = "artifact_repo_grant_copy_writer"
-    reservation = {
-        "ownerId": "foreign-owner" if failure == "foreign_owner" else _UID,
-        "attemptId": "erase-one",
-        "registrySnapshot": {"user_id": _UID, "user_cloud_project": "synthetic-project"},
-        "substrateInventory": {"bindingObservations": [binding]},
-        "writerDisabled": {"runtimeIdentity": identity},
-    }
-    if repository:
-        reservation["substrateInventory"]["resourceObservations"] = [
-            {
-                "type": "artifact_repository",
-                "id": "one-pod",
-                "disposition": "created",
-                "identity": identity,
-            }
-        ]
+    from tests.fixtures.gcp_runtime_grants import grant_cleanup_fixture
+
+    identity, binding, identity_key, state_key, method, reservation = grant_cleanup_fixture(
+        _UID, failure, repository, quota
+    )
     registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
     events = []
 
@@ -1630,10 +1604,12 @@ async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
         events.append(stage)
         if failure == stage:
             return False
-        registry.rows[_UID]["backend_metadata"]["erasure"] = {
-            **reservation,
-            state_key: {**reservation.get(state_key, {}), stage: receipt},
-        }
+        journal = reservation.get(state_key, {})
+        if quota:
+            journal = {**journal, "quota": {**journal.get("quota", {}), stage: receipt}}
+        else:
+            journal = {**journal, stage: receipt}
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {**reservation, state_key: journal}
         return True
 
     async def erase(*, evidence, state, retain_receipt):
@@ -1668,10 +1644,10 @@ async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
     )
     if failure:
         with pytest.raises(RuntimeError):
-            await service._erase_reserved_grant(user_id=_UID, repository=repository)
+            await service._erase_reserved_grant(user_id=_UID, repository=repository, quota=quota)
         assert "provider_mutation" not in events
     else:
-        await service._erase_reserved_grant(user_id=_UID, repository=repository)
+        await service._erase_reserved_grant(user_id=_UID, repository=repository, quota=quota)
         assert events == ["admission", "provider_mutation", "deletion"]
     if failure in {"foreign_owner", "preflight", "readback"}:
         backend.assert_not_called()

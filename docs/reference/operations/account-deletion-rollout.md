@@ -80,6 +80,20 @@ for governed rehearsal, together with 963’s complete archive projection.
 Destructive admission remains unavailable until both contracts are installed;
 selection does not establish disposable live acceptance. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
+## GCP runtime quota grants
+
+Dev-only migration 964 extends the existing runtime-grant erasure journal with a
+`quota` slot. New GCP setup discloses both Vertex AI User and Service Usage
+Consumer on the owner's project; the latter permits quota consumption, not API
+enablement or billing changes. Each grant needs exact added-binding provenance,
+the deleted service account's numeric identity and observed policy absence.
+Repository release and finalization refuse a missing quota receipt or ambiguous
+provenance. Older Vertex-only receipts remain readable. Apply 964 before admitting
+the new bootstrap plan; do not backfill creation evidence from current IAM.
+Drain quota-writing workers before schema rollback. Rollback also locks the custody
+tables and refuses unresolved provision attempts, quota plans or retained receipts;
+an application rollback cannot remove an unjournaled cloud grant.
+
 ## OAuth-project Gmail cleanup
 
 Dev-only963 preserves the owner-specific full topic name, creation observation
