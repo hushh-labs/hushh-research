@@ -99,7 +99,18 @@ The `2026-10-17T12:34:30Z` read-only provider preflight verifies the same fundin
 and capital totals, balanced liabilities, settled backing and conserved fees.
 The existing signed-in browser displays an enabled price-review control for the
 inactive one-cent approval; this diagnostic does not establish a purchase or
-replace canonical same-session encrypted delivery acceptance.
+replace canonical same-session encrypted delivery acceptance. A later headless diagnostic reaches the same Consent query with
+an unlocked vault and a mounted but empty sharing-review panel, without a read
+error. The source now retries an empty, error-free initial financial read every
+15 visible seconds using a newly captured session; retired payloads remain
+withheld. The nearest 33 commerce-panel cases pass, including initial vault and
+authentication retirement, stale-result rejection and fresh-read recovery. This bounds the source correction; the exact
+runtime retirement cause and deployed recovery remain to be verified. The
+original polling condition fails both regression cases in an isolated,
+in-memory negative control. The source change passes 472 Back cases and
+TypeScript. A normal Refresh attempt on the previous deployed build did not
+recover the control; successful request/readiness HTTP responses alone therefore
+do not establish a usable review. No purchase was confirmed in that diagnostic.
 UI behavior, core, hosted CI and governed Dev deployment remain required before
 resuming the preserved financial checkpoint.
 
