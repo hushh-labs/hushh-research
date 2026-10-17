@@ -56,9 +56,15 @@ def send_user_data_push(
     try:
         from hushh_mcp.services.system_push_delivery import durable_push_receipt
 
-        receipt = durable_push_receipt(user_id, notification_type, data or {}) if (
-            show_alert and platforms is None and str((data or {}).get("sync_only", "")).lower() != "true"
-        ) else None
+        receipt = (
+            durable_push_receipt(user_id, notification_type, data or {})
+            if (
+                show_alert
+                and platforms is None
+                and str((data or {}).get("sync_only", "")).lower() != "true"
+            )
+            else None
+        )
         if receipt is not None:
             return receipt
         from api.utils.firebase_admin import ensure_firebase_admin
@@ -227,7 +233,9 @@ def _publish_connection_user_event(user_id: str, payload: dict[str, str]) -> Non
         logger.warning("push.sse_queue_failed type=%s error=%s", payload.get("type"), exc)
 
 
-def _canonical_push_message_id(user_id: str, notification_type: str, data: dict, fallback: str) -> str:
+def _canonical_push_message_id(
+    user_id: str, notification_type: str, data: dict, fallback: str
+) -> str:
     try:
         from hushh_mcp.services.system_push_delivery import durable_push_event_id
 
@@ -318,7 +326,9 @@ def send_connection_request_push(
     # The raw requester user id is deliberately absent: the client neither
     # routes nor renders from it, so sending it would widen the push payload
     # without adding a user-facing capability.
-    message_id = _canonical_push_message_id(addressee_user_id, "connection_request", {"request_id": request_id}, message_id)
+    message_id = _canonical_push_message_id(
+        addressee_user_id, "connection_request", {"request_id": request_id}, message_id
+    )
     client_data = {
         "message_id": message_id,
         "requester_label": requester_name,

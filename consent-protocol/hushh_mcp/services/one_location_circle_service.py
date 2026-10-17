@@ -5542,7 +5542,9 @@ class OneLocationCircleService:
                 # Trusted membership is a mutual designation: removing a
                 # person from the owner's Trusted Circle removes the owner
                 # from that person's Trusted Circle as well. The connection
-                # remains intact; only the two Trusted memberships change.
+                # remains intact; only existing active Trusted memberships change.
+                # A one-way or already-ended reverse membership must not roll
+                # back the owner's valid removal with a recursive 404.
                 if (
                     not _reciprocal_trusted
                     and status == "removed"
@@ -5552,15 +5554,23 @@ class OneLocationCircleService:
                         conn.execute(
                             text(
                                 """
-                                SELECT id::text AS circle_id
-                                FROM one_location_circles
-                                WHERE owner_user_id = :owner_user_id
-                                  AND system_kind = 'trusted'
-                                  AND status = 'active'
-                                FOR UPDATE
+                                SELECT circle.id::text AS circle_id
+                                FROM one_location_circles circle
+                                JOIN one_location_circle_memberships membership
+                                  ON membership.circle_id = circle.id
+                                 AND membership.user_id = :member_user_id
+                                 AND membership.role = 'member'
+                                 AND membership.status = 'active'
+                                WHERE circle.owner_user_id = :owner_user_id
+                                  AND circle.system_kind = 'trusted'
+                                  AND circle.status = 'active'
+                                FOR UPDATE OF circle, membership
                                 """
                             ),
-                            {"owner_user_id": target_user_id},
+                            {
+                                "owner_user_id": target_user_id,
+                                "member_user_id": owner_user_id,
+                            },
                         )
                     )
                     if counterpart:
