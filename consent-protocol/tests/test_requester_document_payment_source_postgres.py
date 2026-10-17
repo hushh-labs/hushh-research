@@ -30,7 +30,8 @@ def payment_db(connector_postgres_url):
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
     engine = create_engine(
         connector_postgres_url,
-        connect_args={"options": f"-csearch_path={schema},public"},
+        # Exact timestamp assertions use UTC, not the workstation's initdb zone.
+        connect_args={"options": f"-csearch_path={schema},public -ctimezone=UTC"},
     )
     with engine.begin() as connection:
         connection.exec_driver_sql("""CREATE TABLE drive_request_payment_orders (
