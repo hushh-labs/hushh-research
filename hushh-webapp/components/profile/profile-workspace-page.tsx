@@ -157,6 +157,7 @@ import {
 } from "@/lib/navigation/profile-routes";
 import {
   popProfilePaneLocation,
+  profileLegalParentForPresentation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
   resolveProfilePaneUrlState,
@@ -4911,8 +4912,9 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
+  const legalParent = profileLegalParentForPresentation();
   const nativeLegal = projectNativeProfileLegal(activeDetail === "privacy" || activeDetail === "terms" ? activeDetail : null,
-    (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT));
+    (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT), legalParent === true);
   const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
     { id: "account-identity", title: "Identity", rows: [
       { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
@@ -4939,7 +4941,7 @@ function ProfilePageContent({
     ] },
   ] };
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
-    legal={{ active: activePanel === "legal" && !showVaultUnlock, ...nativeLegal,
+    legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
       <NativeSupportComposer destinationId={destinationId} onFallback={onFallback} model={{

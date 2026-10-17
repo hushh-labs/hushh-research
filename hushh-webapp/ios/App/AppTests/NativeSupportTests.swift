@@ -20,6 +20,8 @@ final class NativeSupportTests: XCTestCase {
             NativeProfilePage(id: "privacy", title: "Privacy", sections: [], legalDocument: document)]
         XCTAssertTrue(state.valid)
         XCTAssertTrue(state.allows(action: "row", row: "public-contact"))
+        var direct = state; direct.profileStack?.removeFirst()
+        XCTAssertTrue(direct.valid, "A document opened from Profile must not invent an intermediate Legal visit")
         XCTAssertFalse(state.allows(action: "row", row: "https://example.com"))
         XCTAssertFalse(state.allows(action: "row", row: "public-contact", text: "arbitrary"))
         state.profileStack?.removeLast()

@@ -121,7 +121,7 @@ struct NativeDrawerProjection: Codable {
             guard family == "profile", stack.count <= 2, Set(stack.map(\.id)).count == stack.count,
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["account", "preferences", "security", "legal"].contains(page.id) :
+                      (index == 0 ? ["account", "preferences", "security", "legal", "privacy", "terms"].contains(page.id) :
                         page.id == "session" && stack.first?.id == "security" ||
                         ["privacy", "terms"].contains(page.id) && stack.first?.id == "legal") &&
                           Self.text(page.title, 256) && page.sections.count <= 32 &&

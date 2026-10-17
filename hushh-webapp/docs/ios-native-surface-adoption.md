@@ -18,13 +18,14 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Native Legal reader — 2026-10-17
 
-Source checkpoint: `c459cf1332` (local, not pushed or installed on iPhone).
+Initial source checkpoint: `c459cf1332` (local, not pushed).
 The qualification build now has a complete SwiftUI Privacy/Terms reader in the
 retained UIKit Profile stack: full authored sections, paragraphs, subheadings,
 lists, inline links, effective date/version, contents scrolling and See also.
 `legal-documents.ts` remains the only content source; nothing is summarized or
 flattened into settings rows. Document switches replace the current detail via
-the existing Profile query owner. Back retains Legal → Profile ancestry.
+the existing Profile query owner. Native ancestry must mirror that owner's
+actual Back destination, not an invented Legal intermediate page.
 
 NativeDrawers v1 negotiates `profileLegalReader`. Older wrappers keep the
 established React reader before reveal. Only bounded document content and
@@ -41,10 +42,28 @@ is removed. Independent read-only native/security review found no blocker.
 The isolated headless native host contract passes (one executed, zero skipped),
 including rejected executable fields and inactive-document links. The new
 reader's physical interaction/accessibility acceptance remains separate; the
-host contract is not visual acceptance. The
-current iPhone remains on `ad6c04cdad`: the new reader has not been installed
-because the preparation check found an unsent One draft. No draft was discarded,
-no session was restarted, and ordinary-build admission remains disabled.
+host contract is not visual acceptance.
+
+The first Legal candidate is installed from `0dda4cbabb`, Agent One 1.4.0 (69),
+UAT-backed Debug qualification, executable SHA-256
+`5a475a5041a62d07d1af2d8904f62e772d9dab31303877b85caf311a7c94dc07`.
+The user authorized installs/restarts with draft/attachment loss for this work.
+Assets/signature, credential-free XCTest admission and normal private unlock
+pass. The real reader opens, contents navigation and document switching work;
+the first physical batch fails its Back-depth assertion. The failure is
+retained in local evidence, not relabeled as visual acceptance.
+
+RCA: the projection always inserted Legal, even for a document opened directly
+from Profile. UIKit popped to that unvisited parent before the existing browser
+history owner correctly restored Profile. The correction adds one nonsecret
+`legalParent` presentation bit to that existing history owner and retains it
+through document replacement. It does not change actual Back. Direct/resumed
+entries follow the existing authored fallback; ambiguous older owned entries
+retain the web reader. TypeScript/native admit a validated document at stack
+root. The focused negative control reproduces the invented parent; 211 nearest
+cases, lint/typecheck and independent read-only review pass with the correction.
+The corrected physical candidate is being prepared; no acceptance is inferred.
+Ordinary-build native admission remains disabled.
 
 Rollback: revert the Legal-family increment, or leave the existing global
 qualification flag off. NativeChrome v2, NativeDock v1 and the normal web/Android

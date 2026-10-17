@@ -215,7 +215,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
       value.profileStack.length > 2 || new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument"]) ||
-        !(index === 0 ? ["account", "preferences", "security", "legal"].includes(page.id) :
+        !(index === 0 ? ["account", "preferences", "security", "legal", "privacy", "terms"].includes(page.id) :
           page.id === "session" && value.profileStack?.[0]?.id === "security" ||
           ["privacy", "terms"].includes(page.id) && value.profileStack?.[0]?.id === "legal") ||
         (["privacy", "terms"].includes(page.id) ? !page.legalDocument || !validNativeLegalDocument(page.legalDocument) ||

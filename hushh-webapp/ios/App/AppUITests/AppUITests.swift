@@ -4454,7 +4454,7 @@ final class AppUITests: XCTestCase {
             destination.tap()
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
                 let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch
-                guard waitForAdmittedControl(nativeLegalBack), waitForAdmittedControl(close) else {
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_LEGAL_HEADER_UNAVAILABLE"); return
                 }
                 XCTAssertFalse(app.buttons["Back in Profile"].firstMatch.exists, "PROFILE_LEGAL_DUPLICATE_WEB_HEADER")
@@ -4474,9 +4474,6 @@ final class AppUITests: XCTestCase {
                 related.tap()
                 let other = id == "privacy" ? "terms" : "privacy"
                 guard app.scrollViews["native-legal-reader-\(other)"].firstMatch.waitForExistence(timeout: 5),
-                      waitForAdmittedControl(nativeLegalBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_UNAVAILABLE"); return }
-                nativeLegalBack.tap()
-                guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-\(id)"].firstMatch),
                       waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
                 nativeAccountBack.tap()
                 guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {

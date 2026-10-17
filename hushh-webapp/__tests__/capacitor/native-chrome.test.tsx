@@ -467,6 +467,7 @@ describe("private native drawer action boundary", () => {
         { id: document.type, title: "Document", sections: [], legalDocument: document },
       ] });
     expect(validNativeDrawerProjection(legal(privacy, 4))).toBe(true);
+    expect(validNativeDrawerProjection({ ...legal(privacy, 4), profileStack: legal(privacy, 4).profileStack!.slice(1) })).toBe(true);
     const privacyLink = { ...event, updateSequence: 4, sequence: 3, rowId: privacy.related.actionId };
     expect(nativeDrawerChoiceAllowed(privacyLink, legal(privacy, 4))).toBe(true);
     expect(nativeDrawerChoiceAllowed({ ...privacyLink, rowId: "https://example.com" }, legal(privacy, 4))).toBe(false);

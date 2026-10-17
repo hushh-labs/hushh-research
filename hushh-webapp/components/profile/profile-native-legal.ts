@@ -8,7 +8,7 @@ import { openExternalUrl } from "@/lib/utils/browser-navigation";
  * the native reader never receives URLs or another navigation authority. */
 export function projectNativeProfileLegal(detail: LegalDocumentType | null,
   open: (type: LegalDocumentType, mode: "push" | "replace") => void,
-  openAccountDeletion: () => void) {
+  openAccountDeletion: () => void, includeSection = true) {
   const rows: Map<string, () => void> = new Map();
   const pages: NativeProfilePage[] = [{ id: "legal", title: "Legal", sections: [{ id: "legal-documents", title: "Documents",
     rows: (["privacy", "terms"] as const).map(type => {
@@ -27,6 +27,7 @@ export function projectNativeProfileLegal(detail: LegalDocumentType | null,
         }
       });
     }
+    if (!includeSection) pages.length = 0;
     pages.push({ id: detail, title: LEGAL_DOCUMENTS[detail].title, sections: [], legalDocument: document });
   }
   return { pages, rows: rows as NativeDrawerActions["rows"] };

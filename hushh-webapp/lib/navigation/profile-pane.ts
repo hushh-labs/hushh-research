@@ -248,6 +248,10 @@ export function stripProfilePaneTransientParams(
 
 type ProfilePaneHistoryState = {
   depth?: number;
+  /** Presentation of the existing Legal Back owner, not another route stack.
+   * A document opened from Profile returns there; a visited Legal section is
+   * retained as its parent. No document content or private route IDs are kept. */
+  legalParent?: boolean;
   /**
    * The pane was opened straight onto this location from a screen elsewhere
    * in the app (Puppy One's "Trusted devices" link, say). Back from that first
@@ -267,9 +271,22 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
   if (!(typeof depth === "number" && Number.isFinite(depth) && depth > 0)) {
     return {};
   }
-  return (paneState as Record<string, unknown>).returnsToOrigin === true
+  const origin = (paneState as Record<string, unknown>).returnsToOrigin === true
     ? { depth, returnsToOrigin: true }
     : { depth };
+  const legalParent = (paneState as Record<string, unknown>).legalParent;
+  return typeof legalParent === "boolean" ? { ...origin, legalParent } : origin;
+}
+
+/** Renderer projection only. Actual Back remains popProfilePaneLocation.
+ * An older owned entry without this metadata is ambiguous: retain the web
+ * reader instead of inventing native ancestry. Direct/resumed entries use the
+ * same authored parent rule as Back below. */
+export function profileLegalParentForPresentation(): boolean | null {
+  if (typeof window === "undefined") return null;
+  const pane = currentPaneHistoryState();
+  if ((pane.depth ?? 0) <= 1) return pane.returnsToOrigin !== true;
+  return pane.legalParent ?? null;
 }
 
 /** Browser Back must preserve this owner-authored stack beneath a modal. */
@@ -328,6 +345,11 @@ export function pushProfilePaneLocation(
   state[PROFILE_PANE_HISTORY_KEY] = (
     options.returnsToOrigin && depth === 1 ? { depth, returnsToOrigin: true } : { depth }
   ) satisfies ProfilePaneHistoryState;
+  if (location.panel === "legal" && (location.detail === "privacy" || location.detail === "terms")) {
+    const previous = resolveProfilePaneUrlState(window.location.search);
+    const entry = state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState;
+    entry.legalParent = previous.open && previous.location.panel === "legal" && previous.location.detail === null;
+  }
   window.history.pushState(
     state,
     "",
