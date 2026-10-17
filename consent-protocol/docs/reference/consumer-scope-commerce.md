@@ -1342,6 +1342,12 @@ their section-only policy. Listing remains a separate explicit visibility change
 opening a review or saving a price never grants recipient access. Owner scope
 discovery supplies authoritative handles across web, iOS and Android. Source and
 focused checks cover these controls; deployed reviewer acceptance remains required.
+As of 2026-10-17 02:16 UTC, the read-only Dev ledger still records no scope
+purchases for either reviewer. Candidate `4b4b4c95fd` passed the complete local
+core, but hosted CI found stale browser/auth fixtures and a Wallet tab-history
+regression. Those repairs and the subsequent main integration require a new
+exact-candidate core and CI before Dev deployment. Existing funding must not be
+repeated; refreshed general-Sandbox evidence is required before financial actions.
 Prices apply to the selected bundle or section, not just one opened memory. Its wallet
 link opens Payments and earnings; missing seller setup leads to Connect onboarding there. Checkout
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.

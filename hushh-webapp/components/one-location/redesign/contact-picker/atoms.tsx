@@ -99,6 +99,7 @@ export function ContactRowAction({
   label,
   onAdd,
   onRemove,
+  addDisabled = false,
 }: {
   selected: boolean;
   busy: boolean;
@@ -106,6 +107,7 @@ export function ContactRowAction({
   label: string;
   onAdd: () => void;
   onRemove: () => void;
+  addDisabled?: boolean;
 }) {
   if (selected) {
     return (
@@ -124,7 +126,7 @@ export function ContactRowAction({
     <button
       type="button"
       onClick={onAdd}
-      disabled={busy || !ready}
+      disabled={busy || !ready || addDisabled}
       aria-label={`Add ${label}`}
       className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)]"
     >
@@ -144,6 +146,7 @@ export function ContactRow({
   ready,
   onAdd,
   onRemove,
+  addDisabled,
 }: {
   label: string;
   photoUrl?: string | null;
@@ -155,6 +158,7 @@ export function ContactRow({
   ready: boolean;
   onAdd: () => void;
   onRemove: () => void;
+  addDisabled?: boolean;
 }) {
   return (
     <div
@@ -182,6 +186,7 @@ export function ContactRow({
         label={label}
         onAdd={onAdd}
         onRemove={onRemove}
+        addDisabled={addDisabled}
       />
     </div>
   );

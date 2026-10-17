@@ -8745,29 +8745,35 @@ export function OneLocationAgentPageContent({
     async (
       name: string,
       kind: OneLocationCircleKind,
+      existingCircleId?: string,
     ): Promise<OneLocationCircleDetail> => {
       if (!vaultOwnerToken)
         throw new Error("Unlock One before creating a Circle.");
       setBusy("namedCircle");
       try {
-        const circle = await OneLocationService.createNamedCircle({
+        const circle = existingCircleId ? await OneLocationService.updateNamedCircle({
+          vaultOwnerToken,
+          circleId: existingCircleId,
+          name,
+          kind,
+        }) : await OneLocationService.createNamedCircle({
           vaultOwnerToken,
           name,
           kind,
         });
         scheduleNamedCircleStateRefresh({
-          notificationType: "location_circle_created",
+          notificationType: existingCircleId ? "location_circle_renamed" : "location_circle_created",
           circleId: circle.id,
         });
         // The kind, never the name — a Circle name is the user's own words and
         // often identifies a household.
-        trackEvent("one_location_circle_created", {
+        if (!existingCircleId) trackEvent("one_location_circle_created", {
           route_id: "one_location",
           result: "success",
           circle_kind: kind,
         });
-        trackLocationFunnelStepCompleted("circle_created");
-        toast.success(`${circle.name} created.`);
+        if (!existingCircleId) trackLocationFunnelStepCompleted("circle_created");
+        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`);
         return circle;
       } catch (error) {
         throw new Error(
@@ -14302,6 +14308,7 @@ export function OneLocationAgentPageContent({
     onLoadNamedCircleOverview: handleLoadNamedCircleOverview,
     onLoadNamedCircleMembersPage: handleLoadNamedCircleMembersPage,
     onCreateNamedCircle: handleCreateNamedCircle,
+    circleSessionScope: vaultOwnerToken,
     onRenameNamedCircle: handleRenameNamedCircle,
     onResolveNamedCircleCode: handleResolveNamedCircleCode,
     onJoinNamedCircle: handleJoinNamedCircle,

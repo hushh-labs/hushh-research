@@ -2218,6 +2218,7 @@ describe("native chrome presentation lease", () => {
   });
   it.each(["synthetic-owner", ""])("restores an admitted web opener without native/vault eligibility (owner=%s)", async owner => {
     bridge.platform = "web";
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
     const handle = createRef<NativeChatChromeHandle>();
     const view = render(<ChatHarness owner={owner} eligible={false} handle={handle} />);
     const opener = view.getByRole("button", { name: "Authored history" });
@@ -2228,6 +2229,7 @@ describe("native chrome presentation lease", () => {
     await act(async () => { expect(await handle.current!.restoreFocus()).toBe(false); });
     expect(opener).not.toHaveFocus();
     expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(bridge.restoreFocus).not.toHaveBeenCalled();
   });
 
   it("restores authored focus only after native retirement and holds fallback until blur", async () => {

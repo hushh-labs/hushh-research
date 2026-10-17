@@ -20,6 +20,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -336,6 +337,9 @@ export function WalletWorkspace() {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = !authBlocked && (view.kind === "list" || view.kind === "add" || view.kind === "reveal");
   const activeTab = view.kind === "add" ? "add" : tab;
+  // Pager and tab controls can report one selection in the same event stack.
+  const activeTabCursor = useRef<WalletTab>(activeTab);
+  useLayoutEffect(() => { activeTabCursor.current = activeTab; }, [activeTab, renderedOwnerId, vaultKey]);
   const cardReadRevision = useRef(0);
   const [cardSnapshot, setCardSnapshot] = useState<ReturnType<typeof presentationState> | null>(() => warmSnapshot ? presentationState(warmSnapshot) : null);
   const ownedSnapshot = !authBlocked && vaultKey && cardSnapshot?.ownerId === renderedOwnerId && cardSnapshot.epoch === vaultEpoch ? cardSnapshot : null;
@@ -361,6 +365,7 @@ export function WalletWorkspace() {
       tabHistory.current = [];
       setSelectedDeckCardId(null);
       setRemovingCardId(null);
+      activeTabCursor.current = "cards";
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
@@ -385,9 +390,10 @@ export function WalletWorkspace() {
   }, [activeTab, ready]);
 
   const selectTab = (value: string) => {
-    if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
+    if (!ready || value === activeTabCursor.current || !WALLET_TABS.some((option) => option.value === value)) return;
     if (value === "cards") tabHistory.current = [];
-    else tabHistory.current = [...tabHistory.current.slice(-23), { tab: activeTab, cardId: selectedDeckCardId }];
+    else tabHistory.current = [...tabHistory.current.slice(-23), { tab: activeTabCursor.current, cardId: selectedDeckCardId }];
+    activeTabCursor.current = value as WalletTab;
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
@@ -396,7 +402,7 @@ export function WalletWorkspace() {
   };
   const returnToWalletView = () => {
     if (addSaveInFlight.current) return true;
-    if (activeTab === "add") {
+    if (activeTabCursor.current === "add") {
       setFormRevision(revision => revision + 1);
       setOfferNickname(null);
       clearSecretOffer();
@@ -405,6 +411,7 @@ export function WalletWorkspace() {
     const previous = tabHistory.current.pop() ?? { tab: "cards" as const, cardId: null };
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
+    activeTabCursor.current = previous.tab;
     setTab(previous.tab);
     const cardId = previous.tab === "cards" && previous.cardId && (isAgentWalletCard(previous.cardId) || cards.some(card => card.cardId === previous.cardId)) ? previous.cardId : null;
     setSelectedDeckCardId(cardId);
@@ -1238,6 +1245,7 @@ export function WalletWorkspace() {
                     }
                     setFormRevision((revision) => revision + 1);
                     tabHistory.current = [];
+                    activeTabCursor.current = "cards";
                     setTab("cards");
                     dispatch({ type: "close_add" });
                     if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });

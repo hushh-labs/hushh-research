@@ -257,7 +257,7 @@ export function NativeChatChrome(props: Props) {
       const target = request.props.focusRef.current;
       if (hidden || hasOutstandingNativeChrome(controlId) || !canReachPresentation() ||
           !isCurrentAttempt() || !target?.isConnected || target.matches(":disabled") ||
-          target.closest("[inert]")) return false;
+          target.closest("[hidden], [inert]") || getComputedStyle(target).visibility === "hidden") return false;
       target.focus({ preventScroll: true });
       return document.activeElement === target;
     }

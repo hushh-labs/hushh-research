@@ -22444,7 +22444,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 3417
+      "value": 3419
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23650,7 +23650,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx",
       "symbol": null,
-      "value": 1078
+      "value": 1116
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23668,7 +23668,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connect/circles/connect-circles-tab.tsx",
       "symbol": null,
-      "value": 1080
+      "value": 1094
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24298,7 +24298,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
       "symbol": null,
-      "value": 3115
+      "value": 3194
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24325,7 +24325,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx",
       "symbol": null,
-      "value": 3247
+      "value": 3281
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24622,7 +24622,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1309
+      "value": 1317
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29723,7 +29723,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/circle-chat.layout.spec.ts",
       "symbol": null,
-      "value": 577
+      "value": 605
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -62923,5 +62923,132 @@
     "measurement_source": "2cc452ce7bd1977902e67a0dbaec8e7670a0d653",
     "review": "Seven exact existing size observations across four incoming paths, reviewed by the release owner. Detector, budgets, exclusions, and existing occurrence multiplicity unchanged. Deployment bindings and private-pod configuration preserved; no live email-provider or UAT release acceptance inferred. No fresh independent agent review claimed after host initialization failure.",
     "upstream_source": "ea5b4e72c2a3fb929257d5cc47d4d9afdaf8d648"
+  },
+  "scope_commerce_main_f887c0_size_review_20261016": {
+    "measurement_source": "ddf154a7234429ec2ae65ded4f193d33c8553b87",
+    "upstream_source": "f887c0c64164fb074c47965e5bf4537335b65851",
+    "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",
+    "independent_review": "architecture_review",
+    "review": "13 independently reviewed exact size-only increases across 10 existing paths: current-main Circle creation and UAT email configuration, their nearest verification, and the Wallet same-event tab cursor repair. Existing owner-bound ports, explicit optional deferral, native retirement and bounded UAT exception constraints remain. Singleton rank zero; no new occurrences, detector, budget, exclusion or historical row removal. Measured source debt only; no runtime, deployment or financial acceptance claimed.",
+    "existing_value_replacements": 13,
+    "new_occurrence_appends": 0,
+    "entries": [
+      {
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "before": 267,
+        "after": 268,
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "before": 144,
+        "after": 145,
+        "source_sha256": "e4e89995815027ec5b51a2a17874777e3d107a00bd7b95bbf32fe98a08e2ecbc"
+      },
+      {
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "before": 100,
+        "after": 104,
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 3247,
+        "after": 3281,
+        "source_sha256": "db9eac9f8ea0c91b8aafe7904ddeb9eda90879147655858c908e90ab9e9d31d0"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 3115,
+        "after": 3194,
+        "source_sha256": "8ac48d533a4a8b7bd28edb64931de70d845424bf930cde7ff15ab41621846223"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1545,
+        "after": 1623,
+        "source_sha256": "e4e89995815027ec5b51a2a17874777e3d107a00bd7b95bbf32fe98a08e2ecbc"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1421,
+        "after": 1425,
+        "source_sha256": "098ce5804b9aa750a74be9dd5fe8967f8de5682a70a43f65405c0a677be9eafe"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1291,
+        "after": 1298,
+        "source_sha256": "fe74a6f9957e90d95e503277485f318df2cbb734dcb51e7b05be6eb6cdef69e3"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1078,
+        "after": 1116,
+        "source_sha256": "6e234d8e36d03948b5ef29555403a828f4120ee7b5dfe609a03f61499b7d35bd"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connect/circles/connect-circles-tab.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1080,
+        "after": 1094,
+        "source_sha256": "8821f4e0ce9fa953b95e3bee9a7d463ecdf119c0ef942fe625bb8cc833b1f963"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_email_auth_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 718,
+        "after": 845,
+        "source_sha256": "4a6e2e1d98165aafd3e63b005307a0f0b27544ee64d6a90839682fef98f0f9f9"
+      },
+      {
+        "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 782,
+        "after": 787,
+        "source_sha256": "2cba0f4378d7788439c4d1efc25ee3ed7809d2c21aefe9e39a23769adc69d381"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/circle-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 577,
+        "after": 605,
+        "source_sha256": "6a32d42a211fb9cad60fbac7035b3b9e929561362f721aaa920fb802813b70fd"
+      }
+    ]
+  },
+  "final_adk_root_focus_composition_review_20261017": {
+    "parents": [
+      "57928f94f0",
+      "2c3ce4a3643366414b79416b8dcf507a459e9732"
+    ],
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 3417,
+        "after": 3419,
+        "source_sha256": "5371976966b473b66f4a024f484d6bcb0d68da8d35374dcdc19b7f8da0718db5",
+        "review": "Retain the existing two-owner locked/logged-out DOM focus test and inert refusal rather than duplicating the equivalent incoming test. Add the incoming explicit web-presentation setting and assertion that no native focus restoration occurs. Existing native/epoch/retirement controls retained; four nearest suites201PASS."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 1309,
+        "after": 1317,
+        "source_sha256": "087e20648e098508a25e8ea3b88b3a0352325ddfdc49542593402a2aafe274a4",
+        "review": "Compose the reviewed same-event tab cursor with ADK epoch-bound profile loading and visit-bound scroll reset. Cursor updates synchronously before React state; duplicate pager callbacks cannot push duplicate Back entries. Owner/key changes reset the cursor, prior selected-card restoration and add-save serialization remain. Original hosted Back failure retained; focused and browser acceptance recorded separately."
+      }
+    ],
+    "review": "Two exact singleton module observations. Preserve both independently reviewed parent histories and measured original failures. No detector, budget, exclusion or authority gate change; source composition review by the release owner, no new independent sidecar review claimed."
   }
 }

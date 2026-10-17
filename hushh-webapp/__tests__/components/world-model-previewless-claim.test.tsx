@@ -156,7 +156,7 @@ it("never turns on Azure/Bing research through an invitation claim", async () =>
   expect(screen.getByText(/review Bing search use before turning it on/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
   await waitFor(() => expect(mock.claim).toHaveBeenCalledWith(
-    { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+    { vaultKey: "vault-key", vaultOwnerToken: "owner-token", isCurrent: expect.any(Function), signal: expect.any(AbortSignal) },
     token,
     false,
   ));
