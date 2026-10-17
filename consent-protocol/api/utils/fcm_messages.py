@@ -188,7 +188,9 @@ def build_push_message(
                 title=title,
                 body=body,
                 channel_id=(
-                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else SYSTEM_ALERT_ANDROID_CHANNEL
+                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL
+                    if is_sms_emergency
+                    else SYSTEM_ALERT_ANDROID_CHANNEL
                 ),
                 tag=notification_tag,
                 ticker="Emergency SMS alert" if is_sms_emergency else None,

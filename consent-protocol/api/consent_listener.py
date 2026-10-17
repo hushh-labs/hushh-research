@@ -49,25 +49,30 @@ _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 
 
 def _is_user_state_event_type(event_type: str) -> bool:
-    return event_type in SYSTEM_PUSH_NOTIFICATION_TYPES or event_type.startswith("location_circle_") or event_type in {
-        # A committed Drive outbox event wakes authenticated readers. Its
-        # payload contains only opaque ids; the Feed and Consent Center remain
-        # the authorities for the current request state.
-        "document_share_feed_changed",
-        "feed_changed",
-        "answer_request_changed",
-        "bank_payout_changed",
-        "location_settings_changed",
-        "location_pkm_changed",
-        "connection_request",
-        "connection_request_cancelled",
-        "connection_request_resolved",
-        "connection_removed",
-        "connection_graph_changed",
-        # Direct-message payloads are metadata-only doorbells.  Message
-        # content remains in the participant-scoped encrypted read API.
-        "direct_message",
-    }
+    return (
+        event_type in SYSTEM_PUSH_NOTIFICATION_TYPES
+        or event_type.startswith("location_circle_")
+        or event_type
+        in {
+            # A committed Drive outbox event wakes authenticated readers. Its
+            # payload contains only opaque ids; the Feed and Consent Center remain
+            # the authorities for the current request state.
+            "document_share_feed_changed",
+            "feed_changed",
+            "answer_request_changed",
+            "bank_payout_changed",
+            "location_settings_changed",
+            "location_pkm_changed",
+            "connection_request",
+            "connection_request_cancelled",
+            "connection_request_resolved",
+            "connection_removed",
+            "connection_graph_changed",
+            # Direct-message payloads are metadata-only doorbells.  Message
+            # content remains in the participant-scoped encrypted read API.
+            "direct_message",
+        }
+    )
 
 
 # Interval for timeout job (seconds)
