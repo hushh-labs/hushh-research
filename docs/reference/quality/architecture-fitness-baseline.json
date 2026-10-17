@@ -27593,7 +27593,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
-      "value": 257
+      "value": 258
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29984,7 +29984,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": null,
-      "value": 538
+      "value": 547
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -62666,5 +62666,23 @@
     ],
     "review": "Thirteen exact measured spans independently inspected against actual merged delta. Removed duplicate browser helpers and consolidated canonical History timing; repaired token-renewal scroll reset, preserving visit fencing. Existing Wallet regression proves token renewal preserves position and tab entry resets; old dependency negative fails. Streamed uncertain commands do not replay automatically; removal of retrySafe fails retained regression. CI topology is canonical; collection acceptance remains separate. Preserve all prior occurrences, detectors, exclusions and 500/250/80 budgets. Source debt qualification does not prove dev/provider acceptance. Final Connections helper removes its unused third argument; Profile material marker remains unconditional. Baseline key order restored with parsed-JSON equality proof.",
     "reviewer": "frozen_adk_frontend_review"
+  },
+  "azure_checkpoint_fixture_qualification_20261017": {
+    "reviewer": "parent_following_adk_authority_review_recommendation",
+    "review": "Independent authority review identified missing explicit Azure consent in synthetic outbox and PostgreSQL enrollment fixtures and prescribed this boundary test. Parent verified the resulting test-only diff: missing/native markers refuse before execute, explicit marker with same owner/generation retains original outbox assertions; unrelated default enrollment negatives unchanged.85 nearest cases include actual PostgreSQL; removing production Azure guard fails5 refusal cases, restored source passes5. Only2 exact spans qualify; no production guard, detector, exclusion or budget change. Read-only sidecar re-review could not initialize after host reboot, so no claim of a new independent review of the resulting patch.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
+        "before": 257,
+        "after": 258,
+        "source_sha256": "e1ef0f33d0efd5b517d1fa66a5303d39f2a3183fc15e5385c9fe14e47c46c97f"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model_invitations.py||module exceeds the advisory operon budget",
+        "before": 538,
+        "after": 547,
+        "source_sha256": "e1ef0f33d0efd5b517d1fa66a5303d39f2a3183fc15e5385c9fe14e47c46c97f"
+      }
+    ]
   }
 }

@@ -98,32 +98,40 @@ async def test_locked_authority_reuses_connection(monkeypatch):
     ],
 )
 async def test_pwm_completion_keeps_failed_outbox_without_feed_action(
-    status, report, expected_outcome, expected_email
+    status, report, expected_outcome, expected_email, monkeypatch
 ):
-    from hushh_mcp.services.world_model_preferences import checkpoint_committed
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
 
     generation, draft_id = uuid4(), uuid4()
     calls = []
+    consent = None
 
     class Conn:
         async def fetchrow(self, _sql, _user_id, *, timeout):
             assert timeout == 5
-            return {"enabled": True, "generation": generation}
+            return {"enabled": True, "generation": generation, "consent_version": consent}
 
         async def execute(self, sql, *args, timeout):
             assert timeout == 5
             calls.append((sql, args))
 
-    await checkpoint_committed(
-        Conn(),
-        "recipient",
-        {
-            "job_id": str(draft_id),
-            "consent_generation": str(generation),
-            "status": status,
-            "result": {"report": report},
-        },
-    )
+    state = {
+        "job_id": str(draft_id),
+        "consent_generation": str(generation),
+        "status": status,
+        "result": {"report": report},
+    }
+    for marker in (None, preferences.NATIVE_CONSENT_VERSION):
+        consent = marker
+        with pytest.raises(PermissionError, match="Azure research needs owner opt-in"):
+            await preferences.checkpoint_committed(Conn(), "recipient", state)
+        assert calls == []
+    consent = preferences.AZURE_BING_CONSENT_VERSION
+    await preferences.checkpoint_committed(Conn(), "recipient", state)
     completion = next(
         (sql, args) for sql, args in calls if "INSERT INTO pwm_completion_events" in sql
     )
@@ -403,8 +411,9 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
 
         generation, draft_id = uuid4(), uuid4()
         await pool.execute(
-            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation) VALUES ('recipient',true,true,$1)",
+            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation,consent_version) VALUES ('recipient',true,true,$1,$2)",
             generation,
+            "pwm-azure-bing-v1",
         )
         state = {
             "job_id": str(draft_id),
