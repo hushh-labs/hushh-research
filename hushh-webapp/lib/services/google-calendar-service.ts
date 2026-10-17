@@ -116,7 +116,7 @@ export type CalendarDailyResponse = CalendarEventsResponse & { date: string; tim
 export type CalendarAvailability = { windows: (CalendarOpening & { duration_minutes: number })[]; full_count: number; requested_duration_minutes: number; time_zone: string; date: string; time_min: string; time_max: string; calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
 export type CalendarInvitation = CalendarEventSummary & { id: string; calendar_id: string; response_status: "needsAction" | "accepted" | "declined" | "tentative"; can_respond: boolean; conflicts: CalendarEventSummary[] };
 export type CalendarInvitationsResponse = { account_email?: string; events: CalendarInvitation[]; pending_count: number; time_zone: string; start_at: string; end_at: string; complete: boolean; unreadable_calendars: CalendarSource[] };
-export type CalendarAttendanceReview = { response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
+export type CalendarAttendanceReview = { exact_time?: boolean; response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
 export type CalendarAttendanceResult = { calendar: "accepted" | "declined" | "tentative" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };
 
@@ -394,12 +394,14 @@ export class GoogleCalendarService {
     return result;
   }
 
-  static reviewAttendance(params: Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; message: string }): Promise<CalendarAttendanceReview> {
-    return this.scheduleRequest("attendance/review", params.vaultOwnerToken, { ...this.windowBody(params), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, message: params.message, ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) }, params);
+  static reviewAttendance(params: Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; sendMessage?: boolean; exactTime?: boolean; message: string }): Promise<CalendarAttendanceReview> {
+    return this.scheduleRequest("attendance/review", params.vaultOwnerToken, { ...this.windowBody(params), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, send_message: params.sendMessage ?? false, exact_time: params.exactTime ?? false, message: params.message, ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) }, params);
   }
 
-  static confirmAttendance(params: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; vaultOwnerToken: string; reviewId: string; reviewToken: string }): Promise<CalendarAttendanceResult> {
-    return this.scheduleRequest("attendance/confirm", params.vaultOwnerToken, { review_id: params.reviewId, review_token: params.reviewToken }, params);
+  static async confirmAttendance(params: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; vaultOwnerToken: string; reviewId: string; reviewToken: string }): Promise<CalendarAttendanceResult> {
+    const result = await this.scheduleRequest<CalendarAttendanceResult>("attendance/confirm", params.vaultOwnerToken, { review_id: params.reviewId, review_token: params.reviewToken }, params);
+    if (!result || !["accepted", "declined", "tentative", "failed", "unknown"].includes(result.calendar) || !["sent", "not_sent", "failed", "unknown"].includes(result.email)) throw new GoogleCalendarError("Calendar did not confirm the outcome. Check Calendar and Sent Mail before retrying.", "calendar_invalid_response", 502);
+    return result;
   }
 
   static publicReschedulingOptions(token: string): Promise<{ openings: CalendarOpening[]; time_zone: string; reply_to: string; event_link?: string }> {
