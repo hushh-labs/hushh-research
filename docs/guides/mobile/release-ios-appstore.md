@@ -98,7 +98,7 @@ runs on the session already in the app's data container and unlocks the vault wi
 `hushh-webapp/scripts/perf/ios-reviewer-signin.sh` restores a session through the review-mode mint, so it
 cannot sign into production, by design. After a sign-out, sign in by hand again.
 
-The build still archives with **production APNs** entitlements (correct for *any* App Store binary —
+The distribution export uses **production APNs** entitlements (correct for *any* App Store binary —
 push on a store build routes through Apple's PRODUCTION APNs). That means the **shared Firebase project
 must hold a production APNs key** for push notifications to deliver on the released app.
 
@@ -222,10 +222,8 @@ export/upload, or version/build validation):
     `max(latest ASC build for MARKETING_VERSION, pbxproj CURRENT_PROJECT_VERSION) + 1` — monotonic against both
     App Store history and the committed value. (TestFlight and the App Store share one build-number
     pool per marketing version.)
-11. **Resolve Swift packages** (cached), then **archive** in Release with the **production APNs
-    entitlement override** `CODE_SIGN_ENTITLEMENTS=App/AppRelease.entitlements` (flips
-    `aps-environment` development → production for the released binary only; the committed pbxproj
-    stays on `App/App.entitlements`, so local/dev builds are unaffected). Signs with
+11. **Resolve Swift packages** (cached), then **archive** in Release with target-owned
+    automatic development signing and each app/extension's own entitlement source. Signs with
     `-allowProvisioningUpdates` + the ASC API key; injects the resolved `CURRENT_PROJECT_VERSION`.
 12. **Verify the archived product.** The automated product-asset gate reopens the archived
     `App.app` and requires `Info.plist`, `PrivacyInfo.xcprivacy`, `Metadata.appintents`, and
@@ -234,9 +232,13 @@ export/upload, or version/build validation):
     Native audio capture permission is an operating-system permission; it is not action consent.
     Action authority remains inside Agent One's generated gateway, consent policy, directive ledger,
     and verified backend settlement.
-13. **Export + upload to App Store Connect** via `ios/ExportOptions/AppStoreConnect.plist`
-    (`destination=upload`). On `--dry-run`, PlistBuddy rewrites `destination` to `export` so the
-    step signs and produces the `.ipa` without uploading.
+13. **Export, verify, then upload to App Store Connect.** The shared
+    `scripts/ci/export-ios-distribution.py` first exports with the canonical
+    App Store Connect signing options and `destination=export`. The real IPA
+    must have production APNs in its signature/profile and disallow debugging.
+    A dry run stops here. Otherwise the existing Xcode upload uses the same
+    archive/options with `destination=upload`; Xcode may repackage the archive,
+    so the preflight does not claim byte identity with the uploaded package.
 14. **Prepare the App Store version (set What's New, attach build, one-click submit).**
     `submit-appstore-version.py` finds/creates an **editable App Store version with
     `releaseType=MANUAL`** (so it never auto-releases to the public), **sets the version's
