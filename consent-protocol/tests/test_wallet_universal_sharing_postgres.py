@@ -289,8 +289,9 @@ def test_legacy_manual_grants_work_before_universal_migration(legacy_cards_db):
     service.revoke("alice", identifier)
     assert service.view_grant("charu", identifier)["status"] == "revoked"
     assert not service.profile_access("alice")["eligible"]
-    with pytest.raises(WalletCardAccessError, match="UNAVAILABLE"):
+    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_NOT_READY") as unavailable:
         service.history("alice")
+    assert unavailable.value.status_code == 503
 
     db.apply_migrations(
         [
