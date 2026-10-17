@@ -22444,7 +22444,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 3403
+      "value": 3419
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23569,7 +23569,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
       "symbol": null,
-      "value": 773
+      "value": 784
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -62853,6 +62853,31 @@
         "before": 577,
         "after": 605,
         "source_sha256": "6a32d42a211fb9cad60fbac7035b3b9e929561362f721aaa920fb802813b70fd"
+      }
+    ]
+  },
+  "scope_commerce_web_history_focus_size_review_20261016": {
+    "measurement_source": "2c3ce4a3643366414b79416b8dcf507a459e9732",
+    "upstream_source": "f887c0c64164fb074c47965e5bf4537335b65851",
+    "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",
+    "independent_review": "architecture_review",
+    "review": "2 independently reviewed existing module-only increases: the bounded web History focus-return repair and its nearest regression with inert negative control. Native retirement and uncertain-installation behavior remain unchanged. All prior occurrences and metadata, detector and budgets preserved. Source debt qualification only; no physical native or financial acceptance claimed.",
+    "existing_value_replacements": 2,
+    "new_occurrence_appends": 0,
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 3403,
+        "after": 3419,
+        "source_sha256": "950b6071df45f0bc2d5e2ea66a6121d77b8e20ceb012441378a385c202ae4d69"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "before": 773,
+        "after": 784,
+        "source_sha256": "8453ef2df06aa54b4a1706937727e8fb82e6c8c1301baf120dba09f6b804ebb5"
       }
     ]
   }
