@@ -29,22 +29,41 @@ or payout.
 
 ### Current Dev evidence — 2026-10-17 UTC
 
-Shared Dev serves `f378a75b55880c67dcc112d75445b46bf2e53e31` on both
-services after successful hosted CI and deployment. Memory → Saved exposes
-category-level **Sharing & price** and eligible whole-bundle prices. Both
-reviewers reached those controls at phone width with vault continuity; the
-counterpart's separate Memory-edit check retains an unresolved legacy free-grant
-lineage failure.
+The governed [Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/39024698527)
+completed successfully at `5b493370ae24aee429eb9440cbd7bdd70759c54d`.
+Both services served that exact source at 100% traffic; local core and
+[full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39022976568)
+passed. This is deployment evidence, not completed financial acceptance.
+Memory → Saved exposes category-level **Sharing & price** and eligible
+whole-bundle prices. Both reviewers reached those controls at phone width with
+vault continuity. The counterpart's separate Memory-edit check retains an
+unresolved legacy free-grant lineage failure.
 
 The renewed Dashboard/SDK proof confirms the dedicated Sandbox and test mode.
 Existing funding is $10.50 per reviewer and cumulative tagged capital is $15;
 these receipts must not be repeated. **No completed paid scope exchange is yet
-established.** The corrected Dev rehearsal passed its canonical 238-table /
-97-function schema check, both reviewer unlocks and Sandbox pins, then observed
-a deployed 401 at the public recipient-key registry before any tariff or purchase
-write. Its locally verified fix restores that endpoint's documented vault-owner
-contract and preserves owner-mismatch/revocation denial. Core/CI and Dev promotion
-of the correction remain required before retrying the one-cent purchase.
+established.** The corrected rehearsal passes canonical schema, reviewer unlock,
+Sandbox pins and the public recipient-registry authentication boundary. The
+primary has no historical public recipient registration; the counterpart has
+one active registration. At `2026-10-17T11:29:48Z`, normal application setup created the primary
+recipient key in its encrypted vault and verified public registration. The
+operator observed no private key. Its separate synthetic denial-control request
+is unapproved and requires owner decline during cleanup. The next step is the
+approved one-cent reservation and delivery. A coherent connector-domain
+snapshot returned 404; that observation alone does not exclude a legacy combined
+blob. The normal application loader retains responsibility for compatibility.
+No tariff, paid purchase or additional funding was submitted in these attempts.
+
+A request-review attempt exposed pointer obstruction at the footer. Source
+inspection also identified pending-summary bookkeeping events that discard the
+selected information and close review. These are separate interface defects;
+a successful keyboard-open observation does not prove ordinary pointer access.
+The request-draft correction passes all 49 nearest profile cases and an
+original-code failure control; required Back behavior passes 472 cases, generated
+UI contracts and typecheck pass. This correction is not yet deployed. The
+setup-only rehearsal also incorrectly selected a one-hour option absent from the
+profile screen; its unapproved denial-control request uses the offered one-day
+option. Paid acceptance still requires the approved one-hour terms.
 
 The private agent's latest authenticated read-only connector observation
 (`2026-10-17T09:04Z`) still has no verified Stripe OAuth account/balance connection.
@@ -54,7 +73,8 @@ also decoded `pst1` pod-session claims, permitting a provider sign-in challenge 
 refresh and replay with Firebase authority. The client correction excludes pod
 sessions from Firebase recovery and invalidation while retaining the existing pod
 renewal authority. Focused positive and original-code negative controls establish
-this boundary; deployed owner OAuth remains unverified.
+this boundary, and the client correction is included in the deployed `5b493370ae`
+source; authenticated owner OAuth remains unverified.
 Dashboard sign-in, SDK configuration and this owner tool connection are separate.
 Refunds, maturity, withdrawals, bank payouts and the synthetic PII story remain
 unaccepted. Physical iOS acceptance remains with the device lane. Shared Chrome

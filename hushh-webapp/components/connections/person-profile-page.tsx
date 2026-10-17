@@ -377,11 +377,21 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
       if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
     };
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      // Pending-count hydration is bookkeeping, not a change to this person's
+      // requestable information. Do not discard an in-progress request for it.
+      // Explicit mutations, reconciliation requests and unknown legacy events
+      // still invalidate the catalog before another request can be submitted.
+      if (!detail?.action && detail?.reconcile !== true
+        && ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"].includes(String(detail?.source || ""))) return;
+      refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     window.addEventListener(FCM_MESSAGE_EVENT, onPush);
     return () => {
       unsubscribe();
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
   }, [resolvedPersonRef, user]);

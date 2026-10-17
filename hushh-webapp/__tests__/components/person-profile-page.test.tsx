@@ -747,6 +747,36 @@ describe("PersonProfilePage request catalog tools", () => {
     ).toBeTruthy();
   });
 
+  it("retains a request draft through consent bookkeeping but invalidates it on a real change", async () => {
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    fireEvent.click(screen.getByTestId("person-profile-scope-toggle-scope-0"));
+    fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), {
+      target: { value: "Review synthetic employment details" },
+    });
+    const reads = mocks.getViewer.mock.calls.length;
+    for (const source of ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"]) {
+      act(() => dispatchConsentStateChanged({ source }));
+      expect(screen.getByTestId("person-profile-purpose")).toHaveValue("Review synthetic employment details");
+      expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
+      expect(screen.getByTestId("person-profile-scope-back")).toBeInTheDocument();
+      expect(mocks.getViewer).toHaveBeenCalledTimes(reads);
+    }
+
+    let resolveRefresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValueOnce(new Promise(resolve => { resolveRefresh = resolve; }));
+    // Explicit mutations still win even if a caller reuses a bookkeeping source.
+    act(() => dispatchConsentStateChanged({ source: "fallback_reconciled", action: "revoke" }));
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(reads + 1));
+    expect(screen.queryByTestId("person-profile-purpose")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("person-profile-scope-toggle-scope-0")).not.toBeInTheDocument();
+    await act(async () => { resolveRefresh(viewerProfile({ requestableScopes: manyScopes(9).slice(1) })); });
+    expect(await screen.findByRole("button", { name: "Review request" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Open Professional" }));
+    expect(screen.queryByTestId("person-profile-scope-toggle-scope-0")).not.toBeInTheDocument();
+  });
+
   it("offers an access duration inside the review sheet and sends it in hours", async () => {
     const { PersonProfileService } =
       await import("@/lib/services/person-profile-service");
