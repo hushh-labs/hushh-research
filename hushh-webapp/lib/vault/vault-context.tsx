@@ -35,6 +35,7 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
   clearAgentChatHistoryCache,
   warmAgentChatHistoryCache,
@@ -227,6 +228,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
     const lockedOwnerToken = storedVaultOwnerTokenRef.current;
     sessionEpochRef.current += 1;
     advanceVaultSessionEpoch();
+    // Erase the unsent private draft even when the Chat route is unmounted.
+    useOneConversationSession.getState().clearComposerDraft();
     renewalRef.current = null;
     storedVaultKeyRef.current = null;
     storedVaultOwnerTokenRef.current = null;

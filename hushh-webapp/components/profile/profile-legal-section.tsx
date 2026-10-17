@@ -1,11 +1,7 @@
 "use client";
 
-import { ScrollText, ShieldCheck } from "@/components/icons";
+import { PROFILE_MENU_GROUPS } from "./profile-menu-model";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import {
-  ProfilePanePrivacyIcon,
-  ProfilePaneTermsIcon,
-} from "@/components/profile/profile-pane-icons";
 import { LegalReader } from "@/components/legal/legal-reader";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
@@ -25,29 +21,16 @@ type UpdateLegalView = (
  */
 export function ProfileLegalRows({
   onOpen,
-  paneIcons = false,
 }: {
   onOpen: (document: LegalDocumentDetail) => void;
   paneIcons?: boolean;
 }) {
   return (
     <>
-      <SettingsRow
-        icon={paneIcons ? ProfilePanePrivacyIcon : ShieldCheck}
-        iconTone="capability"
-        title={LEGAL_DOCUMENTS.privacy.title}
-        testId="profile-legal-privacy-row"
-        chevron
-        onClick={() => onOpen("privacy")}
-      />
-      <SettingsRow
-        icon={paneIcons ? ProfilePaneTermsIcon : ScrollText}
-        iconTone="capability"
-        title={LEGAL_DOCUMENTS.terms.title}
-        testId="profile-legal-terms-row"
-        chevron
-        onClick={() => onOpen("terms")}
-      />
+      {PROFILE_MENU_GROUPS[1].entries.map(entry => <SettingsRow key={entry.id}
+        icon={entry.icon}
+        iconTone="capability" title={entry.label}
+        testId={`profile-legal-${entry.id}-row`} chevron onClick={() => onOpen(entry.id)} />)}
     </>
   );
 }

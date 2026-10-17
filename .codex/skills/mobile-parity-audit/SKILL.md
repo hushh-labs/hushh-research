@@ -46,9 +46,11 @@ Non-owned surfaces:
 1. `docs/reference/mobile/README.md`
 2. `docs/reference/mobile/capacitor-parity-audit.md`
 3. `docs/reference/mobile/capacitor-parity-audit-report.md`
+4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
 
+Native family/transition qualification: `hushh-webapp/docs/ios-native-surface-adoption.md`; install separately from attach-only testing.
 1. Start from the documented parity contract and then validate the live native surfaces.
 2. Keep findings tied to concrete platform gaps, not generic “mobile broken” summaries.
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.
@@ -58,6 +60,9 @@ Non-owned surfaces:
 7. Keep destructive cold audits and non-destructive continuity rehearsals separate. Cold fixture evidence never proves an active memory-only vault or route survives background/resume.
 8. Start with static and host-native tests. A cold audit requires explicit authority, must terminate its test app on every host terminal path, and is never a default diagnosis command for a continuity failure.
 9. Before physical reviewer XCUI, read `references/physical-reviewer-preflight.md`; distinguish transport, device unlock, automation authorization and vault admission before supplying credentials.
+10. Qualify shared families across their authored routes with transition evidence and separate visual, touch, accessibility and privacy checks. Prepare installation separately from attach-only warm-session tests; follow the adoption reference, not repeated settled-button screenshots.
+11. Distinguish expected glass press feedback from missing/replaced controls. Compare first touch and keyboard transitions, not only settled frames; host retention is not pixel acceptance. If cross-renderer motion fails the documented fluidity standard, stop expansion instead of hiding controls or weakening the gate.
+12. Keep installation, XCTest body entry, product interaction, visual/accessibility and Release performance receipts separate and exact-build-bound. Qualification must use the real One/Puppy ports and complete History/Profile handoffs; do not transfer acceptance from a synthetic study or a recovery renderer.
 
 ## Handoff Rules
 

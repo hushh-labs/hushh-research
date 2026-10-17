@@ -50,8 +50,12 @@ describe("Agent One chat workspace wiring contract", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
-    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    // Web sidebar and qualified native History page are mutually exclusive.
+    expect(sidebar).toContain('!isPuppySurface && !customNativePresentationEnabled()');
+    expect(source).toContain('customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing');
+    // The parent owns the owner-scoped review signal; the actual opener's
+    // accessible copy and native admission are covered in native-chrome.test.
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
 
   it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {
@@ -69,7 +73,9 @@ describe("Agent One chat workspace wiring contract", () => {
     // Only an explicitly armed name answer is kept from the model; everything
     // else typed in the composer is an ordinary turn.
     const submit = source.slice(
-      source.indexOf("const submitComposerText = async () => {"),
+      // Both the DOM form and native committed snapshot use this guarded
+      // entrypoint. Its optional input must not invalidate onboarding coverage.
+      source.indexOf("const submitComposerText = async ("),
       source.indexOf("const handleSubmit = async"),
     );
     expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");
@@ -92,7 +98,7 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).toContain("historyDrawerTriggerRef.current = trigger; openHistoryConnectors();");
     expect(source).not.toContain("connectionsAvailable");
     // The catalog is Connectors in the Profile pane, opened over the chat.
     expect(source).toContain("profileConnectorsLocation(");

@@ -20,7 +20,7 @@ describe("Profile Help & feedback unified support flow", () => {
     expect(source).toContain('label: "Problem"');
     expect(source).toContain('label: "Help"');
     expect(source).toContain('label: "Feedback"');
-    expect(source).toContain("<SegmentedTabs");
+    expect(source).toContain("<SegmentedControl");
     expect(source).toContain("What do you need?");
 
     expect(source).not.toContain("const supportActions");

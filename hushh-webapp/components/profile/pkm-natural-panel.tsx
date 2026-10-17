@@ -1536,10 +1536,11 @@ export function PkmNaturalPanel({
       {nativeBeacon}
       <div className="space-y-4">
         <SegmentedTabs
+          tabSetId="memory"
+          ariaLabel="Memory"
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
-          tabSetId="memory"
           mobileColumns={4}
           variant="agent-top"
         />

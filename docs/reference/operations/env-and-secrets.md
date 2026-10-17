@@ -563,9 +563,9 @@ example file or local Secret Manager read does not establish deployed parity.
 | `WORKOS_REDIRECT_URI` | Only when SSO is on | No | Local: `.env`; Deployed: Cloud Run env from `_WORKOS_REDIRECT_URI` (UAT: `https://uat.one.hushh.ai/login`) | Must match a Redirect registered in the WorkOS dashboard |
 | `WORKOS_REDIRECT_ORIGINS` | No | No | Deployed: Cloud Run env from `_WORKOS_REDIRECT_ORIGINS`, built by the UAT workflow from the passkey alias list (`hushh-webapp/lib/vault/passkey-domain-aliases.json`) | Every hostname the environment is served on |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
-| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias |
+| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment aliases |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |
-| `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias; unregistered or cross-environment hosts are rejected by the sync/parity contracts |
+| `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment aliases; unregistered or cross-environment hosts are rejected by the sync/parity contracts |
 | `HUSHH_GENAI_AUTH_MODE` | Optional local | Yes | Local: `.env`; Prod: Cloud Run env | Hosted value is `vertex_adc`; local API-key compatibility must be selected explicitly. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional local | No | Local: `.env` only | Used only with `developer_api_key`; prohibited as hosted Gemini credentials. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Project metadata hosted; location local only | Local: env; hosted: packaged managed AI profile | Hosted region selection ignores the legacy location override; authentication comes from workload ADC. |
@@ -931,12 +931,58 @@ Local Android release signing:
 | CI | Env in workflow (dummy keys, TESTING=true) | Env in workflow (dummy Firebase, BACKEND_URL) |
 | Production | Secret Manager + Cloud Run env (GOOGLE_GENAI_USE_VERTEXAI, ENVIRONMENT) | Secret Manager → build-args in Dockerfile |
 
+### Connector OAuth across app origins
+
+A load-balancer alias does not migrate OAuth. Browser popup completion uses
+same-origin correlation and redacted settlement events; `one.hushh.ai` and
+`one.hussh.ai` do not share that storage or Firebase browser session. The shared
+web handoff rejects a provider callback on a different origin before navigating
+the consent window. It never rewrites a signed/registered redirect or expands
+the opener's message trust to a second domain.
+
+The approved canonical app origins are `https://one.hussh.ai` (production) and
+`https://uat.one.hussh.ai` (UAT). The `hushh.ai` app hosts remain compatibility
+aliases, not interchangeable OAuth return origins. Backend/API and email domains
+are outside this app-origin change; do not rename them by global substitution.
+Governed deployment and native-build defaults use these app origins. Explicit
+Secret Manager/private-profile values still take precedence and require separate
+rollout verification. Backend preparation derives both Mail and Calendar return
+URIs together; frontend build admission accepts only the same-environment
+canonical/legacy pair. Stored credential RPs and the native legacy RP defaults
+are unchanged, and the legacy association verification remains required.
+Before distributing a native build, verify its effective bundled app origin,
+not only the backend: a changed fallback cannot supersede an explicit old value.
+
+For each environment migration, register the exact new Mail, Calendar and
+connector callback paths with their providers first. Align `APP_FRONTEND_ORIGIN`,
+`GMAIL_OAUTH_REDIRECT_URI`, `GOOGLE_OAUTH_REDIRECT_URI`, curated connector registry
+redirects and Firebase authorized domains through the governed release. Preserve
+old callback registration for in-flight attempts and rollback; do not redirect
+provider returns indiscriminately at the load balancer. Gmail's signed state is
+bound to the configured callback at completion: drain its ten-minute old-origin
+attempt lifetime before switching configuration, or provide a separately
+verified compatibility exchange. Keeping the old provider URI registered alone
+does not make an old signed attempt valid under new backend configuration.
+Prove a real completion
+from the selected app origin: consent closes, the original window confirms the
+owner-authenticated status, and its document/draft/vault session survive.
+
+Read-only live inspection on 2026-10-10 found production and UAT backend origins
+and Mail/Calendar callbacks still on `hushh.ai`, while both production app domain
+aliases served the frontend. Domain reachability is not OAuth migration acceptance.
+Public authorization-entry probes for the four new Mail/Calendar callbacks
+reached Google's sign-in entry without exchanging a code; these are not proof of
+provider registration or owner-authenticated completion. The read-only check did
+not change secrets, runtime configuration, provider registrations or traffic.
+Firebase Admin configuration inspection on the same date confirmed that both
+canonical app hosts and both legacy app hosts are authorized domains. This
+configuration check does not establish an authenticated OAuth or native journey.
+
 ### Passkeys across the domain transition
 
-`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production alias groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
+`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Keep that endpoint available without redirects on every registered RP. Native unlock also retains the stored RP; existing OS associations remain required. The `.si` sites remain standalone until their separate redirect cutover is approved.
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
-
 ### Document Hussh Coins and sandbox Connect
 
 `DRIVE_REQUEST_HASHCOINS_ENABLED` enrolls only new document requests in coin

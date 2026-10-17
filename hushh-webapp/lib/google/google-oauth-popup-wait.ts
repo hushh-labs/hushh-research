@@ -1,4 +1,5 @@
 import {
+  clearGoogleOAuthAttempt,
   isGoogleOAuthPopupSettlement,
   readGoogleOAuthPopupSettlement,
   type GoogleOAuthPopupAttempt,
@@ -25,6 +26,7 @@ export function waitForGoogleOAuthPopup(
       window.removeEventListener("message", onMessage);
       window.removeEventListener("storage", onStorage);
       window.clearInterval(timer);
+      clearGoogleOAuthAttempt(attempt.attemptId);
       try {
         popup.close();
       } catch {

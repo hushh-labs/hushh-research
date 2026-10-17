@@ -267,7 +267,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -295,7 +295,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);

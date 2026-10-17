@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { HushhAuth } from "@/lib/capacitor";
 import {
+  clearGoogleOAuthAttempt,
   consumeStoredGoogleOAuthPopupSettlement,
   createGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
@@ -340,6 +341,7 @@ export function connectCalendarInPlace(
         );
         return granted(status) ? "connected" : "not_connected";
       } finally {
+        clearGoogleOAuthAttempt(attempt.attemptId);
         consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId);
       }
     }),

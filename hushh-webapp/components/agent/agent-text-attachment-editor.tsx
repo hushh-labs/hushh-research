@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
@@ -29,6 +30,11 @@ import {
 } from "@/lib/agent/large-text-attachment";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { NativeFeatureBack, NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /**
  * A pasted text, edited in place.
@@ -154,10 +160,12 @@ function TextAttachmentEditorBody({
   textareaRef,
   findInputRef,
   confirmingDiscard,
+  committing,
   onCancel,
   onCommit,
   onKeepEditing,
   onDiscard,
+  leadingControl,
 }: {
   name: string;
   initialText: string;
@@ -166,10 +174,12 @@ function TextAttachmentEditorBody({
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   findInputRef: RefObject<HTMLInputElement | null>;
   confirmingDiscard: boolean;
+  committing: boolean;
   onCancel: () => void;
   onCommit: () => void;
   onKeepEditing: () => void;
   onDiscard: () => void;
+  leadingControl?: ReactNode;
 }) {
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const mirrorContentRef = useRef<HTMLDivElement | null>(null);
@@ -410,7 +420,7 @@ function TextAttachmentEditorBody({
       >
         {confirmingDiscard ? (
           <>
-            <Button
+            {leadingControl ?? <Button
               ref={keepEditingRef}
               type="button"
               variant="ghost"
@@ -419,7 +429,7 @@ function TextAttachmentEditorBody({
               onClick={onKeepEditing}
             >
               Keep editing
-            </Button>
+            </Button>}
             <div className="min-w-0 text-center">
               <p role="alert" className="truncate text-[15px] font-semibold leading-5">
                 Discard changes?
@@ -440,7 +450,7 @@ function TextAttachmentEditorBody({
           </>
         ) : (
           <>
-            <Button
+            {leadingControl ?? <Button
               type="button"
               variant="ghost"
               size="compact"
@@ -449,7 +459,7 @@ function TextAttachmentEditorBody({
               onClick={onCancel}
             >
               Cancel
-            </Button>
+            </Button>}
             {/* One subtitle slot: the size, or while finding, the find
               * position (so the find field keeps its whole width for the
               * query at 320px). The size stays the dialog's description. */}
@@ -477,7 +487,8 @@ function TextAttachmentEditorBody({
               size="compact"
               data-testid="text-attachment-editor-commit"
               className="justify-self-end px-2"
-              disabled={blank && purpose === "resend"}
+              disabled={committing || blank && purpose === "resend"}
+              aria-busy={committing}
               onClick={onCommit}
             >
               {commitLabel}
@@ -664,14 +675,26 @@ export function AgentTextAttachmentEditor({
   initialText: string;
   /** "draft" updates the composer's chip (Done); "resend" sends a new turn (Send). */
   purpose: EditorPurpose;
-  /** Return false to keep the editor open (the edit could not be applied). */
-  onCommit: (text: string) => boolean | void;
+  /** Wait for screening/queue admission; false or rejection retains the edit. */
+  onCommit: (text: string) => boolean | void | Promise<boolean | void>;
   returnFocusRef: RefObject<HTMLElement | null>;
 }) {
   const isMobile = useIsMobile();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const commitGeneration = useRef(0);
+  const commitPending = useRef(false);
+  const nativePage = customNativePresentationEnabled();
+  const owner = snapshotValidatedAuthSessionOwner();
+  const context = JSON.stringify([owner?.generation, snapshotVaultSessionEpoch(), purpose]);
+  useLayoutEffect(() => {
+    commitGeneration.current += 1;
+    commitPending.current = false;
+    setCommitting(false);
+    return () => { commitGeneration.current += 1; };
+  }, [open, name, initialText, context]);
 
   const close = () => {
     setConfirmingDiscard(false);
@@ -679,6 +702,7 @@ export function AgentTextAttachmentEditor({
   };
 
   const requestClose = () => {
+    if (commitPending.current) return;
     const current = textareaRef.current?.value ?? initialText;
     if (current === initialText) {
       close();
@@ -687,11 +711,45 @@ export function AgentTextAttachmentEditor({
     setConfirmingDiscard(true);
   };
 
-  const commit = () => {
+  const commit = async () => {
+    if (!open || commitPending.current) return;
+    const generation = commitGeneration.current;
     const text = textareaRef.current?.value ?? initialText;
-    if (onCommit(text) === false) return;
-    close();
+    commitPending.current = true;
+    setCommitting(true);
+    const current = () => generation === commitGeneration.current && context ===
+      JSON.stringify([snapshotValidatedAuthSessionOwner()?.generation, snapshotVaultSessionEpoch(), purpose]);
+    try {
+      const result = onCommit(text);
+      // Done's synchronous draft update changes initialText. Close in the
+      // same transaction; only asynchronous admission needs the wait/fence.
+      const accepted = typeof result === "object" ? await result : result;
+      // A late result cannot dismiss another owner/presentation or a newer edit.
+      if (current() && accepted !== false && (textareaRef.current?.value ?? initialText) === text) close();
+    } catch {
+      if (current()) morphyToast.error("Couldn’t confirm the action. Your edit is still here.");
+    } finally {
+      if (current()) { commitPending.current = false; setCommitting(false); }
+    }
   };
+
+  const body = <div className="flex min-h-0 flex-1 flex-col">
+    <TextAttachmentEditorBody name={name} initialText={initialText} purpose={purpose} sheet={isMobile && !nativePage}
+      textareaRef={textareaRef} findInputRef={findInputRef} confirmingDiscard={confirmingDiscard} committing={committing}
+      onCancel={requestClose} onCommit={commit}
+      onKeepEditing={() => { setConfirmingDiscard(false); textareaRef.current?.focus({ preventScroll: true }); }} onDiscard={close}
+      leadingControl={nativePage ? <NativeFeatureBack owner={owner?.userId ?? null} context={context} layer="chat-attachment"
+        onBack={() => { if (confirmingDiscard) setConfirmingDiscard(false); else requestClose(); }} /> : undefined} />
+  </div>;
+
+  if (nativePage) return <NativeFeaturePage open={open} title={name} owner={owner?.userId ?? null} context={context}
+    layer="chat-attachment" authoredHeader bodyClassName="flex flex-1 flex-col overflow-hidden"
+    data-testid="text-attachment-editor" data-presentation="page" onBack={requestClose}
+    onCloseAutoFocus={() => { if (!returnFocusRef.current?.closest("[inert]")) returnFocusRef.current?.focus({ preventScroll: true }); }}
+    onEscapeKeyDown={event => { if (confirmingDiscard) { event.preventDefault(); setConfirmingDiscard(false); } }}
+    onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault(); findInputRef.current?.focus(); findInputRef.current?.select();
+    } }}>{body}</NativeFeaturePage>;
 
   return (
     <Sheet
@@ -747,24 +805,7 @@ export function AgentTextAttachmentEditor({
           }
         }}
       >
-        <div className="flex min-h-0 flex-1 flex-col">
-          <TextAttachmentEditorBody
-            name={name}
-            initialText={initialText}
-            purpose={purpose}
-            sheet={isMobile}
-            textareaRef={textareaRef}
-            findInputRef={findInputRef}
-            confirmingDiscard={confirmingDiscard}
-            onCancel={requestClose}
-            onCommit={commit}
-            onKeepEditing={() => {
-              setConfirmingDiscard(false);
-              textareaRef.current?.focus({ preventScroll: true });
-            }}
-            onDiscard={close}
-          />
-        </div>
+        {body}
       </SheetContent>
     </Sheet>
   );
@@ -780,6 +821,9 @@ export function AgentComposerTextAttachment({
   onChange,
   onRemove,
   onCollapse,
+  editorOpen,
+  onEditorOpenChange,
+  hideTrigger = false,
 }: {
   attachment: PendingTextAttachment;
   /** The edited text; an empty edit removes the attachment. */
@@ -787,8 +831,14 @@ export function AgentComposerTextAttachment({
   onRemove: () => void;
   /** A draft restored mid-edit in the composer itself folds back to a chip. */
   onCollapse: () => void;
+  /** Native chips open this same editor, never replace the companion draft. */
+  editorOpen?: boolean;
+  onEditorOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = editorOpen ?? localOpen;
+  const setOpen = onEditorOpenChange ?? setLocalOpen;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   // The workspace re-renders on every composer keystroke; count lines once
   // per text, not once per keystroke.
@@ -801,7 +851,10 @@ export function AgentComposerTextAttachment({
     [attachment.byteSize, attachment.text],
   );
   return (
+    <>
     <div
+      hidden={hideTrigger}
+      inert={hideTrigger}
       className="relative mb-2 rounded-[18px] border border-foreground/[0.12] bg-foreground/[0.045] text-sm"
       data-testid="agent-chat-text-attachment"
     >
@@ -848,6 +901,7 @@ export function AgentComposerTextAttachment({
       >
         <X aria-hidden="true" />
       </Button>
+    </div>
       <AgentTextAttachmentEditor
         open={open}
         onOpenChange={setOpen}
@@ -857,6 +911,6 @@ export function AgentComposerTextAttachment({
         onCommit={(text) => onChange(text)}
         returnFocusRef={triggerRef}
       />
-    </div>
+    </>
   );
 }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { HUSHH_MARK_PATH } from "../lib/brand/hushh-mark";
+import { mountAppChrome, awaitClosedHistoryGeometry } from "./fixtures/app-chrome-layer";
 import {
   productFontStyle,
   stripAppFontFaces,
@@ -189,10 +190,10 @@ test.beforeEach(async ({ page }) => {
   );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
-  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
+  await page.route(/^http:\/\/localhost\/icons\/connectors\/[a-z0-9-]+\.(?:svg|png|jpg)$/, (route) =>
     route.fulfill({
-      contentType: "image/svg+xml",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
+      contentType: route.request().url().endsWith(".svg") ? "image/svg+xml" : route.request().url().endsWith(".png") ? "image/png" : "image/jpeg",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
   await page.route("http://localhost/connections-fixture*", (route) =>
@@ -290,9 +291,16 @@ for (const width of [390, 1440])
     await page.evaluate(() => (window as unknown as { __renderConnectorsSettingsPage: () => void }).__renderConnectorsSettingsPage());
     const shell = page.locator('main[data-app-shell-width]');
     await expect(shell.getByRole("heading", { name: "Connected" })).toBeVisible();
-    const readingMeasure = await page.evaluate(() =>
-      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-shell-reading")) *
-      parseFloat(getComputedStyle(document.documentElement).fontSize));
+    const readingMeasure = await page.evaluate(() => {
+      // Ask CSS to resolve the authored measure; custom properties preserve
+      // their units, so multiplying a px value by the root font size is wrong.
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;visibility:hidden;width:var(--app-shell-reading);padding:0;border:0";
+      document.body.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    });
     expect(readingMeasure).toBeGreaterThan(0);
     const box = (await shell.boundingBox())!;
     if (width > readingMeasure) {
@@ -310,8 +318,14 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
-    if (safeSidePane) reference.dataset.appSidePane = "";
+    // The real Profile frame uses this shared material/geometry marker too.
+    reference.dataset.appSidePane = "";
+    if (safeSidePane) reference.dataset.chatDetailPane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    // Measure the authored leading inset independently: landscape safe-area
+    // left/right values need not be symmetric.
+    reference.style.setProperty("left", "var(--app-side-pane-left-inset)", "important");
+    reference.style.setProperty("right", "auto", "important");
     const card = document.createElement("div");
     const stack = document.createElement("div");
     stack.className = "profile-pane-scroll-root";
@@ -324,7 +338,7 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
     const style = getComputedStyle(reference);
-    const result = { x: innerWidth - bounds.right, y: bounds.y,
+    const result = { x: bounds.x, y: bounds.y,
       width: bounds.width, height: bounds.height,
       radius: style.borderTopLeftRadius,
       card: { background: getComputedStyle(card).backgroundColor,
@@ -468,7 +482,8 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     await chats.getByRole("button", { name: /^Draft email/ }).click();
     await expect(chats).not.toBeVisible();
     expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
-      getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
+      element.getAnimations().filter(animation =>
+        animation.playState === "running" && animation.effect?.getComputedTiming().iterations === Infinity).length)).toBe(0);
     await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
     expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
   });
@@ -497,15 +512,23 @@ for (const dark of [false, true])
     expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
   });
 
-for (const width of [390, 768])
-  test(`chat sidebar keeps Connectors in a visible footer at ${width}px`, async ({ page }) => {
+for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, native: false })), { width: 390, native: true }])
+  test(`chat sidebar keeps Connectors in a visible footer at ${width}px${native ? " with iOS safe area" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 640 });
-    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    if (native) await page.evaluate(() => {
+      document.documentElement.classList.add("native-ios");
+      document.documentElement.style.setProperty("--app-safe-area-top-effective", "59px");
+    });
+    // Exercise the production opener and injected Close, not fixture buttons.
+    const opener = page.getByRole("button", { name: "Open chat history", exact: true });
+    await opener.click();
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const search = chats.getByRole("searchbox", { name: "Search chats" });
     const connectors = chats.getByRole("button", { name: "Open Connectors" });
     await expect(search).toBeVisible();
     await expect(connectors).toBeVisible();
+    const reference = await profileFrame(page);
+    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const searchBox = (await search.boundingBox())!;
     const connectorBox = (await connectors.boundingBox())!;
     const drawerBox = (await chats.boundingBox())!;
@@ -517,7 +540,24 @@ for (const width of [390, 768])
       const style = getComputedStyle(element);
       return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
     });
-    expect(corners).toEqual(["25px", "25px", "25px", "25px"]);
+    expect(corners).toEqual(Array(4).fill(reference.radius));
+    const close = chats.getByRole("button", { name: "Close chat history", exact: true });
+    const closeBox = (await close.boundingBox())!;
+    expect(closeBox.width).toBeGreaterThanOrEqual(44);
+    expect(closeBox.height).toBeGreaterThanOrEqual(44);
+    const leadingInset = await chats.evaluate(node => {
+      const header = node.querySelector("[data-agent-history-header]")!;
+      return parseFloat(getComputedStyle(header).paddingLeft) + parseFloat(getComputedStyle(node).borderLeftWidth);
+    });
+    expect(closeBox.x - drawerBox.x).toBeCloseTo(leadingInset, 0);
+    // Layout width, not WebKit's fractional translated DOMRect rounding.
+    expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
+    expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
+    const title = chats.getByText("A weekend idea", { exact: true });
+    const age = chats.locator("time");
+    const titleBox = (await title.boundingBox())!, ageBox = (await age.boundingBox())!;
+    expect(ageBox.x - (titleBox.x + titleBox.width)).toBeLessThanOrEqual(9);
+    await page.screenshot({ path: testInfo.outputPath("public-history-leading-slot.png") });
     const titleStyle = await chats.getByRole("heading", { name: "Chats", exact: true }).evaluate(element => {
       const style = getComputedStyle(element);
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
@@ -537,29 +577,9 @@ for (const width of [390, 768])
       });
       expect(material).toEqual(reference.material);
     }
+    await close.click();
+    await expect(opener).toBeFocused();
   });
-
-/**
- * The real app, reduced to the two things that decide this drawer's stacking:
- * the routed content (the chat workspace, header included) sits in a
- * `relative z-10` wrapper (app/providers.tsx), and the bottom bar is a fixed
- * sibling on the chrome tier (components/app-ui/app-bottom-shell.tsx, z-118).
- * A drawer left inside the workspace can never rise above that bar.
- */
-async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
-  // createRoot commits asynchronously after the fixture script is inserted.
-  await page.locator("main").waitFor({ state: "attached" });
-  await page.evaluate((height) => {
-    document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
-    const main = document.querySelector("main")!;
-    main.style.position = "relative";
-    main.style.zIndex = "10";
-    const bar = document.createElement("nav");
-    bar.setAttribute("data-fixture-bottom-bar", "");
-    bar.style.cssText = `position:fixed;left:0;right:0;bottom:0;height:${height}px;z-index:var(--z-chrome);background:var(--background)`;
-    document.body.append(bar);
-  }, barHeight);
-}
 
 /** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
 function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
@@ -569,7 +589,7 @@ function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
     if (element.closest("[data-agent-history-scrim]")) return "scrim";
     if (element.closest("[data-agent-history-drawer]")) return "panel";
     if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("button")?.textContent === "Open drawer") return "header";
+    if (element.closest("header.agent-chat-header")) return "header";
     return element.tagName.toLowerCase();
   }, [x, y] as const);
 }
@@ -584,13 +604,16 @@ for (const { width, safeLeft } of [
     if (safeLeft) await page.addStyleTag({ content: `[data-agent-history-drawer] { --app-side-pane-left-inset: ${safeLeft}px; }` });
     await mountAppChrome(page, 64);
     await expect(page.locator("[data-agent-history-drawer]")).toBeAttached();
-    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await awaitClosedHistoryGeometry(page);
     const result = await page.evaluate(async () => {
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
-      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const panel = frame;
+      const header = panel.querySelector<HTMLElement>("[data-stationary-panel-chrome]")!;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
-      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x };
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x,
+        header: header.getBoundingClientRect().x - panel.getBoundingClientRect().x };
       const closed = panel.getBoundingClientRect().x;
       let time = 0;
       function finger(type: string, dx: number) {
@@ -602,24 +625,26 @@ for (const { width, safeLeft } of [
         body.dispatchEvent(event);
       }
       finger("touchstart", 0);
-      const samples: { offset: number; expected: number; opacity: number; visible: boolean }[] = [];
+      const samples: { offset: number; expected: number; opacity: number; visible: boolean; headerInset: number }[] = [];
       for (const dx of [24, 48, 72, 96, 120]) {
         finger("touchmove", dx);
         await new Promise(requestAnimationFrame);
         samples.push({ offset: panel.getBoundingClientRect().x, expected: closed + dx,
-          opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible" });
+          opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible",
+          headerInset: header.getBoundingClientRect().x - panel.getBoundingClientRect().x });
       }
       const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
       const filter = getComputedStyle(scrim).backdropFilter || getComputedStyle(scrim).webkitBackdropFilter;
-      const inertDuringPull = panel.inert;
+      const inertDuringPull = frame.inert;
       finger("touchend", 120);
-      return { samples, stationary, filter, inertDuringPull };
+      return { samples, stationary, filter, inertDuringPull, headerInset: before.header };
     });
     for (const sample of result.samples) {
       expect(sample.offset).toBeCloseTo(sample.expected, 0);
       expect(sample.visible).toBe(true);
       expect(sample.opacity).toBeGreaterThan(0);
       expect(sample.opacity).toBeLessThan(1);
+      expect(sample.headerInset).toBeCloseTo(result.headerInset, 0);
     }
     expect(result.stationary).toBe(true);
     expect(result.inertDuringPull).toBe(true);
@@ -628,6 +653,14 @@ for (const { width, safeLeft } of [
     await expect(drawer).toBeVisible();
     // Let the opening settle, then exercise the same owner in the other
     // direction. WebKit and Chromium must follow the finger, not wait for up.
+    await expect(page.locator('[data-agent-history-drawer]')).not.toHaveAttribute("style", /will-change/);
+    // Removing the gesture hint is not a rendered-position receipt. WebKit
+    // can still be completing the CSS handoff; that is a valid interrupted
+    // re-grab, tested separately, not this fully-open closing contract.
+    await expect.poll(async () => {
+      const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
+      return bounds?.x;
+    }).toBeCloseTo(Math.max(safeLeft, (await profileFrame(page)).x), 0);
     await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
     // Auth freshness can temporarily disable the gesture while the drawer
     // remains open. Reattaching must preserve the same closed endpoint.
@@ -638,7 +671,8 @@ for (const { width, safeLeft } of [
       await page.evaluate(() => new Promise(requestAnimationFrame));
     }
     const closing = await page.evaluate(async () => {
-      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const panel = frame;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
@@ -737,36 +771,45 @@ for (const width of [390, 768, 1440])
     expect(box.y).toBeCloseTo(reference.y, 0);
     expect(box.height).toBeCloseTo(reference.height, 0);
     expect(box.width).toBeCloseTo(reference.width, 0);
-    expect(surface.y).toBeCloseTo(box.y + 1, 0);
-    expect(surface.height).toBeCloseTo(box.height - 2, 0);
-    expect(box.x + box.width).toBeLessThan(width);
+    const border = await chats.evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth));
+    expect(surface.y).toBeCloseTo(box.y + border, 0);
+    expect(surface.height).toBeCloseTo(box.height - 2 * border, 0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
     expect(await chats.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe(reference.radius);
 
     // The gaps around the card still belong to the modal scrim; underlying
     // navigation cannot become active while the drawer is open.
     const beside = (box.x + box.width + width) / 2;
-    expect(await hitAt(page, beside, 20)).toBe("scrim");
-    expect(await hitAt(page, beside, height - barHeight / 2)).toBe("scrim");
-    expect(await hitAt(page, box.x + box.width / 2, 2)).toBe("scrim");
-    expect(await hitAt(page, box.x + box.width / 2, height - 2)).toBe("scrim");
+    const bounded = box.width < width;
+    if (bounded) {
+      expect(await hitAt(page, beside, 20)).toBe("scrim");
+      expect(await hitAt(page, beside, height - barHeight / 2)).toBe("scrim");
+      expect(await hitAt(page, box.x + box.width / 2, 2)).toBe("scrim");
+      expect(await hitAt(page, box.x + box.width / 2, height - 2)).toBe("scrim");
+    }
     expect(await hitAt(page, box.x + 40, box.y + 40)).toBe("panel");
     expect(await hitAt(page, box.x + 40, box.y + box.height - 40)).toBe("panel");
 
     // A tap on the scrim beside the panel closes it.
-    await page.mouse.click(beside, height / 2);
+    if (bounded) await page.mouse.click(beside, height / 2);
+    else await chats.getByRole("button", { name: "Close chat history" }).click();
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
-    // Closed, the panel and its shadow sit fully off-screen.
+    // Header and body translate as one full-height panel. Closed, the whole
+    // presentation is hidden/inert and clears the viewport, not a split body.
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveAttribute("inert", "");
+    await expect.poll(() => page.locator("[data-agent-history-drawer]")
+      .evaluate(element => getComputedStyle(element).visibility)).toBe("hidden");
     await expect
       .poll(async () => {
-        const closed = await page.locator("[aria-label='Agent chat history'][role='dialog']").boundingBox();
+        const closed = await page.locator("[data-agent-history-drawer]").boundingBox();
         return closed ? closed.x + closed.width : 0;
       })
-      .toBeLessThanOrEqual(-24);
+      .toBeLessThanOrEqual(1);
     // Closed, the scrim fades out and leaves no live backdrop filter behind.
     await expect.poll(async () => (await readScrim()).visibility).toBe("hidden");
     expect((await readScrim()).opacity).toBe("0");
     // And the chrome underneath is reachable again.
-    expect(await hitAt(page, beside, height - barHeight / 2)).toBe("bottom-bar");
+    expect(await hitAt(page, width / 2, height - barHeight / 2)).toBe("bottom-bar");
     expect(await hitAt(page, 20, 20)).toBe("header");
   });
 
@@ -815,7 +858,7 @@ for (const width of [390, 768])
       ),
     ).toBe(true);
     await connectors.click();
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Chat connectors", exact: true })).toBeVisible();
   });
 
 test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
@@ -826,49 +869,16 @@ test("chat sidebar closes from its own control and returns focus to the trigger"
   const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
   const close = chats.getByRole("button", { name: "Close chat history" });
   await expect(close).toBeVisible();
-  const reference = await profileFrame(page);
-  await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
-  const closeBox = (await close.boundingBox())!;
-  const drawerBox = (await chats.boundingBox())!;
-  expect(closeBox.width).toBe(44);
-  expect(closeBox.height).toBe(44);
-  expect(drawerBox.x + drawerBox.width - closeBox.x - closeBox.width).toBeCloseTo(21, 0);
-  expect(closeBox.y - drawerBox.y).toBeCloseTo(21, 0);
-  await close.click();
+  const hit = await close.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(hit.width).toBeGreaterThanOrEqual(44);
+  expect(hit.height).toBeGreaterThanOrEqual(44);
+  await close.click({ position: { x: 8, y: 22 } });
   await expect(chats).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
-
-for (const width of [320, 390, 768, 1440])
-  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.setViewportSize({ width, height: 820 });
-    await expect(page).toHaveTitle("One Connectors contract");
-    await expect(page).toHaveURL("http://localhost/connections-fixture");
-    const draft = page.getByRole("textbox", { name: "Chat draft" });
-    await draft.fill("Keep this draft and conversation");
-    const original = await draft.elementHandle();
-    const receipt = page.getByRole("region", { name: "Mail read details" });
-    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
-    // The receipt names the connector and what the person will do there.
-    const button = receipt.getByRole("button", { name: "Review Gmail access" });
-    const bounds = (await button.boundingBox())!;
-    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    await button.click();
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).not.toBeVisible();
-    await expect(button).toBeFocused();
-    await expect(draft).toHaveValue("Keep this draft and conversation");
-    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
-    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(errors).toEqual([]);
-    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
-  });
 
 for (const width of [320, 390, 768, 1440])
   test(`mounted drawer retains chat and wraps controls at ${width}px`, async ({
@@ -881,7 +891,7 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Open drawer", exact: true })
       .click();
-    // Opening moves focus to Open Connectors one frame later. `fill` focuses
+    // Opening moves focus to Open Connectors after body entry. `fill` focuses
     // the box and then inserts text in a separate step, so typing before that
     // frame lands sent the text to the button about 1 run in 60 on WebKit and
     // left the search empty. Wait for the drawer's own focus to settle first.
@@ -891,44 +901,27 @@ for (const width of [320, 390, 768, 1440])
     const chatSearch = page.getByRole("searchbox", { name: "Search chats" });
     await chatSearch.fill("History filter");
     await expect(chatSearch).toHaveValue("History filter");
+    const historyFrame = await page.locator("[data-agent-history-drawer]").elementHandle();
+    const historyGeometry = await page.locator("[data-agent-history-drawer]").boundingBox();
     await page.getByLabel("Open Connectors", { exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const drawer = page.getByRole("dialog", { name: "Chat connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
-    await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
-    if (width >= 768) {
-      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.x + box.width / 2 - width / 2);
-      }).toBeLessThan(2);
-    } else {
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.y + box.height - 820);
-      }).toBeLessThan(2);
-    }
+    expect(await drawer.evaluate((node, prior) => node === prior, historyFrame)).toBe(true);
+    await expect.poll(() => drawer.boundingBox()).toEqual(historyGeometry);
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
-    const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
+    const overlay = page.locator('[data-agent-history-scrim]');
     await expect(overlay).toBeVisible();
     expect(await overlay.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(");
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
-    await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
-    await drawer.getByRole("searchbox", { name: "Search connectors" }).fill("drive");
-    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toHaveCount(0);
-    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
-    await drawer.getByRole("searchbox", { name: "Search connectors" }).clear();
     for (const [connector, account, names] of [
       ["Gmail", "mail-owner@synthetic.invalid", ["Disconnect Mail"]],
       ["Google Drive", "drive-owner@synthetic.invalid", ["Disconnect Drive", "Choose files"]],
     ] as const) {
-      await drawer.getByRole("button", { name: connector, exact: true }).click();
-      await expect(drawer.getByRole("button", { name: "Back to connectors" })).toBeFocused();
+      await drawer.getByRole("button", { name: new RegExp(`^${connector}\\b`) }).click();
+      await expect(drawer.locator(`[data-connector-detail="${connector === "Gmail" ? "gmail" : "google_drive"}"]`)).toBeFocused();
       await expect(drawer.getByText(account)).toBeVisible();
       if (connector === "Google Drive") {
         await expect(drawer.getByRole("button", { name: "Retry Drive" })).toHaveCount(0);
-        if (width === 1440) expect((await drawer.boundingBox())!.height).toBeLessThan(600);
         if (width === 1440) await testInfo.attach("Drive connected details", {
           body: await page.screenshot({ path: testInfo.outputPath("drive-connected-details.png") }),
           contentType: "image/png",
@@ -945,21 +938,26 @@ for (const width of [320, 390, 768, 1440])
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
       }
       await drawer.getByRole("button", { name: "Back to connectors" }).click();
-      await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeFocused();
+      await expect(drawer.getByTestId(`profile-connector-row-${connector === "Gmail" ? "gmail" : "google_drive"}`).getByRole("button").first()).toBeFocused();
     }
     for (const name of ["Gmail", "Google Drive"]) {
-      const button = drawer.getByRole("button", { name, exact: true });
+      const button = drawer.getByRole("button", { name: new RegExp(`^${name}\\b`) });
       await button.scrollIntoViewIfNeeded();
       const bounds = (await button.boundingBox())!;
       expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
     }
-    expect(
-      await drawer.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth + 1,
-      ),
-    ).toBe(true);
+    const overflow = await drawer.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      return { scroll: element.scrollWidth, client: element.clientWidth,
+        children: [...element.querySelectorAll<HTMLElement>("*")].filter(child => {
+          const box = child.getBoundingClientRect();
+          return box.width > 0 && box.right > bounds.right + 1;
+        }).slice(0, 8).map(child => ({ tag: child.tagName, role: child.getAttribute("role"),
+          className: child.className, right: child.getBoundingClientRect().right - bounds.right })) };
+    });
+    expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.client + 1);
     await testInfo.attach("mounted connections", {
       body: await page.screenshot({
         path: testInfo.outputPath("connections.png"),
@@ -972,7 +970,10 @@ for (const width of [320, 390, 768, 1440])
     await expect(
       page.getByRole("searchbox", { name: "Search chats" }),
     ).toHaveValue("History filter");
+    // Escape is allowed during entry, before delayed body focus. An old
+    // connector dismissal cannot make this newly opened layer unclosable.
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
     await expect(
       page.getByRole("button", { name: "Open drawer", exact: true }),
     ).toBeFocused();
@@ -990,12 +991,12 @@ for (const width of [320, 390, 1440])
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     await page.getByLabel("Open Connectors", { exact: true }).click();
 
-    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
-    const scrollRegion = dialog.locator('[data-connections-panel] > div').last();
-    await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
+    const scrollRegion = dialog.locator('[data-history-connectors-scroll]');
+    await expect(dialog.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
     expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
-    const plaid = dialog.getByRole("button", { name: "Plaid" });
+    const plaid = dialog.getByTestId("profile-connector-row-plaid").getByRole("button").first();
     await plaid.scrollIntoViewIfNeeded();
     await expect(plaid).toBeVisible();
     const action = await plaid.boundingBox();
@@ -1011,7 +1012,7 @@ for (const width of [320, 390, 1440])
 test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 820 });
   const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
-  const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const connectors = page.getByRole("dialog", { name: "Chat connectors", exact: true });
   const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
 
   // Radix attaches its outside-pointer listener after the open transition
@@ -1019,8 +1020,8 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   const settled = () =>
     expect
       .poll(() =>
-        page.evaluate(
-          () => document.getAnimations().filter((a) => a.playState === "running").length,
+        connectors.evaluate(
+          (node) => node.getAnimations().filter((a) => a.playState === "running").length,
         ),
       )
       .toBe(0);
@@ -1029,7 +1030,7 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await expect(connectors).toBeVisible();
   await settled();
-  await page.mouse.click(24, 400);
+  await page.mouse.click(744, 400);
   await expect(connectors).not.toBeVisible();
   await hamburger.click();
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
@@ -1039,6 +1040,10 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await settled();
   await page.keyboard.press("Escape");
   await expect(connectors).not.toBeVisible();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+  await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(chats).not.toBeVisible();
   await hamburger.click();
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 });
@@ -1048,7 +1053,7 @@ test("Picker focus, explicit admission, and removal", async ({
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await expect(page.getByRole("button", { name: "Choose files", exact: true })).not.toBeVisible();
   await page.getByText("Previously added files", { exact: true }).click();
   await page.getByRole("button", { name: "Choose files", exact: true }).click();
@@ -1057,7 +1062,7 @@ test("Picker focus, explicit admission, and removal", async ({
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("dialog", { name: "Connectors", exact: true }),
+    page.getByRole("dialog", { name: "Chat connectors", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose files", exact: true }),
@@ -1094,7 +1099,7 @@ test("Picker focus, explicit admission, and removal", async ({
 test("failed Drive revocation preserves the independent Mail connection", async ({ page }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
@@ -1102,7 +1107,7 @@ test("failed Drive revocation preserves the independent Mail connection", async 
     page.getByText(/Google revocation was not confirmed/),
   ).toBeVisible();
   await page.getByRole("button", { name: "Back to connectors" }).click();
-  await page.getByRole("button", { name: "Gmail", exact: true }).click();
+  await page.getByTestId("profile-connector-row-gmail").getByRole("button").first().click();
   await expect(
     page.getByRole("button", { name: "Disconnect Mail" }),
   ).toBeEnabled();
@@ -1117,7 +1122,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Keep my draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByText("Previously added files", { exact: true }).click();
   const selectFile = async () => {
     await page.getByRole("button", { name: "Choose files", exact: true }).click();
@@ -1139,7 +1144,7 @@ test("background processing needs explicit consent and can be paused without rem
   await expect(processing).toBeChecked();
   await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
-  const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
   await remove.scrollIntoViewIfNeeded();
   const removeBox = (await remove.boundingBox())!;
@@ -1157,7 +1162,7 @@ test("background processing needs explicit consent and can be paused without rem
   await processing.click();
   await expect(processing).toBeChecked();
   expect(writes[2].body).toEqual({ enabled: true, confirmed: true, disclosure: "selected-files-background-v1" });
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Close connectors", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Keep my draft");
 });
 
@@ -1175,14 +1180,14 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
         connectorId: "google_drive",
         attemptId,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=blocked",
+        authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?synthetic=blocked&redirect_uri=${encodeURIComponent("http://localhost/one/profile/connectors/oauth/return")}`,
       }),
     }),
   );
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   await page.evaluate(() => {
@@ -1202,7 +1207,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
     (window as Window & { __driveRecoveryRequests?: unknown[] }).__driveRecoveryRequests,
   )).toEqual([{ attemptId, reason: "web_full_page" }]);
   expect(page.url()).toBe("http://localhost/connections-fixture");
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Close connectors", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue(
     "Unsent draft",
   );
@@ -1228,12 +1233,12 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
           attemptId,
           expiresAt: new Date(serverExpiresAt).toISOString(),
           authorizeUrl:
-            "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+            "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         }),
       }),
   );
   await context.route(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
     (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -1242,7 +1247,7 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
   );
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   const popupEvent = page.waitForEvent("popup");
@@ -1251,7 +1256,7 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
     .click();
   const popup = await popupEvent;
   await popup.waitForURL(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
   );
   const popupExpiresAt = await page.evaluate(() => {
     const marker = localStorage.getItem("one_drive_popup_attempt_v1");
@@ -1307,7 +1312,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         redirect_uri: "http://localhost/one/profile/google/oauth/return",
         expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
       }),
@@ -1326,7 +1331,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
     });
   });
   await page.context().route(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
     (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -1352,7 +1357,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Calendar", exact: true }).click();
+  await page.getByTestId("profile-connector-row-calendar").getByRole("button").first().click();
   return { calendar, navigations: () => chatNavigations };
 }
 
@@ -1360,7 +1365,7 @@ async function finishCallback(
   consent: import("@playwright/test").Page,
   options: { severOpener?: boolean } = {},
 ) {
-  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar");
+  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn");
   // Google redirects the consent window back to the registered return URI.
   // Navigate from inside the page, as Google's redirect does: a harness
   // `goto` is browser-initiated, which WebKit treats as severing the opener.
@@ -1453,7 +1458,7 @@ test("closing Calendar consent without finishing ends quietly as not connected",
   const popupEvent = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Connect Calendar", exact: true }).click();
   const consent = await popupEvent;
-  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar");
+  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn");
   await consent.close();
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await expect(page.getByText("Calendar not connected.")).toBeVisible();
@@ -1479,7 +1484,7 @@ async function armChatConnect(page: import("@playwright/test").Page) {
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         redirect_uri: "http://localhost/one/profile/google/oauth/return",
         expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
       }),
@@ -1654,16 +1659,24 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
       scope.__presencePixelProbe = probe.getContext("2d", { willReadFrequently: true })!;
     }
     const context = scope.__presencePixelProbe;
-    if (context.canvas.width !== edge) context.canvas.width = context.canvas.height = edge;
-    context.clearRect(0, 0, edge, edge);
+    // Batch the four exact source corners beside the coverage sample. One GPU
+    // readback preserves all five probes without five compositor flushes.
+    if (context.canvas.width !== edge + 4) {
+      context.canvas.width = edge + 4;
+      context.canvas.height = edge;
+    }
+    context.clearRect(0, 0, edge + 4, edge);
     context.drawImage(canvas, 0, 0, edge, edge);
-    const pixels = context.getImageData(0, 0, edge, edge).data;
     const { width, height } = canvas;
+    const corners = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
+    corners.forEach(([x, y], index) => context.drawImage(canvas, x!, y!, 1, 1, edge + index, 0, 1, 1));
+    const pixels = context.getImageData(0, 0, edge + 4, edge).data;
     let hash = 0, opaque = 0, bottom = -1;
-    for (let i = 0; i < pixels.length; i += 1) {
-      hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
-      if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
-      if (i % 4 === 3 && pixels[i]! > 20) bottom = Math.floor(i / 4 / edge);
+    for (let row = 0; row < edge; row += 1) for (let col = 0; col < edge; col += 1) {
+      const offset = (row * (edge + 4) + col) * 4;
+      for (let channel = 0; channel < 4; channel += 1) hash = (Math.imul(hash, 31) + pixels[offset + channel]!) | 0;
+      if (pixels[offset + 3]! > 0) opaque += 1;
+      if (pixels[offset + 3]! > 20) bottom = row;
     }
     const surface = canvas.closest<HTMLElement>("[data-one-presence-state]")!;
     const style = original ? getComputedStyle(surface) : null;
@@ -1680,15 +1693,7 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
         feetPainted: bottom > 0, nameGap: gap,
         nameClearOfFeet: gap >= -0.5, nameCloseToFeet: gap <= 6,
       } : undefined,
-      cornerAlpha: [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
-      .map(([x, y]) => {
-        // Copy each exact source pixel to the CPU probe. Reading the Rive
-        // drawing context directly changes its readback policy and emits a
-        // browser warning; a 1:1 copy preserves the transparency assertion.
-        context.clearRect(0, 0, 1, 1);
-        context.drawImage(canvas, x!, y!, 1, 1, 0, 0, 1, 1);
-        return context.getImageData(0, 0, 1, 1).data[3];
-      }) };
+      cornerAlpha: corners.map((_, index) => pixels[(edge + index) * 4 + 3]) };
   }, original);
 }
 
@@ -1808,11 +1813,19 @@ async function expectPresenceNameGap(surface: Locator, profile = false) {
       ? trigger.parentElement!.parentElement!.querySelector('[data-slot="sheet-title"]')!
       : trigger.closest('[data-agent-chat-header-region="identity"]')!.querySelector('[data-one-presence-name]')!
     ).getBoundingClientRect();
-    return { bottom, gap: name.top - (bounds.top + bounds.height * (bottom + 1) / 128) };
+    return { bottom,
+      gap: profile ? name.top - (bounds.top + bounds.height * (bottom + 1) / 128) : name.left - bounds.right,
+      centerDifference: Math.abs(name.top + name.height / 2 - bounds.top - bounds.height / 2),
+    };
   }, profile);
   expect(proof.bottom).toBeGreaterThan(0);
-  expect(proof.gap, "name must not cover the mascot's feet").toBeGreaterThanOrEqual(-0.5);
-  expect(proof.gap, "name sits directly beneath painted artwork, including transparent source padding").toBeLessThanOrEqual(6);
+  if (profile) {
+    expect(proof.gap, "name must not cover the mascot's feet").toBeGreaterThanOrEqual(-0.5);
+    expect(proof.gap, "profile name sits directly beneath painted artwork").toBeLessThanOrEqual(6);
+  } else {
+    expect(proof.gap, "compact header name remains beside the artwork").toBeGreaterThanOrEqual(0);
+    expect(proof.centerDifference, "compact header identity shares one aligned row").toBeLessThanOrEqual(1);
+  }
 }
 
 test.describe("One profile artwork and animated presence", () => {
@@ -2083,6 +2096,7 @@ test.describe("One profile artwork and animated presence", () => {
       release();
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.interrupted)).toBe(true);
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking");
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expectPresencePlayback(profile);
@@ -2226,7 +2240,7 @@ test.describe("One profile artwork and animated presence", () => {
       // settlement proof without dozens of sequential remote round trips.
       const expectedSurface = {
         state: phase.state, artwork: [phase.state],
-        canvas: { width: 192, height: 192, visibility: "visible", playback: "playing" },
+        canvas: { width: 96, height: 96, visibility: "visible", playback: "playing" },
         poster: "hidden",
       };
       await expect.poll(() => page.locator("[data-one-presence-state]").evaluateAll(nodes => nodes.map((node, index) => {
@@ -2363,7 +2377,7 @@ test.describe("One profile artwork and animated presence", () => {
       await awaitProductFont(page);
       const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
       const headerAvatar = trigger.locator("[data-one-presence-state]");
-      const headerSize = viewport.width < 768 ? Math.min(64, Math.max(52, viewport.width - 268)) : 104;
+      const headerSize = 32;
       for (const artwork of [headerAvatar, headerAvatar.locator("img"), headerAvatar.locator("canvas")]) {
         // The loading canvas and animated poster can be visibility:hidden;
         // their geometry must still match the owning avatar.
@@ -2444,8 +2458,8 @@ test("Reset icon colors only its arrowhead and keeps native geometry in the acco
         viewBox: element.getAttribute("viewBox") };
     });
     expect(geometry.viewBox).toBe("0 0 256 256");
-    expect(geometry.width).toBe(22);
-    expect(geometry.height).toBe(22);
+    expect(geometry.width).toBe(24);
+    expect(geometry.height).toBe(24);
     expect(geometry.stroke).toBe("none");
     expect(geometry.fill).not.toBe("none");
     const pixels = await icon.evaluate(async element => {

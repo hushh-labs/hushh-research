@@ -239,6 +239,7 @@ export function TopShellRouteSwipe({
         },
         "tap",
         transitionMode,
+        "selection",
       );
     };
 

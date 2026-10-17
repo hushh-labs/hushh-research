@@ -32,6 +32,7 @@ describe("iOS UAT native runtime env", () => {
 
     expect(env.APP_RUNTIME_PROFILE).toBe("uat");
     expect(env.NEXT_PUBLIC_APP_ENV).toBe("uat");
+    expect(env.NEXT_PUBLIC_APP_URL).toBe("https://uat.one.hussh.ai");
     expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
     expect(env.NEXT_DIST_DIR).toBe(".next-native-uat");
     expect(env.NEXT_PUBLIC_BACKEND_URL).toBe(

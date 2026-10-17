@@ -41,6 +41,7 @@ export function MobileDocumentDateRange({
   // 42-cell calendar settle on the latest month after that burst. Rendering
   // every intermediate grid synchronously made reverse scrolling feel stuck.
   const calendarMonth = useDeferredValue(month);
+  const calendarCurrent = calendarMonth.getTime() === month.getTime();
   const currentYear = new Date().getFullYear();
   const yearRangeEnd = Math.max(currentYear + 10, month.getFullYear());
   const firstDay = useMemo(
@@ -70,6 +71,7 @@ export function MobileDocumentDateRange({
   };
 
   const choose = (date: Date) => {
+    if (!calendarCurrent || !editing) return;
     const selected = format(date, "yyyy-MM-dd");
     if (editing === "start") {
       onStartChange(selected);
@@ -161,7 +163,7 @@ export function MobileDocumentDateRange({
           <div className="grid grid-cols-7 text-center text-xs text-[color:var(--app-secondary-label)]">
             {WEEKDAYS.map((day) => <span key={day} className="min-w-11">{day}</span>)}
           </div>
-          <div className="grid grid-cols-7" data-calendar-days>
+          <div className="grid grid-cols-7" data-calendar-days aria-busy={!calendarCurrent}>
             {days.map((date) => {
               const value = format(date, "yyyy-MM-dd");
               if (date.getMonth() !== calendarMonth.getMonth())
@@ -175,7 +177,7 @@ export function MobileDocumentDateRange({
                   type="button"
                   aria-label={format(date, "EEEE, MMMM d, yyyy")}
                   aria-pressed={selected}
-                  disabled={unavailable}
+                  disabled={unavailable || !calendarCurrent}
                   onClick={() => choose(date)}
                   className={cn(
                     "min-h-11 min-w-11 rounded-full text-sm font-medium focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-30",

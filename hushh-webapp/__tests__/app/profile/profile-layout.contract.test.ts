@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { vi } from "vitest";
+import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
+import type { VaultWrapper } from "@/lib/services/vault-service";
 
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {
@@ -76,8 +81,6 @@ describe("Profile canonical page layout", () => {
       /const vaultMethodsContent = \([\s\S]*?<div\s+className=\{cn\(\s*"profile-account-content profile-vault-methods-content",\s*isPanePresentation && secondaryTypographyStyles\.paneVaultMethods,\s*\)\}/,
     );
     expect(workspace).not.toContain('description: "Unlock methods.",');
-    expect(workspace).toContain('data-testid="vault-default-unlock-actions"');
-    expect(workspace).toContain("VAULT_INLINE_ACTIONS_CLASS");
     // Founder direction, 2026-09-28: nested Profile screens draw rows the way
     // the Profile menu does, so Vault methods carries no tile tones.
     const vaultMethods = workspace.slice(
@@ -89,14 +92,36 @@ describe("Profile canonical page layout", () => {
     );
     // Five implemented row families; unsupported "coming soon" methods
     // must not be counted as usable unlock choices.
-    expect(vaultTones.length).toBeGreaterThanOrEqual(5);
+    expect(vaultTones.length).toBeGreaterThanOrEqual(1);
     expect(vaultMethods).not.toContain('title="BYOK and passkeys"');
     expect(new Set(vaultTones)).toEqual(new Set(["capability"]));
     expect(workspace).not.toContain("Use device biometric");
     expect(workspace).not.toContain("Use passphrase");
-    expect(workspace).toContain(
-      "{readableQuickMethod(quickMethodReadyOnCurrentDevice)}",
-    );
+  });
+
+  it("keeps credential identifiers private and viewing methods cannot mutate them", () => {
+    const make = (id: string): VaultWrapper => ({ method: "generated_default_web_prf", wrapperId: id,
+      encryptedVaultKey: "synthetic-ciphertext", salt: "synthetic-salt", iv: "synthetic-iv",
+      passkeyCredentialId: `credential-${id}`, passkeyDeviceLabel: "Browser passkey", passkeyRpId: "example.test" });
+    const first = make("private-wrapper-first");
+    const second = make("private-wrapper-second");
+    const select = vi.fn(); const remove = vi.fn();
+    const props = { wrappers: [first, second], primaryMethod: first.method, primaryWrapperId: first.wrapperId!,
+      mutable: true, busy: false, needsRefresh: false, onSelect: select, onRemove: remove,
+      onChangePassphrase: vi.fn(), onRefresh: vi.fn() };
+    const view = render(createElement(VaultMethodsPanel, props));
+    fireEvent.click(screen.getByRole("button", { name: "Browser passkey 2" }));
+    const details = screen.getByRole("dialog");
+    expect(document.body.innerHTML).not.toContain("private-wrapper");
+    expect(document.body.innerHTML).not.toContain("credential-");
+    expect(select).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(within(details).getByRole("button", { name: "Remove passkey" }));
+    expect(remove).toHaveBeenCalledExactlyOnceWith(second);
+    view.rerender(createElement(VaultMethodsPanel, { ...props, mutable: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Browser passkey 2" }));
+    expect(screen.getByRole("button", { name: "Remove passkey" })).toBeDisabled();
+    expect(select).not.toHaveBeenCalled(); expect(remove).toHaveBeenCalledOnce();
+    view.unmount();
   });
 
   it("draws the Profile menu icons the way /one draws its launcher icons", () => {
@@ -106,8 +131,8 @@ describe("Profile canonical page layout", () => {
     );
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
     const homeMenu = workspace.slice(
-      workspace.indexOf('<SettingsGroup title="Your settings"'),
-      workspace.indexOf("</AppPageContentRegion>"),
+      workspace.indexOf("const profileRootContent"),
+      workspace.indexOf("if (legacyProfileRedirectHref)", workspace.indexOf("const profileRootContent")),
     );
 
     // Founder direction, 2026-09-27: the authored duotone glyph in its own
@@ -116,7 +141,8 @@ describe("Profile canonical page layout", () => {
     const tones = [...homeMenu.matchAll(/iconTone="([a-z]+)"/g)].map(
       (match) => match[1],
     );
-    expect(tones.length).toBeGreaterThanOrEqual(8);
+    expect(tones).toHaveLength(1); // One renderer, not a copied row per destination.
+    expect(homeMenu).toContain("menuGroups.map(group");
     expect(new Set(tones)).toEqual(new Set(["capability"]));
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(

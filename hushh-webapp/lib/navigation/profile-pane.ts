@@ -10,6 +10,12 @@ import {
 } from "@/lib/navigation/profile-routes";
 
 export const PROFILE_PANE_OPEN_EVENT = "hushh:profile-pane-open";
+// Presentation only: a preview neither admits Profile nor changes URL/focus.
+export const PROFILE_PANE_PREVIEW_EVENT = "hushh:profile-pane-preview";
+export type ProfilePanePreview = { phase: "drag" | "cancel" | "commit"; distance: number };
+export function previewProfilePane(detail: ProfilePanePreview) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PROFILE_PANE_PREVIEW_EVENT, { detail }));
+}
 export const PROFILE_PANE_QUERY = "profile_pane";
 export const PROFILE_PANE_PANEL_QUERY = "profile_panel";
 export const PROFILE_PANE_DETAIL_QUERY = "profile_detail";
@@ -302,7 +308,17 @@ export function pushProfilePaneLocation(
   options: { returnsToOrigin?: boolean } = {},
 ): void {
   if (typeof window === "undefined") return;
-  const depth = getProfilePaneHistoryDepth() + 1;
+  const currentDepth = getProfilePaneHistoryDepth();
+  // A direct query entry (including a destination's return to Profile) has
+  // no owned closed predecessor. Keep its existing in-place Back/Close
+  // boundary instead of inventing depth 1 over an already-open pane. Doing
+  // so would make Close traverse to another open Profile entry and strand
+  // the native drawer's underlying touch isolation.
+  if (currentDepth === 0 && resolveProfilePaneUrlState(window.location.search).open && !options.returnsToOrigin) {
+    replaceProfilePaneLocation(pathname, searchParams, location);
+    return;
+  }
+  const depth = currentDepth + 1;
   const state =
     window.history.state && typeof window.history.state === "object"
       ? { ...(window.history.state as Record<string, unknown>) }
@@ -337,8 +353,16 @@ export function openProfilePane(
      * restored child still steps back through its parent.
      */
     returnsToOrigin?: boolean;
+    /** Authored origin retained by the existing shell; never persisted. */
+    returnFocus?: HTMLElement;
   } = {},
 ): void {
+  if (options.returnFocus) {
+    const result = requestProfilePaneOpen("tap", options.returnFocus, {
+      location, returnsToOrigin: options.returnsToOrigin,
+    });
+    if (result === "opening" || result === "unavailable") return;
+  }
   pushProfilePaneLocation(pathname, searchParams, location, options);
 }
 
@@ -471,6 +495,9 @@ export type ProfilePaneOpenResult = "opening" | "already_open" | "unavailable";
 
 export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
+  /** Transient authored opener, not inferred DOM or persisted state. */
+  returnFocus?: HTMLElement;
+  destination?: { location: ProfilePaneLocation; returnsToOrigin?: boolean };
   /** Called synchronously by the shell listener with what it did. */
   onResult?: (result: ProfilePaneOpenResult) => void;
 };
@@ -485,6 +512,8 @@ export type ProfilePaneOpenDetail = {
  */
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
+  returnFocus?: HTMLElement,
+  destination?: ProfilePaneOpenDetail["destination"],
 ): ProfilePaneOpenResult | null {
   if (typeof window === "undefined") return null;
   let result: ProfilePaneOpenResult | null = null;
@@ -492,6 +521,8 @@ export function requestProfilePaneOpen(
     new CustomEvent<ProfilePaneOpenDetail>(PROFILE_PANE_OPEN_EVENT, {
       detail: {
         source,
+        returnFocus,
+        destination,
         onResult: (value) => {
           result = value;
         },

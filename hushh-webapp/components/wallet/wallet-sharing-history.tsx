@@ -33,6 +33,10 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   const [opened, setOpened] = useState<{ id: string; cardType: string } | null>(null);
   const [selection, setSelection] = useState<CardSharingHistoryItem | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const returnTarget = useRef<{ element: HTMLButtonElement; context: CardShareContext; activation: number } | null>(null);
+  const detailBack = useRef<HTMLButtonElement | null>(null);
+  const revokeButton = useRef<HTMLButtonElement | null>(null);
+  const revoked = useRef(false);
   const end = useRef<HTMLDivElement>(null);
   const activation = useRef({ active, revision: 0 });
   if (activation.current.active !== active) activation.current = { active, revision: activation.current.revision + 1 };
@@ -114,28 +118,40 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     setBusy(item.id);
     const operation = WalletCardAccessService.revoke(context, item.id);
     void morphyToast.promise(operation, { loading: "Revoking access...", success: "Access revoked.", error: "Could not revoke access. Try again." });
-    try { await operation; if (context.isCurrent()) setSelection(null); }
+    try { await operation; if (context.isCurrent()) { revoked.current = true; setSelection(null); } }
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
+  const restoreFocus = (event: Event, target: HTMLButtonElement | null) => {
+    event.preventDefault();
+    const origin = returnTarget.current;
+    if (!active || !origin || origin.context.userId !== ownerId || !origin.context.isCurrent()
+      || origin.activation !== activation.current.revision || !target?.isConnected || target.disabled) return;
+    target.focus({ preventScroll: true });
+  };
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
-      {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
+      {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} asChild icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={direction === "outgoing" ? item.recipientName : item.senderName}
         description={<time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleDateString([], { dateStyle: "medium" })}</time>}
-        ariaLabel={`View ${item.displayLabel} ${direction === "outgoing" ? `shared with ${item.recipientName}` : `from ${item.senderName}`}`}
-        chevron onClick={() => setOpened({ id: item.id, cardType: item.cardType })} />)}
+        chevron><button type="button"
+          aria-label={`View ${item.displayLabel} ${direction === "outgoing" ? `shared with ${item.recipientName}` : `from ${item.senderName}`}`}
+          onClick={event => {
+            returnTarget.current = { element: event.currentTarget, context: current.context, activation: activation.current.revision };
+            setOpened({ id: item.id, cardType: item.cardType });
+          }} /></SettingsRow>)}
       {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
     {failed ? <div role="alert"><p className="ui-text-row-description">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
     {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <SettingsDetailPanel open={Boolean(detail)} onOpenChange={open => { if (!open && !busy) { setSelection(null); setOpened(null); } }}
+      onCloseAutoFocus={event => { if (opened || selection) { event.preventDefault(); return; } restoreFocus(event, returnTarget.current?.element ?? null); }}
       title={detail ? direction === "outgoing" ? detail.recipientName : detail.senderName : "Share details"}
       description={detail?.displayLabel} eyebrow={direction === "outgoing" ? "Shared card" : "Received card"}
-      leading={<Button variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail}`}
+      leading={<Button ref={detailBack} variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail}`}
       bodyClassName="space-y-5"
-      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button size="compact" variant="secondary" aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(detail)}>Revoke access</Button> : undefined}>
+      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="secondary" aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => { revoked.current = false; setSelection(detail); }}>Revoke access</Button> : undefined}>
       {detail ? <>
         <SettingsGroup title="Share details">
           <SettingsRow title="Status" description={detail.status === "revoked" ? "Revoked" : detail.status === "expired" ? "Expired" : "Active"} />
@@ -154,7 +170,10 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       </> : null}
     </SettingsDetailPanel>
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
-      <AlertDialogContent className={profileStyles.accountDialog}><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogContent className={profileStyles.accountDialog} onCloseAutoFocus={event => {
+        if (selection || !detail) { event.preventDefault(); return; }
+        restoreFocus(event, revoked.current ? detailBack.current : revokeButton.current ?? detailBack.current);
+      }}><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
         <AlertDialogFooter><AlertDialogCancel disabled={Boolean(busy)}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={Boolean(busy)} onClick={event => { event.preventDefault(); if (selection) void revoke(selection); }}>Revoke access</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

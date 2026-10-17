@@ -196,6 +196,7 @@ describe("application icon and motion contracts", () => {
     );
     expect(offenders).toEqual([]);
 
+
     // The scan is not vacuous: the headers it guards are on the transparent
     // well, and the consent headers carry /one's Consent glyph.
     const withHeaderWell = files.filter((path) =>
@@ -271,6 +272,15 @@ describe("application icon and motion contracts", () => {
         ),
     );
     expect(offenders).toEqual([]);
+
+    // Native details reuse the same row concepts as web; selecting a legacy
+    // hand-drawn glyph just because the row is in a pane was the regression.
+    const legacyPaneIcons = /from\s+["'][^"']*profile-(?:inner|secondary|pane|your-account)-icons["']/;
+    for (const surface of ["profile-workspace-page", "profile-legal-section", "referrals-panel", "trusted-devices-page", "pkm-data-manager"]) {
+      const source = readFileSync(join(process.cwd(), `components/profile/${surface}.tsx`), "utf8");
+      expect(legacyPaneIcons.test(source), surface).toBe(false);
+    }
+    expect(legacyPaneIcons.test('import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";')).toBe(true);
 
     // Negative control: a tiled row, and a row with no tone at all (which
     // falls back to the gray tile), must both be reported.

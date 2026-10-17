@@ -249,7 +249,22 @@ export function WalletWorkspace() {
     const snapshot = !authBlocked && vaultKey && renderedOwnerId ? WalletPresentationResource.peek(renderedOwnerId) : null;
     return snapshot?.epoch === vaultEpoch ? snapshot : null;
   }, [authBlocked, vaultKey, renderedOwnerId, vaultEpoch]);
-  const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
+  const profileToken = vaultKey ? getVaultOwnerToken() : null;
+  const profileVisit = useMemo(
+    () => ({ ownerId: renderedOwnerId, epoch: vaultEpoch, authorized: Boolean(!authBlocked && vaultKey && profileToken) }),
+    [renderedOwnerId, vaultKey, profileToken, authBlocked, vaultEpoch],
+  );
+  const profileVisitRef = useRef(profileVisit);
+  profileVisitRef.current = profileVisit;
+  const [loadedProfile, setLoadedProfile] = useState<{
+    visit: typeof profileVisit;
+    profile: WalletDemoProfile;
+  } | null>(null);
+  const fallbackName = user?.displayName?.trim() || null;
+  // A lock or A → B → A visit must not expose a previous protected snapshot.
+  const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
+    ? loadedProfile.profile
+    : { ownerId: renderedOwnerId ?? undefined, displayName: fallbackName, shareUrl: null, cardPayload: null };
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -267,7 +282,9 @@ export function WalletWorkspace() {
   const [view, dispatch] = useReducer(walletViewReducer, warmSnapshot, snapshot => snapshot ? { kind: "list" as const, focusedCardId: null } : INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
   const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
-  const [introductionSaving, setIntroductionSaving] = useState(false);
+  const introductionWriteRef = useRef<{ ownerId: string } | null>(null);
+  const [introductionWrite, setIntroductionWrite] = useState<{ ownerId: string } | null>(null);
+  const introductionSaving = introductionWrite?.ownerId === renderedOwnerId;
   const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
   const introductionOpen = introductionLoading || !introduction?.seen;
   const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
@@ -277,20 +294,38 @@ export function WalletWorkspace() {
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    introductionWriteRef.current = null;
+    setIntroductionWrite(null);
     if (renderedOwnerId) {
       void OnboardingLocalService.hasSeenWalletIntroduction(renderedOwnerId).then((seen) => {
         if (!cancelled) setIntroduction({ ownerId: renderedOwnerId, seen });
       });
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      introductionWriteRef.current = null;
+    };
   }, [renderedOwnerId]);
   const completeIntroduction = async () => {
-    if (!renderedOwnerId || introductionSaving) return;
+    if (!renderedOwnerId || introductionWriteRef.current) return;
     const ownerId = renderedOwnerId;
-    setIntroductionSaving(true);
-    await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
-    if (activeOwnerIdRef.current === ownerId) setIntroduction({ ownerId, seen: true });
-    setIntroductionSaving(false);
+    // Object identity fences this visit, including an A → B → A owner change.
+    const write = { ownerId };
+    introductionWriteRef.current = write;
+    setIntroductionWrite(write);
+    const isCurrent = () =>
+      introductionWriteRef.current === write && activeOwnerIdRef.current === ownerId;
+    try {
+      await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
+      if (isCurrent()) setIntroduction({ ownerId, seen: true });
+    } catch {
+      if (isCurrent()) morphyToast.error("Couldn’t open Wallet. Try again.");
+    } finally {
+      if (isCurrent()) {
+        introductionWriteRef.current = null;
+        setIntroductionWrite(null);
+      }
+    }
   };
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const tabHistory = useRef<{ tab: WalletTab; cardId: string | null }[]>([]);
@@ -333,14 +368,19 @@ export function WalletWorkspace() {
 
   useEffect(() => {
     if (!ready || activeTab !== "cards") return;
+    const visit = profileVisit;
     let second = 0;
     const first = window.requestAnimationFrame(() => {
       second = window.requestAnimationFrame(() => {
+        if (profileVisitRef.current !== visit) return;
         document.querySelector<HTMLElement>("[data-app-scroll-root='true']")?.scrollTo({ top: 0, behavior: "instant" });
       });
     });
-    return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); };
-  }, [activeTab, ready]);
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second) window.cancelAnimationFrame(second);
+    };
+  }, [activeTab, ready, profileVisit]);
 
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
@@ -351,15 +391,6 @@ export function WalletWorkspace() {
     dispatch({ type: "close_add" });
     setSelectedDeckCardId(null);
     setTab(value as WalletTab);
-    if (value === "cards") {
-      // Add and Sharing can be much taller than the deck. Restore the card
-      // surface to its start when returning so the first card is the entry
-      // point instead of inheriting the previous pane's scroll position.
-      window.requestAnimationFrame(() => {
-        const root = document.querySelector<HTMLElement>("[data-app-scroll-root='true']");
-        root?.scrollTo({ top: 0, behavior: "instant" });
-      });
-    }
   };
   const returnToWalletView = () => {
     if (addSaveInFlight.current) return true;
@@ -413,42 +444,69 @@ export function WalletWorkspace() {
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
   }, [user?.uid, vaultKey, vaultOwnerToken, authBlocked, vaultEpoch]);
   useEffect(() => {
-    if (!user?.uid) { setDemoProfile(null); return; }
-    setDemoProfile({ ownerId: user.uid, displayName: user.displayName?.trim() || null, shareUrl: null, cardPayload: null, memberSince: user.metadata?.creationTime });
+    const ownerId = profileVisit.ownerId;
+    if (!ownerId || !profileVisit.authorized) {
+      setLoadedProfile(null);
+      return;
+    }
     let cancelled = false;
     let loading = false;
     const recoveryAttempts = new Set<number | null>();
     const load = async () => {
       if (cancelled || loading || document.visibilityState === "hidden") return;
-      const fallbackName = user.displayName?.trim() || null;
       const token = getVaultOwnerTokenRef.current();
-      if (!token) {
-        if (!cancelled) setDemoProfile({ ownerId: user.uid, displayName: fallbackName, shareUrl: null, cardPayload: null });
-        return;
-      }
+      if (!token) return;
+      const isCurrent = () =>
+        !cancelled && profileVisitRef.current === profileVisit &&
+        isVaultSessionEpochCurrent(profileVisit.epoch) &&
+        activeOwnerIdRef.current === ownerId &&
+        getVaultOwnerTokenRef.current() === token;
+      if (!isCurrent()) return;
       loading = true;
       try {
-        const state = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
-        if (cancelled) return;
+        const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
+        if (!isCurrent()) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setDemoProfile({ ownerId: user.uid, displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.card?.status === "active" ? state.shareUrl : null, cardPayload: state.card?.cardPayload ?? null, memberSince: user.metadata?.creationTime, walletId: state.card?.passSerial, shareToken: WalletCardService.readShareLink(user.uid, state.card)?.shareToken ?? null });
-        if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(user.uid, state.card)) {
+        setLoadedProfile({
+          visit: profileVisit,
+          profile: {
+            ownerId,
+            displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
+            shareUrl: state.card?.status === "active" ? state.shareUrl : null,
+            cardPayload: state.card?.cardPayload ?? null,
+            memberSince: user?.metadata?.creationTime,
+            walletId: state.card?.passSerial,
+            shareToken: WalletCardService.readShareLink(ownerId, state.card)?.shareToken ?? null,
+          },
+        });
+        if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(ownerId, state.card)) {
           const version = state.card.shareTokenVersion ?? null;
-          if (!recoveryAttempts.has(version)) {
+          if (!recoveryAttempts.has(version) && isCurrent()) {
             recoveryAttempts.add(version);
-            const recovered = await WalletCardService.ensureCard({ userId: user.uid, vaultOwnerToken: token });
-            if (cancelled) return;
-            const link = WalletCardService.readShareLink(user.uid, recovered.card);
-            setDemoProfile({ ownerId: user.uid, displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName, shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null, cardPayload: recovered.card.cardPayload, memberSince: user.metadata?.creationTime, walletId: recovered.card.passSerial, shareToken: link?.shareToken ?? null });
+            const recovered = await WalletCardService.ensureCard({ userId: ownerId, vaultOwnerToken: token });
+            if (!isCurrent()) return;
+            const link = WalletCardService.readShareLink(ownerId, recovered.card);
+            setLoadedProfile({
+              visit: profileVisit,
+              profile: {
+                ownerId,
+                displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName,
+                shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null,
+                cardPayload: recovered.card.cardPayload,
+                memberSince: user?.metadata?.creationTime,
+                walletId: recovered.card.passSerial,
+                shareToken: link?.shareToken ?? null,
+              },
+            });
           }
         }
-      } catch { /* Retain the last confirmed snapshot during a transient outage. */ }
+      } catch { /* Retain this visit's confirmed snapshot during a transient outage. */ }
       finally { loading = false; }
     };
     void load();
     const timer = window.setInterval(load, 15000);
     const refreshVisible = () => void load();
-    const unsubscribe = WalletCardService.subscribe(user.uid, refreshVisible);
+    const unsubscribe = WalletCardService.subscribe(ownerId, refreshVisible);
     window.addEventListener("focus", refreshVisible);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
@@ -458,38 +516,43 @@ export function WalletWorkspace() {
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [user?.uid, user?.displayName, user?.metadata?.creationTime, vaultKey]);
-  const [referralState, setReferralState] = useState<{ ownerId: string; summary: ReferralSummary } | null>(null);
-  const [referralErrorOwnerId, setReferralErrorOwnerId] = useState<string | null>(null);
+  }, [profileVisit, fallbackName, user?.metadata?.creationTime]);
+  const [referralState, setReferralState] = useState<{ visit: typeof profileVisit; summary: ReferralSummary } | null>(null);
+  const [referralErrorVisit, setReferralErrorVisit] = useState<typeof profileVisit | null>(null);
   const referralReadRevision = useRef(0);
   const loadReferral = useCallback(async () => {
     if (!user) return;
+    const visit = profileVisit;
     const revision = ++referralReadRevision.current;
-    const ownerId = user.uid;
-    setReferralErrorOwnerId(null);
+    const isCurrent = () => profileVisitRef.current === visit &&
+      activeOwnerIdRef.current === user.uid && revision === referralReadRevision.current;
+    if (!isCurrent()) return;
+    setReferralErrorVisit(null);
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
       const summary = await ReferralService.getSummary({ idToken });
-      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
+      if (isCurrent()) setReferralState({ visit, summary });
     } catch {
-      // Preserve a confirmed summary, but make a failed first load actionable.
-      if (revision === referralReadRevision.current && activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
+      if (isCurrent()) setReferralErrorVisit(visit);
     }
-  }, [user]);
+  }, [user, profileVisit]);
   const revokeReferral = useCallback(async (slug: string) => {
+    const visit = profileVisit;
     const context = vaultContext();
     if (!user || !context) throw new Error("Unlock your vault to revoke access.");
+    const isCurrent = () => profileVisitRef.current === visit &&
+      activeOwnerIdRef.current === context.userId && getVaultOwnerTokenRef.current() === context.vaultOwnerToken;
+    if (!isCurrent()) throw new Error("Your session changed.");
     const idToken = await user.getIdToken();
-    if (activeOwnerIdRef.current !== context.userId || getVaultOwnerTokenRef.current() !== context.vaultOwnerToken) throw new Error("Your session changed.");
+    if (!isCurrent()) throw new Error("Your session changed.");
     ++referralReadRevision.current;
     const summary = await ReferralService.rotateShareLink({ idToken, slug });
-    // Fence reads started before the confirmed mutation, including stream refreshes.
+    if (!isCurrent()) return;
     ++referralReadRevision.current;
-    if (activeOwnerIdRef.current === context.userId && getVaultOwnerTokenRef.current() === context.vaultOwnerToken) {
-      setReferralState({ ownerId: context.userId, summary });
-      setReferralErrorOwnerId(null);
-    }
-  }, [user, vaultContext]);
+    setReferralState({ visit, summary });
+    setReferralErrorVisit(null);
+  }, [user, vaultContext, profileVisit]);
   useEffect(() => { void loadReferral(); }, [loadReferral]);
   const { connected: referralConnected } = useReferralStream(user, loadReferral);
   useEffect(() => {
@@ -499,8 +562,8 @@ export function WalletWorkspace() {
     window.addEventListener("focus", visible);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", visible); };
   }, [user, referralConnected, loadReferral]);
-  const referralSummary = referralState?.ownerId === renderedOwnerId ? referralState.summary : null;
-  const walletIdentity = demoProfile?.ownerId === renderedOwnerId ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
+  const referralSummary = referralState?.visit === profileVisit ? referralState.summary : null;
+  const walletIdentity = demoProfile.ownerId === renderedOwnerId ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -935,7 +998,7 @@ export function WalletWorkspace() {
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
-      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
+      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-clip">
         <div
           className={WALLET_COLUMN}
           data-wallet-hub
@@ -966,7 +1029,7 @@ export function WalletWorkspace() {
               authLoading ? "pending" : user ? "authenticated" : "anonymous"
             }
             dataState={
-              view.kind === "loading"
+              view.kind === "loading" || introductionLoading
                 ? "loading"
                 : view.kind === "error"
                   ? "error"
@@ -1068,7 +1131,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} onRevokeReferral={revokeReferral} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRevokeReferral={revokeReferral} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}

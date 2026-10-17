@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
 PASSKEY_DOMAIN_ALIASES = REPO_ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json"
 CONNECTOR_ROLLOUT_FLAGS = (
@@ -130,7 +131,7 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+def _oauth_redirect_uri(app_frontend_origin: str, return_path: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
@@ -143,7 +144,22 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return f"{origin}{return_path}"
+
+
+def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    return _oauth_redirect_uri(app_frontend_origin, GMAIL_OAUTH_RETURN_PATH)
+
+
+def _sync_oauth_redirects(project: str, app_frontend_origin: str) -> list[str]:
+    names: list[str] = []
+    for name, path in (
+        ("GMAIL_OAUTH_REDIRECT_URI", GMAIL_OAUTH_RETURN_PATH),
+        ("GOOGLE_OAUTH_REDIRECT_URI", CALENDAR_OAUTH_RETURN_PATH),
+    ):
+        _upsert_secret(project, name, _oauth_redirect_uri(app_frontend_origin, path))
+        names.append(name)
+    return names
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -689,12 +705,7 @@ def main() -> int:
     _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
-    _upsert_secret(
-        args.project,
-        "GMAIL_OAUTH_REDIRECT_URI",
-        _gmail_oauth_redirect_uri(args.app_frontend_origin),
-    )
-    sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
+    sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
     backend_runtime_config = _build_backend_runtime_config(args)
     existing_runtime_json = _read_secret(args.project, "BACKEND_RUNTIME_CONFIG_JSON")

@@ -2,16 +2,19 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
 import type { User } from "firebase/auth";
+import { useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DisplayNameEditor,
   normalizeDisplayName,
   validateDisplayName,
+  useDisplayNameEditor,
 } from "@/components/profile/display-name-editor";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
@@ -115,6 +118,23 @@ describe("DisplayNameEditor", () => {
     useVoiceSessionStore.getState().effects.clear();
   });
 
+  it("rejects a retained submit during layout teardown before provider admission", async () => {
+    vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({ user_id: testUser.uid, display_name: "Changed Name" });
+    let model!: ReturnType<typeof useDisplayNameEditor>;
+    let completion: ReturnType<typeof model.submit> | undefined;
+    function Consumer() {
+      const editor = useDisplayNameEditor({ user: testUser });
+      useLayoutEffect(() => { model = editor; });
+      useLayoutEffect(() => () => { completion = model.submit(); }, []);
+      return null;
+    }
+    const view = render(<Consumer />);
+    act(() => model.changeDraft("Changed Name"));
+    view.unmount();
+    expect((await completion)?.kind).toBe("stale");
+    expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
+  });
+
   it("starts from the current name and keeps Save off until it changes", () => {
     render(<DisplayNameEditor user={testUser} />);
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue(
@@ -206,6 +226,135 @@ describe("DisplayNameEditor", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it.each(["save", "voice"] as const)("fences a late %s completion across an owner change and return", async (operation) => {
+    let complete!: (identity: { user_id: string; display_name: string }) => void;
+    const pending = new Promise<{ user_id: string; display_name: string }>(resolve => { complete = resolve; });
+    vi.mocked(AccountIdentityService.updateDisplayName).mockReturnValue(pending);
+    vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockReturnValue(pending);
+    const otherUser = { ...testUser, uid: "user-2", displayName: "Other Owner" } as User;
+    const onSaved = vi.fn();
+    const { rerender } = render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    if (operation === "save") {
+      typeName("Pending Name");
+      fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    } else {
+      act(() => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
+        status: "updated", display_name: "Pending Name",
+      }));
+    }
+    rerender(<DisplayNameEditor user={otherUser} onSaved={onSaved} />);
+    expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Other Owner");
+    rerender(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    typeName("Current Draft");
+    await act(async () => complete({ user_id: "user-1", display_name: "Old Completion" }));
+    expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Current Draft");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(morphyToast.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save name" })).toBeEnabled();
+  });
+
+  it("does not apply a returned name belonging to another owner", async () => {
+    const onSaved = vi.fn();
+    vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({
+      user_id: "user-2", display_name: "Other Owner's Name",
+    });
+    render(<DisplayNameEditor user={testUser} onSaved={onSaved} />);
+    typeName("Current Draft");
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save name" })).toBeEnabled());
+    expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Current Draft");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(morphyToast.success).not.toHaveBeenCalled();
+  });
+
+  it("admits one pending submit even when two presentation callbacks outrun a render", async () => {
+    let complete!: (identity: { user_id: string; display_name: string }) => void;
+    vi.mocked(AccountIdentityService.updateDisplayName).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    act(() => result.current.changeDraft("New Name"));
+    let first!: ReturnType<typeof result.current.submit>;
+    let second!: ReturnType<typeof result.current.submit>;
+    act(() => { first = result.current.submit(); second = result.current.submit(); });
+    await act(async () => complete({ user_id: testUser.uid, display_name: "New Name" }));
+    expect(AccountIdentityService.updateDisplayName).toHaveBeenCalledTimes(1);
+    await expect(second).resolves.toEqual({ kind: "busy" });
+    await expect(first).resolves.toEqual({ kind: "saved", identity: { user_id: testUser.uid, display_name: "New Name" } });
+  });
+
+  it("rejects retained presentation callbacks after owner retirement, including A to B to A", async () => {
+    const otherUser = { ...testUser, uid: "user-2", displayName: "Other Owner" } as User;
+    const { result, rerender } = renderHook(({ user }) => useDisplayNameEditor({ user }), {
+      initialProps: { user: testUser },
+    });
+    act(() => result.current.changeDraft("Old Draft"));
+    const retired = result.current;
+    rerender({ user: otherUser });
+    rerender({ user: testUser });
+    act(() => result.current.changeDraft("Current Draft"));
+    await act(async () => {
+      retired.changeDraft("Retired Edit");
+      expect(await retired.submit()).toEqual({ kind: "stale" });
+    });
+    expect(result.current.draft).toBe("Current Draft");
+    expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
+  });
+
+  it("rejects a retained submit whose same-owner draft has been replaced", async () => {
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    act(() => result.current.changeDraft("First Name"));
+    const oldSubmit = result.current.submit;
+    act(() => result.current.changeDraft("Second Name"));
+    await act(async () => {
+      expect(await oldSubmit()).toEqual({ kind: "stale" });
+    });
+    expect(result.current.draft).toBe("Second Name");
+    expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
+  });
+
+  it.each(["edit", "save"] as const)("does not let a voice refresh overwrite a newer %s", async (operation) => {
+    let complete!: (identity: { user_id: string; display_name: string }) => void;
+    vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({ user_id: testUser.uid, display_name: "New Saved Name" });
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    act(() => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
+      status: "updated", display_name: "Voice Name",
+    }));
+    act(() => result.current.changeDraft("New Saved Name"));
+    if (operation === "save") await act(async () => { await result.current.submit(); });
+    await act(async () => complete({ user_id: testUser.uid, display_name: "Voice Name" }));
+    expect(result.current.draft).toBe("New Saved Name");
+    expect(result.current.shownName).toBe(operation === "save" ? "New Saved Name" : "Voice Name");
+  });
+
+  it("keeps a provider-confirmed voice name when its shadow still has the old name", async () => {
+    vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockResolvedValue({ user_id: testUser.uid, display_name: "Old Shadow" });
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser }));
+    await act(async () => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
+      status: "committed_sync_pending", display_name: "Committed Name",
+    }));
+    expect(result.current.shownName).toBe("Committed Name");
+    expect(result.current.draft).toBe("Committed Name");
+  });
+
+  it("does not let a superseded save close a newer confirmed voice presentation", async () => {
+    let complete!: (identity: { user_id: string; display_name: string }) => void;
+    vi.mocked(AccountIdentityService.updateDisplayName).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockResolvedValue({ user_id: testUser.uid, display_name: "New Voice Name" });
+    const onSaved = vi.fn();
+    const { result } = renderHook(() => useDisplayNameEditor({ user: testUser, onSaved }));
+    act(() => result.current.changeDraft("Pending Name"));
+    let pending!: ReturnType<typeof result.current.submit>;
+    act(() => { pending = result.current.submit(); });
+    await act(async () => useVoiceSessionStore.getState().emitToolResult("update_display_name", {
+      status: "updated", display_name: "New Voice Name",
+    }));
+    await act(async () => complete({ user_id: testUser.uid, display_name: "Pending Name" }));
+    await expect(pending).resolves.toEqual({ kind: "stale" });
+    expect(result.current.draft).toBe("New Voice Name");
+    expect(result.current.saving).toBe(false);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
   it("shows the server's 422 message inline and keeps the draft", async () => {
     vi.mocked(AccountIdentityService.updateDisplayName).mockRejectedValue(
       new ApiError("Display name looks like a handle.", 422, {
@@ -281,7 +430,7 @@ describe("DisplayNameEditor", () => {
     });
     expect(
       AccountIdentityService.refreshCurrentUserIdentity,
-    ).toHaveBeenCalledWith(testUser, { force: true });
+    ).toHaveBeenCalledWith(testUser, { force: true, requireSuccess: true });
     // The screen refresh is the server's; no local toast is faked for it.
     expect(morphyToast.success).not.toHaveBeenCalled();
   });
@@ -322,5 +471,6 @@ describe("DisplayNameEditor", () => {
     expect(
       screen.getByRole("textbox", { name: "Display name" }),
     ).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("");
   });
 });
