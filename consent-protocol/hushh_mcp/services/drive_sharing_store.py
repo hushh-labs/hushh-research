@@ -32,6 +32,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
     automatic_recipient_current,
+    autoshare_enabled,
     autoshare_request,
     owner_allowed_marker,
     owner_allowed_price_cents,
@@ -1743,7 +1744,7 @@ class DriveSharingStore(DriveDocumentStore):
                     # priced in cents from $0.50. A package keeps its own lane.
                     **(
                         {"request_flow": AUTOSHARE_REQUEST_FLOW}
-                        if not owner_initiated and not agent_package
+                        if not owner_initiated and not agent_package and autoshare_enabled()
                         else {}
                     ),
                     **(
