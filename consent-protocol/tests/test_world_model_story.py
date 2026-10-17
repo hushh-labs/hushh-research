@@ -18,6 +18,7 @@ import pytest
 
 from api.routes.one.world_model_stream import progress_events
 from hushh_mcp.services import profile_research_jobs as jobs
+from hushh_mcp.services import world_model_preferences as preferences_module
 from hushh_mcp.services import world_model_service as pwm
 from hushh_mcp.services.world_model_preferences import checkpoint_committed
 from tests.test_profile_research_jobs import MemoryStore
@@ -193,12 +194,22 @@ async def settle(instance):
 def story(monkeypatch):
     """One owner, consented and admitted; a scripted researcher behind the real manager."""
     now = [10_000.0]
+
+    def consent_row():
+        return {
+            "enabled": True,
+            "generation": uuid.UUID(GENERATION),
+            "auto_started_at": None,
+            "consent_version": preferences_module.AZURE_BING_CONSENT_VERSION
+            if pwm.POLICY["provider"] == "azure_openai_web_search"
+            else preferences_module.NATIVE_CONSENT_VERSION,
+        }
+
+    monkeypatch.setattr(preferences_module, "load_pwm_policy", lambda: pwm.POLICY)
     monkeypatch.setattr(
         pwm,
         "preferences",
-        AsyncMock(
-            return_value={"enabled": True, "generation": GENERATION, "auto_started_at": None}
-        ),
+        AsyncMock(side_effect=lambda *_args: consent_row()),
     )
     monkeypatch.setattr(pwm, "admission", AsyncMock(return_value=(None, "owner-bound-identity")))
     monkeypatch.setattr(pwm, "validate_first_party_owner_token", AsyncMock(return_value=object()))
@@ -211,7 +222,7 @@ def story(monkeypatch):
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
     monkeypatch.setattr(jobs, "provider_breaker", jobs.ProviderBreaker())
     conn = SimpleNamespace(
-        fetchrow=AsyncMock(return_value={"enabled": True, "generation": uuid.UUID(GENERATION)}),
+        fetchrow=AsyncMock(side_effect=lambda *_args, **_kwargs: consent_row()),
         execute=AsyncMock(),
     )
     research = ScriptedResearch(lambda: now[0])

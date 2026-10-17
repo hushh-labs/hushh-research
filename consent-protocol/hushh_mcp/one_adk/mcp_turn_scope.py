@@ -208,6 +208,19 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
         ) from None
 
 
+async def _resolve_unconfigured_connection(
+    context: Any, connector_id: str, *, vault_configurations: bool, metadata_only: bool
+) -> ResolvedMcpConnection:
+    """A vault projection cannot resurrect an omitted custom connector from Shared."""
+    if vault_configurations:
+        if connector_id.startswith("custom_"):
+            raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+        return await resolve_registered_connection(
+            context, connector_id, curated_only=True, metadata_only=metadata_only
+        )
+    return await resolve_registered_connection(context, connector_id, metadata_only=metadata_only)
+
+
 class McpTurnResources:
     def __init__(
         self,
@@ -302,16 +315,11 @@ class McpTurnResources:
         if record is None:
             if self.vault_only:
                 raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
-            if self.has_vault_configurations:
-                # An omitted/removed custom connector cannot be resurrected from
-                # the superseded readable database registry during this turn.
-                if connector_id.startswith("custom_"):
-                    raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
-                return await resolve_registered_connection(
-                    context, connector_id, curated_only=True, metadata_only=metadata_only
-                )
-            return await resolve_registered_connection(
-                context, connector_id, metadata_only=metadata_only
+            return await _resolve_unconfigured_connection(
+                context,
+                connector_id,
+                vault_configurations=self.has_vault_configurations,
+                metadata_only=metadata_only,
             )
         admission = self._configuration_admissions.get(connector_id)
         if admission is not None:

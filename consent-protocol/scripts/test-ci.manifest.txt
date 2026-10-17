@@ -1243,6 +1243,7 @@ tests/services/test_pkm_answer_signed_settlement_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
 tests/test_sse_routes.py
+tests/test_notification_stream.py
 tests/test_feed_realtime_postgres.py
 tests/test_payout_account_refresh_route.py
 # Payouts v2: owner-scoped activity and receipts, Connect balances, deposit

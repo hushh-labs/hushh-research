@@ -30146,7 +30146,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_search_performance_proof.py",
       "symbol": null,
-      "value": 1085
+      "value": 1087
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -70279,5 +70279,1144 @@
     ],
     "source_head": "da6b4cdb8dec60f569c8e242ed7c37155e172622",
     "verification": "Canonical clean-checkout regressions match the source review. No production metric exceeds all supplied parents. All26 retained production deltas reviewed;148 individual+1 growth controls refuse."
+  },
+  "main_a049_puppy_integration_review_20261017": {
+    "entries": [
+      {
+        "after": 10503,
+        "before": 10459,
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "rationale": "Main adds durable metadata notification delivery and masked directory-phone matching; branch recipient/owner semantics remain. Combined spans are below main or match its count; no broadening of consent checked in changed blocks.",
+        "slot_index": 0,
+        "source_sha256": "f2c46ffab3d0bbbeae6f4c15a0de6f48f26d5a752dee39e372429ef44c511674"
+      },
+      {
+        "after": 5557,
+        "before": 5547,
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|OneLocationCircleService|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "7cb0e16245bfd0c36b4b48bc843b0a3e572b618ad87684de019a8fd0b472cbc4"
+      },
+      {
+        "after": 4034,
+        "before": 4031,
+        "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+        "rationale": "Main masked-phone projection combines with existing internal registry-handle stripping; output still omits raw phone and internal handles.",
+        "slot_index": 0,
+        "source_sha256": "792f5491b3503bb3b49eff2ed25267054cfa7290a27932a6040eb51f3be1fc9e"
+      },
+      {
+        "after": 3268,
+        "before": 3226,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 2081,
+        "before": 2080,
+        "key": "class_size|consent-protocol/tests/services/test_one_location_agent_service.py|FourUserMemoryService|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "fbd64b519fd4878de4be2f1bbd948ddba19952bdef30348313a50e206c2f146f"
+      },
+      {
+        "after": 1827,
+        "before": 1785,
+        "key": "class_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|ActorIdentityService|class exceeds the advisory operon budget",
+        "rationale": "Main missing-only Firebase phone repair preserves concurrent verified OTP claim under SQL conflict update and avoids referral/reward side effects; existing private-pod signup/placement hooks retained.",
+        "slot_index": 0,
+        "source_sha256": "f1b90aba27692762c61f9105b8a0256827fd6214042819e6d3a9bf7b84668d10"
+      },
+      {
+        "after": 1492,
+        "before": 1487,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py|DriveOwnerSearchStore|class exceeds the advisory operon budget",
+        "rationale": "Main adds periodConflict projection and bounded equal-jitter retry. Branch closure view(row) is retained instead of losing its current authority projection.",
+        "slot_index": 0,
+        "source_sha256": "3dbf4ec14d27b2c3a6b48fc54f3139a415fd86c74bb6b0e343979d744453cc8f"
+      },
+      {
+        "after": 1401,
+        "before": 1392,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "42f3aefce723fffb9d71a2b11baffb827ca93018a2f590d88cd5585de2c56441"
+      },
+      {
+        "after": 1011,
+        "before": 929,
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "6dbebb9d270d75221deb2c687e1e95f1b52e157a2cc0c27bfc9449b40a4c8d73"
+      },
+      {
+        "after": 741,
+        "before": 739,
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "408b551fe084811db01fe2db1f10af8934212330a7adef2eb8a7f216d8e6fca6"
+      },
+      {
+        "after": 604,
+        "before": 583,
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "67034697cb8ca7625450a1baea89b79fe78a911f18b803cd6b98a76e9faf2502"
+      },
+      {
+        "after": 354,
+        "before": 320,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|DriveRequestBulkService|class exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f8faea9bfd34e951baff2760d09f6677592eff29719e4f9d41f58455a3ffbd2b"
+      },
+      {
+        "after": 1052,
+        "before": 1051,
+        "key": "function_size|consent-protocol/tests/services/test_one_location_agent_service.py|_execute_one|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "fbd64b519fd4878de4be2f1bbd948ddba19952bdef30348313a50e206c2f146f"
+      },
+      {
+        "after": 485,
+        "before": 480,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model_azure.py|run_world_model_azure|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "16cb5b8ce448b06a525274327f9d5624da364d1aa28954b55058e30bfcc967be"
+      },
+      {
+        "after": 464,
+        "before": 459,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|request_access|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f2c46ffab3d0bbbeae6f4c15a0de6f48f26d5a752dee39e372429ef44c511674"
+      },
+      {
+        "after": 449,
+        "before": 441,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|search_directory_candidates|function exceeds the advisory gene budget",
+        "rationale": "Main adds durable metadata notification delivery and masked directory-phone matching; branch recipient/owner semantics remain. Combined spans are below main or match its count; no broadening of consent checked in changed blocks.",
+        "slot_index": 0,
+        "source_sha256": "f2c46ffab3d0bbbeae6f4c15a0de6f48f26d5a752dee39e372429ef44c511674"
+      },
+      {
+        "after": 193,
+        "before": 183,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 2,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 132,
+        "before": 130,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 4,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 86,
+        "before": 82,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 6,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 287,
+        "before": 245,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|entry|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "3364c3ea61d8ca4d53607fb1db69ffd6a5954127f34fde1a10232bf3a9441468"
+      },
+      {
+        "after": 271,
+        "before": 256,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|compile_request_queries|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "42f3aefce723fffb9d71a2b11baffb827ca93018a2f590d88cd5585de2c56441"
+      },
+      {
+        "after": 241,
+        "before": 236,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "67034697cb8ca7625450a1baea89b79fe78a911f18b803cd6b98a76e9faf2502"
+      },
+      {
+        "after": 229,
+        "before": 227,
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "408b551fe084811db01fe2db1f10af8934212330a7adef2eb8a7f216d8e6fca6"
+      },
+      {
+        "after": 211,
+        "before": 206,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|run_one|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "42f3aefce723fffb9d71a2b11baffb827ca93018a2f590d88cd5585de2c56441"
+      },
+      {
+        "after": 209,
+        "before": 199,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|owner_review|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 202,
+        "before": 192,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|_end_membership|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "7cb0e16245bfd0c36b4b48bc843b0a3e572b618ad87684de019a8fd0b472cbc4"
+      },
+      {
+        "after": 192,
+        "before": 190,
+        "key": "function_size|consent-protocol/api/utils/fcm_messages.py|build_push_message|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "ab7702e73a0b965a826c381a5a1a555181b0d06a572b91fc0509cd53f35c2fe7"
+      },
+      {
+        "after": 187,
+        "before": 185,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|create_for_request|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "42f3aefce723fffb9d71a2b11baffb827ca93018a2f590d88cd5585de2c56441"
+      },
+      {
+        "after": 183,
+        "before": 141,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|review|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "6dbebb9d270d75221deb2c687e1e95f1b52e157a2cc0c27bfc9449b40a4c8d73"
+      },
+      {
+        "after": 176,
+        "before": 128,
+        "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+        "rationale": "Main exercises actual older-target Cloud Build companion upload and production email-auth no-op; branch purpose-bound pod release/commerce helper fixture list remains. Assertions and secret exclusion retained.",
+        "slot_index": 0,
+        "source_sha256": "04fcc078deff2104105395c5fed1f1a16155888631842e19f0d48389a55136b3"
+      },
+      {
+        "after": 166,
+        "before": 142,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/registered_mcp_toolset.py|_discover|function exceeds the advisory gene budget",
+        "rationale": "Main metadata discovery cooldown combines with vault-only registry exclusion, injected private approval port and owner admission. Cooldown keys bind owner/connection/configuration; cancellation distinction retained.",
+        "slot_index": 0,
+        "source_sha256": "e811740560b23c2d34cb549b004bcc019c1803e018f77609fe714ecf7099b171"
+      },
+      {
+        "after": 156,
+        "before": 154,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|allow_request|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 156,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_search_performance_proof.py|stream_request|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5db542f7fa3319ce459c084654be1fbc7fe249326e77687b6e45d7f1f69e7f3a"
+      },
+      {
+        "after": 155,
+        "before": 120,
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_trusted_progress_is_participant_scoped_and_tracks_durable_work|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5ecea7bfb4184ad18a43e3019fa98451c580c6243da6a704765feb65759b6b43"
+      },
+      {
+        "after": 153,
+        "before": 119,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py|start_search|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f8faea9bfd34e951baff2760d09f6677592eff29719e4f9d41f58455a3ffbd2b"
+      },
+      {
+        "after": 152,
+        "before": 144,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|_projection|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "3364c3ea61d8ca4d53607fb1db69ffd6a5954127f34fde1a10232bf3a9441468"
+      },
+      {
+        "after": 139,
+        "before": 132,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|confirm|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "6dbebb9d270d75221deb2c687e1e95f1b52e157a2cc0c27bfc9449b40a4c8d73"
+      },
+      {
+        "after": 129,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/system_push_delivery.py|_deliver|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "265cf8d2808f0a3e3136b58ac6517c3bedc62b2ee0a5a84aef9f06d8948d9561"
+      },
+      {
+        "after": 128,
+        "before": 113,
+        "key": "function_size|consent-protocol/hushh_mcp/services/push_notifications.py|send_user_data_push|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "4cca02fc6d36c244fcc8016956e929a2e604f73aee5b61e9c7c4498ef29ebc99"
+      },
+      {
+        "after": 122,
+        "before": 108,
+        "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|upsert_identity|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f1b90aba27692762c61f9105b8a0256827fd6214042819e6d3a9bf7b84668d10"
+      },
+      {
+        "after": 122,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/system_push_delivery.py|_notification|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "265cf8d2808f0a3e3136b58ac6517c3bedc62b2ee0a5a84aef9f06d8948d9561"
+      },
+      {
+        "after": 120,
+        "before": 112,
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_trusted_auto_progress_never_claims_owner_attention|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5ecea7bfb4184ad18a43e3019fa98451c580c6243da6a704765feb65759b6b43"
+      },
+      {
+        "after": 119,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_store.py|test_owner_allow_hands_a_new_request_to_the_trusted_pipeline|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "ad37e3b760108270383b8dbd1d12d2c296898d3401d4e53721f36e70b9db0f4b"
+      },
+      {
+        "after": 115,
+        "before": 114,
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_metadata_only_previews_counts_and_filtered_pages|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5ecea7bfb4184ad18a43e3019fa98451c580c6243da6a704765feb65759b6b43"
+      },
+      {
+        "after": 111,
+        "before": null,
+        "key": "function_size|consent-protocol/scripts/backfill_actor_identity_cache.py|main|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "b01c17c8544bfcab46d7e8a591bf40c554cf2780220ab699e9b5fc6d76c0682a"
+      },
+      {
+        "after": 103,
+        "before": 97,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|_send_metadata_notification|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f2c46ffab3d0bbbeae6f4c15a0de6f48f26d5a752dee39e372429ef44c511674"
+      },
+      {
+        "after": 101,
+        "before": 100,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py|_view|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "3dbf4ec14d27b2c3a6b48fc54f3139a415fd86c74bb6b0e343979d744453cc8f"
+      },
+      {
+        "after": 100,
+        "before": 89,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py|resolve_registered_connection|function exceeds the advisory gene budget",
+        "rationale": "Main metadata-only catalog reuse and parallel metadata/authority reads combine with exact branch binding/review/privacy contracts. Actual provider call still resolves current credentials and validates binding.",
+        "slot_index": 0,
+        "source_sha256": "9b54a5be42117d296a7cc4afa1adcf713730ca106b63738a90608ee0b472fdf2"
+      },
+      {
+        "after": 95,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_system_push_delivery.py|push_db|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "14582504527aa0cf52da45d8e3db6f1e916cfbed1cf35de02a41df81af1a11a8"
+      },
+      {
+        "after": 94,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_search_performance_proof.py|streamed_corpus|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5db542f7fa3319ce459c084654be1fbc7fe249326e77687b6e45d7f1f69e7f3a"
+      },
+      {
+        "after": 92,
+        "before": 83,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py|get_tools|function exceeds the advisory gene budget",
+        "rationale": "Main metadata-only catalog reuse and parallel metadata/authority reads combine with exact branch binding/review/privacy contracts. Actual provider call still resolves current credentials and validates binding.",
+        "slot_index": 0,
+        "source_sha256": "9b54a5be42117d296a7cc4afa1adcf713730ca106b63738a90608ee0b472fdf2"
+      },
+      {
+        "after": 91,
+        "before": 87,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|request_status|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 86,
+        "before": 83,
+        "key": "function_size|consent-protocol/hushh_mcp/services/push_notifications.py|send_connection_request_push|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "4cca02fc6d36c244fcc8016956e929a2e604f73aee5b61e9c7c4498ef29ebc99"
+      },
+      {
+        "after": 86,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_search_performance_proof.py|test_forty_thousand_file_drive_streams_batches_slice_by_slice|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5db542f7fa3319ce459c084654be1fbc7fe249326e77687b6e45d7f1f69e7f3a"
+      },
+      {
+        "after": 84,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_search_performance_proof.py|drive_query|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5db542f7fa3319ce459c084654be1fbc7fe249326e77687b6e45d7f1f69e7f3a"
+      },
+      {
+        "after": 82,
+        "before": null,
+        "key": "function_size|consent-protocol/api/consent_listener.py|run_consent_listener|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "e1cd7ea58087db41751725499fc52528b58d7f4952ed7b722702c1d80171e902"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "key": "function_size|consent-protocol/api/routes/sse.py|_sse_payload_from_event_payload|function exceeds the advisory gene budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "c0e4273fcb89e9482a912497e10be7273ff6e499c950ba337ed7bc076b2df3fe"
+      },
+      {
+        "after": 11644,
+        "before": 11599,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py||module exceeds the advisory operon budget",
+        "rationale": "Main adds durable metadata notification delivery and masked directory-phone matching; branch recipient/owner semantics remain. Combined spans are below main or match its count; no broadening of consent checked in changed blocks.",
+        "slot_index": 0,
+        "source_sha256": "f2c46ffab3d0bbbeae6f4c15a0de6f48f26d5a752dee39e372429ef44c511674"
+      },
+      {
+        "after": 11554,
+        "before": 11506,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "rationale": "Calendar attendance handoff is owner/vault/chat epoch fenced; detached ambient memory capture retains owner/vault/token authority and limits UI effects to its originating chat; connector catalog preparation is delegated to the client helper. The welcome typography constant removes inline duplication.",
+        "slot_index": 0,
+        "source_sha256": "2212baa4cd11e9336794de7ba95be2d3c5111c7f54ac4db258320c28b7c3fb2a"
+      },
+      {
+        "after": 9311,
+        "before": 9260,
+        "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "fbd64b519fd4878de4be2f1bbd948ddba19952bdef30348313a50e206c2f146f"
+      },
+      {
+        "after": 5981,
+        "before": 5971,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "7cb0e16245bfd0c36b4b48bc843b0a3e572b618ad87684de019a8fd0b472cbc4"
+      },
+      {
+        "after": 4369,
+        "before": 4365,
+        "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+        "rationale": "Main masked-phone projection combines with existing internal registry-handle stripping; output still omits raw phone and internal handles.",
+        "slot_index": 0,
+        "source_sha256": "792f5491b3503bb3b49eff2ed25267054cfa7290a27932a6040eb51f3be1fc9e"
+      },
+      {
+        "after": 4273,
+        "before": 4272,
+        "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
+        "rationale": "One-line substitution of a shared content-class constant for an inline class string; this is consolidation, not a second layout authority.",
+        "slot_index": 0,
+        "source_sha256": "9783cc4d843849d13e6bfee34fe3fee18df2f672580d0bf20801b2b773fa4931"
+      },
+      {
+        "after": 3368,
+        "before": 3194,
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "675f1c53b62f2a316b2079bbc12dd71a7653e8c091d4247047df43bd074e37a7"
+      },
+      {
+        "after": 3365,
+        "before": 3362,
+        "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+        "rationale": "Main assertions cover masked directory phones and no raw phone output; branch internal registry-handle behavior remains.",
+        "slot_index": 0,
+        "source_sha256": "16dab67c72e11c2a36b7a27f2974d52a8d216c9aad5f6cadad5708e40ea63467"
+      },
+      {
+        "after": 3355,
+        "before": 3306,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "d8149f50954aa164076cc757547de0eae511f87002c2210a09d0148196be41a2"
+      },
+      {
+        "after": 3327,
+        "before": 3281,
+        "key": "module_size|hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx||module exceeds the advisory operon budget",
+        "rationale": "Replaces individual quick-add with selected atomic batch invite, keeps the existing mutation as authority, and retires stale completion with a circle-scoped generation token. Capacity and candidate reconciliation serve the new interaction.",
+        "slot_index": 0,
+        "source_sha256": "45eeed666869b9e64c1e71dfa5ba5abe7f48d50fe7c43ac290ee95486ab7070f"
+      },
+      {
+        "after": 2679,
+        "before": 2607,
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "rationale": "Extracted connector-catalog preparation helper enforces owner/vault/abort checks before and after the read and re-enters the existing cache after memory preparation. Streaming adds fixed-name timing marks and a before-dispatch/current-effect fence for waking transport.",
+        "slot_index": 0,
+        "source_sha256": "51ef36a2c8f5d942b57a1719a564fc577d88e8b8b7c594daf7fd13af98f9bed4"
+      },
+      {
+        "after": 2601,
+        "before": 2585,
+        "key": "module_size|hushh-webapp/components/consent/notification-provider.tsx||module exceeds the advisory operon budget",
+        "rationale": "Bounded notification retry and shared app-interaction coordinator bridge cover native renewal, visibility and SSE Retry-After without creating another owner or notification store.",
+        "slot_index": 0,
+        "source_sha256": "ea8d4ef6dd473a8274240987c4b024638999606ba4cf48795a7e6a340d35f010"
+      },
+      {
+        "after": 2579,
+        "before": 2261,
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+        "rationale": "Main request-search regressions plus retained shared_hub_owner fixture/assertion; saved-statement path cannot evade placement admission or auto-share.",
+        "slot_index": 0,
+        "source_sha256": "d470d85965a2f49d226833c0210c94fac95ea7dcdf55033953f2b76f43488aed"
+      },
+      {
+        "after": 2568,
+        "before": 2523,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Added real drawer, New chat, theme-canvas and keyboard geometry assertions across relevant modes; these guard product layout contracts in the existing source-coupled fixture.",
+        "slot_index": 0,
+        "source_sha256": "f02040eaad43d1fd77a8c3616c9a5bda0e43f0fbfde8327afdb161c9a74ceb91"
+      },
+      {
+        "after": 2509,
+        "before": 2441,
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "60a94ccb8e00a81a08f25549b548f88ace63297d8ef9ab80328d953f855b7b7b"
+      },
+      {
+        "after": 2478,
+        "before": 2461,
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "rationale": "Whole-dollar request policy is passed to the existing price sheet and a 422 gets a specific failure message; it preserves server price authority and cents requests.",
+        "slot_index": 0,
+        "source_sha256": "57a31b0dfbc61148b5fe1cd12dfff6e37bf3b1b0468d45dda46a5ed4a9c5ba69"
+      },
+      {
+        "after": 2377,
+        "before": 2277,
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Distinct queued/delayed/failed/stopped/search/share cases prevent claims of active work when the durable worker has not progressed; whole-dollar test guards a real 422 regression.",
+        "slot_index": 0,
+        "source_sha256": "52138550d26f90e6f06115993deef1d582a92a0481c80c63d32dbbf77fedbed5"
+      },
+      {
+        "after": 2342,
+        "before": 2311,
+        "key": "module_size|hushh-webapp/lib/services/drive-sharing-service.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "b87b107aef9b49a7cd2e39bdc4cf10f74138ed71b7abbaf1cf8ae230d368803a"
+      },
+      {
+        "after": 2329,
+        "before": 2245,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "42f3aefce723fffb9d71a2b11baffb827ca93018a2f590d88cd5585de2c56441"
+      },
+      {
+        "after": 2302,
+        "before": 2225,
+        "key": "module_size|consent-protocol/tests/test_governed_mcp_toolset.py||module exceeds the advisory operon budget",
+        "rationale": "Main catalog-cache metadata/credential-separation, invalid owner and connection-change assertions retained alongside private-pod review tests.",
+        "slot_index": 0,
+        "source_sha256": "ce5a6144d481e7696d779a1051e75007aeeff0ebd41295bfef46cebc2acf9573"
+      },
+      {
+        "after": 2198,
+        "before": 2080,
+        "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+        "rationale": "Covers overlapping catalog preparation and negative owner/vault/cancellation cases for new dispatch fencing; meaningful transport and trust-boundary contracts.",
+        "slot_index": 0,
+        "source_sha256": "2fbd2b0dd1f8a6115b134fdc9f0df385a6822b241845a4babb12a1356315fd1a"
+      },
+      {
+        "after": 1939,
+        "before": 1897,
+        "key": "module_size|consent-protocol/hushh_mcp/services/actor_identity_service.py||module exceeds the advisory operon budget",
+        "rationale": "Main missing-only Firebase phone repair preserves concurrent verified OTP claim under SQL conflict update and avoids referral/reward side effects; existing private-pod signup/placement hooks retained.",
+        "slot_index": 0,
+        "source_sha256": "f1b90aba27692762c61f9105b8a0256827fd6214042819e6d3a9bf7b84668d10"
+      },
+      {
+        "after": 1866,
+        "before": 1814,
+        "key": "module_size|hushh-webapp/__tests__/components/person-profile-page.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Checks action-card order and that real Request files/Ask about files dialogs remain reachable after profile layout change.",
+        "slot_index": 0,
+        "source_sha256": "dcff025724e2e0a2c3f5e0e652c948cf7cacbb2437d155336c4e55deef947a55"
+      },
+      {
+        "after": 1732,
+        "before": 1699,
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Whole-dollar negative and cents positive controls guard the observed price-policy mismatch, rather than snapshotting markup.",
+        "slot_index": 0,
+        "source_sha256": "db39511547c02f6dfd3dc5e9b69d1b59c2b8b9ca0a79196cb8bc9550fa3ce045"
+      },
+      {
+        "after": 1728,
+        "before": 1710,
+        "key": "module_size|consent-protocol/tests/services/test_external_connector_curated_oauth.py||module exceeds the advisory operon budget",
+        "rationale": "Main credential tests unchanged except branch shared_hub_owner fixture injection; no bypass of live placement policy.",
+        "slot_index": 0,
+        "source_sha256": "c265bf9590ba448ad04c4fdd13ac93a5f687efb1fc66b4f7e97f16aea34f30c6"
+      },
+      {
+        "after": 1725,
+        "before": 1647,
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "ad37e3b760108270383b8dbd1d12d2c296898d3401d4e53721f36e70b9db0f4b"
+      },
+      {
+        "after": 1626,
+        "before": 1617,
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "rationale": "Nine-line main startup registration for existing system-push worker composes with branch private-pod/fleet lifecycle ownership; no private pod server import or mount introduced.",
+        "slot_index": 0,
+        "source_sha256": "b25e1ca44b838ad1ad8328b453f8caf5a348b101a063bb3db6ecfff7bb64a4c6"
+      },
+      {
+        "after": 1617,
+        "before": 1589,
+        "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f9532ca997eac52e0514a64fd9ed401f7dbb33ae22d3a974b1dcec06c1848659"
+      },
+      {
+        "after": 1614,
+        "before": 1593,
+        "key": "module_size|hushh-webapp/lib/notifications/fcm-service.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "ad392a64be241a3785c3ee56d310ec69bb9c42979139fa2d551763bfc952273b"
+      },
+      {
+        "after": 1606,
+        "before": 1600,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py||module exceeds the advisory operon budget",
+        "rationale": "Main adds periodConflict projection and bounded equal-jitter retry. Branch closure view(row) is retained instead of losing its current authority projection.",
+        "slot_index": 0,
+        "source_sha256": "3dbf4ec14d27b2c3a6b48fc54f3139a415fd86c74bb6b0e343979d744453cc8f"
+      },
+      {
+        "after": 1537,
+        "before": 1251,
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5ecea7bfb4184ad18a43e3019fa98451c580c6243da6a704765feb65759b6b43"
+      },
+      {
+        "after": 1515,
+        "before": 1435,
+        "key": "module_size|consent-protocol/tests/services/test_actor_identity_service.py||module exceeds the advisory operon budget",
+        "rationale": "Main concurrent claim, stale-complete-phone and missing-only repair tests compose with preserved private placement/phone-attach tests.",
+        "slot_index": 0,
+        "source_sha256": "8764a672db4e95701e916c022f76cb6d728a31b4820b112d41204033b19a250c"
+      },
+      {
+        "after": 1512,
+        "before": 1380,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "rationale": "Main typed provider rejection/429 and unknown-paid-search terminality tests compose with branch placement admission fixture; uncertainty does not buy another search.",
+        "slot_index": 0,
+        "source_sha256": "4b357819ba8d8ca5a802d56971ce76e4d39641c71d9f6de056cfd16c4d54c418"
+      },
+      {
+        "after": 1265,
+        "before": 1251,
+        "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "e1cd7ea58087db41751725499fc52528b58d7f4952ed7b722702c1d80171e902"
+      },
+      {
+        "after": 1210,
+        "before": 1174,
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "rationale": "Moves scoped request actions into a readable grid while keeping mounted request authority and real dialogs; no new source of consent decisions.",
+        "slot_index": 0,
+        "source_sha256": "d7de7235bfd88e4cbada7c5f66f0778ddfb51710a2c8244eaf77889a325572b2"
+      },
+      {
+        "after": 1175,
+        "before": 1093,
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "6dbebb9d270d75221deb2c687e1e95f1b52e157a2cc0c27bfc9449b40a4c8d73"
+      },
+      {
+        "after": 1170,
+        "before": 1158,
+        "key": "module_size|hushh-webapp/components/profile/personal-world-model-page.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "7835aa2e49df8d8b5b7b77730ebffb37bfc0fb00072a2a15f54bb0d80b04b8aa"
+      },
+      {
+        "after": 1121,
+        "before": 1043,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "3364c3ea61d8ca4d53607fb1db69ffd6a5954127f34fde1a10232bf3a9441468"
+      },
+      {
+        "after": 1104,
+        "before": 1102,
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "rationale": "Adds the typed notification-settings bridge method used by the existing native notification flow.",
+        "slot_index": 0,
+        "source_sha256": "c1b70d28795db404e72c28a8077afea38c434dc40cc85c2109acea77fae19fc4"
+      },
+      {
+        "after": 1095,
+        "before": 1094,
+        "key": "module_size|hushh-webapp/components/connect/circles/connect-circles-tab.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "62836ed0aa97bd43fe0f323ce297f661fdb944304cd63b99d4ecb23613ec104f"
+      },
+      {
+        "after": 1085,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/services/test_drive_search_performance_proof.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5db542f7fa3319ce459c084654be1fbc7fe249326e77687b6e45d7f1f69e7f3a"
+      },
+      {
+        "after": 1073,
+        "before": 920,
+        "key": "module_size|consent-protocol/tests/test_registered_mcp_toolset.py||module exceeds the advisory operon budget",
+        "rationale": "Main binding-keyed cooldown, revocation, deadline and owner cancellation regressions combine with branch private connector authority tests; no assertion removal.",
+        "slot_index": 0,
+        "source_sha256": "37bbd4bb4e88db781044fedae8571146eefefc3d2f2ffee0137929d7bded8f13"
+      },
+      {
+        "after": 1054,
+        "before": 1041,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "408b551fe084811db01fe2db1f10af8934212330a7adef2eb8a7f216d8e6fca6"
+      },
+      {
+        "after": 1052,
+        "before": 1051,
+        "key": "module_size|hushh-webapp/lib/vault/vault-context.tsx||module exceeds the advisory operon budget",
+        "rationale": "Current auth readiness is read from a ref by the retained token callback, closing stale detached-capture token access while verification is unresolved.",
+        "slot_index": 0,
+        "source_sha256": "c3bb36e91d414fd17a151d91d9fb0176cbd297dfb3b4ec47cc45a4c07cef75e5"
+      },
+      {
+        "after": 1048,
+        "before": 1034,
+        "key": "module_size|hushh-webapp/__tests__/components/personal-world-model-page.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "bd9d06c5655ca480f980cb3eec81eadf2f78d30c6f2c63461c1c260e57a0093e"
+      },
+      {
+        "after": 1042,
+        "before": 1009,
+        "key": "module_size|consent-protocol/hushh_mcp/services/push_notifications.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "4cca02fc6d36c244fcc8016956e929a2e604f73aee5b61e9c7c4498ef29ebc99"
+      },
+      {
+        "after": 1004,
+        "before": 979,
+        "key": "module_size|hushh-webapp/__tests__/consent-notification-provider-location.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "729a6be4b079c3d1f3995b67da9bfd5dbbb7f20b36272582eaf2ae3560d14822"
+      },
+      {
+        "after": 988,
+        "before": 946,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py||module exceeds the advisory operon budget",
+        "rationale": "Main metadata-only catalog reuse and parallel metadata/authority reads combine with exact branch binding/review/privacy contracts. Actual provider call still resolves current credentials and validates binding.",
+        "slot_index": 0,
+        "source_sha256": "9b54a5be42117d296a7cc4afa1adcf713730ca106b63738a90608ee0b472fdf2"
+      },
+      {
+        "after": 985,
+        "before": 943,
+        "key": "module_size|consent-protocol/tests/test_world_model_azure.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "5f4a05a1163aa29361d2b95b2ef131b5aec7429327d1628ea6fbe9950cca77dd"
+      },
+      {
+        "after": 933,
+        "before": 845,
+        "key": "module_size|hushh-webapp/__tests__/services/world-model-research-service.test.ts||module exceeds the advisory operon budget",
+        "rationale": "Three driver cases distinguish bare pending reads, hidden-tab resume, and real checkpoint progress after failed ensure; prevents retry storms and false completion.",
+        "slot_index": 0,
+        "source_sha256": "89b1210e24df2bd4a6a751cbf8246fa7c37e5e71892a0096fa1e1fc234d61b53"
+      },
+      {
+        "after": 915,
+        "before": 913,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py||module exceeds the advisory operon budget",
+        "rationale": "Only added partial-response guard prevents streamed chunks from prematurely closing provider timing; no execution, owner or persistence authority change.",
+        "slot_index": 0,
+        "source_sha256": "156f2c9399d1697670dbb2502667c90e791a8a84e72b63fbf0a413bb16639dbb"
+      },
+      {
+        "after": 913,
+        "before": 866,
+        "key": "module_size|consent-protocol/tests/test_workspace_mcp_tools.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "55efcdfc0983ffc411dcd9e845aa98a5cc1c4df8cfe512285eef4215eb8bc715"
+      },
+      {
+        "after": 910,
+        "before": 902,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/world_model_azure.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "16cb5b8ce448b06a525274327f9d5624da364d1aa28954b55058e30bfcc967be"
+      },
+      {
+        "after": 902,
+        "before": 887,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/workspace_mcp_tools.py||module exceeds the advisory operon budget",
+        "rationale": "Main metadata-only descriptor discovery and stable connection-generation binding combine with branch owner admission. Credential refresh alone does not invalidate approval; real calls still resolve current credentials.",
+        "slot_index": 0,
+        "source_sha256": "8477a5d205f67608c5374d8146a532d7e634567563da0ef03737cbdb050e9498"
+      },
+      {
+        "after": 902,
+        "before": 813,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-chat-workspace-stream.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Guards detached semantic capture across navigation against owner/vault changes and calendar attendance outcome handoff; failure controls reject fallback preparation.",
+        "slot_index": 0,
+        "source_sha256": "0d09ba35b141153b8eae45a0328b980e0e1a0068c6c88c716186ee4abde304da"
+      },
+      {
+        "after": 841,
+        "before": 840,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "rationale": "Passes the calendar-attendance handoff through the existing openChat contract for the workspace to settle.",
+        "slot_index": 0,
+        "source_sha256": "bcf5407aed72900ceb4703247fbd3bb9c88a1a46f69c965d7d536ad1f00ddaab"
+      },
+      {
+        "after": 794,
+        "before": 791,
+        "key": "module_size|hushh-webapp/__tests__/consent-notification-provider-connections.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "c4ab0c30e24da52f35b4ee9dc1943eb3ab03d42a9c609e68b2727b3a3c28bc1d"
+      },
+      {
+        "after": 785,
+        "before": 746,
+        "key": "module_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py||module exceeds the advisory operon budget",
+        "rationale": "Main typed OpenAI status and conservative unknown-spend handling combine with retained pre/post-await hub placement admission. No new private content release path.",
+        "slot_index": 0,
+        "source_sha256": "67034697cb8ca7625450a1baea89b79fe78a911f18b803cd6b98a76e9faf2502"
+      },
+      {
+        "after": 783,
+        "before": 778,
+        "key": "module_size|consent-protocol/tests/test_fcm_messages.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "c5eeef5068eecc87301c96e8adebdcb9878ed409c9ab2f8404801f5ce53ee4aa"
+      },
+      {
+        "after": 734,
+        "before": 716,
+        "key": "module_size|hushh-webapp/lib/services/world-model-research-service.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "32d9efadf07cd643f41de664175e432af092bc791631c7e5c31820b556c6e3c1"
+      },
+      {
+        "after": 731,
+        "before": 730,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "87ed8644f7dd42664cef762450feb7a74fb828c842ca7cddef20d8f5eaeefdc2"
+      },
+      {
+        "after": 723,
+        "before": 708,
+        "key": "module_size|hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Parameterized verification/auth-loading gate tests the retained token callback becomes inaccessible and recovers without persisting the vault key.",
+        "slot_index": 0,
+        "source_sha256": "594e230d1b0bede45892ee6ce7b701d8a05e8d29efb434971a87d3c3a008e94b"
+      },
+      {
+        "after": 716,
+        "before": 684,
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Native-session direct-message opening and recoverable missing-token/route-mint failures are distinct behavior regressions; navigation assertion follows the four-item shell contract.",
+        "slot_index": 0,
+        "source_sha256": "b77927758ea7ea5cc18b35fcbb42a22bd7071bd55ebd2d9416b3007f9fc2c50a"
+      },
+      {
+        "after": 711,
+        "before": 676,
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "8bb81f327d9fa8b6a258705759da3d929d070b2551cef0c07b38b6b3f02190cf"
+      },
+      {
+        "after": 692,
+        "before": 545,
+        "key": "module_size|consent-protocol/tests/services/test_calendar_attendance_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "21a98f08ca4a990676a60feaefa09800fb318d91fcbf6ed2e55bb909b446404d"
+      },
+      {
+        "after": 671,
+        "before": 560,
+        "key": "module_size|consent-protocol/tests/services/test_connect_directory_postgres.py||module exceeds the advisory operon budget",
+        "rationale": "Main actual-SQL phone normalization and concurrent-OTP preservation tests combine with retained branch identity fixture schema.",
+        "slot_index": 0,
+        "source_sha256": "0baabd050b07fb0209ce84916d03ef91f19b0c4b79b367b418c22c6c0bed2a51"
+      },
+      {
+        "after": 670,
+        "before": 654,
+        "key": "module_size|hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Fixture models send_message as an actual email; decline test proves single confirmation and outcome handoff, plus disabled-action/conflict-copy expectations.",
+        "slot_index": 0,
+        "source_sha256": "6159592f7c578fe0ae30d6774cc4b99f263f83c3895ccc3bb38a127d05dc8e4d"
+      },
+      {
+        "after": 662,
+        "before": 623,
+        "key": "module_size|consent-protocol/tests/services/test_location_circle_command_postgres.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "2c849827248b0beec29b18b33fd0ed7a90eac1f3d0c2d42a358e4b372348937c"
+      },
+      {
+        "after": 656,
+        "before": 541,
+        "key": "module_size|hushh-webapp/e2e/agent-markdown.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "347069d68aaf5b55e4de191cfdf63edf89498eb77e9d94604fa12700960ecf1b"
+      },
+      {
+        "after": 647,
+        "before": 629,
+        "key": "module_size|hushh-webapp/__tests__/components/world-model-lifecycle.test.tsx||module exceeds the advisory operon budget",
+        "rationale": "Reworks one activity test to reject visibility and repeated pending reads as progress while accepting an actual checkpoint; this is a stronger semantic assertion.",
+        "slot_index": 0,
+        "source_sha256": "0bc69b6659916f85787a3e220d4c00a38beec23e741655bba8f8cd5178684a89"
+      },
+      {
+        "after": 641,
+        "before": 607,
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_permission_adapter.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "01add34156c8cdef1712c9f871ad4b7ebd7da2a94074a09c76b8be8998c71ddb"
+      },
+      {
+        "after": 638,
+        "before": 587,
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Exercises pressed radius, ripple, focus and activation in light/dark and reduced-motion modes against the actual component and CSS.",
+        "slot_index": 0,
+        "source_sha256": "cf9e6e3006c202596f3a2e2e237986a4166e8d63ef3feef13b492cbc5843a368"
+      },
+      {
+        "after": 610,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/test_world_model_story.py||module exceeds the advisory operon budget",
+        "rationale": "Main provider-budget checkpoint migration cases plus five retained branch placement fixture lines. Tests preserve hourly-start cap, malformed ledger refusals and paid-attempt retention.",
+        "slot_index": 0,
+        "source_sha256": "639baa59250c389132c8217d4b23316f3920da4701d10ebce8346df9e5695b2b"
+      },
+      {
+        "after": 595,
+        "before": 564,
+        "key": "module_size|consent-protocol/api/routes/document_feed_stream.py||module exceeds the advisory operon budget",
+        "rationale": "Owned shared stream-admission facade and shielded generator close are cohesive additions to existing lease owner; slot release and queue cleanup remain independently required.",
+        "slot_index": 0,
+        "source_sha256": "83ea8822554285c704f2a4a6221ff5d7cec7e67145508ca196bf051bcc6518f8"
+      },
+      {
+        "after": 584,
+        "before": 571,
+        "key": "module_size|hushh-webapp/e2e/fixtures/agent-surface-source.ts||module exceeds the advisory operon budget",
+        "rationale": "Normalizes line endings and reads the extracted shared welcome typography class so layout checks still derive from production source.",
+        "slot_index": 0,
+        "source_sha256": "2e2d0f55f827300c62af505b9efe72003f1994ea6bf6ddee92d20a678b275dc4"
+      },
+      {
+        "after": 573,
+        "before": 521,
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/drive-request-progress.test.ts||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "99ed176e9270a1927346165caf8b3c175139e5ff8b96e2003f13651b72d395a3"
+      },
+      {
+        "after": 566,
+        "before": 564,
+        "key": "module_size|hushh-webapp/components/consent/document-file-request.tsx||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "584341a94ea79d5188e989bc3728996651b6326600472beb4c68fffcc26d8c87"
+      },
+      {
+        "after": 565,
+        "before": 515,
+        "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+        "rationale": "Main exercises actual older-target Cloud Build companion upload and production email-auth no-op; branch purpose-bound pod release/commerce helper fixture list remains. Assertions and secret exclusion retained.",
+        "slot_index": 0,
+        "source_sha256": "04fcc078deff2104105395c5fed1f1a16155888631842e19f0d48389a55136b3"
+      },
+      {
+        "after": 548,
+        "before": 524,
+        "key": "module_size|hushh-webapp/e2e/profile-legal-connectors.layout.spec.ts||module exceeds the advisory operon budget",
+        "rationale": "Asserts the actual profile theme canvas is opaque after navigation across device and theme states; meaningful visual regression coverage.",
+        "slot_index": 0,
+        "source_sha256": "32aec83ac881ff0a874057fd2a98c0c45530467680444005e8899c65b6145e42"
+      },
+      {
+        "after": 547,
+        "before": 543,
+        "key": "module_size|consent-protocol/tests/test_native_ship_artifact_workflows.py||module exceeds the advisory operon budget",
+        "rationale": "Main shared iOS exporter assertion follows existing behavioral dry-run/failure owner; retains exact archive/output/signing/source receipt checks and branch native release requirements.",
+        "slot_index": 0,
+        "source_sha256": "3ef9c5d5e1ba34dc9da1486c6babb1ae443eb79f94399e1946cf24458eb85040"
+      },
+      {
+        "after": 536,
+        "before": 535,
+        "key": "module_size|hushh-webapp/components/agent/agent-turn-stream-panel.tsx||module exceeds the advisory operon budget",
+        "rationale": "Single plain activity appearance prop uses the existing panel interface; no new state or routing logic.",
+        "slot_index": 0,
+        "source_sha256": "f29306cfa0778adcaf4cdafdee50b1a8126c4de47fa7341d36a9883671a9e26b"
+      },
+      {
+        "after": 520,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_bulk_service.py||module exceeds the advisory operon budget",
+        "rationale": "Exact frozen main file/span hash equality. Admission limited to measured size debt at this immutable source; not a blanket runtime/security approval or future allowance.",
+        "slot_index": 0,
+        "source_sha256": "f8faea9bfd34e951baff2760d09f6677592eff29719e4f9d41f58455a3ffbd2b"
+      }
+    ],
+    "evidence_revision": "29754d70d7476891729cbde15a9983d9657b16d0",
+    "existing_value_replacements": 125,
+    "focused_cases_passed": 187,
+    "frozen_main": "a049cd2428",
+    "new_occurrence_appends": 14,
+    "premerge": "f44774dcdf",
+    "prior_baseline_sha256": "1864cb1a8b099b7aebf9418eded155307605083f89691f25e54be671212506b5",
+    "review": "84 exact frozen-main file/span slots,30 independently reviewed backend compositions and25 frontend compositions. Four newly introduced runtime/test findings corrected through bounded compatibility extractions and unchanged test relocation before admission. No detector, budget, exclusions, historical entries, duplicate multiplicities, unrelated ceilings or future-growth enforcement changed. Source review is not deployed acceptance.",
+    "reviewers": [
+      "adk_authority_review",
+      "adk_frontend_conflicts"
+    ],
+    "scanner_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c"
+  },
+  "main_a049_drive_shared_fixture_review_20261017": {
+    "evidence_revision": "04df0a0d1e202a645e44a5f6cd614ea4cbbf088b",
+    "key": "module_size|consent-protocol/tests/services/test_drive_search_performance_proof.py||module exceeds the advisory operon budget",
+    "slot_index": 0,
+    "before": 1085,
+    "after": 1087,
+    "source_sha256": "b7c7b3e6a35127f3282c9bbc2be88e97a0bac54e6aec3c9e0ba4c735b57f92db",
+    "reviewer": "adk_authority_review",
+    "review": "Two per-case existing Shared fixture decorators. Actual hub content guard remains active, and private/unknown refusal coverage stays in its owner suite. No runtime, function-size, budget, scanner, exclusion or other ceiling changes. Original full-core failures retained; unchanged restart timeout is not raised."
   }
 }
