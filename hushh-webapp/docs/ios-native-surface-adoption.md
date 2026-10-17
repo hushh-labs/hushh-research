@@ -18,7 +18,12 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Profile height, photo header and current physical checks — 2026-10-17
 
-The installed UAT-backed `6e24a47dbf` candidate, Agent One 1.4.0 (69), passes
+Current installed candidate: UAT-backed `a00d04764c`, Agent One 1.4.0 (69),
+Debug custom-native qualification. Its warm physical journey passes the root
+and Account top-portrait geometry, existing photo options → preview → Close,
+Account return and Chat/session continuity. Ordinary builds remain unchanged.
+
+Historical `6e24a47dbf`, also 1.4.0 (69), passes
 the bounded native Account → Phone → country choice → Back/cancel journey with
 the software keyboard, one WebView and the warm draft/session; no SMS was sent.
 The same installed candidate passes three real Feed scroll hide/reveal cycles
@@ -38,7 +43,9 @@ list row with a top identity hero, and supplies the same effective photo to the
 root identity header. The shared native hero now follows the web pane's geometry:
 44pt leading portrait, 13pt column gap and adjacent name/email. Only the portrait
 is a button, retaining its existing authored action; the surrounding identity
-copy is not a selectable settings row. This replaces the oversized root portrait
+copy is not a selectable settings row. The root portrait retains its Account
+action; Account's portrait retains the photo-options owner. Root photo-preview
+operation parity is not inferred from geometry. This replaces the oversized root portrait
 and separate centered Account photo/options block. Native receives bounded JPEG bytes
 only, decoded with bounded ImageIO dimensions; there is no native URL fetch or
 image persistence. The existing provider fallback can request a larger Google
@@ -87,10 +94,23 @@ native Account portrait → photo options → preview → Close → Account → 
 journey, with one WebView and no photo mutation. Its executable digest is
 `1fc01be3487d3e5a705f28d8b86c390fa03e9a84fc5654e8be513811b49025c9`;
 the exported/bundled assets match. This proves the repaired hit target and modal
-layer/handoff on that installed source, not the subsequent web-aligned hero's
-geometry. The updated nearest physical journey measures both root and Account
-headers before exercising the same photo flow; its evidence is recorded after
-installing the combined candidate. No full visual,
+layer/handoff on that installed source.
+
+The subsequent installed `a00d04764c` passes the extended same journey with
+44pt root/Account portrait targets, 13pt adjacent name/email columns, top-before-
+settings placement and one Account photo action. The same test rejects the old
+installed layout with `PROFILE_PHOTO_ROOT_DIFFERS_FROM_WEB_PANE`. Warm reopens
+use the authored Profile Back control; a nested scroll view does not establish
+root admission. No photo, provider, or backend mutation is part of this check.
+Executable digest: `9c928404507435ebcdfacbb4d90c39e4d9af2e3235384ad19acf9a74f611000f`.
+The 1,681 exported/bundled assets match at
+`d4d038e2e297ac83747ae56bd92c696eb1a936a460d1ab288f527b05ed147b42`;
+strict app/runner signatures and all seven UAT targets pass with no remote
+WebView override. The nearest 198 behavior cases, 469 Back cases, UI-contract
+checks, typecheck, static parity and native build pass. Older wrappers keep the
+ordinary photo row without the hero's email subtitle; the existing capability
+test fails on that actual regression and passes with the bounded correction.
+These receipts do not establish actual-provider pixel quality or full visual,
 accessibility, staged-resume or Release-performance acceptance is inferred.
 
 Vault methods now have one extracted React feature model for reads, enrollment,
