@@ -942,15 +942,22 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]);
   });
 
-  // Keep the confirmation flow separate from typography and geometry so each
-  // contract fits the default timeout on the shared WebKit runner.
-  test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
+  // Separate zero-write dismissal from committed revoke/return: cumulative
+  // browser work exhausted 30s at Back even after the focus checks passed.
+  // Preserve each interaction/assertion deadline and the full geometry cases.
+  const openSharingConfirmation = async (page: Page) => {
+    const started = performance.now();
+    const checkpoint = (phase: string) => console.info("Wallet sharing phase", { phase, elapsedMs: Math.round(performance.now() - started) });
+    // This interaction revokes one grant. Multi-card rendering is covered by
+    // the geometry cases; do not pay for unrelated cards in every modal cycle.
+    const errors = await open(page, width, "light", { cards: 1, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
+    checkpoint("mounted");
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
     const sharing = page.getByTestId("wallet-sharing-content");
     const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
     await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();
+    checkpoint("detail opened");
     const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
     const revoke = detail.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
     const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
@@ -959,18 +966,32 @@ for (const width of [320, 390, 1440]) {
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
     expect(await revocations()).toEqual([]);
+    return { errors, checkpoint, sharing, history, detail, revoke, confirmation, revocations };
+  };
+
+  test(`Wallet Sharing cancellation never revokes at ${width}px`, async ({ page }) => {
+    const { errors, checkpoint, revoke, confirmation, revocations } = await openSharingConfirmation(page);
     await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
     await expect(confirmation).toBeHidden();
     await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
+    checkpoint("cancel returned focus without a write");
     await revoke.click();
     await expect(confirmation).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(confirmation).toBeHidden();
     await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
+    checkpoint("escape returned focus without a write");
     await revoke.click();
     await expect(confirmation).toBeVisible();
+    expect(await revocations()).toEqual([]);
+    expect(errors).toEqual([]);
+    checkpoint("confirmation reopened without replay");
+  });
+
+  test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
+    const { errors, checkpoint, sharing, history, detail, revoke, confirmation, revocations } = await openSharingConfirmation(page);
     await confirmation.getByRole("button", { name: "Revoke access", exact: true }).click();
     await expect.poll(revocations).toEqual(["sharing-revoke:fixture-history-grant"]);
     await expect(confirmation).toBeHidden();
@@ -979,7 +1000,9 @@ for (const width of [320, 390, 1440]) {
     await expect(revoke).toHaveCount(0);
     const back = detail.getByRole("button", { name: "Back to sharing history" });
     await expect(back).toBeFocused();
+    checkpoint("committed revoke and returned focus");
     await back.click();
+    checkpoint("back clicked");
     await expect(detail).toBeHidden();
     await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true })).toBeFocused();
     await expect(page.getByRole("tab", { name: "Sharing", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -990,6 +1013,7 @@ for (const width of [320, 390, 1440]) {
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
+    checkpoint("detail retired and history geometry verified");
   });
 }
 

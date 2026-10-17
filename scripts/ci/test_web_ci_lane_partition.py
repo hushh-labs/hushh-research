@@ -297,6 +297,22 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
     assert "timeout-minutes: 30" in targeted
     assert "fail-fast: false" in targeted
+    # Failure traces were printed then lost with the runner. Only these
+    # source-coupled synthetic fixtures are admitted, never reviewer journeys.
+    evidence = re.search(
+        r"- name: Upload synthetic Wallet failure evidence\n(.*?)(?=\n      - name:)",
+        targeted, re.S,
+    )
+    assert evidence, "retain the failing Wallet layout trace before runner teardown"
+    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
+    assert "name: wallet-layout-failures-${{ matrix.label }}" in evidence[1]
+    paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
+    assert paths
+    assert [line.strip() for line in paths[1].splitlines()] == [
+        "hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip",
+        "hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md",
+    ], "do not broaden synthetic evidence into protected browser artifacts"
 
     editor_perf = _job_block(workflow, "web-editor-performance-check", "web-full-suite-check")
     assert "runs-on: macos-15" in editor_perf
