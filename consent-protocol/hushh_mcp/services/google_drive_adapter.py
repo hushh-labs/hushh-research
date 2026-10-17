@@ -16,11 +16,14 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, TypeGuard
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from hushh_mcp.services.drive_provider_pacing import PACING, bounded_wait, current_owner
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_METADATA_BYTES_MAX,
@@ -39,6 +42,85 @@ MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
 MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
+
+# Precise read-path failure causes (one per distinct Drive reason). ``str()`` of
+# a DriveReadError stays the public code every existing consumer already
+# handles: the ingestion lane purges extracted text on source_unavailable, and
+# several tables constrain the codes they may store. The precise cause rides on
+# ``error.reason``; read it with read_failure_reason(). source_unavailable is
+# the precise cause only for a real loss of access (404/410, or a 403 whose
+# reason names no narrower cause).
+SOURCE_UNAVAILABLE = "source_unavailable"
+EXPORT_TOO_LARGE = "export_too_large"
+DOWNLOAD_RESTRICTED = "download_restricted"
+PAGE_TOKEN_INVALID = "page_token_invalid"  # noqa: S105 - an error code, not a secret
+DOMAIN_POLICY = "domain_policy"
+APP_NOT_AUTHORIZED = "app_not_authorized"
+DRIVE_MEMBERSHIP_REQUIRED = "drive_membership_required"
+RATE_LIMITED = "rate_limited"
+QUOTA_DEFERRED = "quota_deferred"
+PROVIDER_RESPONSE_INVALID = "provider_response_invalid"
+# Precise cause -> the public code raised for it.
+READ_FAILURE_PUBLIC_CODES = {
+    SOURCE_UNAVAILABLE: "source_unavailable",
+    # Google's 10 MB export cap is a size limit, not a loss of access: the
+    # file stays readable through the Docs/Sheets/Slides APIs or a smaller
+    # export, and its extracted text must not be purged as if access ended.
+    EXPORT_TOO_LARGE: "file_too_large",
+    # Owner/admin restrictions on reading: existing lanes treat these as
+    # unavailable sources (never extract; purge what was extracted).
+    DOWNLOAD_RESTRICTED: "source_unavailable",
+    DOMAIN_POLICY: "source_unavailable",
+    APP_NOT_AUTHORIZED: "source_unavailable",
+    DRIVE_MEMBERSHIP_REQUIRED: "source_unavailable",
+    # A rejected page token: the durable scanner restarts that pass from page 1.
+    PAGE_TOKEN_INVALID: "provider_response_invalid",
+    RATE_LIMITED: "provider_unavailable",
+    QUOTA_DEFERRED: "provider_unavailable",
+    # A 4xx whose body cannot be read within the bound (non-JSON, oversized,
+    # compressed) is neither proof of lost access nor a rate limit.
+    PROVIDER_RESPONSE_INVALID: "provider_unavailable",
+}
+READ_FAILURE_REASONS = frozenset(READ_FAILURE_PUBLIC_CODES)
+# The log redactor drops any 24+ character word joined by "_" as a possible
+# identifier, so telemetry names the two long causes with shorter labels.
+_LOG_LABELS = {
+    DRIVE_MEMBERSHIP_REQUIRED: "membership_required",
+    PROVIDER_RESPONSE_INVALID: "response_invalid",
+}
+
+
+def failure_log_label(reason: str) -> str:
+    """A redaction-safe telemetry label for a fixed failure code (never free text)."""
+    return _LOG_LABELS.get(reason, reason)
+
+
+# Google's documented 403 reasons, mapped to one precise cause each. Reasons
+# about bytes count only on content and export reads.
+_FORBIDDEN_CAUSES = {
+    "domainPolicy": DOMAIN_POLICY,
+    "appNotAuthorizedToFile": APP_NOT_AUTHORIZED,
+    "teamDriveMembershipRequired": DRIVE_MEMBERSHIP_REQUIRED,
+    "sharedDriveMembershipRequired": DRIVE_MEMBERSHIP_REQUIRED,
+}
+_CONTENT_FORBIDDEN_CAUSES = {
+    "exportSizeLimitExceeded": EXPORT_TOO_LARGE,
+    "fileNotDownloadable": DOWNLOAD_RESTRICTED,
+    "cannotDownloadFile": DOWNLOAD_RESTRICTED,
+    "cannotDownloadAbusiveFile": DOWNLOAD_RESTRICTED,
+    "cannotExportFile": DOWNLOAD_RESTRICTED,
+}
+# Quota reasons: retry later, never "unavailable". dailyLimitExceeded is the
+# project's courtesy limit; retrying it is cheap, purging content is not.
+_RATE_LIMIT_REASONS = RETRYABLE_403_REASONS | {"dailyLimitExceeded"}
+# Reasons Google documents for a plain denial or a bad request.
+_PLAIN_REASONS = frozenset(
+    {"insufficientFilePermissions", "forbidden", "insufficientPermissions", "notFound", "invalid"}
+)
+KNOWN_PROVIDER_REASONS = frozenset(
+    {*_RATE_LIMIT_REASONS, *_FORBIDDEN_CAUSES, *_CONTENT_FORBIDDEN_CAUSES, *_PLAIN_REASONS}
+)
+_EXPORT_TOO_LARGE_MESSAGE = re.compile(r"too large to be exported", re.IGNORECASE)
 CONTENT_LIMIT = 4 * 1024 * 1024
 LIVE_COLLECTION_CONTENT_LIMIT = 32 * 1024 * 1024
 DEADLINE_SECONDS = 20
@@ -103,9 +185,14 @@ FACT_FIELDS = (
     "capabilities(canShare,canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
+# size and canDownload route content work (drive_file_routing): Drive's own
+# index skips large files, and a file whose download is restricted is never
+# read. Both are scalar facts, not content. A 1000-row page stays well inside
+# the 2 MiB owner-search response budget (about 60 extra bytes per row).
 LIST_FIELDS = (
     "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,driveId,"
-    "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
+    "resourceKey,webViewLink,size,capabilities(canShare,canDownload),"
+    "clientEncryptionDetails(encryptionState),"
     "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
 )
 # Drive sorts each key ascending unless told "desc"; live results are newest
@@ -121,9 +208,9 @@ CHANGES_FIELDS = f"nextPageToken,newStartPageToken,changes(fileId,removed,change
 # row has exactly the shape a search page has. Names and types only, no bytes.
 INDEX_CHANGES_FIELDS = (
     "nextPageToken,newStartPageToken,changes(fileId,removed,changeType,file(id,name,mimeType,"
-    "modifiedTime,createdTime,driveId,resourceKey,webViewLink,trashed,capabilities(canShare),"
-    "clientEncryptionDetails(encryptionState),shortcutDetails(targetId,targetMimeType,"
-    "targetResourceKey)))"
+    "modifiedTime,createdTime,driveId,resourceKey,webViewLink,size,trashed,"
+    "capabilities(canShare,canDownload),clientEncryptionDetails(encryptionState),"
+    "shortcutDetails(targetId,targetMimeType,targetResourceKey)))"
 )
 # Within the 256 KiB metadata budget; an oversized page retries the same cursor at 25.
 INDEX_CHANGES_PAGE_SIZES = frozenset({"200", "25"})
@@ -223,12 +310,167 @@ LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
 
 
 class DriveReadError(RuntimeError):
-    """Only authored safe codes cross the transport boundary."""
+    """Only authored safe codes cross the transport boundary.
 
-    def __init__(self, code: str, *, retryable: bool = False, status_code: int | None = None):
+    ``reason`` is the precise cause from READ_FAILURE_REASONS (else the code
+    itself); ``retry_after`` is Google's Retry-After or our own deferral in
+    seconds, at most 64. Neither ever carries provider text.
+    """
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        reason: str | None = None,
+        retry_after: float | None = None,
+    ):
         super().__init__(code)
         self.retryable = retryable
         self.status_code = status_code
+        self.reason = reason if reason in READ_FAILURE_REASONS else code
+        self.retry_after = bounded_wait(retry_after)
+
+
+def read_failure_reason(error: BaseException) -> str | None:
+    """The precise read-path cause of a Drive read failure, or None for other errors."""
+    if not isinstance(error, DriveReadError):
+        return None
+    return error.reason if isinstance(error.reason, str) else str(error)
+
+
+def provider_failure(cause: str, **kwargs: Any) -> DriveReadError:
+    """A DriveReadError for one precise cause, raised under its public code."""
+    return DriveReadError(READ_FAILURE_PUBLIC_CODES[cause], reason=cause, **kwargs)
+
+
+def retry_after_seconds(value: object, *, now: datetime | None = None) -> float | None:
+    """Parse an HTTP Retry-After (delta-seconds or HTTP-date), capped at 64 s."""
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return None
+    value = value.strip()
+    if re.fullmatch(r"[0-9]{1,6}", value):
+        return bounded_wait(int(value))
+    try:
+        moment = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if moment is None or moment.tzinfo is None:
+        return None
+    return bounded_wait((moment - (now or datetime.now(UTC))).total_seconds())
+
+
+@dataclass(frozen=True)
+class ProviderErrorBody:
+    """Bounded facts from a Drive error body. Messages never leave this module."""
+
+    code: int | None
+    reasons: tuple[str, ...]
+    locations: tuple[str, ...]
+    status: str | None
+    export_too_large_message: bool
+
+
+def parse_provider_error(payload: bytes | None) -> ProviderErrorBody | None:
+    """Google's ``{"error": {...}}`` body, or None when it cannot be trusted.
+
+    None means the body was missing from the bound, compressed, not JSON or not
+    an object. A JSON object without Google's error shape is a plain error.
+    """
+    if payload is None:
+        return None
+    try:
+        result = json.loads(payload)
+    except (ValueError, UnicodeError, RecursionError):
+        return None
+    if not isinstance(result, dict):
+        return None
+    error = result.get("error")
+    if not isinstance(error, dict):
+        return ProviderErrorBody(None, (), (), None, False)
+    items = error.get("errors")
+    items = (
+        [item for item in items[:16] if isinstance(item, dict)] if isinstance(items, list) else []
+    )
+
+    def strings(key: str) -> tuple[str, ...]:
+        return tuple(
+            item[key] for item in items if isinstance(item.get(key), str) and len(item[key]) <= 64
+        )
+
+    messages = [error.get("message"), *(item.get("message") for item in items)]
+    status = error.get("status")
+    return ProviderErrorBody(
+        code=error["code"] if type(error.get("code")) is int else None,
+        reasons=strings("reason"),
+        locations=strings("location"),
+        status=status if isinstance(status, str) and len(status) <= 64 else None,
+        export_too_large_message=any(
+            isinstance(message, str)
+            and len(message) <= 1024
+            and _EXPORT_TOO_LARGE_MESSAGE.search(message) is not None
+            for message in messages
+        ),
+    )
+
+
+async def read_error_body(response: httpx.Response) -> bytes | None:
+    """At most ERROR_RESPONSE_LIMIT identity bytes of an error body, else None."""
+    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+        return None
+    data = bytearray()
+    async for chunk in response.aiter_raw():
+        if len(data) + len(chunk) > ERROR_RESPONSE_LIMIT:
+            return None
+        data.extend(chunk)
+    return bytes(data)
+
+
+def classify_provider_error(
+    status: int,
+    body: ProviderErrorBody | None,
+    *,
+    carried_page_token: bool,
+    content_read: bool,
+    retry_after: float | None = None,
+) -> DriveReadError:
+    """One precise DriveReadError for a Drive 4xx (401 is handled before this).
+
+    Reasons are matched, never echoed: no provider message, URL, token or ID
+    reaches the error, its code or telemetry.
+    """
+    if status == 429:
+        return provider_failure(RATE_LIMITED, retryable=True, retry_after=retry_after)
+    if status in {404, 410}:
+        return provider_failure(SOURCE_UNAVAILABLE, status_code=status)
+    if status == 400:
+        # Google: a rejected page token must be discarded and paging restarted
+        # from the first page. Any other 400 is a request we built wrongly.
+        named_elsewhere = body is not None and body.locations and "pageToken" not in body.locations
+        if carried_page_token and not named_elsewhere:
+            return provider_failure(PAGE_TOKEN_INVALID, status_code=400)
+        return DriveReadError("provider_response_invalid", status_code=400)
+    if status != 403:
+        return DriveReadError("provider_response_invalid")
+    if body is None:
+        return provider_failure(PROVIDER_RESPONSE_INVALID, retryable=True, status_code=403)
+    reasons = body.reasons
+    if (reasons and all(reason in _RATE_LIMIT_REASONS for reason in reasons)) or (
+        not reasons and body.status == "RESOURCE_EXHAUSTED"
+    ):
+        # Not evidence that a file or shortcut target is unavailable: retry
+        # the same durable page. No status code, as before, so callers that
+        # map a 403 to "permission required" keep treating it as transient.
+        return provider_failure(RATE_LIMITED, retryable=True, retry_after=retry_after)
+    causes = {**_FORBIDDEN_CAUSES, **(_CONTENT_FORBIDDEN_CAUSES if content_read else {})}
+    for reason in reasons:
+        if reason in causes:
+            return provider_failure(causes[reason], status_code=403)
+    if content_read and body.export_too_large_message:
+        # exportSizeLimitExceeded is not in Google's error guide; its message is.
+        return provider_failure(EXPORT_TOO_LARGE, status_code=403)
+    return provider_failure(SOURCE_UNAVAILABLE, status_code=403)
 
 
 @dataclass(frozen=True)
@@ -296,6 +538,25 @@ async def retryable_403_response(response: httpx.Response) -> bool:
     )
 
 
+def _operation_name(path: str, params: dict[str, str]) -> str:
+    """A fixed label for one admitted call; never the path or its parameters."""
+    if path == "/files":
+        return "list"
+    if path == "/changes":
+        return "changes"
+    if path == "/changes/startPageToken":
+        return "changes_start"
+    if path == "/drives":
+        return "list_drives"
+    if path == "/about":
+        return "account"
+    if path.endswith("/export"):
+        return "export"
+    if params.get("alt") == "media":
+        return "content"
+    return "metadata" if path.startswith("/files/") else "invalid"
+
+
 def _resource_keys(value: dict[str, str] | None) -> None:
     if value is not None and (
         not isinstance(value, dict)
@@ -357,27 +618,9 @@ class GoogleDriveAdapter:
             raise DriveReadError("operation_not_allowed")
         # Fixed operation names only. The path can contain a private provider ID
         # and params can contain the owner's search, so neither is logged.
-        operation = (
-            "list"
-            if path == "/files"
-            else "changes"
-            if path == "/changes"
-            else "changes_start"
-            if path == "/changes/startPageToken"
-            else "list_drives"
-            if path == "/drives"
-            else "account"
-            if path == "/about"
-            else "export"
-            if path.endswith("/export")
-            else "content"
-            if params.get("alt") == "media"
-            else "metadata"
-            if path.startswith("/files/")
-            else "invalid"
-        )
+        operation = _operation_name(path, params)
         started = time.perf_counter()
-        outcome = "error"
+        outcome = reason = "error"
         # Provider identifiers must not reach the global HTTPX trace exporter.
         try:
             with suppress_instrumentation():
@@ -389,7 +632,7 @@ class GoogleDriveAdapter:
                     **({"owner_search_page": True} if owner_search_page else {}),
                     **({"resource_keys": resource_keys} if resource_keys else {}),
                 )
-            outcome = "ok"
+            outcome = reason = "ok"
             return result
         except DriveReadError as error:
             outcome = (
@@ -405,16 +648,21 @@ class GoogleDriveAdapter:
                 }
                 else "error"
             )
+            # The precise cause, from the fixed vocabulary only (counts by class).
+            reason = failure_log_label(
+                error.reason if error.reason in READ_FAILURE_REASONS else outcome
+            )
             raise
         except asyncio.CancelledError:
-            outcome = "cancelled"
+            outcome = reason = "cancelled"
             raise
         finally:
             logger.info(
-                "drive_rest.timing operation=%s outcome=%s duration_ms=%.2f",
+                "drive_rest.timing operation=%s outcome=%s duration_ms=%.2f reason=%s",
                 operation,
                 outcome,
                 (time.perf_counter() - started) * 1000,
+                reason,
             )
 
     async def _get_private(
@@ -575,6 +823,18 @@ class GoogleDriveAdapter:
             raise DriveReadError("operation_not_allowed")
         if not isinstance(access_token, str) or not 1 <= len(access_token) <= 16384:
             raise DriveReadError("reconnect_required")
+        operation = _operation_name(path, params)
+        # Charged only for a call the fence admitted. Over budget, nothing is
+        # sent: the caller defers through its own schedule (next_at).
+        wait = PACING.admit(current_owner(), operation)
+        if wait is not None:
+            logger.info(
+                "drive_rest.deferred operation=%s reason=%s wait_s=%.0f",
+                operation,
+                QUOTA_DEFERRED,
+                wait,
+            )
+            raise provider_failure(QUOTA_DEFERRED, retryable=True, retry_after=wait)
         started = time.perf_counter()
         headers_ms = None
         body_started = None
@@ -608,23 +868,56 @@ class GoogleDriveAdapter:
             ):
                 body_started = time.perf_counter()
                 headers_ms = (body_started - started) * 1000
-                if response.status_code == 401:
+                status = response.status_code
+                if status == 401:
                     raise DriveReadError("reconnect_required")
-                if response.status_code == 403 and await retryable_403_response(response):
-                    # A rate-limited metadata read is not evidence that a
-                    # shortcut target is unavailable. Retry the same durable page.
-                    raise DriveReadError("provider_unavailable", retryable=True)
-                if response.status_code in {403, 404, 410}:
-                    raise DriveReadError("source_unavailable", status_code=response.status_code)
-                if response.status_code == 429 or response.status_code >= 500:
+                retry_after = retry_after_seconds(response.headers.get("Retry-After"))
+                if 400 <= status < 500:
+                    # Only 400 and 403 bodies decide the cause; each is read
+                    # within ERROR_RESPONSE_LIMIT and never stored or logged.
+                    body = (
+                        parse_provider_error(await read_error_body(response))
+                        if status in {400, 403}
+                        else None
+                    )
+                    error = classify_provider_error(
+                        status,
+                        body,
+                        carried_page_token=bool(params.get("pageToken")),
+                        content_read=operation in {"content", "export"},
+                        retry_after=retry_after,
+                    )
+                    # No URL, query, token, file ID or provider body reaches logs.
+                    # Reasons outside Google's guide are counted, never named,
+                    # so a new one shows up without echoing provider text.
+                    logger.info(
+                        "drive_rest.provider_error operation=%s status=%d reason=%s "
+                        "unrecognized=%d",
+                        operation,
+                        status,
+                        failure_log_label(error.reason),
+                        sum(item not in KNOWN_PROVIDER_REASONS for item in body.reasons)
+                        if body is not None
+                        else 0,
+                    )
+                    if error.reason == RATE_LIMITED:
+                        logger.warning(
+                            "drive_rest.transient_failure operation=%s reason=%s",
+                            "list" if path == "/files" else "file",
+                            "rate_limited",
+                        )
+                    raise error
+                if status >= 500:
                     # No URL, query, token, file ID or provider body reaches logs.
                     logger.warning(
                         "drive_rest.transient_failure operation=%s reason=%s",
                         "list" if path == "/files" else "file",
-                        "rate_limited" if response.status_code == 429 else "server_error",
+                        "server_error",
                     )
-                    raise DriveReadError("provider_unavailable", retryable=True)
-                if response.status_code != 200:
+                    raise DriveReadError(
+                        "provider_unavailable", retryable=True, retry_after=retry_after
+                    )
+                if status != 200:
                     raise DriveReadError("provider_response_invalid")
                 # HTTPX's decompressor can allocate beyond our budget before
                 # aiter_bytes yields. Request identity and refuse compression;

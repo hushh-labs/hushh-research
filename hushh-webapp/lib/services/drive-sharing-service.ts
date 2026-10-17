@@ -368,6 +368,12 @@ export type SharingDelivery = {
   recovery?: RequesterRecovery | null;
   /** Owner only: the requester asked for a review of unshared files. */
   reviewRequest?: OwnerReviewRequest | null;
+  /**
+   * Requester only, automatic requests: the owner's search could not reach
+   * every file (a shared-folder walk cut short, or files left unread), so a
+   * finished request reads "Files sent" rather than "All files sent".
+   */
+  coveragePartial?: true;
 };
 function accessStopStatus(value: unknown): NonNullable<SharingDelivery["accessStopStatus"]> {
   if (value === "pending" || value === "removed" || value === "needs_attention") return value;
@@ -1725,6 +1731,8 @@ export class DriveSharingService {
       ...(result.reviewRequest === undefined
         ? {}
         : { reviewRequest: parseOwnerReviewRequest(result.reviewRequest) }),
+      // Only an explicit true counts; anything else reads as full coverage.
+      ...(result.coveragePartial === true ? { coveragePartial: true as const } : {}),
     };
   }
 

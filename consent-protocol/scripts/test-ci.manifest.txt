@@ -20,9 +20,15 @@ tests/services/test_external_connector_registry_ownership.py
 tests/services/test_external_connector_dev_overlay.py
 tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
+# Drive v3 read resilience: per-owner/project unit budgets defer instead of
+# failing, and content routing never routes a restricted file to extraction.
+tests/services/test_drive_provider_pacing.py
+tests/services/test_drive_file_routing.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
+tests/services/test_drive_pdf_engine.py
+tests/services/test_drive_request_content_check.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
 tests/services/test_drive_extraction_mime_admission.py
@@ -85,6 +91,19 @@ tests/services/test_drive_search_performance_proof.py
 # Search v2: the request flow plans without any model call, and only typed
 # words and exact synonyms are title evidence for autoshare.
 tests/services/test_drive_request_brain.py
+# Corpus coverage: the bounded shared-folder walk, "shared with me" scope,
+# codes as fullText phrases and Devanagari words (P1-1, P0-4, P0-5, P0-6).
+tests/services/test_drive_corpus_coverage.py
+# D3: matches without title evidence are never auto-sent; only the owner
+# lists them and sends them, through the paid batch path.
+tests/services/test_drive_match_evidence.py
+tests/services/test_drive_possible_matches_postgres.py
+tests/test_drive_possible_matches_routes.py
+# Search v3 release wiring: every gear's discovery is a tagged possible match,
+# the content phase reads only Drive-blind files, production keeps the old
+# flow, and only partial coverage tells the requester "Files sent".
+tests/services/test_drive_v3_release_integration.py
+tests/services/test_drive_v3_release_postgres.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 # A "3 month meeting notes" request over a realistic Drive (synthetic titles):

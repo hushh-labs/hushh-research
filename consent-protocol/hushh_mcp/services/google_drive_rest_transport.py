@@ -19,6 +19,7 @@ from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
+from hushh_mcp.services.drive_provider_pacing import owner_scope
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_PAGE_SIZE_MAX,
@@ -323,7 +324,9 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        with drive_stage(logger, "provider"):
+        # Every Drive call this operation makes is charged to this owner's
+        # per-process unit budget (drive_provider_pacing).
+        with drive_stage(logger, "provider"), owner_scope(user_id):
             payload: dict = await operation(arguments, credential["accessToken"])
         with drive_stage(logger, "connection_recheck"):
             current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
@@ -782,17 +785,28 @@ def _project_page(page: dict[str, Any], files: list[Any]) -> dict:
     }
     # The shared MCP metadata filter intentionally keeps only its historical
     # scalar fields. This REST-only sharing search also needs the owner-specific
-    # canShare fact; validate and reattach exactly that fact after filtering.
+    # canShare fact, and content routing needs size and canDownload; validate
+    # and reattach exactly those facts after filtering.
     for item, destination in zip(files, projected["files"], strict=True):
         capabilities = item.get("capabilities")
         if capabilities is not None:
-            if not isinstance(capabilities, dict) or (
-                capabilities.get("canShare") is not None
-                and type(capabilities["canShare"]) is not bool
+            if not isinstance(capabilities, dict) or any(
+                capabilities.get(key) is not None and type(capabilities[key]) is not bool
+                for key in ("canShare", "canDownload")
             ):
                 raise DriveReadError("provider_response_invalid")
-            if "canShare" in capabilities:
-                destination["capabilities"] = {"canShare": capabilities["canShare"]}
+            kept = {
+                key: capabilities[key] for key in ("canShare", "canDownload") if key in capabilities
+            }
+            if kept:
+                destination["capabilities"] = kept
+        size = item.get("size")
+        if size is not None:
+            # Drive sends int64 as a decimal string. Bytes of blobs and editor
+            # files; absent for folders and shortcuts.
+            if not isinstance(size, str) or not re.fullmatch(r"[0-9]{1,20}", size):
+                raise DriveReadError("provider_response_invalid")
+            destination["size"] = int(size)
         encryption = item.get("clientEncryptionDetails")
         if encryption is not None:
             if not isinstance(encryption, dict) or not isinstance(

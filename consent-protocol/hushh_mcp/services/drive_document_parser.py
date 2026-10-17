@@ -101,6 +101,28 @@ def _docx(content: bytes) -> str:
         return "\n".join(lines)
 
 
+def _pdf(content: bytes) -> ParsedText:
+    """PDF text through the shared PDFium engine; this lane never runs OCR.
+
+    Pages past ``MAX_PAGES`` are never loaded. A page that needs OCR (image
+    only, mostly image, short or garbled text) or that PDFium cannot load
+    marks the result truncated, so a mixed PDF cannot pass image-only or
+    damaged evidence off as a complete extraction. An owner-password PDF
+    opens; a user-password PDF is ``encrypted_document``.
+    """
+    if __package__:
+        from .drive_pdf_engine import PdfEngineError, extract_pdf_pages
+    else:
+        from drive_pdf_engine import PdfEngineError, extract_pdf_pages
+    try:
+        pages, total = extract_pdf_pages(content, start=1, limit=MAX_PAGES)
+    except PdfEngineError as error:
+        raise ParseError(str(error)) from None
+    parsed = _bounded(page.text for page in pages)
+    gaps = total > MAX_PAGES or any(page.status in {"partial", "unreadable"} for page in pages)
+    return ParsedText(parsed.pages, parsed.truncated or gaps)
+
+
 def parse_document(content: bytes, mime_type: str) -> ParsedText:
     if not content or len(content) > MAX_INPUT_BYTES:
         raise ParseError("file_too_large" if content else "no_extractable_text")
@@ -110,42 +132,7 @@ def parse_document(content: bytes, mime_type: str) -> ParsedText:
         if mime_type == DOCX:
             return _bounded((_docx(content),))
         if mime_type == "application/pdf":
-            import pdfplumber
-            from pdfminer.pdfpage import PDFPage
-            from pdfplumber.page import Page
-
-            if not content.startswith(b"%PDF-"):
-                raise ParseError("invalid_document")
-            pdf = pdfplumber.open(io.BytesIO(content))
-            try:
-                if pdf.doc.encryption:
-                    raise ParseError("encrypted_document")
-
-                def page_text():
-                    for number, source_page in enumerate(PDFPage.create_pages(pdf.doc), 1):
-                        if number > MAX_PAGES:
-                            yield ""  # Overflow marker; never extract page 101.
-                            break
-                        page = Page(pdf, source_page, page_number=number)
-                        try:
-                            value = page.extract_text() or ""
-                            # Compatibility readers do not run OCR. A mixed
-                            # PDF must not disguise image-only evidence as an
-                            # empty, successfully extracted page.
-                            if page.images or (not value.strip() and page.objects):
-                                missing.append(number)
-                            yield value
-                        finally:
-                            page.close()
-
-                missing: list[int] = []
-                parsed = _bounded(page_text())
-                return ParsedText(parsed.pages, parsed.truncated or bool(missing))
-            finally:
-                # PDF.close()/__exit__ accesses .pages and materializes the
-                # entire page tree. Close the stream and caches directly.
-                pdf.flush_cache()
-                pdf.stream.close()
+            return _pdf(content)
         raise ParseError("unsupported_format")
     except ParseError:
         raise

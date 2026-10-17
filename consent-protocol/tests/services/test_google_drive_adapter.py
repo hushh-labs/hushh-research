@@ -758,3 +758,510 @@ async def test_index_change_page_is_the_one_admitted_owner_delta_shape(
             await adapter._get("/changes", access_token="synthetic", params=params, limit=limit)
     assert len(calls) == 2
     assert all("private-" not in r.getMessage() for r in caplog.records if r.name == drive.__name__)
+
+
+# --- Read-path error reasons, Retry-After, quota pacing and the listing fence ---
+
+PRIVATE = "private provider text"
+
+
+def google_error(status, *reasons, message=PRIVATE, **item):
+    """A captured-shape Drive v3 error body (provider text is synthetic)."""
+    return {
+        "error": {
+            "code": status,
+            "message": message,
+            "errors": [
+                {"domain": "global", "reason": reason, "message": message, **item}
+                for reason in reasons
+            ],
+        }
+    }
+
+
+def body_bytes(payload):
+    return payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+
+
+async def provider_call(operation, adapter):
+    if operation == "metadata":
+        return await adapter.get_file_facts(file_id="selected-file", access_token="synthetic-token")
+    if operation == "content":
+        return await adapter.read_live_bytes(
+            file_id="selected-file", mime_type="application/pdf", access_token="synthetic-token"
+        )
+    if operation == "export":
+        return await adapter._export("selected-file", "text/plain", "synthetic-token")
+    if operation == "list":
+        return await adapter.list_files(
+            access_token="synthetic-token", query="trashed = false", page_size=25
+        )
+    assert operation == "next_page"
+    return await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=25,
+        page_token="private-page-token",
+    )
+
+
+ERROR_TABLE = [
+    # (operation, status, body, headers, public code, precise reason, retryable, status_code)
+    (
+        "list",
+        403,
+        google_error(403, "userRateLimitExceeded", domain="usageLimits"),
+        {},
+        "provider_unavailable",
+        "rate_limited",
+        True,
+        None,
+    ),
+    (
+        "metadata",
+        403,
+        google_error(403, "rateLimitExceeded"),
+        {},
+        "provider_unavailable",
+        "rate_limited",
+        True,
+        None,
+    ),
+    (
+        "list",
+        403,
+        google_error(403, "dailyLimitExceeded"),
+        {},
+        "provider_unavailable",
+        "rate_limited",
+        True,
+        None,
+    ),
+    (
+        "list",
+        429,
+        {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}},
+        {"Retry-After": "30"},
+        "provider_unavailable",
+        "rate_limited",
+        True,
+        None,
+    ),
+    (
+        "metadata",
+        403,
+        google_error(403, "insufficientFilePermissions"),
+        {},
+        "source_unavailable",
+        "source_unavailable",
+        False,
+        403,
+    ),
+    (
+        "metadata",
+        404,
+        google_error(404, "notFound"),
+        {},
+        "source_unavailable",
+        "source_unavailable",
+        False,
+        404,
+    ),
+    (
+        "metadata",
+        403,
+        google_error(403, "domainPolicy"),
+        {},
+        "source_unavailable",
+        "domain_policy",
+        False,
+        403,
+    ),
+    (
+        "list",
+        403,
+        google_error(403, "appNotAuthorizedToFile"),
+        {},
+        "source_unavailable",
+        "app_not_authorized",
+        False,
+        403,
+    ),
+    (
+        "metadata",
+        403,
+        google_error(403, "teamDriveMembershipRequired"),
+        {},
+        "source_unavailable",
+        "drive_membership_required",
+        False,
+        403,
+    ),
+    (
+        "export",
+        403,
+        google_error(
+            403, "exportSizeLimitExceeded", message="This file is too large to be exported."
+        ),
+        {},
+        "file_too_large",
+        "export_too_large",
+        False,
+        403,
+    ),
+    (
+        "export",
+        403,
+        google_error(403, "forbidden", message="This file is too large to be exported."),
+        {},
+        "file_too_large",
+        "export_too_large",
+        False,
+        403,
+    ),
+    (
+        "content",
+        403,
+        google_error(403, "fileNotDownloadable"),
+        {},
+        "source_unavailable",
+        "download_restricted",
+        False,
+        403,
+    ),
+    (
+        "content",
+        403,
+        google_error(403, "cannotDownloadFile"),
+        {},
+        "source_unavailable",
+        "download_restricted",
+        False,
+        403,
+    ),
+    # Byte reasons count only on byte reads: a metadata read stays a denial.
+    (
+        "metadata",
+        403,
+        google_error(403, "fileNotDownloadable"),
+        {},
+        "source_unavailable",
+        "source_unavailable",
+        False,
+        403,
+    ),
+    (
+        "next_page",
+        400,
+        google_error(400, "invalid", location="pageToken", locationType="parameter"),
+        {},
+        "provider_response_invalid",
+        "page_token_invalid",
+        False,
+        400,
+    ),
+    # Negative controls: a 400 without a resumed token, or naming another
+    # parameter, is our own bad request, never a page-token restart.
+    (
+        "list",
+        400,
+        google_error(400, "invalid", location="pageToken"),
+        {},
+        "provider_response_invalid",
+        "provider_response_invalid",
+        False,
+        400,
+    ),
+    (
+        "next_page",
+        400,
+        google_error(400, "invalid", location="q"),
+        {},
+        "provider_response_invalid",
+        "provider_response_invalid",
+        False,
+        400,
+    ),
+    # An unreadable 403 body is neither a denial nor a rate limit.
+    (
+        "metadata",
+        403,
+        b"<html>Forbidden private provider text</html>",
+        {},
+        "provider_unavailable",
+        "provider_response_invalid",
+        True,
+        403,
+    ),
+    (
+        "list",
+        403,
+        body_bytes(google_error(403, "userRateLimitExceeded")) + b" " * drive.ERROR_RESPONSE_LIMIT,
+        {},
+        "provider_unavailable",
+        "provider_response_invalid",
+        True,
+        403,
+    ),
+    (
+        "metadata",
+        403,
+        google_error(403, "userRateLimitExceeded"),
+        {"Content-Encoding": "gzip"},
+        "provider_unavailable",
+        "provider_response_invalid",
+        True,
+        403,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "operation,status,body,headers,code,reason,retryable,status_code", ERROR_TABLE
+)
+async def test_every_drive_4xx_maps_to_one_precise_reason_without_provider_text(
+    adapter,
+    monkeypatch,
+    caplog,
+    operation,
+    status,
+    body,
+    headers,
+    code,
+    reason,
+    retryable,
+    status_code,
+):
+    caplog.set_level("INFO", logger=drive.__name__)
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, headers=headers, stream=httpx.ByteStream(body_bytes(body)))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(drive.DriveReadError) as caught:
+        await provider_call(operation, adapter)
+    error = caught.value
+    assert (str(error), drive.read_failure_reason(error)) == (code, reason)
+    assert error.retryable is retryable and error.status_code == status_code
+    assert len(requests) == 1 and requests[0].method == "GET"
+    assert PRIVATE not in repr(error) and PRIVATE not in str(vars(error))
+    assert PRIVATE not in caplog.text and "private-page-token" not in caplog.text
+    # Telemetry names the cause with a label the log redactor never drops.
+    label = drive.failure_log_label(reason)
+    assert f"reason={label}" in caplog.text and len(label) < 24
+
+
+async def test_retry_after_header_rides_on_the_rate_limit_error(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    statuses = iter(
+        [
+            (429, {"Retry-After": "17"}),
+            (403, {"Retry-After": "600"}),
+            (503, {"Retry-After": "5"}),
+            (429, {}),
+        ]
+    )
+
+    def handler(request):
+        status, headers = next(statuses)
+        payload = google_error(status, "userRateLimitExceeded") if status == 403 else {}
+        return httpx.Response(status, headers=headers, stream=httpx.ByteStream(body_bytes(payload)))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    observed = []
+    for _ in range(4):
+        with pytest.raises(drive.DriveReadError) as caught:
+            await provider_call("list", adapter)
+        assert str(caught.value) == "provider_unavailable" and caught.value.retryable
+        observed.append(caught.value.retry_after)
+    # Honoured, capped at Google's 64 s ceiling, also on a 503, and absent stays None.
+    assert observed == [17.0, 64.0, 5.0, None]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30", 30.0),
+        ("0", 0.0),
+        ("120", 64.0),
+        (" 7 ", 7.0),
+        ("-5", None),
+        ("soon", None),
+        ("", None),
+        ("9" * 80, None),
+        (None, None),
+        ("Wed, 21 Oct 2026 07:28:10 GMT", 10.0),
+        ("Wed, 21 Oct 2026 07:27:00 GMT", 0.0),
+        ("Wed, 21 Oct 2026 07:28:10", None),
+    ],
+)
+def test_retry_after_parses_seconds_and_http_dates_with_a_cap(value, expected):
+    from datetime import UTC, datetime
+
+    now = datetime(2026, 10, 21, 7, 28, 0, tzinfo=UTC)
+    result = drive.retry_after_seconds(value, now=now)
+    assert result == (pytest.approx(expected) if expected is not None else None)
+
+
+async def test_project_unit_budget_defers_before_any_request_is_sent(adapter, monkeypatch):
+    from hushh_mcp.services.drive_provider_pacing import DrivePacing, owner_scope
+
+    clock = {"now": 1000.0}
+    pacing = DrivePacing(
+        clock=lambda: clock["now"], enforce=lambda: True, user_units_per_minute=200
+    )
+    monkeypatch.setattr(drive, "PACING", pacing)
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(b'{"files": []}'))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    with owner_scope("owner-a"):
+        await provider_call("list", adapter)
+        await provider_call("list", adapter)
+        with pytest.raises(drive.DriveReadError) as caught:
+            await provider_call("list", adapter)
+    error = caught.value
+    assert str(error) == "provider_unavailable" and error.retryable
+    assert drive.read_failure_reason(error) == "quota_deferred"
+    assert 1 <= error.retry_after <= 64
+    assert len(requests) == 2
+    # Negative controls: another owner, and the window after a minute, proceed.
+    with owner_scope("owner-b"):
+        await provider_call("list", adapter)
+    clock["now"] += 61
+    with owner_scope("owner-a"):
+        await provider_call("list", adapter)
+    assert len(requests) == 4
+
+
+async def test_quota_pacing_never_defers_outside_the_worker(adapter, monkeypatch):
+    from hushh_mcp.services.drive_provider_pacing import DrivePacing, owner_scope
+
+    pacing = DrivePacing(enforce=lambda: False, user_units_per_minute=100)
+    monkeypatch.setattr(drive, "PACING", pacing)
+    adapter_get = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: adapter_get(
+            **kw,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, stream=httpx.ByteStream(b'{"files": []}'))
+            ),
+        ),
+    )
+    with owner_scope("owner-a"):
+        for _ in range(3):
+            await provider_call("list", adapter)
+    # The API process sends every admitted call and charges nothing.
+    assert pacing.spent("owner-a") == 0 and pacing.spent() == 0
+
+
+async def test_listing_fence_admits_size_and_can_download_but_no_other_field(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(b'{"files": []}'))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    await provider_call("list", adapter)
+    sent = requests[0].url.params["fields"]
+    assert sent == drive.LIST_FIELDS
+    assert ",size," in sent and "capabilities(canShare,canDownload)" in sent
+    assert "size," in drive.INDEX_CHANGES_FIELDS
+    assert "capabilities(canShare,canDownload)" in drive.INDEX_CHANGES_FIELDS
+    base = {
+        "fields": drive.LIST_FIELDS,
+        "q": "trashed = false",
+        "pageSize": "25",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+        "corpora": "user",
+    }
+    # Content-bearing or caller-widened masks stay outside the fence.
+    for wider in (
+        drive.LIST_FIELDS.replace("size,", "size,description,"),
+        drive.LIST_FIELDS.replace("size,", "size,contentHints,"),
+        drive.LIST_FIELDS.replace("canDownload", "canDownload,canEdit"),
+        drive.LIST_FIELDS.replace("size,", ""),
+        "*",
+    ):
+        with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+            await adapter._get(
+                "/files",
+                access_token="synthetic-token",
+                params={**base, "fields": wider},
+                limit=drive.METADATA_LIMIT,
+            )
+    assert len(requests) == 1
+
+
+def test_precise_reasons_never_reuse_codes_that_purge_or_skip_differently():
+    # Each precise reason has exactly one public code, from codes every lane
+    # already handles. Size limits must not purge extracted text.
+    assert drive.READ_FAILURE_PUBLIC_CODES["export_too_large"] == "file_too_large"
+    assert {
+        drive.READ_FAILURE_PUBLIC_CODES[reason]
+        for reason in ("download_restricted", "domain_policy", "app_not_authorized")
+    } == {"source_unavailable"}
+    assert set(drive.READ_FAILURE_PUBLIC_CODES.values()) <= {
+        "source_unavailable",
+        "file_too_large",
+        "provider_response_invalid",
+        "provider_unavailable",
+    }
+    error = drive.provider_failure("domain_policy", status_code=403)
+    assert str(error) == "source_unavailable" and error.reason == "domain_policy"
+    # An unknown reason never becomes a precise cause.
+    assert drive.DriveReadError("source_unavailable", reason="PRIVATE").reason == (
+        "source_unavailable"
+    )
+    assert drive.read_failure_reason(ValueError("x")) is None
+
+
+async def test_unrecognized_403_reasons_are_counted_never_named(adapter, monkeypatch, caplog):
+    caplog.set_level("INFO", logger=drive.__name__)
+    original = httpx.AsyncClient
+    body = google_error(403, "someNewPrivateReason", "insufficientFilePermissions")
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            **kw,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(403, stream=httpx.ByteStream(body_bytes(body)))
+            ),
+        ),
+    )
+    with pytest.raises(drive.DriveReadError) as caught:
+        await provider_call("metadata", adapter)
+    # An unknown reason is still a plain denial, never a retry or a new code.
+    assert str(caught.value) == "source_unavailable" and not caught.value.retryable
+    assert "reason=source_unavailable unrecognized=1" in caplog.text
+    assert "someNewPrivateReason" not in caplog.text
+
+
+def test_every_failure_label_survives_the_production_log_redactor():
+    # The redactor drops 24+ character "a_b" words as possible identifiers.
+    assert redact_log_value("drive_membership_required") == "[REDACTED]"
+    for reason in drive.READ_FAILURE_REASONS:
+        label = drive.failure_log_label(reason)
+        assert redact_log_value(label) == label

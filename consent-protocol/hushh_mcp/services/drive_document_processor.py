@@ -47,6 +47,10 @@ PARSE_CODES = frozenset(
         "encrypted_document",
     }
 )
+# Request-time content check (drive_content_check_leaf): bounded outputs only.
+CONTENT_CHECK_MAX_GROUPS = 24
+CONTENT_CHECK_OUTPUT_LIMIT = 64 * 1024
+_DATE_KINDS = frozenset({"day", "either", "yearless", "month"})
 _EMBEDDING_ADMISSION: WeakKeyDictionary = WeakKeyDictionary()
 
 
@@ -66,6 +70,7 @@ async def _private_process(
         "parser": "drive_document_parser.py",
         "embedding": "drive_document_embedding.py",
         "pages": "drive_document_pages.py",
+        "content_check": "drive_content_check_leaf.py",
     }
     if leaf not in scripts:
         raise DriveReadError("processor_unavailable")
@@ -143,6 +148,79 @@ async def _private_process(
         if not writer.done():
             writer.cancel()
         await asyncio.gather(writer, return_exceptions=True)
+
+
+def _month_day(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(type(item) is int for item in value)
+        and 1 <= value[0] <= 12
+        and 1 <= value[1] <= 31
+    )
+
+
+def _date_reading(value: object) -> tuple | None:
+    """One header date reading from the child, rebuilt strictly or dropped.
+
+    The child is untrusted: only the exact shapes ``parse_title_dates``
+    produces, with calendar-plausible integers, become readings again.
+    """
+    if not isinstance(value, list) or not value or value[0] not in _DATE_KINDS:
+        return None
+    kind = value[0]
+    year_ok = len(value) > 1 and type(value[1]) is int and 1900 <= value[1] <= 2100
+    if kind == "day" and len(value) == 7 and year_ok:
+        _, year, month, day, hour, minute, zone = value
+        if (
+            all(type(item) is int for item in (month, day, hour, minute))
+            and 1 <= month <= 12
+            and 1 <= day <= 31
+            and -1 <= hour <= 23
+            and -1 <= minute <= 59
+            and isinstance(zone, str)
+            and len(zone) <= 12
+        ):
+            return ("day", year, month, day, hour, minute, zone)
+    elif kind == "either" and len(value) == 4 and year_ok:
+        if _month_day(value[2]) and _month_day(value[3]):
+            return ("either", value[1], tuple(value[2]), tuple(value[3]))
+    elif kind == "yearless" and len(value) == 3:
+        if _month_day(value[1:]):
+            return ("yearless", value[1], value[2])
+    elif kind == "month" and len(value) == 3 and year_ok:
+        if type(value[2]) is int and 1 <= value[2] <= 12:
+            return ("month", value[1], value[2])
+    return None
+
+
+def content_check_result(result: dict, *, groups: int) -> dict:
+    """Validate the child's answer; it may only name groups and dates."""
+    matched = result.get("matched")
+    dates = result.get("dates")
+    counts = [result.get(key) for key in ("pages_read", "ocr_pages", "gaps")]
+    total = result.get("total_pages")
+    if (
+        not isinstance(matched, list)
+        or any(type(index) is not int or not 0 <= index < groups for index in matched)
+        or len(set(matched)) != len(matched)
+        or not isinstance(dates, list)
+        or len(dates) > 2
+        or any(type(count) is not int or not 0 <= count <= 100_000 for count in counts)
+        or (total is not None and (type(total) is not int or not 0 <= total <= 1_000_000))
+        or type(result.get("complete")) is not bool
+    ):
+        raise DriveReadError("processor_unavailable")
+    readings = tuple(reading for reading in map(_date_reading, dates) if reading is not None)
+    return {
+        "matched": tuple(sorted(matched)),
+        "dates": readings,
+        "pages_read": counts[0],
+        "ocr_pages": counts[1],
+        "gaps": counts[2],
+        "total_pages": total,
+        "complete": result["complete"],
+    }
 
 
 class Scanner(Protocol):
@@ -414,3 +492,51 @@ class LocalDocumentProcessor:
                 return ExtractedPages.from_dict(result)
             except (ValueError, KeyError, TypeError):
                 raise DriveReadError("index_response_invalid") from None
+
+    async def check_content(
+        self,
+        *,
+        content: bytes,
+        mime_type: str,
+        concepts: list[list[str]],
+        max_text_pages: int,
+        max_ocr_pages: int,
+    ) -> dict:
+        """Which concept groups a file's text holds, plus its header dates.
+
+        Request-time and ephemeral: the bytes are scanned, then read by a
+        disposable child that returns only group indices and date readings.
+        The text never reaches this process, so it cannot be stored or logged.
+        """
+        if not content or len(content) > MAX_SOURCE_BYTES:
+            raise DriveReadError("file_too_large")
+        if (
+            not isinstance(concepts, list)
+            or not 1 <= len(concepts) <= CONTENT_CHECK_MAX_GROUPS
+            or type(max_text_pages) is not int
+            or type(max_ocr_pages) is not int
+        ):
+            raise DriveReadError("invalid_argument")
+        header = json.dumps({"concepts": concepts}, ensure_ascii=False).encode()
+        if len(header) > CONTENT_CHECK_OUTPUT_LIMIT:
+            raise DriveReadError("invalid_argument")
+        async with self._pages:
+            await self.scanner.scan(content, max_bytes=MAX_SOURCE_BYTES)
+            result = await _private_process(
+                "content_check",
+                # The command line carries no query words, names or IDs.
+                json.dumps(
+                    {
+                        "mime_type": mime_type,
+                        "max_text_pages": max_text_pages,
+                        "max_ocr_pages": max_ocr_pages,
+                    }
+                ),
+                struct.pack("!I", len(header)) + header + content,
+                timeout=75,
+                limit=CONTENT_CHECK_OUTPUT_LIMIT,
+            )
+        if "error" in result:
+            code = result["error"]
+            raise DriveReadError(code if code in PARSE_CODES else "processor_unavailable")
+        return content_check_result(result, groups=len(concepts))
