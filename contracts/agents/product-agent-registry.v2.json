@@ -4537,7 +4537,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "e48785a440eb38a5ab24390acd88688f770b291a59983f2b8c39a96c520b688a",
+      "system_instruction_sha256": "53a9023b8fe231078a83c45ef97e72a7ed030693bde93bbece2a52ebda8a6d25",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
