@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { preload } from "react-dom";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
@@ -28,6 +28,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { isShareCancellationError, shareLink } from "@/lib/share/share-link";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
   ReferralService,
   type EngagementStatus,
@@ -269,14 +270,23 @@ function ReferralDashboardContent() {
   }, [connected, reloadAll]);
 
   const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
+  const shareVisit = useRef<{ active: boolean; owner: string | undefined; link: string } | null>(null);
+  useLayoutEffect(() => {
+    const visit = { active: true, owner: user?.uid, link };
+    shareVisit.current = visit;
+    return () => { visit.active = false; if (shareVisit.current === visit) shareVisit.current = null; };
+  }, [user?.uid, link]);
 
   const onShare = useCallback(async () => {
-    if (!link) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const visit = shareVisit.current;
+    const isCurrent = () => !!visit && visit.active && visit.link === link && !!owner && owner.userId === visit.owner && isValidatedAuthSessionOwnerCurrent(owner);
+    if (!link || !isCurrent()) return;
     try {
-      const delivery = await shareLink({ title: "Join me on Hushh One", text: "Join me on Hushh One", dialogTitle: "Share your invite", url: link });
-      if (delivery === "copied") morphyToast.success("Invite link copied");
+      const delivery = await shareLink({ title: "Join me on Hushh One", text: "Join me on Hushh One", dialogTitle: "Share your invite", url: link }, isCurrent);
+      if (isCurrent() && delivery === "copied") morphyToast.success("Invite link copied");
     } catch (cause) {
-      if (!isShareCancellationError(cause)) morphyToast.error("Could not share your invite. Please try again.");
+      if (isCurrent() && !isShareCancellationError(cause)) morphyToast.error("Could not share your invite. Please try again.");
     }
   }, [link]);
 
