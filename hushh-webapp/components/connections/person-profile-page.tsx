@@ -11,7 +11,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, ArrowUpRight } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
@@ -122,6 +122,16 @@ function historyTitle(
   const named = itemLabels.filter((label) => typeof label === "string" && label.trim());
   if (named.length) return joinInformationLabels(named.map(historyItemLabel), 2);
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+}
+
+function actionCardContent(label: string, Icon: typeof FileText) {
+  return (
+    <span className={styles.actionCardContent}>
+      <Icon className={styles.actionIcon} aria-hidden="true" />
+      <ArrowUpRight className={styles.actionArrow} aria-hidden="true" />
+      <span className={styles.actionLabel}>{label}</span>
+    </span>
+  );
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
@@ -825,7 +835,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               {viewerProfile.contactPhoneNumber}
             </a>
           ) : null}
-          <div className={styles.actions} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
+          <div className={styles.actions} data-share-only={!viewerProfile} data-connected={viewerProfile?.relationship.status === "connected"} aria-label="Relationship actions">
             {viewerProfile ? (
               <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
@@ -849,11 +859,42 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <span>Share</span>
               </span>
             </Button>
+            {user ? (
+              <div className={styles.actionCards}>
+                {viewerProfile?.relationship.status === "connected" ? (
+                  <DocumentRequestButton
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle)}
+                  />
+                ) : null}
+                {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
+                <RequestScopeButton
+                  key={`question:${user.uid}:${resolvedPersonRef}`}
+                  personRef={resolvedPersonRef}
+                  personName={profile.displayName || "this person"}
+                  canRequest={viewerProfile?.relationship.status === "connected"}
+                  returnFocusRef={requestScopeReturnFocusRef}
+                  renderTrigger={(label) => actionCardContent(label, ShieldCheck)}
+                />
+                {viewerProfile?.relationship.status === "connected" ? (
+                  <RequestCardsButton
+                    key={`card:${user.uid}:${resolvedPersonRef}`}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, CreditCard)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable ? (
+              <Button type="button" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>
+            ) : null}
             {viewerProfile ? (
               <>
                 <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   <Settings className="h-5 w-5" aria-hidden="true" />
-                  Manage access
+                  <span>Manage access</span>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
                 {viewerProfile.relationship.status === "none" ? (
@@ -882,22 +923,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     Cancel request
                   </Button>
                 ) : null}
-                {viewerProfile.relationship.status === "connected" ? <><DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} />
-                  <RequestCardsButton key={`${user?.uid}:${resolvedPersonRef}`} personRef={resolvedPersonRef} personName={profile.displayName || "this person"} className={styles.requestCards} />
-                  {isVaultUnlocked && packetCatalogAvailable && <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>}
-                </> : null}
               </>
-            ) : null}
-            {/* Preserve accepted confirmation while profile authority refreshes. */}
-            {user ? (
-              <RequestScopeButton
-                key={`${user.uid}:${resolvedPersonRef}`}
-                personRef={resolvedPersonRef}
-                personName={profile.displayName || "this person"}
-                className={styles.requestScope}
-                canRequest={viewerProfile?.relationship.status === "connected"}
-                returnFocusRef={requestScopeReturnFocusRef}
-              />
             ) : null}
 
           </div>
