@@ -16,16 +16,14 @@ import { isOwnerCloudTarget } from "@/lib/one/owner-cloud";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
-import { MAX_BINDING_CLOCK_SKEW_MS, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
-export { OwnerPodError, canonicalJson, p1363ToDer } from "./owner-pod-crypto";
+import { MAX_BINDING_CLOCK_SKEW_MS, POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
+export { POD_SESSION_PREFIX, OwnerPodError, canonicalJson, p1363ToDer } from "./owner-pod-crypto";
 
 export const OWNER_POD_DB_NAME = "hushh-owner-pod";
 const DB_VERSION = 1;
 const KEY_STORE = "app_keys";
 const PIN_STORE = "pins";
 
-/** The pod-session bearer prefix; the pod refuses anything else by shape. */
-export const POD_SESSION_PREFIX = "pst1.";
 /** Renew this long before expiry so a turn never starts on a dying session. */
 const SESSION_RENEW_MARGIN_MS = 60 * 60 * 1000;
 const SESSION_USABLE_MARGIN_MS = 60 * 1000;

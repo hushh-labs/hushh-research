@@ -47,7 +47,14 @@ contract and preserves owner-mismatch/revocation denial. Core/CI and Dev promoti
 of the correction remain required before retrying the one-cent purchase.
 
 The private agent's latest authenticated read-only connector observation
-(`2026-10-17T08:48Z`) still has no verified Stripe OAuth account/balance connection.
+(`2026-10-17T09:04Z`) still has no verified Stripe OAuth account/balance connection.
+One normal owner sign-in action produced two private catalog 401 responses and
+saved no connection. Source inspection found that Firebase subject classification
+also decoded `pst1` pod-session claims, permitting a provider sign-in challenge to
+refresh and replay with Firebase authority. The client correction excludes pod
+sessions from Firebase recovery and invalidation while retaining the existing pod
+renewal authority. Focused positive and original-code negative controls establish
+this boundary; deployed owner OAuth remains unverified.
 Dashboard sign-in, SDK configuration and this owner tool connection are separate.
 Refunds, maturity, withdrawals, bank payouts and the synthetic PII story remain
 unaccepted. Physical iOS acceptance remains with the device lane. Shared Chrome

@@ -16,7 +16,10 @@ const ownerPodMocks = vi.hoisted(() => ({
   revokeAtPod: vi.fn(),
 }));
 
-vi.mock("@/lib/services/owner-pod-crypto", () => ({ verifyHubSignature: ownerPodMocks.verifyHubSignature }));
+vi.mock("@/lib/services/owner-pod-crypto", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/owner-pod-crypto")>(),
+  verifyHubSignature: ownerPodMocks.verifyHubSignature,
+}));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {

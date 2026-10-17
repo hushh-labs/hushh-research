@@ -432,6 +432,32 @@ describe("ApiService.apiFetch", () => {
     },
   );
 
+  it.each(["MCP_STRIPE_OAUTH_REQUIRED", "AUTH_ACCOUNT_NOT_FOUND"])(
+    "preserves pod authority and its %s refusal without Firebase recovery",
+    async (code) => {
+      const podToken = makeUnsignedToken({ user_id: "user-1", role: "app" })
+        .replace(/^header\./, "pst1.");
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "user-1" } as never);
+      vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({ user_id: "user-1", version: 2 }));
+      const refusal = { detail: { code } };
+      mockFetch.mockResolvedValueOnce(jsonResponse(refusal, 401))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }));
+      const events = vi.spyOn(window, "dispatchEvent");
+
+      const response = await ApiService.apiFetch("https://owner-pod.example/api/one/pod/agent-chat/connectors/custom_fixture/mcp/catalog", {
+        method: "POST", credentials: "omit", headers: { Authorization: `Bearer ${podToken}` },
+        body: JSON.stringify({ connectorConfiguration: { endpoint: "https://mcp.stripe.com" } }),
+      });
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual(refusal);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(new Headers(mockFetch.mock.calls[0][1]?.headers).get("Authorization")).toBe(`Bearer ${podToken}`);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+      expect(events.mock.calls.filter(([event]) => event.type === "auth-session-invalidated")).toHaveLength(0);
+    },
+  );
+
   it.each(["account-a", "account-b"])(
     "does not replay or invalidate the replacement session when refresh resolves for %s after an account switch",
     async (refreshedAccount) => {

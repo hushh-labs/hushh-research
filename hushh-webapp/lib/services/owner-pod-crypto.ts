@@ -2,6 +2,9 @@
 import { base64ToBytes } from "@/lib/vault/base64";
 import type { OwnerPodTransport } from "./owner-pod-endpoint";
 
+/** The pod-session bearer prefix; the pod refuses anything else by shape. */
+export const POD_SESSION_PREFIX = "pst1.";
+
 /** Match Hermes's signed issuance tolerance; expiration remains strict. */
 export const MAX_BINDING_CLOCK_SKEW_MS = 30_000;
 

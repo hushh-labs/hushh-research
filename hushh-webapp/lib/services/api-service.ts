@@ -25,6 +25,7 @@ import {
   type KaiStreamEnvelope,
 } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
+import { POD_SESSION_PREFIX } from "./owner-pod-crypto";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
@@ -187,7 +188,9 @@ function decodeJwtPayloadSegment(
 
 function decodeFirebaseTokenSubject(token: string): string | null {
   const raw = String(token || "").trim();
-  if (!raw) return null;
+  // Pod sessions also carry user_id in their middle segment, but their
+  // refusals must never refresh, replace or invalidate Firebase authority.
+  if (!raw || raw.startsWith(POD_SESSION_PREFIX)) return null;
   const parts = raw.split(".");
   if (parts.length < 2) {
     return null;
