@@ -5166,7 +5166,7 @@
         "SMS",
         "push"
       ],
-      "meaning": "Opens Location settings to review device notification readiness. The person explicitly chooses Turn on, Retry, or Open settings; opening this screen never requests permission or changes a phone setting.",
+      "meaning": "Review Location alerts.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

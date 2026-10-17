@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from hushh_mcp.services import system_push_delivery as pushes
 
@@ -31,12 +32,12 @@ def push_db(monkeypatch):
                 text("""
                 CREATE EXTENSION pgcrypto;
                 CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY);
+                CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY);
                 INSERT INTO actor_profiles VALUES('sender'),('recipient'),('next-owner');
                 CREATE TABLE actor_identity_cache(user_id TEXT,display_name TEXT,email TEXT);
                 INSERT INTO actor_identity_cache VALUES('sender','Alex',NULL);
                 CREATE TABLE one_location_recipient_keys(user_id TEXT,key_id TEXT,status TEXT);
                 INSERT INTO one_location_recipient_keys VALUES('recipient','location-key','active');
-                CREATE TABLE account_deletion_tombstones(user_id_hash TEXT);
                 CREATE TABLE one_location_share_grants(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                   owner_user_id TEXT DEFAULT 'sender',recipient_user_id TEXT DEFAULT 'recipient',
                   status TEXT DEFAULT 'active',expires_at TIMESTAMPTZ DEFAULT now()+interval '1 hour',
@@ -66,6 +67,12 @@ def push_db(monkeypatch):
             )
         raw = engine.raw_connection()
         with raw.cursor() as cursor:
+            cursor.execute((ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text())
+            # Prove 361 installs guards explicitly without the DDL safety net.
+            cursor.execute(
+                "ALTER EVENT TRIGGER trg_refresh_account_deletion_guards_after_identity_ddl DISABLE"
+            )
+            raw.commit()
             cursor.execute((ROOT / "db/migrations/361_system_push_outbox.sql").read_text())
         raw.close()
 
@@ -122,6 +129,25 @@ def add_devices(db):
 
 def retry_now(db):
     sql(db, "UPDATE system_push_outbox SET due_at=now() WHERE status IN ('pending','leased')")
+
+
+def test_new_outbox_rejects_deleted_recipient_even_with_retained_actor_root(push_db):
+    db = push_db
+    sql(
+        db,
+        """INSERT INTO account_deletion_tombstones(user_id_hash)
+        VALUES ('sha256:' || encode(digest('recipient','sha256'),'hex'))""",
+    )
+    insert = """INSERT INTO system_push_outbox(source_kind,source_id,recipient_user_id)
+        VALUES ('share',:source,:user)"""
+    with pytest.raises(IntegrityError) as rejected:
+        sql(db, insert, {"source": uuid.uuid4(), "user": "recipient"})
+    assert rejected.value.orig.pgcode == "23514"
+    assert rejected.value.orig.diag.constraint_name == "account_deletion_tombstone_guard"
+    sql(db, insert, {"source": uuid.uuid4(), "user": "sender"})
+    assert sql(db, "SELECT recipient_user_id FROM system_push_outbox") == [
+        {"recipient_user_id": "sender"}
+    ]
 
 
 def test_transition_and_alert_commit_or_rollback_together_and_no_history_replay(push_db):
@@ -285,7 +311,13 @@ def test_account_transfer_is_rechecked_before_provider_send(push_db, monkeypatch
     from api.utils import firebase_admin
 
     def change_owner_before_send():
-        sql(db, "UPDATE user_push_installations SET user_id='next-owner' WHERE token='iphone'")
+        sql(
+            db,
+            """WITH moved AS (DELETE FROM user_push_installations WHERE token='iphone'
+              RETURNING token,platform,device_id)
+            INSERT INTO user_push_installations(user_id,token,platform,device_id)
+            SELECT 'next-owner',token,platform,device_id FROM moved""",
+        )
         return True, None
 
     monkeypatch.setattr(firebase_admin, "ensure_firebase_admin", change_owner_before_send)
@@ -303,7 +335,12 @@ def test_last_device_transfer_does_not_claim_a_successful_alert(push_db, monkeyp
     from api.utils import firebase_admin
 
     def change_owner_before_send():
-        sql(db, "UPDATE user_push_installations SET user_id='next-owner'")
+        sql(
+            db,
+            """WITH moved AS (DELETE FROM user_push_installations RETURNING token,platform,device_id)
+            INSERT INTO user_push_installations(user_id,token,platform,device_id)
+            SELECT 'next-owner',token,platform,device_id FROM moved""",
+        )
         return True, None
 
     monkeypatch.setattr(firebase_admin, "ensure_firebase_admin", change_owner_before_send)

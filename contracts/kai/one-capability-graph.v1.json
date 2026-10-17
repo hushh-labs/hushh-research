@@ -4886,7 +4886,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens Location settings to review device notification readiness. The person explicitly chooses Turn on, Retry, or Open settings; opening this screen never requests permission or changes a phone setting.",
+      "description": "Review Location alerts.",
       "execution": {
         "binding_ref": "route:/one/location?action=settings",
         "executor": {
@@ -42288,7 +42288,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "15163f534b3ebd5d9a253a25744dd25c6504963079afbe194e05721a61129aa2",
+      "projection_digest": "cbc14c76783cc2d846dee73eb159cb2848e5468cb06a92d6d688541016d4e6b4",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42307,7 +42307,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "2b85a6a97747a2d6",
+      "source_revision": "8845cf8eae4a24fb",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43825,7 +43825,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "2b85a6a97747a2d6",
+    "source_revision": "8845cf8eae4a24fb",
     "web": {
       "actions": [
         {
@@ -43868,7 +43868,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "468541c438f5e27a3a7674a73f99c2269b41e565faa9221ba28f0e87a806a8ea",
+      "projection_digest": "831e695173c6f18d11566c421f0b12759492e46026f51ddd2b174f535e6dc573",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43887,7 +43887,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
       },
-      "source_revision": "2b85a6a97747a2d6",
+      "source_revision": "8845cf8eae4a24fb",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45444,7 +45444,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "2b85a6a97747a2d6",
+  "revision": "8845cf8eae4a24fb",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -49568,7 +49568,7 @@
     "capability_graph_evolution": "bd3bb2e4006f923f21babacdc09ad98eac540d7faa36a514ed7d321b1a92b5da",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "62f86bc6b8c430ce0f88f7907620d5d72c60c9a6ab2fcb27a7d77e71092a0363",
+    "kai_action_gateway": "71a222bc99d70e56200d31a94568b1ae4b1220890cdaa247cbb336877a6f6a19",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -49577,9 +49577,9 @@
     "route_orchestration_index": "4c57da4f7f666c2c3b79faaf0e661f4ea82fe7fea2cb63ece7c9bd79de826830",
     "service_knowledge_packages": "ec36849c557cf3055136abb3204052f1dc7cffcc4c19d2eab97539439b3db1eb"
   },
-  "source_revision": "2b85a6a97747a2d6",
+  "source_revision": "8845cf8eae4a24fb",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "2b85a6a97747a2d6",
+    "current_graph_revision": "8845cf8eae4a24fb",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49612,6 +49612,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -49823,6 +49824,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -50023,6 +50025,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -50246,6 +50249,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -50457,6 +50461,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -50668,6 +50673,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
@@ -50879,6 +50885,7 @@
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
+          "2b85a6a97747a2d6",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",

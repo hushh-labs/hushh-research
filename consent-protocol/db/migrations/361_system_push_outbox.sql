@@ -83,4 +83,8 @@ DO $$ BEGIN
   GRANT EXECUTE ON FUNCTION queue_system_push() TO service_role;
  END IF;
 END $$;
+-- Recipient references must obey the existing deleted-account write barrier.
+DO $$ BEGIN
+ PERFORM public.install_account_deletion_write_guards();
+END $$;
 COMMIT;
