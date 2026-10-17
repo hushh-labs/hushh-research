@@ -484,6 +484,77 @@ class GoogleDriveRestTransport:
             arguments, token, page_size_limit=OWNER_SEARCH_PAGE_SIZE_MAX
         )
 
+    async def _owner_changes_start_token(self, arguments: dict[str, Any], token: str) -> dict:
+        """The change cursor an owner name index captures before it lists.
+
+        Edits made while the listing walks Drive replay from this cursor. Only
+        the owner-search table admits it; agent reads cannot reach it.
+        """
+        if arguments:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        return {"startPageToken": await self.adapter.collection_start_token(access_token=token)}
+
+    async def _owner_list_changes(self, arguments: dict[str, Any], token: str) -> dict:
+        """One changes page whose files have exactly the owner-search row shape."""
+        page_token = arguments.get("pageToken")
+        page_size = arguments.get("pageSize", 200)
+        if (
+            not {"pageToken"} <= set(arguments) <= {"pageToken", "pageSize"}
+            or not isinstance(page_token, str)
+            or not 1 <= len(page_token) <= 2048
+            or type(page_size) is not int
+            or page_size not in (200, 25)
+        ):
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        page = await self.adapter.index_changes(
+            access_token=token, page_token=page_token, page_size=page_size
+        )
+        changes = page.get("changes", [])
+        next_token, start_token = page.get("nextPageToken"), page.get("newStartPageToken")
+        if (
+            not isinstance(changes, list)
+            or len(changes) > page_size
+            or any(not isinstance(change, dict) for change in changes)
+            or any(
+                value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 2048)
+                for value in (next_token, start_token)
+            )
+            # Exactly one cursor: more pages, or the next start after the last.
+            or (next_token is None) == (start_token is None)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        files = []
+        for change in changes:
+            kind, current = change.get("changeType", "file"), change.get("file")
+            identity = change.get("fileId")
+            if (
+                kind not in {"file", "drive"}
+                or type(change.get("removed", False)) is not bool
+                or kind == "file"
+                and (not isinstance(identity, str) or not FILE_ID.fullmatch(identity))
+                or current is not None
+                and (not isinstance(current, dict) or current.get("id") != identity)
+            ):
+                raise DriveReadError("provider_response_invalid")
+            if current is not None:
+                files.append(current)
+        projected = iter(_project_page({"files": files}, files)["files"] if files else [])
+        return {
+            "changes": [
+                {
+                    "changeType": change.get("changeType", "file"),
+                    **({"fileId": change["fileId"]} if "fileId" in change else {}),
+                    "removed": change.get("removed", False),
+                    "trashed": isinstance(change.get("file"), dict)
+                    and change["file"].get("trashed") is True,
+                    **({"file": next(projected)} if change.get("file") is not None else {}),
+                }
+                for change in changes
+            ],
+            "nextPageToken": next_token,
+            "newStartPageToken": start_token,
+        }
+
     async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
         _only(arguments, {"pageSize", "pageToken"})
         page_size, page_token = _page_arguments(arguments)
@@ -632,6 +703,9 @@ _OPERATIONS = {
 _OWNER_SEARCH_OPERATIONS = {
     "search_files": "_owner_search_files",
     "list_shared_drives": "_list_shared_drives",
+    # Owner name index (drive_owner_metadata_index): metadata deltas only.
+    "changes_start_token": "_owner_changes_start_token",
+    "list_changes": "_owner_list_changes",
 }
 REST_TOOLS = frozenset(_OPERATIONS)
 # Owner writes. Create, copy, move/rename and comment run when the owner's agent
