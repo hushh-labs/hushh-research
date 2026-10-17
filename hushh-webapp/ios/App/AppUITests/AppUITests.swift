@@ -3847,8 +3847,9 @@ final class AppUITests: XCTestCase {
         let opener = app.buttons["Open Profile"].firstMatch
         let root = app.buttons["native-profile-row-preferences"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         var back: XCUIElement {
-            let native = app.navigationBars["Appearance & preferences"].buttons["Profile"].firstMatch
+            let native = app.navigationBars.buttons["Profile"].firstMatch
             return native.exists ? native : app.buttons["Back in Profile"].firstMatch
         }
         let cancel = app.buttons["native-style-close"].firstMatch
@@ -3863,12 +3864,14 @@ final class AppUITests: XCTestCase {
         opener.tap()
         for _ in 0..<3 {
             if root.exists && root.isHittable { break }
+            // The preceding warm journey may leave the root roster scrolled.
+            // Restore its existing row before assuming a nested Back is owed.
+            if root.exists && menu.exists && menu.isHittable { menu.swipeDown(); continue }
             guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_PARENT_UNAVAILABLE"); return }; back.tap()
         }
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_STYLE_PREFERENCES_UNAVAILABLE"); return }; root.tap()
         let nativeStyle = app.buttons["native-profile-row-preferences-style"].firstMatch
         var row: XCUIElement { nativeStyle.exists ? nativeStyle : web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Writing style")).firstMatch }
-        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         for _ in 0..<4 { if row.exists && row.isHittable { break }; (menu.exists ? menu : web).swipeUp() }
         var originalName: String?
         for cycle in 0..<10 {
@@ -4468,7 +4471,7 @@ final class AppUITests: XCTestCase {
         let feedTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Feed")).firstMatch
         guard waitForAdmittedControl(oneTab), waitForAdmittedControl(feedTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
         oneTab.tap()
-        let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open memory.md in Memory")).firstMatch
+        let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open Memory")).firstMatch
         XCTAssertTrue(waitForAdmittedControl(memory), "ONE_PROFILE_SHARED_CONTENT_UNAVAILABLE")
         XCTAssertTrue(waitForAdmittedControl(app.buttons["Back to Chat"].firstMatch))
         feedTab.tap()
