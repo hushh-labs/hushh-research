@@ -707,3 +707,170 @@ def test_title_dates_load_in_the_parser_child_without_the_package(tmp_path):
 
 def test_every_possible_kind_the_search_writes_is_one_o4_lists():
     assert {CONTENT, CORRECTED, SYNONYM, WALK} == POSSIBLE_KINDS
+
+
+# --- Gear 1 restarts a pass when Drive rejects its page token (P0-3) ---------
+
+
+class TokenRejectingListing:
+    """Gear 1's fenced listing, faked: page tokens expire ``rejections`` times."""
+
+    def __init__(self, rows, *, page_size=2, rejections=1):
+        self.rows = rows
+        self.page_size = page_size
+        self.rejections = rejections
+        self.calls = []
+
+    async def read_owner_search_page(self, *, user_id, tool_name, arguments):
+        from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+        from hushh_mcp.services.google_drive_adapter import provider_failure
+
+        self.calls.append((tool_name, arguments.get("pageToken")))
+        if tool_name == "changes_start_token":
+            return ExternalMcpToolResult(False, {"startPageToken": "cursor-0"}, False)
+        if tool_name == "list_shared_drives":
+            return ExternalMcpToolResult(False, {"drives": [], "nextPageToken": None}, False)
+        if tool_name == "list_changes":
+            payload = {"changes": [], "newStartPageToken": arguments["pageToken"]}
+            return ExternalMcpToolResult(False, payload, False)
+        assert tool_name == "search_files"
+        token = arguments.get("pageToken")
+        if token is not None and self.rejections > 0:
+            self.rejections -= 1
+            raise provider_failure("page_token_invalid")
+        start = int(token or 0)
+        page = self.rows[start : start + self.page_size]
+        end = start + len(page)
+        payload = {
+            "files": page,
+            "nextPageToken": str(end) if end < len(self.rows) else None,
+            "incompleteSearch": False,
+        }
+        return ExternalMcpToolResult(False, payload, False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejections", [1, 2])
+async def test_gear_one_restarts_a_pass_on_a_rejected_page_token(rejections):
+    rows = [_row(f"file{n}", f"Statement {n}.pdf") for n in range(5)]
+    listing = TokenRejectingListing(rows, rejections=rejections)
+    indexer = OwnerMetadataIndexer(transport=listing)
+    status = await indexer.refresh("owner", connection_generation=7, max_pages=20)
+    # The pass restarted from page 1 and finished: every file once.
+    assert status.ready and status.error is None
+    assert status.indexed == 5
+    restarts = [call for call in listing.calls if call == ("search_files", None)]
+    assert len(restarts) == 1 + rejections
+
+
+@pytest.mark.asyncio
+async def test_a_third_rejected_page_token_stops_the_listing_as_provider_trouble():
+    rows = [_row(f"file{n}", f"Statement {n}.pdf") for n in range(5)]
+    listing = TokenRejectingListing(rows, rejections=3)
+    indexer = OwnerMetadataIndexer(transport=listing)
+    status = await indexer.refresh("owner", connection_generation=7, max_pages=20)
+    # Negative control: the third rejection in one pass is not retried again;
+    # Gear 1 keeps what it has and Drive's own pass still runs in full.
+    assert not status.ready
+    assert status.error == "provider_response_invalid"
+    assert [call for call in listing.calls if call == ("search_files", None)] == [
+        ("search_files", None)
+    ] * 3
+
+
+def test_content_groups_fit_the_checks_bounds_keeping_each_groups_own_words():
+    from hushh_mcp.services.drive_owner_search_service import _fit_content_groups
+
+    groups = [[f"topic{n}"] + [f"variant{n}-{m}" for m in range(40)] for n in range(5)]
+    fitted = _fit_content_groups(groups)
+    assert sum(len(group) for group in fitted) <= 160
+    assert [group[0] for group in fitted] == [f"topic{n}" for n in range(5)]
+    # Order and count never change: requirement indices stay valid.
+    assert len(fitted) == 5
+    # Over-long spellings are dropped; a group left empty skips the check.
+    assert _fit_content_groups([["x" * 201, "ok"]]) == [["ok"]]
+    assert _fit_content_groups([["x" * 201]]) == []
+    assert _fit_content_groups([["word"]] * 25) == []
+
+
+@pytest.mark.asyncio
+async def test_an_invalid_content_argument_ends_the_phase_but_a_grant_failure_stops_the_search():
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    _, planned = await _planned()
+
+    class Raising:
+        enabled = True
+
+        def __init__(self, code):
+            self.code = code
+
+        async def check_files(self, **_):
+            raise DriveReadError(self.code)
+
+    checkpoint = _phase_checkpoint(planned, [_compact("scan", "Scan_0042.pdf")])
+    (checkpoint, files, _, done), _ = await _content_page(checkpoint, Raising("invalid_argument"))
+    assert (files, done) == ([], True)
+    assert checkpoint["coverage_manifest"]["contentCheck"] == "invalid"
+    # Negative control: a changed connection is never swallowed.
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await _content_page(
+            _phase_checkpoint(planned, [_compact("scan", "Scan_0042.pdf")]),
+            Raising("connection_changed"),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [None, 1000])
+async def test_a_large_walked_folder_never_hands_one_commit_more_than_it_holds(monkeypatch, cap):
+    """A walk page lists up to 1000 rows; one commit holds 100 files."""
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    if cap is not None:
+        # Negative control: without the cap the page would overflow a commit.
+        monkeypatch.setattr(search_module, "MAX_WALK_PAGE_FILES", cap)
+    service, planned = await _planned()
+    checkpoint = json.loads(json.dumps(planned))
+    checkpoint.update(phase="shared_walk", request_explicit_dates=True)
+    checkpoint["shared_walk"].update(stage="folders", queue=[["sharedroot", None, None]])
+    # Discovery rows come first in the listing; title matches must still win.
+    rows = [_row(f"recap{n:03d}", f"Scrum recap {n}.pdf") for n in range(40)]
+    rows += [_row(f"notes{n:03d}", f"Standup notes {n}.pdf") for n in range(120)]
+
+    async def read(*, user_id, tool_name, arguments):
+        from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+
+        assert arguments["pageSize"] == 1000
+        payload = {"files": rows, "nextPageToken": None, "incompleteSearch": False}
+        return ExternalMcpToolResult(False, payload, False)
+
+    service.transport = SimpleNamespace(read_owner_search_page=read)
+    service.store = SimpleNamespace(require_current=AsyncMock())
+    job = {"user_id": "owner", "job_id": "job", "generation": 7, "checkpoint": checkpoint}
+    checkpoint, files, _, _ = await service._page(job)
+    if cap is None:
+        assert len(files) == 100
+        # Every handed-off file is a title match; the overflow is reported.
+        assert all(EVIDENCE_KIND_FIELD not in file for file in files)
+        counts = checkpoint["coverage_counts"]
+        assert counts["sharedFolderWalkSkipped"] == 60
+        assert counts["coveragePartial"] is True
+    else:
+        assert len(files) == 160
+
+
+@pytest.mark.asyncio
+async def test_the_content_page_hands_the_check_only_fitted_groups(monkeypatch):
+    _, planned = await _planned()
+    big = [[f"topic{n}"] + [f"variant{n}-{m}" for m in range(60)] for n in range(4)]
+    monkeypatch.setattr(search_module, "brain_concept_groups", lambda brain: (big, [[0, 1, 2, 3]]))
+    check = FakeContentCheck(
+        lambda kwargs: ContentCheckOutcome("complete", results=(), checkpoint={"version": 1})
+    )
+    checkpoint = _phase_checkpoint(planned, [_compact("scan", "Scan_0042.pdf")])
+    (_, _, _, done), _ = await _content_page(checkpoint, check)
+    [call] = check.calls
+    # 244 spellings would make the check refuse the request; each group
+    # keeps its own word first and the requirement still names all four.
+    assert sum(len(group) for group in call["concepts"]) == 160
+    assert [group[0] for group in call["concepts"]] == ["topic0", "topic1", "topic2", "topic3"]
+    assert call["requirements"] == [[0, 1, 2, 3]] and done is True

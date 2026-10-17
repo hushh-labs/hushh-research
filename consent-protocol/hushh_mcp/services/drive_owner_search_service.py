@@ -118,6 +118,9 @@ MAX_WALK_FOLDERS = 200
 MAX_WALK_CALLS = 50
 # File shortcuts one walk page may resolve as candidates (one read each).
 MAX_WALK_SHORTCUTS = 25
+# Files one walk page may hand to the store: a commit holds at most 100.
+# Title matches go first; the rest are counted and coverage reads partial.
+MAX_WALK_PAGE_FILES = 100
 WALK_PAGE_SIZES = (1000, 100, 25)
 _WALK_SEEDS = {
     "seed_folders": f"sharedWithMe = true and mimeType = '{FOLDER_MIME}'",
@@ -933,6 +936,31 @@ def _remember_content_candidates(checkpoint: dict, rows, *, source: str) -> int:
     if dropped:
         _counter(checkpoint, "contentCandidatesDropped", dropped)
     return added
+
+
+def _fit_content_groups(groups: list[list[str]]) -> list[list[str]]:
+    """Fit the content check's bounds by dropping the last discovery spellings.
+
+    Each group keeps its first spellings (its own words come first); the
+    group count and order never change, so requirement indices stay valid.
+    """
+    from hushh_mcp.services.drive_request_content_check import (
+        MAX_GROUPS,
+        MAX_SPELLING_CHARS,
+        MAX_SPELLINGS,
+    )
+
+    if len(groups) > MAX_GROUPS:
+        return []
+    fitted = [[item for item in group if len(item) <= MAX_SPELLING_CHARS] for group in groups]
+    if any(not group for group in fitted):
+        return []
+    while sum(len(group) for group in fitted) > MAX_SPELLINGS:
+        longest = max(fitted, key=len)
+        if len(longest) == 1:
+            return []
+        longest.pop()
+    return fitted
 
 
 def _content_or_done(checkpoint: dict) -> bool:
@@ -1766,6 +1794,17 @@ def _walk_or_done(checkpoint) -> bool:
         _phase(checkpoint, "shared_walk")
         return False
     return _content_or_done(checkpoint)
+
+
+def _walked_title_match(checkpoint, row) -> bool:
+    """A walked row whose own title names the request (a shortcut's target is unknown)."""
+    title = row.get("title") if isinstance(row, dict) else None
+    return bool(
+        isinstance(title, str)
+        and title
+        and row.get("mimeType") != SHORTCUT_MIME
+        and _trusted_subject_matches(checkpoint, {"name": title})
+    )
 
 
 def _finish_walk(checkpoint, outcome: str) -> bool:
@@ -2972,6 +3011,14 @@ class DriveOwnerSearchService:
             picked = [row for row in picked if row["id"] not in deferred]
             _counter(checkpoint, "sharedFolderWalkShortcutsDeferred", len(deferred))
             _walk_partial(checkpoint, "limit")
+        if len(picked) > MAX_WALK_PAGE_FILES:
+            # One walk page lists up to 1000 rows, but one commit holds 100
+            # files: a larger hand-off would fail the whole search. Title
+            # matches first (stable), the rest reported as partial coverage.
+            picked.sort(key=lambda row: not _walked_title_match(checkpoint, row))
+            _counter(checkpoint, "sharedFolderWalkSkipped", len(picked) - MAX_WALK_PAGE_FILES)
+            _walk_partial(checkpoint, "limit")
+            del picked[MAX_WALK_PAGE_FILES:]
         if not picked:
             return []
         files, _ = await self._request_candidates(
@@ -3281,6 +3328,7 @@ class DriveOwnerSearchService:
             return checkpoint, [], False, _end_content(checkpoint, "invalid")
         brain = _request_brain(checkpoint)
         groups, requirements = brain_concept_groups(brain) if brain is not None else ([], [])
+        groups = _fit_content_groups(groups)
         if not groups:
             return checkpoint, [], False, _end_content(checkpoint, "not_needed")
         check = self.content_check or default_content_check()
@@ -3307,18 +3355,26 @@ class DriveOwnerSearchService:
 
         state["pages"] = state.get("pages", 0) + 1
         _counter(checkpoint, "contentCheckPages")
-        outcome = await check.check_files(
-            owner_id=job["user_id"],
-            candidates=[_content_rest_row(item) for item in candidates],
-            concepts=groups,
-            requirements=requirements,
-            period=checkpoint.get("requested_period"),
-            connection_generation=job["generation"],
-            require_current=lambda: self.store.require_current(job),
-            checkpoint=state.get("check"),
-            precedence=True,
-            budget=replace(CONTENT_CHECK_BUDGET, slice_seconds=seconds),
-        )
+        try:
+            outcome = await check.check_files(
+                owner_id=job["user_id"],
+                candidates=[_content_rest_row(item) for item in candidates],
+                concepts=groups,
+                requirements=requirements,
+                period=checkpoint.get("requested_period"),
+                connection_generation=job["generation"],
+                require_current=lambda: self.store.require_current(job),
+                checkpoint=state.get("check"),
+                precedence=True,
+                budget=replace(CONTENT_CHECK_BUDGET, slice_seconds=seconds),
+            )
+        except DriveReadError as error:
+            if str(error) != "invalid_argument":
+                # Grant, fence and connection failures stop the search as any
+                # Drive page would; per-file trouble never reaches here.
+                raise
+            # An extra pass never fails a search whose title matches stand.
+            return checkpoint, [], False, _end_content(checkpoint, "invalid")
         state["check"] = outcome.checkpoint
         by_id = {item["id"]: item for item in candidates}
         committed = set(state.get("committed") or [])

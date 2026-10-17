@@ -73,7 +73,12 @@ from hushh_mcp.services.drive_title_dates import (
     period_window,
     timestamp_seconds,
 )
-from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    FILE_ID,
+    RESOURCE_KEY,
+    DriveReadError,
+    read_failure_reason,
+)
 
 logger = drive_logger("drive_owner_metadata_index")
 
@@ -115,6 +120,10 @@ _TRANSIENT_ERRORS = frozenset(
     {"provider_unavailable", "provider_response_invalid", "file_too_large"}
 )
 MAX_DELTA_FAILURES = 3
+# Drive rejected a listing page token (it expired while the listing paused):
+# restart that pass from page 1, at most this many times per pass. Rows are
+# keyed by file ID, so a restart never adds a second copy.
+PAGE_TOKEN_RESTARTS_PER_PASS = 2
 
 # Token match scores. Exact words outrank spelling forms, prefixes ("state"
 # for "statement", like Drive's own name search), inner words and typos.
@@ -704,6 +713,7 @@ class _OwnerState:
     rows: int = 0
     built_at: float | None = None
     delta_failures: int = 0
+    token_restarts: int = 0
     error: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -901,6 +911,18 @@ class OwnerMetadataIndexer:
                 )
                 break
             except DriveReadError as error:
+                if (
+                    read_failure_reason(error) == "page_token_invalid"
+                    and state.page_token
+                    and state.token_restarts < PAGE_TOKEN_RESTARTS_PER_PASS
+                ):
+                    # The pass restarts from page 1 (research P0-3); a third
+                    # rejection in one pass propagates as provider trouble.
+                    state.token_restarts += 1
+                    state.page_token = None
+                    state.seen_tokens.clear()
+                    arguments.pop("pageToken", None)
+                    continue
                 if str(error) != "file_too_large" or state.page_size == PAGE_SIZES[-1]:
                     raise
                 # Same cursor, less metadata: a page over the response budget
@@ -939,6 +961,7 @@ class OwnerMetadataIndexer:
         state.page_token = next_token
         if not next_token:
             state.seen_tokens.clear()
+            state.token_restarts = 0
             if state.phase == "drive":
                 state.drives_done.add(state.drive_queue.pop(0))
             self._advance(state)
