@@ -81,18 +81,18 @@ MIME = {
 # note is created when its meeting ends, 30 minutes after the start in its
 # title. A title cut off with "..." keeps that ending.
 DRIVE_FILES = """
-a-0902              | me        | gdoc | 2026-09-02T18:42 | 2026-09-02T18:44 | Meeting started 2026/09/02 23:42 IST - Notes by Gemini
-a-0603              | me        | gdoc | 2026-06-03T13:24 |                  | Meeting started 2026/06/03 18:24 IST - Notes by Gemini
-a-0903-0120         | me        | gdoc | 2026-09-02T20:20 | 2026-09-02T20:22 | Meeting started 2026/09/03 01:20 IST - Notes by Gemini
-a-0630              | me        | gdoc | 2026-06-30T17:06 |                  | Meeting started 2026/06/30 22:06 IST - Notes by Gemini
-a-0728              | me        | gdoc | 2026-07-28T18:06 | 2026-09-29T07:12 | Meeting started 2026/07/28 23:06 IST - Notes by Gemini
-a-0622              | me        | gdoc | 2026-06-22T14:06 | 2026-09-29T07:10 | Meeting started 2026/06/22 19:06 IST - Notes by Gemini
-a-0903-0020         | me        | gdoc | 2026-09-02T19:20 | 2026-09-02T19:22 | Meeting started 2026/09/03 00:20 IST - Notes by Gemini
-a-2025-0703         | me        | gdoc | 2025-07-03T18:42 | 2026-09-29T07:08 | Meeting started 2025/07/03 23:42 GMT+05:30 - Notes by Gemini
-a-0512              | me        | gdoc | 2026-05-11T20:06 |                  | Meeting started 2026/05/12 01:06 IST - Notes by Gemini
-a-0407              | me        | gdoc | 2026-04-07T11:53 |                  | Meeting started 2026/04/07 16:53 IST - Notes by Gemini
+a-0902              | me        | gdoc | 2026-09-02T18:49 | 2026-09-02T18:51 | Meeting started 2026/09/02 23:49 IST - Notes by Gemini
+a-0603              | me        | gdoc | 2026-06-03T13:31 |                  | Meeting started 2026/06/03 18:31 IST - Notes by Gemini
+a-0903-late         | me        | gdoc | 2026-09-02T20:27 | 2026-09-02T20:29 | Meeting started 2026/09/03 01:27 IST - Notes by Gemini
+a-0630              | me        | gdoc | 2026-06-30T17:13 |                  | Meeting started 2026/06/30 22:13 IST - Notes by Gemini
+a-0728              | me        | gdoc | 2026-07-28T18:13 | 2026-09-29T07:19 | Meeting started 2026/07/28 23:13 IST - Notes by Gemini
+a-0622              | me        | gdoc | 2026-06-22T14:13 | 2026-09-29T07:17 | Meeting started 2026/06/22 19:13 IST - Notes by Gemini
+a-0903-early        | me        | gdoc | 2026-09-02T19:27 | 2026-09-02T19:29 | Meeting started 2026/09/03 00:27 IST - Notes by Gemini
+a-2025-0703         | me        | gdoc | 2025-07-03T18:49 | 2026-09-29T07:15 | Meeting started 2025/07/03 23:49 GMT+05:30 - Notes by Gemini
+a-0512              | me        | gdoc | 2026-05-11T20:13 |                  | Meeting started 2026/05/12 01:13 IST - Notes by Gemini
+a-0407              | me        | gdoc | 2026-04-07T12:00 |                  | Meeting started 2026/04/07 17:00 IST - Notes by Gemini
 a-untitled          | me        | gdoc | 2025-10-30T09:00 |                  | Untitled document
-a-2025-0720         | me        | gdoc | 2025-07-19T21:37 |                  | Meeting started 2025/07/20 02:37 GMT+05:30 - Notes by Gemini
+a-2025-0720         | me        | gdoc | 2025-07-19T21:44 |                  | Meeting started 2025/07/20 02:44 GMT+05:30 - Notes by Gemini
 a-review-1          | me        | gdoc | 2026-09-30T10:00 | 2026-10-07T11:00 | Draft Review - Item A (Second Pass) | Shared Workspace Pl...
 a-review-2          | me        | gdoc | 2026-10-01T09:00 | 2026-10-06T10:00 | Draft Review - Item B ...
 a-review-3          | me        | gdoc | 2026-10-05T09:00 | 2026-10-05T10:00 | Draft Review - Item B ...
@@ -153,7 +153,7 @@ o-concept-brief     | other     | docx | 2026-09-27T10:00 |                  | H
 """
 
 # In the picked dates by title date, and named a meeting note.
-A_IN_PERIOD_NOTES = {"a-0902", "a-0903-0020", "a-0903-0120"}
+A_IN_PERIOD_NOTES = {"a-0902", "a-0903-early", "a-0903-late"}
 COLLEAGUE_IN_PERIOD_NOTES = {
     "c-vendor-welcome",
     "c-sync-0903",
