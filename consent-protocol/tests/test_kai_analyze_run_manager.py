@@ -128,7 +128,7 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
     KaiAnalyzeRunManager = run_manager_module.KaiAnalyzeRunManager
 
     async def _scenario() -> None:
-        manager = KaiAnalyzeRunManager(retention_seconds=300)
+        manager = KaiAnalyzeRunManager(retention_seconds=300, cleanup_interval_seconds=0.01)
         consent_token = f"consent_{uuid.uuid4().hex}"
 
         async def deterministic_generator(
@@ -157,7 +157,7 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
             debate_session_id="sess_b",
             ticker="MSFT",
             risk_profile="balanced",
-            context={},
+            context={"pick_source": "test-source", "authorized_package": {"private": "context"}},
             consent_token=consent_token,
             generator_factory=deterministic_generator,
         )
@@ -181,7 +181,74 @@ def test_run_manager_stream_resume_replays_and_continues() -> None:
         assert all(frame.get("event") != "start" for frame in replay_from_cursor)
         assert any(frame.get("event") == "decision" for frame in replay_from_cursor)
 
+        assert run.consent_token == ""
+        assert run.context == {"pick_source": "test-source"}
+        assert run.to_public_dict()["pick_source"] == "test-source"
+        assert run.latest_cursor == 2
+        # Expired replay is reclaimed while idle, without another start/read.
+        active = run_manager_module.AnalyzeRunRecord(
+            run_id="active",
+            user_id="other",
+            debate_session_id="active-session",
+            ticker="MSFT",
+            risk_profile="balanced",
+            context=None,
+            consent_token=consent_token,
+        )
+        manager._runs_by_id[active.run_id] = active
+        assert run.completed_monotonic is not None
+        run.completed_monotonic -= 301
+        async with asyncio.timeout(1):
+            while run.run_id in manager._runs_by_id:
+                await asyncio.sleep(0.01)
+        assert manager._runs_by_id[active.run_id] is active
+        task = manager._retention_task
+        await manager.stop_retention()
+        assert task is not None and task.done()
+        assert manager._retention_task is None
+
     asyncio.run(_scenario())
+
+
+def test_finalization_cancellation_releases_authority_without_changing_replay() -> None:
+    module = _load_run_manager_module()
+    module.FeedService = _NoopFeedService
+
+    async def scenario() -> None:
+        manager = module.KaiAnalyzeRunManager(store=False)
+        finalizing = asyncio.Event()
+
+        async def generator(*args):
+            yield _frame(1, "decision", {"decision": "hold"}, terminal=True)
+
+        async def blocked_feed(run):
+            finalizing.set()
+            await asyncio.Event().wait()
+
+        manager._record_outcome_feed = blocked_feed
+        _, run = await manager.start_or_get_active(
+            user_id="owner",
+            debate_session_id="session",
+            ticker="MSFT",
+            risk_profile="balanced",
+            context={"authorized_package": {"private": "value"}, "pick_source": "source"},
+            consent_token=f"consent_{uuid.uuid4().hex}",
+            generator_factory=generator,
+        )
+        try:
+            await asyncio.wait_for(finalizing.wait(), timeout=1)
+            assert run.worker_task is not None
+            run.worker_task.cancel()
+            await asyncio.gather(run.worker_task, return_exceptions=True)
+            assert run.consent_token == ""
+            assert run.context == {"pick_source": "source"}
+            assert run.latest_cursor == 1
+            assert run.terminal_frame is run.events[0]
+            assert run.status == "completed"
+        finally:
+            await manager.stop_retention()
+
+    asyncio.run(scenario())
 
 
 def test_kai_completion_feed_projection_is_source_idempotent_and_terminal_is_immutable() -> None:

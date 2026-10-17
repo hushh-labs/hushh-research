@@ -1242,7 +1242,7 @@ jobs:
           FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
         run: |
           set -euo pipefail
-          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_CLOUD_RUN_TIMEOUT_SECONDS=300,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
             echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
             exit 1
