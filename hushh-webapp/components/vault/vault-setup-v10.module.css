@@ -58,20 +58,6 @@
   line-height: 18px;
 }
 
-.setupDialog :global([data-vault-setup-avatar]) {
-  display: grid;
-  flex: 0 0 20px;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #ffe2a4;
-  color: #4d3716;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-
 .setupDialog :global([data-vault-recovery-key] [data-vault-account-identity]) {
   display: none;
 }
@@ -96,6 +82,17 @@
   border-radius: 15px;
   background: var(--vault-v10-field);
   color: var(--vault-v10-muted);
+}
+
+.setupDialog :global([data-vault-password-field]:is(:hover, :focus-within)),
+.setupDialog :global([data-vault-confirm-field]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border);
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--vault-v10-field));
+}
+
+.setupDialog :global([data-vault-password-field]:focus-within),
+.setupDialog :global([data-vault-confirm-field]:focus-within) {
+  box-shadow: 0 0 0 2px var(--app-focus-ring);
 }
 
 .setupDialog :global([data-vault-password-field] input),

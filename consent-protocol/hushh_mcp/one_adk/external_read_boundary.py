@@ -93,14 +93,20 @@ def _reviewed_mcp_tool(tool: Any) -> bool:
 
 
 def _reviewable_draft_tool(tool: Any) -> bool:
-    # This is a client-only draft, not a provider send. Admit the exact local
-    # function, never a provider tool or another callable with the same name.
-    if getattr(tool, "name", None) == "open_calendar_invitation":
+    # These exact application-owned functions only prepare owner review.
+    # They never execute a Calendar mutation; confirmation retains its own
+    # owner/grant-bound proposal and single-claim provider-write boundary.
+    if getattr(tool, "name", None) in {
+        "open_calendar_invitation",
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "propose_calendar_cancellation",
+    }:
         from google.adk.tools import FunctionTool
 
-        from hushh_mcp.agents.calendar.tools import open_calendar_invitation
+        from hushh_mcp.agents.calendar import tools as calendar_tools
 
-        return type(tool) is FunctionTool and tool.func is open_calendar_invitation
+        return type(tool) is FunctionTool and tool.func is getattr(calendar_tools, tool.name)
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool

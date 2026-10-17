@@ -1,5 +1,6 @@
 """Contact-bound claims and reset share one serialized database authority."""
 
+import json
 import os
 import sys
 from hashlib import sha256
@@ -70,6 +71,72 @@ async def test_locked_authority_reuses_connection(monkeypatch):
     setup.return_value = False
     with pytest.raises(PermissionError):
         await invites.verified_owner("owner", "fixture", conn=conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "report", "expected_outcome", "expected_email"),
+    [
+        ("unavailable", {}, "attention", "suppressed"),
+        ("insufficient_identity", {}, "attention", "suppressed"),
+        ("offered", {"match_status": "matched", "sections": []}, "attention", "suppressed"),
+        (
+            "offered",
+            {"match_status": "matched", "sections": [{"facts": [{"statement": "Fact"}]}]},
+            "ready",
+            "pending",
+        ),
+        (
+            "offered",
+            {
+                "match_status": "candidate_for_review",
+                "sections": [{"facts": [{"statement": "Fact"}]}],
+            },
+            "partial",
+            "pending",
+        ),
+    ],
+)
+async def test_pwm_completion_keeps_failed_outbox_without_feed_action(
+    status, report, expected_outcome, expected_email
+):
+    from hushh_mcp.services.world_model_preferences import checkpoint_committed
+
+    generation, draft_id = uuid4(), uuid4()
+    calls = []
+
+    class Conn:
+        async def fetchrow(self, _sql, _user_id, *, timeout):
+            assert timeout == 5
+            return {"enabled": True, "generation": generation}
+
+        async def execute(self, sql, *args, timeout):
+            assert timeout == 5
+            calls.append((sql, args))
+
+    await checkpoint_committed(
+        Conn(),
+        "recipient",
+        {
+            "job_id": str(draft_id),
+            "consent_generation": str(generation),
+            "status": status,
+            "result": {"report": report},
+        },
+    )
+    completion = next(
+        (sql, args) for sql, args in calls if "INSERT INTO pwm_completion_events" in sql
+    )
+    assert completion[1][3:] == (expected_outcome, expected_email)
+    delete_index = next(
+        index for index, (sql, _) in enumerate(calls) if "DELETE FROM feed_events" in sql
+    )
+    insert_index = calls.index(completion)
+    assert (delete_index > insert_index) == (expected_outcome == "attention")
+    delete_sql, delete_args = calls[delete_index]
+    assert "source_domain='pwm'" in delete_sql
+    assert "metadata->>'pwm_outcome'='attention'" in delete_sql
+    assert delete_args == ("recipient", str(draft_id))
 
 
 @pytest.mark.asyncio
@@ -347,8 +414,19 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         }
         async with pool.acquire() as conn, conn.transaction():
             await checkpoint_committed(conn, "recipient", state)
+        assert (
+            await pool.fetchval("SELECT count(*) FROM feed_events WHERE source_domain='pwm'") == 0
+        )
+        assert await pool.fetchval("SELECT outcome FROM pwm_completion_events") == "attention"
+        assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "suppressed"
+        # Simulate a dismissed attention row left by an older backend. A real
+        # offered draft must become visible even when that failure was dismissed.
         await pool.execute(
-            "UPDATE feed_events SET read_at=NOW(),dismissed_at=NOW(),dismissal_token='synthetic-dismissal' WHERE source_domain='pwm'"
+            """INSERT INTO feed_events(user_id,source_domain,event_type,source_row_id,metadata,
+            read_at,dismissed_at,dismissal_token)
+            VALUES ('recipient','pwm','pwm_research',$1,$2,NOW(),NOW(),'synthetic-dismissal')""",
+            str(draft_id),
+            json.dumps({"draft_id": str(draft_id), "pwm_outcome": "attention"}),
         )
         state.update(
             status="offered",
@@ -366,12 +444,13 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             await pool.fetchval("SELECT count(*) FROM feed_events WHERE source_domain='pwm'") == 1
         )
         row = await pool.fetchrow(
-            "SELECT read_at,dismissed_at,dismissal_token,metadata->>'pwm_outcome' AS outcome FROM feed_events WHERE source_domain='pwm'"
+            "SELECT source_row_id,read_at,dismissed_at,dismissal_token,metadata->>'pwm_outcome' AS outcome FROM feed_events WHERE source_domain='pwm'"
         )
         assert (
-            row["read_at"]
-            and row["dismissed_at"]
-            and row["dismissal_token"] == "synthetic-dismissal"
+            row["source_row_id"] == str(draft_id)
+            and row["read_at"] is None
+            and row["dismissed_at"] is None
+            and row["dismissal_token"] is None
             and row["outcome"] == "ready"
         )
         assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "pending"
@@ -409,6 +488,25 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             True,
             "pwm-default-v1",
         )
+        # A previously default-enrolled owner has not opted into Azure/Bing.
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                research_preferences,
+                "load_pwm_policy",
+                lambda: {"provider": "azure_openai_web_search"},
+            )
+            assert research_preferences.public_preferences(row)["enabled"] is False
+            await research_preferences.update_preferences(
+                "wrong",
+                "fixture",
+                enabled=True,
+                email_enabled=True,
+                consent_version=research_preferences.AZURE_BING_CONSENT_VERSION,
+            )
+            opted_in = dict(await pool.fetchrow(enrolled))
+            assert opted_in["consent_version"] == "pwm-azure-bing-v1"
+            assert opted_in["generation"] != row["generation"]
+            assert research_preferences.public_preferences(opted_in)["enabled"] is True
         await pool.execute(
             "UPDATE pwm_research_preferences SET enabled=false,email_enabled=false WHERE user_id='wrong'"
         )

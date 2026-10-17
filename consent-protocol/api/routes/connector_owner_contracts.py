@@ -60,6 +60,7 @@ class ConnectorSummary(BaseModel):
 class ConnectorsResponse(BaseModel):
     connectors: list[ConnectorSummary]
     features: dict[str, bool] = Field(default_factory=dict)
+    driveAgentPackagesEnabled: bool = False
 
 
 class RegisterConnectorRequest(BaseModel):

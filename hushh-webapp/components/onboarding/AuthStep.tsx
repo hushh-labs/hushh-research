@@ -7,7 +7,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
-import { AuthService } from "@/lib/services/auth-service";
+import { AuthService, type AuthResult } from "@/lib/services/auth-service";
+import { EmailSignInSection } from "@/components/onboarding/EmailSignInSection";
 import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
 import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -65,7 +66,8 @@ const GOOGLE_BTN_CLASS =
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
-type AuthProviderId = "google" | "apple";
+type AuthProviderId = "google" | "apple" | "microsoft";
+const PROVIDER_NAMES = { google: "Google", apple: "Apple", microsoft: "Microsoft", email: "Email" };
 type ProviderAttemptPhase =
   | "launching"
   | "provider_open"
@@ -73,7 +75,7 @@ type ProviderAttemptPhase =
   | "settling";
 type ProviderAttempt = {
   id: string;
-  provider: AuthProviderId;
+  provider: AuthProviderId | "email";
   initiator: "tap" | "voice_confirmation";
   directiveId: string | null;
   resumeRoute: string;
@@ -158,6 +160,13 @@ export function AuthStep({
   >(nativeTestConfig.autoReviewerLogin ? "loading" : "loaded");
   const [nativeErrorCode, setNativeErrorCode] = useState<string | null>(null);
   const providerAttemptRef = useRef<ProviderAttempt | null>(null);
+  const emailBusyRef = useRef(false);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailExpanded, setEmailExpanded] = useState(false);
+  const setEmailOperationBusy = useCallback((busy: boolean) => {
+    emailBusyRef.current = busy;
+    setEmailBusy(busy);
+  }, []);
   const providerAttemptSequenceRef = useRef(0);
   const providerAbortRef = useRef<AbortController | null>(null);
   const attentionResolversRef = useRef(
@@ -167,7 +176,7 @@ export function AuthStep({
     useState<ProviderAttempt | null>(null);
   const [providerRecovery, setProviderRecovery] = useState<string | null>(null);
   const providerBusy = Boolean(
-    providerAttempt && providerAttempt.phase !== "attention_required",
+    emailBusy || (providerAttempt && providerAttempt.phase !== "attention_required"),
   );
 
   const [reviewModeConfig, setReviewModeConfig] = useState<{
@@ -222,7 +231,7 @@ export function AuthStep({
     const scheduleAttentionRecovery = () => {
       const current = providerAttemptRef.current;
       if (
-        !current ||
+        !current || current.provider === "email" ||
         (current.phase !== "launching" && current.phase !== "provider_open") ||
         Date.now() - current.startedAt < 250
       ) {
@@ -243,7 +252,7 @@ export function AuthStep({
         updateProviderAttemptPhase(active.id, "attention_required");
         attentionResolversRef.current.get(active.id)?.({
           status: "started",
-          summary: `${active.provider === "apple" ? "Apple" : "Google"} sign-in still needs attention. You can retry securely.`,
+          summary: `${PROVIDER_NAMES[active.provider]} sign-in still needs attention. You can retry securely.`,
         });
         attentionResolversRef.current.delete(active.id);
       }, 750);
@@ -294,7 +303,9 @@ export function AuthStep({
       idToken?: string,
       phoneNumber?: string | null,
       resumeTarget?: string,
+      canContinue: () => boolean = () => true,
     ) => {
+      if (!canContinue()) return undefined;
       const explicitTargetPath = normalizeInternalRouteHref(
         resumeTarget || redirectPath,
       );
@@ -304,6 +315,11 @@ export function AuthStep({
         return lastResolvedNavigationPathRef.current || targetPath;
       }
       lastNavigationKeyRef.current = navigationKey;
+      const stillCurrent = () => {
+        if (canContinue()) return true;
+        if (lastNavigationKeyRef.current === navigationKey) lastNavigationKeyRef.current = null;
+        return false;
+      };
 
       try {
         if (preserveOnboardingAuditRoute) {
@@ -316,6 +332,7 @@ export function AuthStep({
         const resolvedIdToken =
           idToken ||
           (user ? await user.getIdToken().catch(() => undefined) : undefined);
+        if (!stillCurrent()) return undefined;
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
           redirectPath: explicitTargetPath ?? undefined,
@@ -323,6 +340,7 @@ export function AuthStep({
           phoneNumber,
           enableFirstRunSetupGate: true,
         });
+        if (!stillCurrent()) return undefined;
 
         const resumeImportFlow =
           resolvedPath === ROUTES.KAI_HOME &&
@@ -346,6 +364,7 @@ export function AuthStep({
             );
           });
         }
+        if (!stillCurrent()) return undefined;
         setOnboardingRequiredCookie(
           !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
         );
@@ -356,6 +375,7 @@ export function AuthStep({
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
       } catch (error) {
+        if (!stillCurrent()) return undefined;
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const safeFallbackPath =
           targetPath === ROUTES.ONE_SETUP ||
@@ -580,6 +600,54 @@ export function AuthStep({
     user,
   ]);
 
+  const finishAuthentication = useCallback(async (
+    result: AuthResult, method: AuthProviderId | "email", resumeRoute: string, attemptId: string, signal?: AbortSignal,
+  ) => {
+    const ownsAttempt = () => providerAttemptRef.current?.id === attemptId
+      && (!isWeb() || AuthService.getCurrentUser()?.uid === result.user.uid);
+    if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
+    const settlementId = beginPostAuthSettlement(result.user);
+    try {
+      const idToken = result.idToken || await result.user.getIdToken();
+      if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
+      trackEvent("auth_succeeded", { action: method, result: "success" });
+      void ApiService.notifyFirstWelcome({ idToken });
+      void LegalAcceptanceService.recordSignInAcceptance(result.user, true);
+      if (method === "google" || method === "apple") {
+        void InitialContactsOnboardingService.begin(result, method, attemptId,
+          initialContactsEnabled && findInitialContacts).catch(() => undefined);
+      }
+      if (growthJourney) {
+        trackGrowthFunnelStepCompleted({ journey: growthJourney, step: "auth_completed",
+          entrySurface: growthEntrySurface, authMethod: method,
+          dedupeKey: `growth:${growthJourney}:auth_completed:${method}`, dedupeWindowMs: 5_000 });
+      }
+      if (signal?.aborted) return undefined;
+      return await resolveAndNavigate(result.user.uid, idToken, result.user.phoneNumber, resumeRoute,
+        () => !signal?.aborted && ownsAttempt());
+    } finally { completePostAuthSettlement(settlementId); }
+  }, [beginPostAuthSettlement, completePostAuthSettlement, initialContactsEnabled, findInitialContacts, growthEntrySurface, growthJourney, resolveAndNavigate]);
+
+  const handleEmailAuthenticated = useCallback(async (customToken: string) => {
+    if (providerAttemptRef.current) throw new Error("Another sign-in is in progress.");
+    const attempt: ProviderAttempt = {
+      id: `email_${Date.now()}_${++providerAttemptSequenceRef.current}`, provider: "email",
+      initiator: "tap", directiveId: null, resumeRoute: redirectPath, phase: "settling", startedAt: Date.now(),
+    };
+    const controller = new AbortController();
+    providerAbortRef.current?.abort();
+    providerAbortRef.current = controller;
+    publishProviderAttempt(attempt);
+    try {
+      const result = await AuthService.signInWithCustomToken(customToken);
+      if ((providerAttemptRef.current as ProviderAttempt | null)?.id !== attempt.id) throw new Error("Restart sign-in.");
+      await finishAuthentication(result, "email", attempt.resumeRoute, attempt.id, controller.signal);
+    } finally {
+      if (providerAbortRef.current === controller) providerAbortRef.current = null;
+      if ((providerAttemptRef.current as ProviderAttempt | null)?.id === attempt.id) publishProviderAttempt(null);
+    }
+  }, [finishAuthentication, publishProviderAttempt, redirectPath]);
+
   const handleProviderLogin = useCallback(
     (
       provider: AuthProviderId,
@@ -589,7 +657,7 @@ export function AuthStep({
       },
     ) => {
       const active = providerAttemptRef.current;
-      if (active && active.phase !== "attention_required") {
+      if (emailExpanded || emailBusyRef.current || (active && active.phase !== "attention_required")) {
         return Promise.resolve({
           status: "blocked" as const,
           summary: "A sign-in window is already open.",
@@ -621,7 +689,7 @@ export function AuthStep({
               signal: controller.signal,
               onCredentialExchange: () => updateProviderAttemptPhase(attempt.id, "settling"),
             })
-          : AuthService.signInWithApple();
+          : provider === "apple" ? AuthService.signInWithApple() : AuthService.signInWithMicrosoft();
       updateProviderAttemptPhase(attempt.id, "provider_open");
 
       const attentionPromise = new Promise<{
@@ -653,75 +721,15 @@ export function AuthStep({
             );
             return {
               status: "failed" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
+              summary: `${PROVIDER_NAMES[provider]} did not return a user session.`,
             };
           }
-          if (provider === "google" && isWeb() &&
-              AuthService.getCurrentUser()?.uid !== authenticatedUser.uid) {
-            return {
-              status: "blocked" as const,
-              summary: "The signed-in account changed before sign-in finished.",
-            };
-          }
-          const settlementId = beginPostAuthSettlement(authenticatedUser);
-          try {
-            const idToken =
-              authResult.idToken || (await authenticatedUser.getIdToken());
-            if (providerAttemptRef.current?.id !== attempt.id ||
-                (provider === "google" && isWeb() &&
-                 AuthService.getCurrentUser()?.uid !== authenticatedUser.uid)) {
-              return {
-                status: "blocked" as const,
-                summary: "A newer sign-in attempt replaced this one.",
-              };
-            }
-            trackEvent("auth_succeeded", {
-              action: provider,
-              result: "success",
-            });
-            void ApiService.notifyFirstWelcome({ idToken });
-            // The sign-in screen states "By continuing you agree"; record it.
-            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser, true);
-            // Actual account newness decides enrollment, including accounts
-            // created from the returning sign-in entry. Acquisition stays optional.
-            void InitialContactsOnboardingService.begin(
-              authResult,
-              provider,
-              attempt.id,
-              initialContactsEnabled && findInitialContacts,
-            ).catch(() => undefined);
-            if (growthJourney) {
-              trackGrowthFunnelStepCompleted({
-                journey: growthJourney,
-                step: "auth_completed",
-                entrySurface: growthEntrySurface,
-                authMethod: provider,
-                dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
-                dedupeWindowMs: 5_000,
-              });
-            }
-            // Finish committed authentication above even after leaving this
-            // screen, but keep the person's chosen destination in that case.
-            if (controller.signal.aborted) {
-              return {
-                status: "succeeded" as const,
-                summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
-              };
-            }
-            const routeAfter = await resolveAndNavigate(
-              authenticatedUser.uid,
-              idToken,
-              authenticatedUser.phoneNumber,
-              attempt.resumeRoute,
-            );
+            const routeAfter = await finishAuthentication(authResult, provider, attempt.resumeRoute, attempt.id, controller.signal);
             return {
               status: "succeeded" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              summary: `${PROVIDER_NAMES[provider]} sign-in completed.`,
               routeAfter,
             };
-          } finally {
-            completePostAuthSettlement(settlementId);
-          }
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted || providerAttemptRef.current?.id !== attempt.id) {
@@ -748,14 +756,14 @@ export function AuthStep({
           });
           if (!cancelled) {
             morphyToast.error(
-              `Could not sign in with ${provider === "apple" ? "Apple" : "Google"}.`,
+              `Could not sign in with ${PROVIDER_NAMES[provider]}.`,
               { description: authErrorMessage(error) },
             );
           }
           return {
             status: cancelled ? ("blocked" as const) : ("failed" as const),
             summary: cancelled
-              ? `${provider === "apple" ? "Apple" : "Google"} sign-in was cancelled.`
+              ? `${PROVIDER_NAMES[provider]} sign-in was cancelled.`
               : authErrorMessage(error),
           };
         })
@@ -770,15 +778,12 @@ export function AuthStep({
       return Promise.race([settlementPromise, attentionPromise]);
     },
     [
-      beginPostAuthSettlement,
       initialContactsEnabled,
       findInitialContacts,
-      completePostAuthSettlement,
-      growthEntrySurface,
-      growthJourney,
+      emailExpanded,
+      finishAuthentication,
       publishProviderAttempt,
       redirectPath,
-      resolveAndNavigate,
       updateProviderAttemptPhase,
     ],
   );
@@ -822,7 +827,7 @@ export function AuthStep({
       purpose:
         "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as their own pages.",
       actions: [
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth.sign_in_google",
@@ -850,7 +855,7 @@ export function AuthStep({
           label: "Privacy Policy",
           purpose: "Open the Privacy Policy page.",
         },
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "onboarding.back_to_intro",
@@ -863,7 +868,7 @@ export function AuthStep({
           : []),
       ],
       controls: [
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth_google",
@@ -895,7 +900,7 @@ export function AuthStep({
           actionId: "auth.open_privacy",
           role: "link",
         },
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth_back",
@@ -964,6 +969,16 @@ export function AuthStep({
       ];
 
   const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;
+
+  if (isWeb()) {
+    authOptions.push({
+      id: "microsoft", label: "Continue with Microsoft",
+      icon: <span aria-hidden="true" className="grid h-5 w-5 grid-cols-2 gap-[2px]">
+        {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map((color) => <span key={color} style={{ backgroundColor: color }} />)}
+      </span>,
+      onClick: () => handleProviderLogin("microsoft", { initiator: "tap" }),
+    });
+  }
 
   return (
     <main
@@ -1035,7 +1050,7 @@ export function AuthStep({
             </div>
 
             <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
-              {initialContactsEnabled ? (
+              {initialContactsEnabled && !emailExpanded ? (
                 <div className={cn("space-y-2 text-start text-sm text-muted-foreground", lightStyles.contacts)}>
                   <label className="flex min-h-11 items-center gap-3 font-semibold">
                     <Checkbox checked={findInitialContacts} disabled={providerBusy}
@@ -1046,12 +1061,12 @@ export function AuthStep({
                 </div>
               ) : null}
               <div className="space-y-3" data-auth-provider-actions>
-                {providerRecovery && !providerAttempt ? (
+                {!emailExpanded && providerRecovery && !providerAttempt ? (
                   <p role="status" className="text-center text-sm text-muted-foreground">
                     {providerRecovery}
                   </p>
                 ) : null}
-                {providerAttempt?.phase === "attention_required" ? (
+                {!emailExpanded && providerAttempt?.phase === "attention_required" ? (
                   <p
                     role="status"
                     className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
@@ -1060,37 +1075,44 @@ export function AuthStep({
                     sign-in option securely.
                   </p>
                 ) : null}
-                {authOptions.map((option) => (
+                {!emailExpanded && authOptions.map((option) => (
                   <AuthProviderButton
                     key={option.id}
                     label={option.label}
                     icon={<>
                       <span className={lightStyles.existingProviderIcon}>{option.icon}</span>
-                      <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />
+                      {option.id === "microsoft" ? <span className={lightStyles.microsoftIcon}>{option.icon}</span> : <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />}
                     </>}
                     onClick={() => {
                       void option.onClick();
                     }}
                     disabled={providerBusy}
-                    voiceControlId={`auth_${option.id}`}
+                    voiceControlId={option.id === "microsoft" ? undefined : `auth_${option.id}`}
                     className={cn(
                       option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
                       lightStyles.providerButton,
                     )}
                   />
                 ))}
-                <EnterpriseSsoSection
+                {!emailExpanded ? <EnterpriseSsoSection
                   redirectPath={redirectPath}
                   disabled={providerBusy}
-                />
+                /> : null}
 
-                <button type="button" disabled={providerBusy}
+                {isWeb() ? <EmailSignInSection
+                  disabled={Boolean(providerAttempt)}
+                  onBusyChange={setEmailOperationBusy}
+                  onExpandedChange={setEmailExpanded}
+                  onAuthenticated={handleEmailAuthenticated}
+                /> : null}
+
+                {!emailExpanded ? <button type="button" disabled={providerBusy}
                   className={cn("min-h-11 w-full text-sm text-muted-foreground hover:text-foreground", lightStyles.returning)}
                   onClick={() => setReturningSignIn((value) => !value)}>
                   {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
-                </button>
+                </button> : null}
 
-                {showReviewer ? (
+                {showReviewer && !emailExpanded ? (
                   <AuthProviderButton
                     label="Continue as Reviewer"
                     icon={<Icon icon={Shield} size="md" />}

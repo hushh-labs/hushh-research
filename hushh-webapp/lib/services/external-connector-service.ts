@@ -409,6 +409,7 @@ export class ExternalConnectorService {
     const payload = await readJsonOrThrow<{
       connectors?: ExternalConnectorSummary[];
       features?: ConnectorFeatures;
+      driveAgentPackagesEnabled?: boolean;
     }>(response);
     if (options.sourceRead && (!payload || !Array.isArray(payload.connectors))) {
       throw new Error("Connector source read is incomplete.");
@@ -416,6 +417,7 @@ export class ExternalConnectorService {
     return {
       connectors: Array.isArray(payload.connectors) ? payload.connectors : [],
       features: payload.features ?? {},
+      driveAgentPackagesEnabled: payload.driveAgentPackagesEnabled === true,
     };
   }
 

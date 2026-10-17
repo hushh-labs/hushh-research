@@ -155,9 +155,6 @@ export function SelectedContactsSheet({
                         <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
                           {label}
                         </span>
-                        {recipient.connectedFromContacts ? (
-                          <ContactSourceBadge className="mt-px shrink-0" />
-                        ) : null}
                       </span>
                       {subtitle ? (
                         <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
@@ -165,6 +162,7 @@ export function SelectedContactsSheet({
                         </span>
                       ) : null}
                     </span>
+                    {recipient.connectedFromContacts ? <ContactSourceBadge /> : null}
                     <button
                       type="button"
                       onClick={() => onRemove(recipient.userId)}

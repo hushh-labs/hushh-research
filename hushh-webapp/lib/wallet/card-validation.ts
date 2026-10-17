@@ -12,6 +12,8 @@
  * brand for any region would refuse legitimately issued cards.
  */
 
+import { isWalletSecurityCode } from "./card-security-code";
+
 export const CARD_BRANDS = [
   "visa", "mastercard", "amex", "discover", "diners", "jcb",
   "unionpay", "rupay", "mir", "elo", "verve", "other",
@@ -45,7 +47,7 @@ const BRAND_PAN_LENGTHS: Readonly<Record<KnownCardBrand, readonly number[]>> = {
   mir: [16, 17, 18, 19],
   elo: [16],
   verve: [16, 18, 19],
-  other: [13, 14, 15, 16, 17, 18, 19],
+  other: [12, 13, 14, 15, 16, 17, 18, 19],
 };
 
 /** Validate an already identified/selected network; never infer one from a PAN. */
@@ -80,9 +82,11 @@ export interface CardValidationInput {
   cardholderName: string;
   /** The owner may select a network for overlapping or newer BIN ranges. */
   brand?: CardBrand;
-  /** Legacy inputs are ignored; security codes are never required or stored. */
+  /** Legacy inputs remain ignored and are never promoted into manual codes. */
   cvv?: string;
   pin?: string;
+  /** Optional manual Wallet entry, separate from ignored legacy CVV inputs. */
+  securityCode?: string;
   expiryMonth: number;
   expiryYear: number;
   /** Optional ISO-3166 alpha-2, e.g. "IN", "US". */
@@ -105,6 +109,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   const validSelection = selectedBrand === undefined || isCardNetworkId(selectedBrand);
   const brand = validSelection ? (selectedBrand ?? "other") : "other";
   const cardholderName = String(input.cardholderName ?? "").trim();
+  if (input.securityCode !== undefined && input.securityCode !== "" && !isWalletSecurityCode(input.securityCode)) errors.push("security_code_invalid");
   if (!validSelection) errors.push("brand_invalid");
   if (!cardholderName) {
     errors.push("cardholder_name_required");
@@ -113,13 +118,13 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   }
   const region = String(input.issuingRegion ?? "").trim().toUpperCase();
 
-  if (!/^\d{13,19}$/.test(digits)) {
+  if (!/^\d{12,19}$/.test(digits)) {
     errors.push("pan_length_invalid");
   } else if (/^(\d)\1+$/.test(digits) || (brand !== "unionpay" && !luhnValid(digits))) {
     errors.push("pan_checksum_invalid");
   }
 
-  if (/^\d{13,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
+  if (/^\d{12,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
     errors.push("pan_length_invalid_for_brand");
   }
 

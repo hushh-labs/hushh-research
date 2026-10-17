@@ -14,6 +14,7 @@ from api.routes.one.profile_research import (
     MagicReviewCompletion,
     PrivateProfileRoute,
 )
+from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services import world_model_preferences as preferences
@@ -98,7 +99,7 @@ class ResearchPreferencesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
     email_enabled: bool
-    consent_version: Literal["pwm-native-v1"]
+    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1"]
 
 
 @router.get("/preferences")
@@ -116,10 +117,15 @@ async def set_preferences(
 ):
     try:
         return await preferences.update_preferences(
-            *owner(token), enabled=body.enabled, email_enabled=body.email_enabled
+            *owner(token),
+            enabled=body.enabled,
+            email_enabled=body.email_enabled,
+            consent_version=body.consent_version,
         )
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except ValueError:
+        raise HTTPException(422, "Accept the current research disclosure to continue.") from None
 
 
 # Paid work is bounded in the database (3 new runs an hour, a fixed search and
@@ -180,7 +186,7 @@ async def complete(
     user_id, consent_token = owner(token)
     try:
         draft = await world_model_jobs.status(user_id, consent_token)
-        if draft.get("research", {}).get("source_use") == "google_grounded_display_only":
+        if draft.get("research", {}).get("source_use") != "owner_supplied":
             raise HTTPException(
                 409,
                 "This search response is for viewing. Add your own details or a permitted source to save knowledge.",
@@ -267,6 +273,8 @@ async def revoke_invitation(
 async def claim_invitation(
     request: Request, body: ClaimInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
+    if body.research_consent and load_pwm_policy()["provider"] == "azure_openai_web_search":
+        raise HTTPException(422, "Turn on Azure public research in Personal World Model settings.")
     try:
         result = await invitations.claim(*owner(token), body.token)
         if body.research_consent:

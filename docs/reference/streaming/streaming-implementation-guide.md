@@ -90,6 +90,10 @@ durable background completion belongs to the existing authenticated job/queue
 owners. Keep selected cost settings unchanged. See [Cloud Run CPU and background
 execution](https://docs.cloud.google.com/run/docs/tips/general).
 
+### Personal World Model research
+
+`GET /api/one/world-model/jobs/stream` is an owner-authorized research stream, separate from the Kai envelope above. It sends `progress` with observed counts and source titles, a cumulative `partial` list of checkpointed cited findings, `ping` heartbeats, and a terminal `result`. The client parses complete SSE blocks with the shared parser and validates each payload against the PWM schema. A later `partial` replaces the earlier list, including an empty list after authority or evidence invalidation. Reconnect or a status read restores the current checkpoint; a provider interruption must not erase already validated provisional findings. Provisional findings are read-only until the final offered report passes evidence validation and the owner chooses what to save.
+
 ### Live Email and Calendar reads
 
 One Live Voice keeps ordered tool dispatch while its provider/client intake can

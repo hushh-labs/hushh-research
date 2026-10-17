@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -8,9 +9,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
 import yaml
+from openai import APITimeoutError
 
 from hushh_mcp.managed_ai_config import load_profile
 from tests._deploy_contract import managed_vertex_probe_script, managed_vertex_probe_surface
@@ -140,6 +144,149 @@ def test_backend_container_honors_governed_worker_count(tmp_path: Path) -> None:
     # Regression: dev declared one worker but the entrypoint launched two,
     # doubling its database connection budget and process-local listeners.
     assert _container_worker_count(tmp_path, "1") == 1
+
+
+def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
+    tmp_path: Path,
+) -> None:
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    steps = build["steps"]
+    deploy_index = next(i for i, step in enumerate(steps) if step.get("id") == "deploy-backend")
+    probe_index = next(
+        i for i, step in enumerate(steps) if step.get("id") == "verify-azure-pwm-runtime"
+    )
+    assert probe_index == deploy_index + 1
+    assert (
+        next(i for i, step in enumerate(steps) if step.get("id") == "verify-managed-vertex-runtime")
+        < deploy_index
+        < probe_index
+    )
+    assert steps[probe_index]["waitFor"] == ["deploy-backend"]
+    probe = steps[probe_index]["args"][-1]
+    assert "execution_name" in probe and "--clear-secrets" in probe
+
+    config_path = tmp_path / "consent-protocol/config/managed-ai-runtime.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "pwm_research": {"provider": "vertex_google_search"},
+                "pwm_research_uat": {"provider": "azure_openai_web_search"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gcloud = fake_bin / "gcloud"
+    fake_gcloud.write_text(
+        "#!/bin/bash\n"
+        'printf "%s\\n" "$*" >> "$GCLOUD_CALLS_PATH"\n'
+        'if [[ "$1 $2 $3" == "run jobs executions" ]]; then echo "azure-pwm-exec-1"; fi\n'
+        'if [[ "$1 $2" == "logging read" ]]; then printf \'[{"jsonPayload":{"azure_pwm_runtime_probe_result":"%s"}}]\\n\' "$PROBE_VERDICT"; fi\n',
+        encoding="utf-8",
+    )
+    fake_gcloud.chmod(0o755)
+    digest = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
+    base_env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "PROJECT_ID": "hushh-pda-uat",
+        "BUILD_ID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "_DEPLOY_ENV": "uat",
+        "_REGION": "us-central1",
+        "_CLOUD_RUN_NO_TRAFFIC": "true",
+        "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "_IMAGE_REFERENCE": digest,
+    }
+    runtime_identity = base_env["_RUNTIME_SERVICE_ACCOUNT"]
+    cases = (
+        ("ok", digest, runtime_identity, 0, True),
+        ("failed", digest, runtime_identity, 1, True),
+        ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
+        ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
+    )
+    for verdict, image, service_account, expected_status, should_call_gcloud in cases:
+        calls = tmp_path / "gcloud-calls.txt"
+        calls.write_text("", encoding="utf-8")
+        result = subprocess.run(  # noqa: S603 - production build script with a fake gcloud.
+            ["bash", "-c", probe],
+            cwd=tmp_path,
+            env={
+                **base_env,
+                "_IMAGE_REFERENCE": image,
+                "_RUNTIME_SERVICE_ACCOUNT": service_account,
+                "PROBE_VERDICT": verdict,
+                "GCLOUD_CALLS_PATH": str(calls),
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == expected_status, result.stderr
+        invoked = calls.read_text(encoding="utf-8")
+        if should_call_gcloud:
+            assert f"--image={digest}" in invoked
+            assert (
+                "--service-account=consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+                in invoked
+            )
+            assert "--clear-secrets" in invoked
+            assert "run.googleapis.com/execution_name" in invoked
+            assert "jsonPayload.azure_pwm_runtime_probe_result" in invoked
+        else:
+            assert not invoked
+
+
+@pytest.mark.parametrize(("timeouts", "should_pass"), [(1, True), (2, False)])
+def test_azure_pwm_phi_probe_retries_one_timeout_but_never_waives_a_second(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    timeouts: int,
+    should_pass: bool,
+) -> None:
+    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
+    spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = 0
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        @property
+        def chat(self):
+            return SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= timeouts:
+                raise APITimeoutError(request=httpx.Request("POST", "https://example.test"))
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
+
+    monkeypatch.setattr(module, "AsyncOpenAI", lambda **_kwargs: FakeClient())
+    config = {"phi_endpoint": "https://example.test/", "phi_deployment": "synthetic-phi"}
+    if should_pass:
+        asyncio.run(module._probe_phi(config, "synthetic-token"))
+    else:
+        with pytest.raises(APITimeoutError):
+            asyncio.run(module._probe_phi(config, "synthetic-token"))
+    assert calls == 2
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [event["result"] for event in events] == (
+        ["start", "timeout", "start", "ok"]
+        if should_pass
+        else ["start", "timeout", "start", "timeout"]
+    )
+    assert all(
+        set(event) == {"azure_pwm_runtime_probe_stage", "result", "elapsed_ms", "attempt"}
+        for event in events
+    )
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:

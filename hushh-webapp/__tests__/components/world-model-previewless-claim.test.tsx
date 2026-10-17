@@ -10,6 +10,7 @@ const mock = vi.hoisted(() => ({
     enabled: boolean;
     email_enabled: boolean;
     consent_version: "pwm-native-v1";
+    research_provider: "vertex_google_search" | "azure_openai_web_search";
   },
   preview: vi.fn(),
   list: vi.fn(),
@@ -123,6 +124,7 @@ it("tells an opted-out recipient that claiming did not build a model", async () 
     enabled: false,
     email_enabled: false,
     consent_version: "pwm-native-v1",
+    research_provider: "vertex_google_search",
   };
   render(
     <WorldModelClaimInvitation
@@ -133,6 +135,32 @@ it("tells an opted-out recipient that claiming did not build a model", async () 
   );
   fireEvent.click(await screen.findByRole("button", { name: "Claim my model" }));
   expect(await screen.findByText(/Public research remains off/)).toBeInTheDocument();
+});
+
+it("never turns on Azure/Bing research through an invitation claim", async () => {
+  mock.preferences = {
+    enabled: false,
+    email_enabled: true,
+    consent_version: "pwm-native-v1",
+    research_provider: "azure_openai_web_search",
+  };
+  render(
+    <WorldModelClaimInvitation
+      ownerId="recipient"
+      vaultKey="vault-key"
+      vaultOwnerToken="owner-token"
+    />,
+  );
+  await screen.findByRole("button", { name: "Claim my model" });
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(screen.getByText(/review Bing search use before turning it on/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
+  await waitFor(() => expect(mock.claim).toHaveBeenCalledWith(
+    { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+    token,
+    false,
+  ));
+  expect(await screen.findByText(/Azure public research remains off/)).toBeInTheDocument();
 });
 
 it.each([
@@ -146,6 +174,7 @@ it.each([
       enabled,
       email_enabled: true,
       consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
     };
     render(
       <WorldModelClaimInvitation

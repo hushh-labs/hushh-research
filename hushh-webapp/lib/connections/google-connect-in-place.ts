@@ -440,7 +440,7 @@ export function inPlaceConnectCopy(
       window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
       phone_handoff: "Finish connecting Calendar on your phone, then ask your private agent again.",
       connected: "Google Calendar connected. Ask One again to continue.",
-      not_connected: "Google Calendar was not connected.",
+      not_connected: "The requested Google Calendar permission was not enabled.",
       failed: "Unable to request Google Calendar permission.",
     },
   };

@@ -323,6 +323,8 @@
     "355_drive_v1_live_request.sql",
     "356_drive_v1_access_period.sql",
     "357_circle_chat_message_actions.sql",
+    "358_circle_wars_weekly_opt_in.sql",
+    "359_independent_email_otp.sql",
     "400_vault_environment_enrollment.sql",
     "401_consumer_scope_commerce.sql",
     "402_one_shared_hosting_choice.sql",
@@ -333,7 +335,8 @@
   ],
   "environment_overlays": {
     "uat": [
-      "174_hushh_tech_uat_client_foundation.sql"
+      "174_hushh_tech_uat_client_foundation.sql",
+      "360_uat_drive_collection_retirement.sql"
     ]
   },
   "groups": {
@@ -347,14 +350,14 @@
       "029_setup_state_rename.sql",
       "036_relationship_share_grants.sql",
       "037_actor_identity_cache.sql",
-      "041_ria_pick_package_metadata.sql",
-      "042_ria_pick_single_active_record.sql",
-      "043_ria_pick_share_artifacts.sql",
       "047_actor_identity_phone_shadow.sql",
       "049_one_email_kyc_workflows.sql",
       "050_one_kyc_client_connector_registry.sql",
       "051_one_kyc_metadata_token_redaction.sql",
       "052_actor_verified_email_aliases.sql",
+      "041_ria_pick_package_metadata.sql",
+      "042_ria_pick_single_active_record.sql",
+      "043_ria_pick_share_artifacts.sql",
       "053_ria_onboarding_v2_fields.sql",
       "054_ria_license_verification_cache_index.sql",
       "056_public_investor_profiles.sql",
@@ -498,7 +501,8 @@
       "336_pwm_claim_invitations.sql",
       "337_initial_contacts_onboarding.sql",
       "340_pwm_provider_budget.sql",
-      "341_pwm_research_lifecycle.sql"
+      "341_pwm_research_lifecycle.sql",
+      "359_independent_email_otp.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -696,6 +700,9 @@
     "354_drive_v1_bulk_removals.sql": "rollback/354_drive_v1_bulk_removals.rollback.sql",
     "355_drive_v1_live_request.sql": "rollback/355_drive_v1_live_request.rollback.sql",
     "356_drive_v1_access_period.sql": "rollback/356_drive_v1_access_period.rollback.sql",
-    "357_circle_chat_message_actions.sql": "rollback/357_circle_chat_message_actions.rollback.sql"
+    "357_circle_chat_message_actions.sql": "rollback/357_circle_chat_message_actions.rollback.sql",
+    "358_circle_wars_weekly_opt_in.sql": "rollback/358_circle_wars_weekly_opt_in.rollback.sql",
+    "359_independent_email_otp.sql": "rollback/359_independent_email_otp.rollback.sql",
+    "360_uat_drive_collection_retirement.sql": "rollback/360_uat_drive_collection_retirement.rollback.sql"
   }
 }

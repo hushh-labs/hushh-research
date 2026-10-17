@@ -1655,9 +1655,11 @@ function AgentWelcomePanel({
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
-    <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
+    // Keep the greeting close to the header; viewport-height centering creates
+    // an increasingly large gap on taller screens.
+    <section className="flex flex-col pb-4 pt-2">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
-        <h2 className="text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
+        <h2 className="max-w-full break-words text-[36px] font-semibold leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] sm:text-[44px]">
           Hi {name}
         </h2>
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
@@ -3148,10 +3150,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isVisiblePkmMemoryWorking = visiblePkmToolCount > 0;
   const onePresenceState = resolveOnePresenceState({
     drafting: isEmailDrafting,
-    working: ((isChatLoading || isStreaming) && activeToolCalls.length > 0) ||
+    working: (isStreaming && hasResponseOutput) ||
+      ((isChatLoading || isStreaming) && activeToolCalls.length > 0) ||
       isToolWorking || appActionBusy || (specialistBusy && !directiveConnectWaiting) ||
       activeActionRun?.phase === "executing" || activeActionRun?.phase === "navigating",
-    answering: (isStreaming && hasResponseOutput) || voiceState === "speaking",
+    answering: voiceState === "speaking",
     thinking: isChatLoading || isStreaming || voiceState === "thinking",
   });
   const rootChatReady = useRootChatDeferredReady();
@@ -4198,6 +4201,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           ? connectCalendarInPlace({
               owner,
               accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
+              includeCalendarList: payload.includeCalendarList === true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
               confirmLegacyTransition: confirmTransition,
@@ -6534,6 +6538,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
+    const nameEpoch = snapshotVaultSessionEpoch();
+    let nameConversationId = conversationIdRef.current;
+    let nameTurnCompleted = false;
+    let turnStopped = false;
+    const nameTurn = options.source === "typed" && attachments.length === 0
+      ? chatOnboarding.beginNameTurn?.(() =>
+          !streamAbortController.signal.aborted && !turnStopped &&
+          workspaceOwnerIdRef.current === userId && isVaultSessionEpochCurrent(nameEpoch) &&
+          latestVisibleTurnIdRef.current === debugTurnId &&
+          conversationIdRef.current === nameConversationId) ?? null
+      : null;
     const pkmContextStartedAt = performance.now();
     performance.mark("hushh:agent-chat:pkm-prepare-start");
 
@@ -6632,7 +6647,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
       // Assess only the owner's typed information alongside answer generation.
       // Capture publishes to RAM; encrypted saving has its own session queue.
-      if (options.source === "typed" && !options.kycInformationSaveConfirmed && !options.calendarMeeting) {
+      if (options.source === "typed" && !nameTurn && !options.kycInformationSaveConfirmed && !options.calendarMeeting) {
         void captureEligiblePkmFactsInBackground({
           turnId: debugTurnId, assistantMessageId, sourceMessage: turnSourceText,
           currentDomains: agentPkmContext.domains,
@@ -6678,7 +6693,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // Stop: settle the bubble now, ask the running turn to end at its next
       // step, and keep reading quietly until it does. Anything it held comes
       // back to the queue and is sent next, as after any interrupt.
-      let turnStopped = false;
       const stopThisTurn = async () => {
         if (turnStopped || streamAbortController.signal.aborted) return;
         turnStopped = true;
@@ -6735,11 +6749,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               pendingEmailDraftFrameRef.current.sourceBound,
             )
           : null,
-        screenContext: buildOneVoiceStructuredScreenContext({
+        screenContext: (() => {
+          const context = buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
-        }) as unknown as Record<string, unknown>,
+          });
+          return { ...context, screen_state: { ...context.one_voice_context?.screen_state, ...nameTurn?.screenState } };
+        })() as unknown as Record<string, unknown>,
         signal: streamAbortController.signal,
         handlers: {
           onReceiptPrivate: () => {
@@ -6787,6 +6804,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 const promise = new Promise<void>((resolve) => { release = resolve; });
                 queuedSettlementGateRef.current = { promise, release };
               }
+              if (conversationIdRef.current === nameConversationId) nameConversationId = nextConversationId;
               updateConversationId(nextConversationId);
               // The turn is running: messages sent now can join it.
               turnQueue?.begin(nextConversationId);
@@ -6800,6 +6818,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onQueuedInput: (notice) => {
             if (streamAbortController.signal.aborted) return;
+            nameTurn?.finish(false);
             const settled = turnQueue?.apply(notice);
             if (!settled) return;
             landJoinedPrompts(settled.joined);
@@ -6807,7 +6826,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            appendDebugEvent(debugTurnId, "tool_start", toolEvent);
+            if (!nameTurn || toolEvent.raw?.toolName !== "propose_style_settings")
+              appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             if (isSilentMemoryToolEvent(toolEvent)) return;
             setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
               { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity,
@@ -6861,6 +6881,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            if (nameTurn && toolEvent.raw?.toolName === "propose_style_settings") {
+              nameTurn.stage(toolEvent.raw.result, toolEvent.callId);
+              upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("result", toolEvent));
+              return;
+            }
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
             if (isSilentMemoryToolEvent(toolEvent)) return;
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
@@ -6965,6 +6990,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            nameTurnCompleted = true;
             slowNotice.finish("answered");
             flushAssistantDelta();
             if (nextConversationId) {
@@ -6983,6 +7009,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            nameTurnCompleted = false;
             // The error in the transcript owns this turn; only server strain
             // keeps the notice up, as the heavy-usage explanation.
             slowNotice.finish("failed");
@@ -7017,6 +7044,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // resumable action is waiting for the owner's tap.
         return;
       }
+      nameTurn?.finish(nameTurnCompleted);
       flushAssistantDelta();
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
@@ -7069,6 +7097,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      nameTurn?.finish(false);
       releaseForegroundChatPriority();
       // Detached, cancelled or settled above: never leave this turn timing.
       slowNotice.finish("stopped");
@@ -9204,6 +9233,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       activeConversationId={isPuppySurface ? puppyConversationId : conversationId}
       loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}
       disabled={isPuppySurface ? false : (!hasChatAccess || historyInteractionDisabled)}
+      createNewDisabled={isPuppySurface ? false : historyInteractionDisabled}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
@@ -10755,6 +10785,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           timeZone={calendarSlot?.selection.timeZone ?? (typeof payload.timeZone === "string" ? payload.timeZone : undefined)}
                           attendees={attendees}
                           location={typeof payload.location === "string" ? payload.location : null}
+                          description={typeof payload.description === "string" ? payload.description : null}
                           sendUpdates={payload.sendUpdates === true}
                           googleMeet={payload.googleMeet === true}
                           conflicts={conflicts}

@@ -66,19 +66,26 @@
 
 .field input { background-color: var(--app-card-surface-default-solid); }
 
-.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); overflow:hidden; }
+.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid transparent; border-radius:var(--app-card-radius-feature); background:transparent; overflow:hidden; }
 .scanArtwork { display:flex; flex-direction:column; align-items:center; width:100%; max-width:280px; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
 .scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
 .scanArtwork:disabled { opacity:.55; cursor:default; }
-.scanReference { display:block; width:100%; height:auto; max-height:260px; object-fit:contain; }
+.scanVisual { position:relative; display:block; width:100%; max-width:260px; aspect-ratio:1; }
+.scanReference { display:block; width:100%; height:100%; object-fit:contain; }
 
 @layer base {
   .scanActions .scanAction { font-size: 13px !important; }
 }
 
-.additional { border-top: 1px solid var(--app-card-border-standard); }
-.additional > summary { min-height: 44px; padding-block: 14px; cursor: pointer; font-size: 13px; font-weight: 400; line-height: 1.2; }
-.additional > summary:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: 4px; }
-.additional > .fields { padding-top: 8px; }
+.required { color: var(--destructive); font-size: 10px; line-height: 1; align-self: flex-start; margin-left: -4px; }
+.required::after { content: "*"; }
 .scanAffordance { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; font-family:var(--font-app-body); font-size:13px; font-weight:var(--type-button-label-weight); line-height:1.22; color:var(--foreground); }
 .scanAffordance svg { width: 18px; height: 18px; }
+.cropStage { padding: 24px; border-radius: 16px; background: var(--muted); }
+.cropCanvas { position: relative; width: fit-content; max-width: 100%; margin: auto; }
+.cropImage { display: block; width: auto; height: auto; max-width: 100%; max-height: min(48vh, 380px); user-select: none; }
+.cropOutline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.cropHandle { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; transform: translate(-50%, -50%); border: 0; background: transparent; touch-action: none; cursor: grab; }
+.cropHandle span { width: 18px; height: 18px; border: 3px solid white; border-radius: 50%; background: var(--app-accent); box-shadow: 0 1px 5px #0008; }
+.cropHandle:focus-visible { outline: 2px solid var(--app-accent); border-radius: 50%; }
+.cropHandle:active { cursor: grabbing; }

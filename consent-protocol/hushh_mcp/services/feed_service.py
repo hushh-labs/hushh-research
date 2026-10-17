@@ -79,6 +79,8 @@ _FEED_SELECT_COLUMNS = (
 )
 # Keep source event facts intact while read/dismissal are owner preferences.
 # Group presentation before pagination, so an older page cannot repeat a chat.
+# Historical PWM attention rows represent failed or empty research, not an
+# actionable draft. Exclude them before pagination and unread counts.
 _GROUPED_FEED_CTE = """
 WITH keyed AS (
   SELECT f.*,
@@ -97,6 +99,8 @@ WITH keyed AS (
     (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
     OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
   WHERE f.user_id = :user_id
+    AND NOT (f.source_domain = 'pwm' AND f.event_type = 'pwm_research'
+      AND COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial'))
 ), bounded AS (
   SELECT keyed.*,
     max(id) FILTER (WHERE dismissed_at IS NOT NULL)

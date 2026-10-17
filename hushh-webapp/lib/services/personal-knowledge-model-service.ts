@@ -1,4 +1,5 @@
 import { canonicalPkmSegmentId, pkmStorageSegmentId } from "@/lib/personal-knowledge-model/segmentation";
+import { assertWalletSecurityCodeWrite, type WalletSecurityCodeChange } from "@/lib/wallet/card-security-code";
 // hushh-webapp/lib/services/personal-knowledge-model-service.ts
 /**
  * Personal Knowledge Model service for PKM operations.
@@ -4493,6 +4494,7 @@ export class PersonalKnowledgeModelService {
     scopePath: "summary" | "secrets";
     explanation: string;
     confirmation: PkmUserConfirmation;
+    securityCodeChange?: WalletSecurityCodeChange;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
     mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
@@ -4502,11 +4504,13 @@ export class PersonalKnowledgeModelService {
       snapshot: DomainSnapshotV1 | null,
       before: Record<string, unknown>,
     ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
-      // Current writes cannot re-persist legacy security codes. Recovery archives
-      // are immutable and require their separately governed retention migration.
+      assertWalletSecurityCodeWrite(before, domainData, params.securityCodeChange,
+        params.confirmation.confirmedByUser === true && params.confirmation.surface === "web" && params.confirmation.source === "one_wallet_add");
+      // Retain only new, explicitly authorized manual codes; legacy CVV/PIN are
+      // still scrubbed. Rebuilds pass the same comparison against fresh content.
       if (this.isPlainObject(domainData.secrets)) domainData = { ...domainData, secrets: Object.fromEntries(Object.entries(domainData.secrets).map(([id, value]) => {
         if (!this.isPlainObject(value)) throw new Error("Your saved cards could not be read. Please try again.");
-        const allowed = ["pan", "cardholder_name", "share_receipts"];
+        const allowed = ["pan", "cardholder_name", "share_receipts", "manual_cvv"];
         const projected = Object.fromEntries(allowed.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
         if (Array.isArray(projected.share_receipts)) projected.share_receipts = projected.share_receipts.filter(row => this.isPlainObject(row)).map(row => Object.fromEntries(["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].filter(key => typeof row[key] === "string").map(key => [key, row[key]])));
         else delete projected.share_receipts;

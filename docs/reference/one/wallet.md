@@ -97,8 +97,9 @@ Cards owns the animated collection, safe summary search, and the existing
 explicit reveal/removal actions. Profile, Referral and NWS are system cards and
 remain present beside saved payment cards. They never enter payment-card storage
 or invoke payment-card reveal/removal services.
-Add opens the encrypted card-entry form directly. Save and Cancel return to
-Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
+Add opens the encrypted card-entry form directly. Save selects the new card in
+Cards. Back and Cancel restore the previous Wallet tab or selected card; leaving
+Add clears its draft. Explicit tab switching preserves and masks an unfinished draft. Vault lock
 discards the form and revealed details. Chat and Secrets handoffs wait until
 Continue, then use the existing card-entry flow.
 
@@ -111,9 +112,11 @@ source artwork.
 ## Adding a payment card
 
 The Add tab accepts local camera capture, photo selection and manual entry.
-Card number, name on card and expiry are required. Network and issuing region
-are optional. Security codes are never collected or retained. A blank network
-uses number-based network detection, with Other for a valid unrecognized number;
+Card number, name on card, expiry and network carry required markers. An
+automatically identified network satisfies the network field; an unknown or unavailable
+identification requires an explicit choice. Issuing region stays optional and is
+always visible in the main form, without an additional-details disclosure. Security codes are never collected or retained. A blank network
+uses number-based network detection; the owner selects Other for a valid unrecognized number;
 a supplied provider supports overlapping network ranges. A supplied region is
 validated, while a blank region stays blank. Existing nicknames remain readable;
 new cards use the network label without asking for a nickname.
@@ -126,7 +129,7 @@ The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
 chat projection. Collection and selected-card faces show only the last four
 number digits, as does the Card details row. The full number is decrypted only
-after an explicit copy action. CVV and PIN stay hidden. Locking the vault or changing
+after an explicit copy action. CVV requires its separate owner-only Show action; PIN stays hidden. Locking the vault or changing
 accounts drops the presentation. Reads that fail do not become an empty wallet,
 and writes use the current snapshot revision to preserve concurrent additions.
 
@@ -218,8 +221,8 @@ confirmed revocation through the existing consent actions. Pending requests stay
 in Consent Center. Loading and read errors are distinct from empty access.
 
 Wallet panels use solid surfaces and Location section typography. The collection
-omits example labels and fictional total-due content. CVV/CVC and PIN controls,
-validation requirements, current-write persistence and reveal rows are removed.
+omits example labels and fictional total-due content. Owner Add offers an optional,
+masked CVV field beside Issuing region; PIN is not collected.
 
 ### Card browsing gestures
 
@@ -231,7 +234,8 @@ The Cards overview presents one full card above a compact lower stack. Vertical 
 Selecting a saved payment card keeps its face and Card details number masked.
 The copy icon decrypts and copies the complete saved number without adding it
 to the DOM. Owner, key, tab, selection, visibility and unmount changes invalidate
-delayed copies. CVV and PIN remain hidden. Saved-card recipient rows show the
+delayed copies. CVV has a separate owner-only Show action; PIN remains hidden.
+Saved-card recipient rows show the
 recipient name and shared date; revocation remains available for active grants.
 
 The Add scanner illustration centers the portrait Agent One card over the
@@ -406,11 +410,14 @@ recognition. No new official artwork or network partnership claim is introduced.
 ### Architecture and failure causes
 
 - `wallet-card-scanner.tsx` owns camera/gallery acquisition, unsaved Blob URLs,
-  suggested edges, keyboard-adjustable corners and the scan Back layer.
+  suggested edges, four draggable 44px corner handles (also adjustable with
+  arrow keys) and the scan Back layer. Handles cannot cross or collapse the crop.
   `wallet-live-card-capture.tsx` uses the rear camera in the current browser page
   with an ID-1 guide; every stream stops on cancel, hiding or unmount. Android
   uses the system camera through `HushhCardCapture`; iOS uses Capacitor Camera.
   Native system camera UI has its own guide controls; Wallet crop review follows capture.
+  Web capture crops the exact visible object-cover guide, including portrait
+  camera sensors, so the captured photo matches the preview.
   The featured Add scanner also exposes photo selection. Live capture offers
   the same fallback when permission is denied or a frame cannot be captured;
   controls wrap on narrow screens. Partial and empty readings keep camera and
@@ -431,9 +438,14 @@ recognition. No new official artwork or network partnership claim is introduced.
   validated PANs stay ambiguous across composed readings. Checksum-invalid
   readings are correction drafts; they cannot veto an independently valid PAN.
   Grouped low-confidence glyphs remain marked for review.
+  A usable number, expiry and name draft stop redundant orientation passes;
+  an unlabelled name need not become a confirmed field to be reviewed. Partial
+  structured readings survive a later worker failure/deadline, but never cancel,
+  lock or owner/session changes. Generic 12-digit numbers are supported too.
 - `secure-card-add-form.tsx` preserves manual corrections, fills independently
   readable fields and offers one **Add to Wallet** confirmation. It does not
   save automatically. A backend metadata failure keeps the recognized fields.
+  Typed and scanned cardholder names become uppercase in the form and save.
   Lock, owner change, cancellation and a second capture fence delayed effects.
 - `wallet-service.ts` reuses backend network authority and the existing PKM
   AES-256-GCM write. A logical draft keeps one canonical card ID across uncertain
@@ -444,7 +456,8 @@ recognition. No new official artwork or network partnership claim is introduced.
 Inputs are JPEG, PNG or WebP, at most 15 MB compressed and 24 megapixels.
 Native acquisition converts compatible library images to a fresh JPEG; unsupported
 browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
-card recognition is bounded to 1600 pixels. Add requests fields only, with at most
+rectified crops use at most 1600 pixels, while full photos retain their proportions.
+Add requests fields only, with at most
 five recognition passes; it uses the existing automatic catalog artwork on save.
 Explicit photo-artwork callers can additionally use four masking and four
 final-inspection passes. The complete scan has
@@ -452,6 +465,8 @@ a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,
 and acquisition 180. Pixel processing and OCR run in the owned local worker.
 No camera/photo/transcript goes to a cloud vision service. Real-device latency,
 embossed metal and severe glare are not guaranteed by these bounds.
+Only the bundled public English language model is cached by Tesseract for reuse;
+photos, credentials, transcripts and display approvals are not cached there.
 
 ### Authorized catalog and coverage
 
@@ -480,9 +495,15 @@ designs assigned automatically by the selected network during Add. It does not
 infer a bank from a sample number or claim an exact physical-card match. The
 bundled catalog is replaced by an explicitly configured private catalog.
 
-After publishing decrypted cards, Workspace recovers missing or neutral artwork
-from the approved network catalog in memory, including older saved cards.
-The normal owner read does not wait for optional artwork recovery.
+Vault unlock and the One dashboard warm a shared, memory-only Wallet display
+projection before entry. Wallet joins that protected read, including approved
+network artwork recovery for older saved cards. Returning to Wallet uses the
+same owner/session-scoped snapshot without restarting the card load. Quiet
+refreshes retain approved pixels until their original one-minute deadline;
+explicit denial hides them immediately. Lock, owner change, verification,
+vault epoch and Wallet mutation invalidate the projection. It never contains
+full card numbers, CVV, keys or consent tokens. A cold load still needs the
+protected read; unavailable artwork falls back to a readable neutral card.
 Different numbers prefer unused image digests; the full number is compared only
 inside the unlocked client. This display recovery does not write PKM, change
 credentials or grants, replace a saved photo, or reallocate a withdrawn catalog
@@ -506,7 +527,7 @@ discarding valid card details; an explicit design update asks for a current choi
 The approved-feed adapter reuses the pinned public HTTPS transport and requires
 a deployment-owned permission/rights review before configuration.
 
-### Private photo and prohibited security codes
+### Private photo and owner-only security codes
 
 The sanitizer flattens transparency onto an opaque background, discarding hidden
 RGB/alpha information. It conservatively overwrites all detected printed text, plus any
@@ -536,12 +557,26 @@ owner-authorized encrypted payload and grant identities; artwork is not attached
 The client compares actual before/after values against reserved-writer authority
 before encryption and after conflict reconstruction; chat cannot modify artwork.
 
-CVV/CVC and PIN are absent from collection, reveal, card rendering and current
-Wallet writes. Current writes also scrub legacy per-card fields and receipt
-extras and refuse malformed records. **Historical encrypted revisions, backups,
-restoration downloads, delivered exports and older clients are not purged by this
-feature. Their retention/migration and minimum-client-write policy remain a
-separate governed release blocker.** No production deletion is performed here.
+Owner Add optionally accepts a three or four digit CVV, preserving leading zeros.
+Only explicit manual entry writes `manual_cvv` inside the encrypted private
+`wallet.secrets` segment. The canonical writer compares before/after values and
+requires the confirmed owner Add authority for a change, including after a
+conflict rebuild. Other writers preserve it or remove the whole card. A retry
+cannot carry a previous number's code onto a different number.
+
+Saved owner details mask the code until Show is tapped. It hides after 45 seconds,
+backgrounding, lock, owner/key/epoch changes, card selection or leaving Cards.
+There is no code copy action. `getCard`, card faces, OCR, chat widgets, model
+context, readable downloads and card sharing never include it. Encrypted vault
+restoration backups retain it inside ciphertext. General Memory security-code
+capture stays prohibited; this field is not a Live Memory source.
+
+Legacy `cvv`, `cvc` and `pin` values are never promoted to the new field. Current
+writes scrub them and receipt extras and refuse malformed records. Historical
+encrypted revisions, backups, delivered exports and older clients are not purged
+by this feature; no production deletion is performed here.
+Clients predating `manual_cvv` can strip it during a full Wallet rewrite. Deploy
+the updated writer across active clients before enabling this field in a rollout.
 
 Local PAN validation uses Luhn except for a backend-resolved UnionPay card,
 consistent with [Braintree card-validator](https://github.com/braintree/card-validator).
@@ -585,3 +620,13 @@ behavior. No replacement Firebase configuration was fabricated or committed.
 Licensed product coverage, historical credential retention and native/device
 rehearsals must be approved before this draft feature is released. No deploy or
 merge is part of this task.
+
+Manual entry inserts spaces after every four number digits and an expiry slash after the month. Generic Other cards support checksum-valid 12–19 digit numbers; known networks retain their own length rules, including 15-digit American Express. Formatting never adds separators to encrypted number storage or sends a full number to network lookup.
+
+Wallet swipe controls use a 3px header-to-details gap (75% less than the inherited 12px Profile margin), with a compact heading and 48px read-only summary rows; the close target remains 44px. The versioned Agent One artwork reduces the shushing mark by 20% in both dimensions; Apple Wallet actions use a transparent icon. Timed profile recipients see the canonical card face using only their permitted name; membership dates, wallet identifiers and public QR links are excluded from this projection. Existing contact actions and grant expiry/revocation still apply.
+
+The Scan to add card illustration is one complete lossless WebP with the supplied
+shushing emoji embedded on a slim black card, above a phone with gold sides.
+It preserves the complete source image's visible pixels. The scanner assembly has
+black faces and gold borders; the front card has no printed QR or profile text.
+The illustration and its surrounding Scan surface have transparent backgrounds.

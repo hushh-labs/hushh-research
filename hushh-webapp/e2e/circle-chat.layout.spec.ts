@@ -58,6 +58,22 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  await mount(page, width === 393, true);
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Hi 🙂");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const row = page.locator("[data-chat-message]").filter({ hasText: "Hi 🙂" });
+  await expect(row).toBeVisible();
+  const geometry = await row.evaluate(element => {
+    const text = [...element.querySelectorAll("p")].find(node => node.textContent === "Hi 🙂")!.getBoundingClientRect();
+    const time = [...element.querySelectorAll("time")].at(-1)!.getBoundingClientRect();
+    return { textBottom: text.bottom, timeTop: time.top };
+  });
+  expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+  await page.screenshot({ path: test.info().outputPath(`inline-circle-time-${width}.png`), animations: "disabled" });
+});
+
 test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
   await mount(page, false, true);
   const own = page.locator('[data-chat-message="reply"]');

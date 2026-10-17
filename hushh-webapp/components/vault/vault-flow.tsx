@@ -338,9 +338,7 @@ function VaultFlowHeader({
         data-vault-account-identity
         className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
       >
-        {setupPresentation
-          ? <span data-vault-setup-avatar aria-hidden="true">O</span>
-          : <EmailIdentityMark email={user.email} providerId={providerId} />}
+        <EmailIdentityMark email={user.email} providerId={providerId} size={setupPresentation ? 20 : 17} />
         <span className="min-w-0 break-all">
           {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
         </span>
@@ -1890,6 +1888,7 @@ export function VaultFlow({
                       onClick={() => setShowPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
                       {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
@@ -1927,6 +1926,7 @@ export function VaultFlow({
                       onClick={() => setShowConfirmPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showConfirmPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showConfirmPassphrase}
                       title={showConfirmPassphrase ? "Hide password" : "Show password"}
                     >
                       {showConfirmPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
@@ -2061,6 +2061,7 @@ export function VaultFlow({
                       onClick={() => setShowPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
                       aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
                       {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}

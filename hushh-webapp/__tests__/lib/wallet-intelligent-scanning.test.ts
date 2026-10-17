@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Blob as NodeBlob } from "node:buffer";
 import { webcrypto } from "node:crypto";
 import { encodeCardPng, decodeCardPng, flattenCardTransparency, type CardRaster } from "@/lib/wallet/card-scan-raster";
-import { validateCardImage, cardProjection, FULL_CARD } from "@/lib/wallet/card-scan-image";
+import { validateCardImage, cardProjection, cardCameraCaptureBox, FULL_CARD } from "@/lib/wallet/card-scan-image";
 import { spatialCardNumbers } from "@/lib/wallet/card-scan-spatial";
 import { parseCardScanReading, mergeCardScanReadings } from "@/lib/wallet/card-scan-fields";
 import { approveWalletPhoto, assertWalletArtworkApproval, registerInspectedWalletPhoto } from "@/lib/wallet/card-artwork";
@@ -19,6 +19,18 @@ beforeEach(() => { vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webc
 afterEach(() => vi.unstubAllGlobals());
 
 describe("independent, conservative local observations", () => {
+  it("never manufactures a 12-digit PAN by dropping the short final group of a 13-digit number", () => {
+    const row = ["4222", "2222", "2222", "2"].map((text, index) => ({ text, confidence: 90, bbox: { x0: index * 100, x1: index * 100 + (text.length === 1 ? 15 : 60), y0: 0, y1: 30 } }));
+    expect(spatialCardNumbers(row)).toEqual(["4222222222222"]);
+    row[3]!.confidence = 30;
+    expect(spatialCardNumbers(row)).toEqual([]);
+  });
+  it("captures exactly the visible camera guide for portrait and landscape sensors", () => {
+    // A 4:3 sensor shown in the landscape card preview loses top/bottom pixels.
+    expect(cardCameraCaptureBox(1600, 1200, 400, 250)).toEqual({ x: 128, y: 180, width: 1344, height: 840 });
+    // A portrait sensor loses still more vertical pixels, without cropping sides twice.
+    expect(cardCameraCaptureBox(1200, 1600, 300, 187.5)).toEqual({ x: 96, y: 485, width: 1008, height: 630 });
+  });
   it("can create a canonical operation ID when the browser lacks randomUUID", () => {
     vi.stubGlobal("crypto", { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) });
     expect(walletOperationId()).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
@@ -98,7 +110,7 @@ describe("owner-bound approval and private projections", () => {
     const blob = await encodeCardPng(raster()); registerInspectedWalletPhoto(blob, "synthetic-owner", snapshotVaultSessionEpoch()); const artwork = await approveWalletPhoto(blob, "synthetic-owner"); advanceVaultSessionEpoch(); expect(() => assertWalletArtworkApproval(artwork, "synthetic-owner")).toThrow();
   });
   it("excludes art, codes and receipts from historical/mixed-case consent projections", () => {
-    const input = { summary: { card_1: { last4: "4242", brand: "visa", extra: "do not export" } }, secrets: { card_1: { pan: "4242424242424242", cardholder_name: "SYNTHETIC OWNER", cvv: "code-sentinel", pin: "pin-sentinel", share_receipts: ["receipt-sentinel"] } }, artwork: { card_1: { image: "art-sentinel" } } };
+    const input = { summary: { card_1: { last4: "4242", brand: "visa", extra: "do not export" } }, secrets: { card_1: { pan: "4242424242424242", cardholder_name: "SYNTHETIC OWNER", cvv: "code-sentinel", manual_cvv: "manual-code-sentinel", pin: "pin-sentinel", share_receipts: ["receipt-sentinel"] } }, artwork: { card_1: { image: "art-sentinel" } } };
     const safe = projectWalletConsent(input); expect(JSON.stringify(safe)).not.toMatch(/sentinel|do not export/); expect(safe).toHaveProperty("secrets.card_1.pan");
     const result = projectDomainDataForScope({ domain: "Wallet", scope: "pkm.read", domainData: input }); expect(JSON.stringify(result)).not.toMatch(/sentinel/);
     expect(excludePrivatePkmDomains({ Wallet: input, professional: { name: "kept" } })).toEqual({ professional: { name: "kept" } });

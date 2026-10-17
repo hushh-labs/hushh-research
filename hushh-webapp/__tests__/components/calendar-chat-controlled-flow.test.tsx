@@ -35,6 +35,17 @@ describe("controlled Calendar tool → visible action → confirmation", () => {
     expect(results.provider_error.status).toBe("failed");
   });
 
+  it("shows the next local date and exactly 30 minutes across midnight", () => {
+    render(<AgentCalendarProposalCard {...results.write_authorized.directive.payload} action="create" conflicts={[]} startAt="2026-10-16T18:00:00Z" endAt="2026-10-16T18:30:00Z" timeZone="Asia/Kolkata" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText(/Oct 16.*Oct 17.*30 min/)).toBeVisible();
+    expect(screen.queryByText(/29\.98/)).toBeNull();
+  });
+
+  it("shows an existing short interval honestly without fractional-minute noise", () => {
+    render(<AgentCalendarProposalCard {...results.write_authorized.directive.payload} action="create" conflicts={[]} startAt="2026-10-16T18:00:00Z" endAt="2026-10-16T18:29:59Z" timeZone="Asia/Kolkata" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText(/29 min 59 sec/)).toBeVisible();
+  });
+
   it("shows details and attendees for sufficient access and executes only the confirmed proposal", async () => {
     const event = project(results.write_authorized)!;
     const payload = results.write_authorized.directive.payload;

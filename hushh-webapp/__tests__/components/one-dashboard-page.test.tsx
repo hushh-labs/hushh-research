@@ -1,5 +1,6 @@
+vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: () => null }));
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 

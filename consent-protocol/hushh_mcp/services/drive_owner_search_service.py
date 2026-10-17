@@ -24,6 +24,10 @@ from hushh_mcp.services.drive_owner_search_store import (
     _legacy_single_query,
     validate_reusable_packet,
 )
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+)
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -37,8 +41,8 @@ from hushh_mcp.services.google_drive_adapter import (
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 PAGE_SIZE = 25
-FILE_LIST_PAGE_SIZE = 100
-V1_FILE_LIST_PAGE_SIZE = 1000
+FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
+V1_FILE_LIST_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
 MAX_REQUEST_FILE_PAGES = 1000
@@ -59,6 +63,7 @@ DOCUMENT_MIMES = frozenset(
         "application/rtf",
     }
 )
+V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES = ("audio/", "video/")
 logger = drive_logger("drive_owner_search")
 _MONTH_WINDOW = re.compile(
     r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
@@ -92,7 +97,35 @@ _TITLE_TIME = re.compile(
 )
 _YESTERDAY = re.compile(r"\byesterday(?:['’]?s)?\b", re.I)
 _NOTE_TITLE = re.compile(r"\b(?:notes?|minutes)\b", re.I)
+_MEETING_SUBJECT = re.compile(r"\b(?:meetings?|stand[\s-]?up|syncs?|huddles?)\b", re.I)
+# A bounded discovery expansion for common meeting-note titles. These are
+# candidates only; extracted content and its event date decide membership.
+_MEETING_NOTE_DISCOVERY = (
+    "meeting",
+    "notes",
+    "standup",
+    "stand up",
+    "stand-up",
+    "sync",
+    "minutes",
+    "huddle",
+)
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
+
+
+def _is_meeting_note_request(text: str) -> bool:
+    return bool(_NOTE_TITLE.search(text) and _MEETING_SUBJECT.search(text))
+
+
+def _v1_meeting_note_plan(plan: dict, purpose: dict, *, v1_live_request: bool) -> dict:
+    """Keep a meeting-notes request on content/event dates, not file activity."""
+    if (
+        not v1_live_request
+        or plan.get("exact_title")
+        or not _is_meeting_note_request(purpose.get("purpose", ""))
+    ):
+        return plan
+    return {**plan, "time_intent": "document_coverage"}
 
 
 def _coordinated_alternatives(terms: list[str], purpose: str) -> bool:
@@ -196,9 +229,10 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
     if not _filename_candidate(checkpoint, match):
         return False
     owner_review = checkpoint.get("request_owner_review_required") is True
-    if owner_review and not folder_scoped:
+    if owner_review and (not folder_scoped or checkpoint.get("v1_live_request") is True):
         # A provider fullText hit is a candidate for the owner's exact review.
-        # Its filename cannot prove or disprove the document's contents.
+        # V1 folder children also go through content evaluation; their generic
+        # filenames cannot prove or disprove the document's contents.
         return True
     if not checkpoint.get("request_notes"):
         return True
@@ -358,6 +392,7 @@ def compile_request_queries(
     from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
     from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, quote_literal
 
+    plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
     parsed = LiveSearchPlan.model_validate(plan)
     if parsed.mode != "find":
         raise DriveReadError("invalid_argument")
@@ -416,6 +451,7 @@ def compile_request_queries(
         "institutional_statement",
         "broad_financial_records",
     }
+    meeting_notes_v1 = v1_live_request and _is_meeting_note_request(purpose.get("purpose", ""))
     kind_clause = (
         _request_kind_clause(parsed.file_kind)
         if direct_originals
@@ -500,11 +536,41 @@ def compile_request_queries(
     )
     queries = [{"arguments": {"query": query, "orderBy": f"{order} desc"}}]
 
+    def append_v1_meeting_note_sweep() -> None:
+        # Native Drive can find a "Team Sync and Standup" document for a
+        # meeting-notes request even when neither word is in the model plan.
+        # Keep the expansion lexical and bounded; content review remains the
+        # only source of a verified match.
+        if not v1_live_request or parsed.exact_title or not meeting_notes_v1:
+            return
+        # A title sweep mirrors the owner's visible Drive result set without
+        # turning every incidental body mention of "sync" into a candidate.
+        # The precise first query still searches fullText, and topical folders
+        # bring their generic-named children into the content evaluator.
+        aliases = (
+            "("
+            + " or ".join(
+                f"name contains {quote_literal(term)}" for term in _MEETING_NOTE_DISCOVERY
+            )
+            + ")"
+        )
+        sweep = " and ".join([*([entity_subject] if entity_subject else []), aliases, *base])
+        if len(sweep) > 1800:
+            raise DriveReadError("invalid_argument")
+        candidate_query = {"arguments": {"query": sweep, "orderBy": f"{order} desc"}}
+        if candidate_query not in queries:
+            queries.append(candidate_query)
+
+    # Put the common title aliases before broad clue pages so a sync or
+    # standup file enters the first evaluation cohort as soon as possible.
+    append_v1_meeting_note_sweep()
+
     def append_v1_structural_sweep() -> None:
-        # Drive fullText is a discovery hint, not a complete index of original
-        # bytes (notably scans). Search supported formats by MIME as well, then
-        # let the paged background reader decide issuer, type and content dates.
-        # No file timestamp or fixed top-N may discard a matching statement.
+        # The whole-Drive MIME sweep is reserved for financial statements,
+        # whose exact issuer/period evidence may be absent from Drive text.
+        # Meeting-note requests use lexical aliases plus topical folder
+        # children. Sweeping every document for notes can hit the 10k-row
+        # work limit before any candidate receives content evaluation.
         if not financial_v1 or parsed.exact_title:
             return
         mime_subject = (
@@ -538,7 +604,7 @@ def compile_request_queries(
             queries.append(entity_query)
         append_v1_structural_sweep()
         return queries, period
-    if broader_subject is not None:
+    if broader_subject is not None and not meeting_notes_v1:
         broader_query = " and ".join(
             [*([entity_subject] if entity_subject else []), broader_subject, *base]
         )
@@ -654,26 +720,45 @@ def _request_candidate_kind_matches(checkpoint: dict, kind: str, mime: str) -> b
     # A bank statement may be a spreadsheet or an image of a paper statement.
     # The model still has to verify the document's contents before review.
     authored = checkpoint.get("authored_plan")
+    meeting_notes = _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
     return (
         checkpoint.get("v1_live_request") is True
         and kind == "document"
         and isinstance(authored, dict)
-        and authored.get("semantic_intent")
-        in {"institutional_statement", "broad_financial_records"}
+        and (
+            authored.get("semantic_intent")
+            in {"institutional_statement", "broad_financial_records"}
+            or meeting_notes
+        )
         and mime in LIVE_SUPPORTED_TYPES
     )
 
 
-def _v1_unsupported_candidate(checkpoint: dict, kind: str, mime: str) -> bool:
+def _v1_unsupported_candidate(
+    checkpoint: dict, kind: str, mime: str, *, mime_verified: bool = True
+) -> bool:
     authored = checkpoint.get("authored_plan")
+    meeting_notes = _is_meeting_note_request(checkpoint.get("request", {}).get("query", ""))
     return (
         checkpoint.get("v1_live_request") is True
         and kind in {"any", "document"}
         and isinstance(authored, dict)
-        and authored.get("semantic_intent")
-        in {"institutional_statement", "broad_financial_records"}
+        and (
+            authored.get("semantic_intent")
+            in {"institutional_statement", "broad_financial_records"}
+            or meeting_notes
+        )
         and mime not in LIVE_SUPPORTED_TYPES
         and mime not in {FOLDER_MIME, SHORTCUT_MIME}
+        # A live video or audio file cannot satisfy a document request. Its
+        # incidental fullText hit must not make the whole search incomplete.
+        # A shortcut's targetMimeType is only a snapshot, so keep an
+        # unavailable target unresolved until its current MIME is verified.
+        and not (
+            mime_verified
+            and kind == "document"
+            and mime.startswith(V1_DOCUMENT_NON_DOCUMENT_MIME_PREFIXES)
+        )
     )
 
 
@@ -1001,7 +1086,7 @@ class DriveOwnerSearchService:
         purpose = context["purpose"]
         plan = _deterministic_statement_plan(purpose)
         if plan is None or context.get("agentPackageRequired"):
-            return None, False
+            return None, False, None
         queries, period = compile_request_queries(
             plan.model_dump(mode="json"),
             purpose,
@@ -1120,13 +1205,11 @@ class DriveOwnerSearchService:
             raise DriveReadError("date_range_required")
         await require_current()
         query = purpose["purpose"]
+        plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         request = self._request(query, timezone)
-        await self.store.clear_legacy_completed_request(user_id=user_id, request_id=request_id)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
-        if existing is not None:
-            if existing["status"] not in {"failed", "limited", "stopped"}:
-                return existing
-            await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
+        if existing is not None and existing["status"] in {"queued", "running"}:
+            return existing
         if indexed:
             period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
             queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
@@ -1138,17 +1221,7 @@ class DriveOwnerSearchService:
                 requested_at=requested_at,
                 v1_live_request=v1_live_request,
             )
-        from hushh_mcp.services.drive_request_bulk_service import (
-            _deterministic_statement_plan,
-        )
-
-        statement_plan = _deterministic_statement_plan(purpose)
-        v1_statement_search = v1_live_request or (
-            authority_mode in {"owner", "trusted_auto"}
-            and route["kind"] == "provider"
-            and statement_plan is not None
-            and plan == statement_plan.model_dump(mode="json")
-        )
+        v1_statement_search = v1_live_request
         time_intent = plan.get("time_intent", "document_coverage")
         owner_review_required = (
             time_intent == "document_coverage" or authority_mode == "agent_package"
@@ -1164,6 +1237,8 @@ class DriveOwnerSearchService:
             request=request,
             confirmed=True,
             v1_statement_search=v1_statement_search,
+            replace_terminal_request=True,
+            replace_legacy_completed_request=True,
             checkpoint={
                 "request": request,
                 "arguments": queries[0]["arguments"],
@@ -1257,17 +1332,18 @@ class DriveOwnerSearchService:
                 "drive_tokens": [],
             },
         )
+        if not created:
+            return state
         await self.store.align_request_expiry(user_id=user_id, request_id=request_id)
-        if created:
-            await self.run_one(
-                user_id=user_id,
-                job_id=state["jobId"],
-                max_pages=1,
-                deadline_seconds=15,
-                **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
-                require_current=require_current,
-                **({"after_page": after_page} if after_page is not None else {}),
-            )
+        await self.run_one(
+            user_id=user_id,
+            job_id=state["jobId"],
+            max_pages=1,
+            deadline_seconds=15,
+            **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
+            require_current=require_current,
+            **({"after_page": after_page} if after_page is not None else {}),
+        )
         await wake_drive_work("v1" if v1_statement_search else "suggestions")
         return await self.status(
             user_id=user_id, job_id=state["jobId"], require_current=require_current
@@ -1506,7 +1582,9 @@ class DriveOwnerSearchService:
                         _counter(checkpoint, "unavailableFolderCount")
                         continue
                     target_kind = details.get("targetMimeType")
-                    if target_kind and _v1_unsupported_candidate(checkpoint, kind, target_kind):
+                    if target_kind and _v1_unsupported_candidate(
+                        checkpoint, kind, target_kind, mime_verified=False
+                    ):
                         incomplete = True
                         _counter(checkpoint, "unsupportedCandidateCount")
                         continue
@@ -2029,14 +2107,14 @@ class DriveOwnerSearchService:
                 except DriveSharingError:
                     await self.store.release(job, error="connection_changed")
                     return finish("superseded")
-                _, changed = await self.replan_legacy_statement_request(
+                _, changed, worker_stage = await self.replan_legacy_statement_request(
                     user_id=user_id,
                     request_id=checkpoint["request_origin_id"],
                     context=context,
                     expected_lease=job["lease_id"],
                 )
                 if changed:
-                    await wake_drive_work("v1")
+                    await wake_drive_work(worker_stage)
                     return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
             async with asyncio.timeout(deadline_seconds), session():

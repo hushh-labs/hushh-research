@@ -1,5 +1,6 @@
 import { preload } from "react-dom";
 import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
+import { WalletEntryWarmup } from "@/components/wallet/wallet-entry-warmup";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -36,6 +37,7 @@ export function OneDashboardPage({
     >
       <AppPageContentRegion>
         <PublicProfileDiscoveryEntry key={userId} userId={userId} />
+        <WalletEntryWarmup />
         <OneAgentRoster
           capabilityStatusById={capabilityStatusById}
           displayName={displayName}

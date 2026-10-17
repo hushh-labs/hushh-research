@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
@@ -138,8 +139,8 @@ class CreateRequest(StrictRequest):
     ownerPersonRef: UUID | None = None
     clientRequestId: UUID
     purpose: ShareRequestPurpose
-    # The content dates live in purpose; this is the separate Viewer access term.
-    accessDays: int = Field(default=30, ge=1, le=90, strict=True)
+    # The content dates live in purpose; this optional Viewer term belongs to V1 requests.
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
     requesterActorType: Literal["person", "ria"] = "person"
     reason: str = Field(default="", max_length=500)
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
@@ -472,6 +473,12 @@ async def list_packets(
 async def set_packet_listing(
     packet_id: UUID, body: PacketListingRequest, owner: Owner = Depends(_owner)
 ):
+    # Existing listings can still be withdrawn while new packet commerce is off.
+    if (
+        body.decision == "allow"
+        and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+    ):
+        raise _error(DriveSharingError("packet_unavailable"))
     return await _call(
         "set_listing",
         owner=owner,
@@ -492,6 +499,8 @@ async def request_packet(
     recipient=Depends(_recipient),
     owner: Owner = Depends(_owner),
 ):
+    if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
+        raise _error(DriveSharingError("packet_unavailable"))
     return await _call(
         "request_packet",
         owner=owner,

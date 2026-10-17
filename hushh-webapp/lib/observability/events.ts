@@ -265,6 +265,8 @@ export type ConsentPendingLoadSurface = "screen" | "warm";
 export type AuthMethod =
   | "google"
   | "apple"
+  | "microsoft"
+  | "email"
   | "enterprise_sso"
   | "reviewer"
   | "redirect"

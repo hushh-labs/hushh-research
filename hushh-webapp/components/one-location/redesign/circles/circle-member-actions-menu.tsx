@@ -129,22 +129,21 @@ export const MEMBER_ACTIONS_MENU_CONTEXT_TESTID =
  * `--app-primary-surface`; this now is too.
  */
 export const MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME =
-  "min-w-[13.5rem] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 text-[color:var(--app-primary-label)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
+  "w-[280px] max-w-[calc(100vw-24px)] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 text-[color:var(--app-primary-label)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none";
 
 /**
  * One row of the anchored menu.
  *
- * `min-h-11` -- 44px, the platform touch minimum -- rather than the
- * primitive's `py-1.5`, which lands a 15px label in a 30px row. Two 30px rows
- * is the other half of the report: the actions were cramped AND unlabelled as
- * to owner.
+ * Shares the sheet's 52px row height and 16px horizontal inset so each action
+ * fills its surface with a consistent, comfortable target.
  */
 export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
   CIRCLE_MEMBER_MENU_ITEM_CLASSNAME;
 
-/** One full-width, 56px row in the member-action sheet's grouped card. */
+/** The action list fills the sheet's padded width; Cancel and the removal
+ *  confirmation retain their existing 244px measure. */
 export const MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME =
-  "flex min-h-14 w-full items-center gap-3 px-4 text-left text-[17px] font-normal leading-[22px] transition-colors active:bg-[#F2F2F7] disabled:opacity-60";
+  "flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left text-[17px] font-normal leading-[22px] transition-colors hover:bg-[color:var(--app-neutral-fill)] focus-visible:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill)] disabled:opacity-60";
 
 export const MEMBER_ACTIONS_SHEET_CTA_CLASSNAME =
   "mx-auto w-full max-w-[244px]";
@@ -453,7 +452,7 @@ export function CircleMemberActionsMenu({
                       disabled={busy}
                       className={cn(
                         MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
-                        "justify-center text-center text-[#FF3B30]",
+                        "text-[#FF3B30]",
                       )}
                       onClick={() => setSheetConfirmingRemove(true)}
                     >
@@ -463,10 +462,12 @@ export function CircleMemberActionsMenu({
                   ) : null}
                 </div>
 
-                <div className="mt-4">
+                <div
+                  className={cn("mt-2", MEMBER_ACTIONS_SHEET_CTA_CLASSNAME)}
+                >
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     size="prominent"
                     className={cn(
                       "h-[52px] min-h-[52px] w-full justify-center bg-[#F2F2F7] text-center text-[17px] font-medium text-[color:var(--app-accent-deep)] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]",
@@ -511,9 +512,9 @@ export function CircleMemberActionsMenu({
         >
           <DropdownMenuLabel
             data-testid={MEMBER_ACTIONS_MENU_CONTEXT_TESTID}
-            className="px-3 pb-1 pt-1.5 text-[12px] font-medium leading-4 text-[color:var(--app-secondary-label)]"
+            className="px-4 pb-1 pt-1.5 text-[12px] font-medium leading-4 text-[color:var(--app-secondary-label)]"
           >
-            <span className="block max-w-[11rem] whitespace-normal [overflow-wrap:anywhere]">
+            <span className="block whitespace-normal [overflow-wrap:anywhere]">
               Actions for {displayName}
             </span>
           </DropdownMenuLabel>

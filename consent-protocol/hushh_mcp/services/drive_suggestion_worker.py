@@ -1,6 +1,7 @@
 """Finite consented preparation drain; no ambient or persisted owner session."""
 
 import asyncio
+import os
 from collections import Counter
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -8,16 +9,22 @@ from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
+def _agent_packages_enabled() -> bool:
+    return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+
+
 class DriveSuggestionWorker:
     def __init__(self, service=None, *, packages=None):
         self.service = service or DriveSuggestionService()
-        # Keep injected legacy test/services isolated. Production drains run
-        # the resumable request-content evaluator alongside selected-file work.
-        if packages is None and service is None:
+        self._create_packages = service is None
+        self.packages = packages
+
+    def _package_service(self):
+        if self.packages is None and self._create_packages:
             from hushh_mcp.services.drive_request_package_service import DriveRequestPackageService
 
-            packages = DriveRequestPackageService()
-        self.packages = packages
+            self.packages = DriveRequestPackageService()
+        return self.packages
 
     async def _jobs(self, max_jobs):
         attempted = 0
@@ -48,11 +55,12 @@ class DriveSuggestionWorker:
         if v1_only:
             # V1 reuses request-scoped content evaluation only. It never runs
             # the legacy selected-file suggestion queue or catalog builders.
+            packages = self._package_service()
             result = (
-                await self.packages.run(
+                await packages.run(
                     max_jobs=max_jobs, deadline_seconds=deadline_seconds, v1_only=True
                 )
-                if self.packages is not None
+                if packages is not None
                 else {"not_claimed": 1}
             )
             for outcome, count in result.items():
@@ -66,12 +74,13 @@ class DriveSuggestionWorker:
                     }.get(outcome, "unavailable")
                 ] += count
             return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
-        if self.packages is not None:
+        packages = self._package_service() if _agent_packages_enabled() else None
+        if packages is not None:
             # A separate finite task prevents either legacy or package traffic
             # from starving the other; neither branch can extend this deadline.
             async with asyncio.TaskGroup() as group:
                 package_run = group.create_task(
-                    self.packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
+                    packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
                 )
                 legacy_run = group.create_task(
                     DriveSuggestionWorker(self.service).run(

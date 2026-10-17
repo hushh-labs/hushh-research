@@ -130,6 +130,51 @@ def _one_matching_file_per_pack() -> str:
     return "\n".join(sorted(set(chosen)))
 
 
+def test_build_exports_explicit_and_default_backend_origins() -> None:
+    names = ("BACKEND_URL", "PYTHON_API_URL", "DEVELOPER_API_URL", "NEXT_PUBLIC_BACKEND_URL",
+             "NEXT_PUBLIC_DEVELOPER_API_URL")
+    cases = (
+        ({}, ["https://api.example.com"] * len(names)),
+        (
+            {"BACKEND_URL": "https://backend.example.com", "PYTHON_API_URL": "https://python.example.com",
+             "DEVELOPER_API_URL": "https://developer.example.com"},
+            ["https://backend.example.com", "https://python.example.com",
+             "https://developer.example.com", "https://backend.example.com",
+             "https://developer.example.com"],
+        ),
+        (
+            dict(zip(names, (f"https://override-{index}.example.com" for index in range(len(names))))),
+            [f"https://override-{index}.example.com" for index in range(len(names))],
+        ),
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        stub_dir = Path(tmp) / "bin"
+        stub_dir.mkdir()
+        npm = stub_dir / "npm"
+        npm.write_text(
+            "#!/usr/bin/env bash\n"
+            'test "$*" = "run build" || exit 2\n'
+            'printf "%s\\n" "${BACKEND_URL-}" "${PYTHON_API_URL-}" '
+            '"${DEVELOPER_API_URL-}" "${NEXT_PUBLIC_BACKEND_URL-}" '
+            '"${NEXT_PUBLIC_DEVELOPER_API_URL-}" > "$NPM_STUB_LOG"\n',
+            encoding="utf-8",
+        )
+        npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
+        log = Path(tmp) / "build-origins.log"
+        for overrides, expected in cases:
+            env = dict(os.environ)
+            for name in names:
+                env.pop(name, None)
+            env.update({"PATH": f"{stub_dir}{os.pathsep}{env['PATH']}", "NPM_STUB_LOG": str(log)})
+            env.update(overrides)
+            proc = subprocess.run(
+                [_bash(), "-c", "source scripts/ci/web-common.sh; web_ci_build"],
+                cwd=ROOT, env=env, capture_output=True, text=True, timeout=15,
+            )
+            assert proc.returncode == 0, proc.stderr
+            assert log.read_text(encoding="utf-8").splitlines() == expected
+
+
 def _reaches_playwright(script: str, scripts: dict[str, str], seen: set[str]) -> bool:
     if script in seen or script not in scripts:
         return False
@@ -320,6 +365,24 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         assert "duplicate PLAYWRIGHT_SHARD" in str(error)
     else:
         raise AssertionError("duplicated workflow environment was accepted")
+    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
+
+    full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
+    shards = re.search(r"shard: \[([0-9, ]+)\]", full)
+    assert shards, "web-full-suite-check has no shard matrix"
+    indexes = [int(value) for value in shards.group(1).split(",")]
+    count = len(indexes)
+    assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
+    assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
+    assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
+    assert "fail-fast: false" in full
+
+    gate = workflow[workflow.index("  ci-status:") :]
+    assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
+    assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
+    assert '[ "$WEB_TARGETED" != "success" ]' in gate
+    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
+    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:
@@ -451,6 +514,7 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,

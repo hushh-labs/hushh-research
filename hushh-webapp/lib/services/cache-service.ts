@@ -166,6 +166,7 @@ class CacheService {
       CACHE_KEYS.PKM_METADATA(userId),
       CACHE_KEYS.PKM_BLOB(userId),
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.WALLET_PRESENTATIONS(userId),
       `pkm_memory_document_${userId}`,
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
@@ -281,6 +282,7 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  WALLET_PRESENTATIONS: (userId: string) => `wallet_presentations_${userId}`,
   GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
     `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,

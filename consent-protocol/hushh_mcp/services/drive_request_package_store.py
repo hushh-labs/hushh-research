@@ -16,6 +16,10 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_owner_search_service import (
+    _MEETING_SUBJECT,
+    _is_meeting_note_request,
+)
 from hushh_mcp.services.drive_owner_search_store import (
     MAX_RESULTS,
     DriveOwnerSearchStore,
@@ -86,6 +90,14 @@ def _metadata_priority(metadata, *, plan, purpose):
         years = {str(year) for year in range(start.year, end.year + 1)}
     except (KeyError, TypeError, ValueError):
         pass
+    # The deterministic meeting plan searches these title aliases, but its
+    # generic "notes" term and a year can otherwise outrank a "Team Sync"
+    # title in the first evaluation cohort. This only changes read order.
+    meeting_title_hint = 20 * bool(
+        plan.get("semantic_intent") not in {"institutional_statement", "broad_financial_records"}
+        and _is_meeting_note_request(str(purpose.get("purpose") or ""))
+        and _MEETING_SUBJECT.search(name)
+    )
     return (
         40 * sum(value in name for value in entities)
         + 10 * sum(value in context for value in entities)
@@ -93,6 +105,7 @@ def _metadata_priority(metadata, *, plan, purpose):
         + sum(value in context for value in clues)
         + min(8, sum(value in name for value in anatomy))
         + 12 * bool(years.intersection(re.findall(r"(?<!\d)\d{4}(?!\d)", name)))
+        + meeting_title_hint
     )
 
 
@@ -123,6 +136,25 @@ def _public_package(package=None, *, status="preparing", counts=None):
         )
         and bool(package.get("selected_positions")),
     }
+
+
+def _review_status(row):
+    # A failed discovery cannot reach the content evaluator, whose status
+    # therefore remains pending. Search terminality takes precedence.
+    if row["status"] in {"failed", "limited", "stopped"} or (
+        row["status"] == "completed" and row["incomplete_search"]
+    ):
+        return "unavailable"
+    if row["status"] != "completed":
+        return "preparing"
+    return {
+        "pending": "preparing",
+        "running": "preparing",
+        "ready": "ready",
+        "no_match": "no_match",
+        "failed": "unavailable",
+        "obsolete": "stale",
+    }[row["evaluation_status"]]
 
 
 class DriveRequestPackageStore(DriveOwnerSearchStore):
@@ -970,14 +1002,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 return _public_package()
             checkpoint = self._checkpoint(row)
             package = checkpoint.get(PACKAGE_KEY)
-            status = {
-                "pending": "preparing",
-                "running": "preparing",
-                "ready": "ready",
-                "no_match": "no_match",
-                "failed": "unavailable",
-                "obsolete": "stale",
-            }[row["evaluation_status"]]
+            status = _review_status(row)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
                 row["connection_generation"] != current["connection_generation"]
@@ -1002,6 +1027,16 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
                 status=status,
                 counts=package.get("counts") if package else self._counts(connection, row),
             )
+            if status == "unavailable" and (
+                row["status"] in {"failed", "limited", "stopped"} or row["incomplete_search"]
+            ):
+                public["searchErrorCode"] = row["error_code"] or (
+                    "search_incomplete" if row["incomplete_search"] else "search_unavailable"
+                )
+            elif status == "unavailable" and row["evaluation_status"] == "failed":
+                public["evaluationErrorCode"] = (
+                    row["evaluation_error_code"] or "evaluation_unavailable"
+                )
             if row["v1_statement_search"] is True and status in {"preparing", "ready", "allowed"}:
                 preview = checkpoint.get("v1_verified_preview", {"files": [], "count": 0})
                 public["provisionalFiles"] = preview["files"]

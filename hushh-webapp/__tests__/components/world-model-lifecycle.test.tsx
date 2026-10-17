@@ -88,7 +88,9 @@ function Probe() {
     mounted,
     preferences,
     failed,
+    retrying,
     progress,
+    validatedFacts,
     live,
     lastActivityAt,
     retryAt,
@@ -109,6 +111,7 @@ function Probe() {
             enabled: false,
             email_enabled: true,
             consent_version: "pwm-native-v1",
+            research_provider: "vertex_google_search",
           })
         }
       >
@@ -117,12 +120,14 @@ function Probe() {
       <span>{mounted ? "mounted" : "outside"}</span>
       <span>{switches}</span>
       <span>{failed ? "failed" : "not failed"}</span>
+      <span>{retrying ? "retrying" : "not retrying"}</span>
       <span>{live ? "live" : "idle"}</span>
       <span>
         {progress
           ? `progress ${progress.stage} ${progress.searches_used}`
           : "no progress"}
       </span>
+      <span>{validatedFacts.length ? `findings ${validatedFacts.length}` : "no findings"}</span>
       <span>
         {lastActivityAt === null ? "no activity" : `activity ${lastActivityAt}`}
       </span>
@@ -215,6 +220,7 @@ describe("PWM owner and request isolation", () => {
       enabled: true,
       email_enabled: true,
       consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
     });
     mock.observe.mockImplementation(async ({ onResult }) => {
       expect(mock.preferences).not.toHaveBeenCalled();
@@ -317,6 +323,145 @@ describe("PWM owner and request isolation", () => {
     await act(async () => finish());
     expect(screen.getByText("no progress")).toBeInTheDocument();
     expect(screen.getByText("idle")).toBeInTheDocument();
+  });
+  it("retains the last progress update when research ends unavailable", async () => {
+    mock.observe.mockImplementation(async ({ onProgress, onResult }) => {
+      onResult(pending);
+      onProgress({ stage: "report", searches_used: 9 });
+      onResult({
+        status: "unavailable", pkm_written: false,
+        progress: { stage: "report", searches_used: 9 },
+        validated_facts: [],
+      });
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("progress report 9")).toBeInTheDocument();
+    expect(screen.getByText("idle")).toBeInTheDocument();
+  });
+  it("shows retrying immediately and keeps the checkpoint until a fresh result arrives", async () => {
+    mock.observe.mockImplementationOnce(async ({ onProgress, onResult }) => {
+      onProgress({ stage: "report", searches_used: 9 });
+      onResult({
+        status: "unavailable", pkm_written: false,
+        progress: { stage: "report", searches_used: 9 },
+        validated_facts: [],
+      });
+    });
+    let finish!: () => void;
+    mock.observe.mockImplementation(async ({ onResult }) => {
+      await new Promise<void>((resolve) => {
+        finish = () => {
+          onResult({ status: "saved", pkm_written: false });
+          resolve();
+        };
+      });
+    });
+    render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    expect(await screen.findByText("progress report 9")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Reload"));
+    expect(screen.getByText("retrying")).toBeInTheDocument();
+    expect(screen.getByText("progress report 9")).toBeInTheDocument();
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+    await act(async () => finish());
+    expect(screen.getByText("not retrying")).toBeInTheDocument();
+    expect(screen.getByText("no progress")).toBeInTheDocument();
+  });
+  it("retains cited partial findings and the server checkpoint after an unavailable result", async () => {
+    const finding = {
+      id: "career:1",
+      topic: "career",
+      statement: "Works at Acme",
+      confidence: "supported",
+      sources: [{ title: "Acme", url: "https://acme.example/team" }],
+      identity_state: "owner_linked",
+    };
+    mock.observe.mockImplementation(async ({ onPartial, onResult }) => {
+      onPartial([finding]);
+      onResult({
+        status: "unavailable",
+        pkm_written: false,
+        validated_facts: [finding],
+        progress: { stage: "report", searches_used: 9 },
+      });
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("findings 1")).toBeInTheDocument();
+    expect(screen.getByText("progress report 9")).toBeInTheDocument();
+    expect(screen.getByText("idle")).toBeInTheDocument();
+  });
+  it("clears previously shown findings on a bare restart for the same authority", async () => {
+    mock.observe.mockImplementation(async ({ onProgress, onPartial, onResult }) => {
+      onResult(pending);
+      onProgress({ stage: "coverage", searches_used: 7 });
+      onPartial([{
+        id: "career:1", topic: "career", statement: "Works at Acme",
+        confidence: "supported", sources: [{ title: "Acme", url: "https://acme.example/team" }],
+        identity_state: "owner_linked",
+      }]);
+      // A changed account identity binding returns no checkpoint fields.
+      onResult({ status: "pending", pkm_written: false, restart_required: true });
+    });
+    render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    expect(await screen.findByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("no findings")).toBeInTheDocument();
+    expect(screen.getByText("no progress")).toBeInTheDocument();
+  });
+  it("clears previously shown findings on an unavailable result without a checkpoint", async () => {
+    mock.observe.mockImplementation(async ({ onProgress, onPartial, onResult }) => {
+      onResult(pending);
+      onProgress({ stage: "coverage", searches_used: 7 });
+      onPartial([{
+        id: "career:1", topic: "career", statement: "Works at Acme",
+        confidence: "supported", sources: [{ title: "Acme", url: "https://acme.example/team" }],
+        identity_state: "owner_linked",
+      }]);
+      onResult({ status: "unavailable", pkm_written: false });
+    });
+    render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    expect(await screen.findByText("no findings")).toBeInTheDocument();
+    expect(screen.getByText("no progress")).toBeInTheDocument();
+  });
+  it("hides provisional findings immediately when the vault authority changes", async () => {
+    mock.observe.mockImplementationOnce(async ({ onPartial, onResult }) => {
+      onResult(pending);
+      onPartial([{
+        id: "career:1", topic: "career", statement: "Works at Acme",
+        confidence: "supported", sources: [{ title: "Acme", url: "https://acme.example/team" }],
+        identity_state: "owner_linked",
+      }]);
+      await new Promise(() => {});
+    });
+    mock.observe.mockImplementation(async ({ onResult }) => onResult(pending));
+    const view = () => <WorldModelProvider><Probe /></WorldModelProvider>;
+    const { rerender } = render(view());
+    expect(await screen.findByText("findings 1")).toBeInTheDocument();
+    mock.user = { uid: "owner-b" };
+    mock.key = "key-b";
+    mock.token = "token-b";
+    rerender(view());
+    expect(screen.getByText("no findings")).toBeInTheDocument();
+    expect(screen.queryByText("findings 1")).toBeNull();
+  });
+  it("retains the last progress update when the research watch fails", async () => {
+    mock.observe.mockImplementation(async ({ onProgress }) => {
+      onProgress({ stage: "coverage", searches_used: 7 });
+      throw new Error("status connection failed");
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("progress coverage 7")).toBeInTheDocument();
   });
   it("marks research failed when the watch ends while it is still pending, so the page offers Try again", async () => {
     mock.observe.mockImplementation(async ({ onResult }) => {

@@ -42,7 +42,14 @@ test.beforeAll(async () => {
       },
     ],
     oxc: { jsx: { runtime: "automatic", development: false } },
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/pre-vault-user-state-service",
+        "@/lib/services/personal-knowledge-model-service", "@/lib/services/api-service",
+        "@/lib/services/pkm-upgrade-orchestrator", "@/lib/services/pkm-upgrade-service"].map(find => ({
+          find, replacement: path.join(root, "e2e/fixtures/onboarding-name-boundaries.ts"),
+        })),
+      { find: "@", replacement: root },
+    ] },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
@@ -80,21 +87,148 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
 });
 
-async function mount(page: Page, theme: "light" | "dark") {
+async function mount(page: Page, theme: "light" | "dark", journey = false) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://localhost/chat-onboarding", (route) =>
+  await page.route("http://localhost/chat-onboarding*", (route) =>
     route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><html class="${theme}"><head><title>Chat onboarding layout contract</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
-  await page.goto("http://localhost/chat-onboarding");
+  await page.goto(`http://localhost/chat-onboarding${journey ? "?name-journey" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
-  await expect(page.getByTestId("transcript")).toBeVisible();
+  await expect(journey ? page.getByLabel("Chat profile name") : page.getByTestId("transcript")).toBeVisible();
   return errors;
 }
+
+test("preferred name entry saves privately, refreshes the profile label, and recovers from failure", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let encrypted: unknown = null;
+  let revision = 0;
+  let failWrite = true;
+  const writes: string[] = [];
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postData()!);
+      if (failWrite) { failWrite = false; await route.fulfill({ status: 500 }); return; }
+      encrypted = route.request().postDataJSON().encrypted;
+      revision++;
+    }
+    await route.fulfill({ json: { encrypted, revision } });
+  });
+  await page.route("**/__fixture/one", async route => {
+    const request = route.request().postDataJSON();
+    await route.fulfill({ json: { status: "onboarding_name_assessed", request_id: request.onboarding_name_request,
+      decision: "name", preferred_name: "Roopmann" } });
+  });
+  const errors = await mount(page, "light", true);
+  await page.getByRole("button", { name: "Something else" }).click();
+  await expect(page.getByText("Okay. What should I call you?")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip for now" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Your reply" }).fill("Please call me Roopmann");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByLabel("Chat profile name")).toHaveText("One");
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Roopmann");
+  await expect(page.getByText("Nice to meet you, Roopmann. What should I help with first?")).toBeVisible();
+  expect(writes).toHaveLength(2);
+  for (const write of writes) {
+    expect(write).not.toContain("Roopmann");
+    expect(JSON.parse(write).encrypted.algorithm).toBe("aes-256-gcm");
+  }
+  // Re-entering uses persisted ciphertext, not an optimistic component label.
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Roopmann");
+  expect(errors).toEqual([]);
+});
+
+test("a picked name labels One at once, holds through the save, and reverts when declined", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let encrypted: unknown = null;
+  let revision = 0;
+  const writes: string[] = [];
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postData()!);
+      encrypted = route.request().postDataJSON().encrypted;
+      revision++;
+    }
+    await route.fulfill({ json: { encrypted, revision } });
+  });
+  const errors = await mount(page, "light", true);
+  const label = page.getByLabel("Chat profile name");
+  // Every distinct text the label shows, so a drop back to "One" cannot hide.
+  const watchLabel = () => page.evaluate(() => {
+    const target = document.querySelector('[aria-label="Chat profile name"]')!;
+    const seen = [target.textContent ?? ""];
+    new MutationObserver(() => {
+      const text = target.textContent ?? "";
+      if (seen.at(-1) !== text) seen.push(text);
+    }).observe(target, { childList: true, characterData: true, subtree: true });
+    (window as unknown as { labelSeen: string[] }).labelSeen = seen;
+  });
+  const labelSeen = () => page.evaluate(() => (window as unknown as { labelSeen: string[] }).labelSeen);
+  const answerRest = async () => {
+    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("button", { name: "Casual" }).click();
+  };
+
+  // Declined: the pick shows at once, then nothing is stored or kept.
+  await watchLabel();
+  await page.getByRole("button", { name: "Call me Owner" }).click();
+  await expect(label).toHaveText("Owner");
+  await answerRest();
+  await page.getByRole("button", { name: "Don't save" }).click();
+  await expect(label).toHaveText("One");
+  expect(writes).toHaveLength(0);
+  expect(await labelSeen()).toEqual(["One", "Owner", "One"]);
+
+  // Saved: the label never drops to "One" between the write and the re-read.
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(label).toHaveText("One");
+  await watchLabel();
+  await page.getByRole("button", { name: "Call me Owner" }).click();
+  await answerRest();
+  await page.getByRole("button", { name: "Save to memory" }).click();
+  await expect(page.getByText(/^Saved\. You can change it anytime in Memory/)).toBeVisible();
+  await expect(label).toHaveText("Owner");
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).not.toContain("Owner");
+  expect(await labelSeen()).toEqual(["One", "Owner"]);
+  expect(errors).toEqual([]);
+});
+
+test("Skip invalidates a slow semantic answer before it can save", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  let finishReply!: () => Promise<void>;
+  let writes = 0;
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") writes++;
+    await route.fulfill({ json: { encrypted: null, revision: 0 } });
+  });
+  await page.route("**/__fixture/one", async route => {
+    const request = route.request().postDataJSON();
+    await new Promise<void>(resolve => { finishReply = async () => {
+      await route.fulfill({ json: { status: "onboarding_name_assessed", request_id: request.onboarding_name_request,
+        decision: "name", preferred_name: "Stale" } }); resolve();
+    }; });
+  });
+  await mount(page, "dark", true);
+  await page.getByRole("button", { name: "Something else" }).click();
+  await page.getByRole("textbox", { name: "Your reply" }).fill("Stale");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => typeof finishReply).toBe("function");
+  await page.getByRole("button", { name: "Skip for now" }).click();
+  await finishReply();
+  await expect(page.getByRole("textbox", { name: "Your reply" })).toBeEnabled();
+  await expect(page.getByLabel("Chat profile name")).toHaveText("One");
+  expect(writes).toBe(0);
+});
 
 async function assertContract(page: Page, viewportWidth: number) {
   // No sideways page scroll: the chip rail wraps inside the column.

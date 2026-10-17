@@ -1162,6 +1162,60 @@
       "revision",
       "user_id"
     ],
+    "email_auth_budgets": [
+      "budget_key",
+      "count",
+      "expires_at"
+    ],
+    "email_auth_challenges": [
+      "challenge_id",
+      "destination_hash",
+      "domain",
+      "decision_generation",
+      "browser_hash",
+      "request_key",
+      "verifier",
+      "verifier_version",
+      "payload",
+      "destination_ciphertext",
+      "payload_version",
+      "expected_uid",
+      "enrollment_ticket_hash",
+      "enrollment_finalized_at",
+      "created_at",
+      "expires_at",
+      "attempts",
+      "consumed_at",
+      "cancelled_at",
+      "delivery_state",
+      "lease_until",
+      "next_attempt_at",
+      "delivery_lease_id"
+    ],
+    "email_auth_domain_decisions": [
+      "domain",
+      "status",
+      "reason",
+      "policy_version",
+      "risk_version",
+      "generation",
+      "certificate_status",
+      "review_id",
+      "lease_until",
+      "checked_at",
+      "expires_at"
+    ],
+    "email_auth_enrollments": [
+      "destination_hash",
+      "user_id",
+      "status",
+      "created_at"
+    ],
+    "email_auth_policy_state": [
+      "singleton",
+      "policy_version",
+      "risk_version"
+    ],
     "enterprise_crm_registry": [
       "auth_header_style",
       "business_owner",
@@ -2017,6 +2071,24 @@
       "recorded_at",
       "dashboard_visited_at"
     ],
+    "one_referral_circle_contributions": [
+      "relationship_id",
+      "round_id",
+      "selection_id"
+    ],
+    "one_referral_circle_selections": [
+      "id",
+      "user_id",
+      "circle_id",
+      "round_id",
+      "selected_at",
+      "ended_at"
+    ],
+    "one_referral_circle_teams": [
+      "round_id",
+      "circle_id",
+      "team_key"
+    ],
     "one_referral_events": [
       "scored_at"
     ],
@@ -2046,6 +2118,10 @@
     ],
     "one_referral_score_events": [
       "coins"
+    ],
+    "one_referral_scoring_jobs": [
+      "job_id",
+      "circle_selection_id"
     ],
     "one_referral_streak_state": [
       "last_activity_date",

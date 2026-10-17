@@ -191,7 +191,9 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     for name in names[1:]:
         assert f'_{name}: ""' in cloudbuild
 
-    assert "_DRIVE_WORK_DRAIN_ENABLED=${{ vars.DRIVE_WORK_DRAIN_UAT_ENABLED || 'true' }}" in uat
+    assert (
+        "_DRIVE_WORK_DRAIN_ENABLED=${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}"
+    ) in uat
     wake = next(
         step
         for step in yaml.safe_load(uat)["jobs"]["deploy"]["steps"]
@@ -199,7 +201,7 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     )
     assert wake["if"] == (
         "steps.scope.outputs.deploy_backend == 'true' "
-        "&& vars.DRIVE_WORK_DRAIN_UAT_ENABLED != 'false'"
+        "&& inputs.preserve_paused_drive_worker != true"
     )
     assert "roles/cloudscheduler.jobRunner" in wake["run"]
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" in uat
@@ -229,6 +231,22 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
                 "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,"
             ) in result.stdout
             assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai" in result.stdout
+
+
+def test_full_uat_drive_rollout_cannot_inherit_disabled_repo_drain_variable():
+    workflow = UAT_WORKFLOW.read_text(encoding="utf-8")
+    steps = yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+    by_id = {step["id"]: step for step in steps if "id" in step}
+    active = "${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}"
+
+    # Ordinary suggestions and sharing jobs must resume on the default full
+    # rollout even if a repository Actions variable remains set to false.
+    assert "vars.DRIVE_WORK_DRAIN_UAT_ENABLED" not in workflow
+    assert "_DRIVE_WORK_DRAIN_ENABLED=" + active in by_id["deploy-backend"]["run"]
+    assert by_id["deploy-drive-worker"]["env"]["DRIVE_WORK_DRAIN_ENABLED"] == "true"
+    assert "inputs.preserve_paused_drive_worker != true" in by_id["deploy-drive-worker"]["if"]
+    status = next(step for step in steps if step.get("name") == "Write UAT release status artifact")
+    assert '"drive_processing_enabled": "' + active + '"' in status["run"]
 
 
 def test_worker_promotion_is_post_gate_attested_and_recoverable():

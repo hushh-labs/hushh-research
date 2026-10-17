@@ -1014,8 +1014,8 @@ function ContactsScreen({
                       <span className="min-w-0 truncate">
                         {match.displayName}
                       </span>
-                      {connected ? <ContactSourceBadge /> : null}
                     </span>
+                    {connected ? <ContactSourceBadge /> : null}
                     {requestRequired ? (
                       <button
                         type="button"

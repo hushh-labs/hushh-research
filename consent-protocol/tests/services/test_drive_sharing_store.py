@@ -166,7 +166,8 @@ async def request(sharing, client_id=None):
 
 
 @pytest.mark.asyncio
-async def test_verified_ria_identity_is_sealed_for_owner_review(sharing):
+async def test_verified_ria_identity_is_sealed_for_owner_review(sharing, monkeypatch):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     profile = {
         "type": "ria",
         "displayName": "Chris",
@@ -204,7 +205,7 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
         lambda: None,
     )
     initial = await sharing.owner_pricing(user_id="owner")
-    assert initial == {"enabled": False, "amountCents": 50, "version": 0}
+    assert initial == {"enabled": False, "amountCents": 1000, "version": 0}
     quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
     assert quote == {
         "amountCents": None,

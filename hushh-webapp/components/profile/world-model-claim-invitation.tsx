@@ -38,9 +38,12 @@ export function WorldModelClaimInvitation({
   >(null);
   const [researchConsent, setResearchConsent] = useState(false);
   const { reload: reloadResearch, preferences } = useWorldModelResearch();
-  // Research is on by default, so the choice only exists for a recipient who
-  // turned it off; anyone else claims without a research request.
-  const offerResearch = preferences?.enabled === false;
+  // The invitation checkbox belongs only to the existing Google research
+  // choice. Azure/Bing needs its own disclosure in Personal World Model settings.
+  const offerResearch = preferences?.enabled === false &&
+    preferences.research_provider === "vertex_google_search";
+  const azureResearchOff = preferences?.enabled === false &&
+    preferences.research_provider === "azure_openai_web_search";
   const { busy, message, setMessage, guard, run, lifetime } = useWorldModelOwnerAction({
     ownerId,
     vaultKey,
@@ -146,6 +149,11 @@ export function WorldModelClaimInvitation({
                 </RowDescription>
               </label>
             ) : null}
+            {azureResearchOff ? (
+              <RowDescription>
+                Azure public research stays off after claiming. Open Research and email in your Personal World Model to review Bing search use before turning it on.
+              </RowDescription>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 data-voice-control-id="pwm_claim"
@@ -170,6 +178,8 @@ export function WorldModelClaimInvitation({
                     setMessage(
                       claimed.research_started || claimed.draft_id
                         ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
+                        : azureResearchOff
+                          ? "Claimed. Azure public research remains off. Open Research and email in your model to review Bing search use and turn it on. Nothing was shared back."
                         : offerResearch && !researchConsent
                           ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
                           : "Claimed. Open your model to check its research status. Nothing was shared back.",

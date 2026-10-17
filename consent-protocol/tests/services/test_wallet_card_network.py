@@ -76,7 +76,7 @@ def test_unknown_network_and_owner_selected_new_prefix():
         ("abcd12", 16),
         ("４１１１１１", 16),
         ("411111", True),
-        ("411111", 12),
+        ("411111", 11),
         ("411111", 20),
     ],
 )
@@ -91,3 +91,10 @@ def test_selected_network_validation_and_normalization():
     with pytest.raises(ValueError):
         classify_card_network("411111", 16, "bad")
     assert set(NETWORK_ORDER) == CARD_BRANDS
+
+
+def test_twelve_digit_metadata_preserves_known_network_rejection_and_generic_selection():
+    assert classify_card_network("911111", 12)["network"] == "other"
+    assert classify_card_network("911111", 12, "other")["source"] == "owner_selected"
+    assert classify_card_network("411111", 12)["network"] == "visa"
+    assert classify_card_network("371111", 12)["network"] == "amex"

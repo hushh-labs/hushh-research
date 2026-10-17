@@ -1,6 +1,7 @@
 """Native SDK evidence and identity regressions; no live provider calls."""
 
 import copy
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -8,7 +9,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.one_adk import world_model as pwm
-from hushh_mcp.one_adk.world_model_contracts import TOPICS, IdentityAssessment, WorldModelReport
+from hushh_mcp.one_adk.world_model_contracts import (
+    TOPICS,
+    IdentityAssessment,
+    WorldModelReport,
+    validated_facts_from_work,
+)
 
 IDENTITY = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
 PLAN = {
@@ -80,7 +86,10 @@ def report():
 
 
 @pytest.mark.asyncio
-async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_receipts(monkeypatch):
+@pytest.mark.parametrize("resume_started", [False, True])
+async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_receipts(
+    monkeypatch, resume_started
+):
     from google.adk.models.base_llm import BaseLlm
     from google.adk.models.llm_response import LlmResponse
     from google.genai import types
@@ -97,8 +106,16 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
             )
         )
 
+    search_plan = {**PLAN, "topics": ["career", "education"]}
+    mistaken_report = report()
+    mistaken_report["coverage"][TOPICS.index("career")]["attempt_ids"] = [2]
+    repaired_coverage = copy.deepcopy(mistaken_report["coverage"])
+    repaired_coverage[TOPICS.index("career")]["attempt_ids"] = [1]
+    repaired_coverage[TOPICS.index("education")].update(
+        status="unavailable", attempt_ids=[1], explanation="No reliable education finding."
+    )
     responses = [
-        call("search_public_web", {"plan_json": json.dumps(PLAN)}),
+        call("search_public_web", {"plan_json": json.dumps(search_plan)}),
         LlmResponse(
             content=types.Content(
                 role="model",
@@ -111,7 +128,27 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
             ),
         ),
         call("assess_identity", {"assessment_json": json.dumps(assessment())}),
-        call("finish_task", report()),
+        call(
+            "record_findings",
+            {
+                "batch_json": json.dumps(
+                    {
+                        "candidate_id": "c1",
+                        "attempt_id": 1,
+                        "topic": "career",
+                        "facts": [
+                            {
+                                "statement": "Builds software.",
+                                "confidence": "supported",
+                                "sources": [{"title": "Bio", "ref": "s1"}],
+                            }
+                        ],
+                    }
+                )
+            },
+        ),
+        call("finish_task", mistaken_report),
+        call("finish_task", {"coverage": repaired_coverage, "gaps": mistaken_report["gaps"]}),
     ]
 
     class FakeModel(BaseLlm):
@@ -120,9 +157,13 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         async def generate_content_async(self, llm_request, stream=False):
             assert responses, "Unexpected model dispatch"
             requests.append(llm_request.model_copy(deep=True))
-            if len(responses) == 3:
-                assert charges == [33, 1, 34]
+            if len(responses) == 5:
+                assert charges == ([33, 34] if resume_started else [33, 1, 34])
                 assert snapshots[-1]["attempts"]["1"]["state"] == "started"
+            if len(responses) == 1:
+                repair_input = json.loads(llm_request.contents[-1].parts[0].text)
+                assert repair_input["selected_candidate_id"] == "c1"
+                assert repair_input["identity_state"] == "owner_linked"
             yield responses.pop(0)
 
     monkeypatch.setattr(
@@ -136,6 +177,31 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         snapshots.append(copy.deepcopy(value))
 
     decisions = {"confirmed": ["Builds software."], "rejected": ["Likes the color blue."]}
+    request = {
+        "exact_owner_fields": {"email": IDENTITY["email"], "full_name": IDENTITY["full_name"]},
+        "evidenced_anchors": [],
+        "research_question": search_plan["question"],
+    }
+    query_key = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+    prior_work = (
+        {
+            "sources": {},
+            "search_suggestions": [],
+            "attempts": {
+                "1": {
+                    "plan": search_plan,
+                    "query_key": query_key,
+                    "observed": False,
+                    "answer": "",
+                    "source_refs": [],
+                    "state": "started",
+                    "at": 1.0,
+                }
+            },
+        }
+        if resume_started
+        else None
+    )
     result = await pwm.run_world_model(
         identity=IDENTITY,
         user_id="owner",
@@ -144,18 +210,36 @@ async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_recei
         on_attempts_start=charge,
         on_progress=progress,
         owner_decisions=decisions,
+        work=prior_work,
+        attempts_used=(1,) if resume_started else (),
     )
     # Owner decisions reach the model as structured data, not filtered output.
     sent = json.loads(requests[0].contents[-1].parts[0].text)
     assert sent["owner_decisions"] == decisions
+    assert "record_findings" in sent["finding_checkpoint_instruction"]
+    assert "attempt_id" in sent["finding_batch_schema"]["properties"]
     assert result["status"] == "offered"
     assert result["research"]["source_use"] == "google_grounded_display_only"
     assert (
         result["report"]["sections"][0]["facts"][0]["sources"][0]["url"]
         == "https://example.test/alex"
     )
-    assert charges == [33, 1, 34, 35, 36]
+    assert result["research"]["coverage"][TOPICS.index("career")]["attempt_ids"] == [1]
+    assert result["research"]["coverage"][TOPICS.index("education")]["status"] == "unavailable"
+    assert result["research"]["coverage"][TOPICS.index("education")]["attempt_ids"] == [1]
+    assert charges == ([33, 34, 35, 36, 37, 38] if resume_started else [33, 1, 34, 35, 36, 37, 38])
     assert snapshots[1]["attempts"]["1"]["state"] == "received"
+    provisional = validated_facts_from_work(snapshots[-1])
+    assert len(provisional) == 1 and provisional[0]["id"].startswith("p")
+    assert [{key: value for key, value in fact.items() if key != "id"} for fact in provisional] == [
+        {
+            "topic": "career",
+            "statement": "Builds software.",
+            "confidence": "supported",
+            "sources": [{"title": "Bio", "url": "https://example.test/alex"}],
+            "identity_state": "owner_linked",
+        }
+    ]
     assert not responses
 
 
@@ -213,6 +297,187 @@ async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
         attempts_used=tuple(range(33, 161)),
     )
     assert result["research_exhausted"] is True
+
+
+@pytest.mark.asyncio
+async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monkeypatch):
+    from hushh_mcp.one_adk import azure_workload_identity, world_model_azure
+    from hushh_mcp.services import world_model_service as service
+
+    config = {
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "client_id": "00000000-0000-4000-8000-000000000002",
+        "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
+        "primary_deployment": "pwm-primary",
+        "phi_endpoint": "https://synthetic.services.ai.azure.com/openai/v1/",
+        "phi_deployment": "pwm-phi",
+    }
+
+    def token_supplier():
+        return "synthetic-token"
+
+    def azure_token_provider(**kwargs):
+        return token_supplier
+
+    azure_run = AsyncMock(return_value={"status": "unavailable", "pkm_written": False})
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search", "azure": config})
+    monkeypatch.setattr(service, "admission", AsyncMock(return_value=(None, "owner-binding")))
+    monkeypatch.setattr(service, "owner_identity", AsyncMock(return_value=IDENTITY))
+    monkeypatch.setattr(
+        service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "g1",
+                "consent_version": "pwm-azure-bing-v1",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(service, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service, "run_world_model", AsyncMock(side_effect=AssertionError("Vertex dispatched"))
+    )
+    monkeypatch.setattr(
+        azure_workload_identity, "azure_openai_token_provider", azure_token_provider
+    )
+    monkeypatch.setattr(world_model_azure, "run_world_model_azure", azure_run)
+
+    result = await service.offer(
+        user_id="owner",
+        consent_token="synthetic-owner-token",  # noqa: S106 - synthetic test authority
+        on_attempts_start=AsyncMock(),
+    )
+    assert result == {"status": "unavailable", "pkm_written": False}
+    azure_run.assert_awaited_once()
+    kwargs = azure_run.await_args.kwargs
+    assert kwargs["identity"] == IDENTITY
+    assert kwargs["primary_deployment"] == "pwm-primary"
+    assert kwargs["phi_deployment"] == "pwm-phi"
+    assert kwargs["primary_token_supplier"] is token_supplier
+    assert kwargs["phi_token_supplier"] is token_supplier
+    await kwargs["require_access"]()
+
+
+@pytest.mark.asyncio
+async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    owner_identity = AsyncMock()
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})
+    monkeypatch.setattr(
+        service, "get_app_runtime_settings", lambda: SimpleNamespace(environment="production")
+    )
+    monkeypatch.setattr(service, "owner_identity", owner_identity)
+
+    result, binding = await service.admission("owner", "synthetic-owner-token")  # noqa: S106
+    assert result == {"status": "disabled", "pkm_written": False}
+    assert binding == ""
+    owner_identity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})
+    monkeypatch.setattr(
+        service, "get_app_runtime_settings", lambda: SimpleNamespace(environment="uat")
+    )
+    monkeypatch.setattr(service, "owner_identity", AsyncMock(return_value=IDENTITY))
+    monkeypatch.setattr(service, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "g1",
+                "consent_version": "pwm-default-v1",
+            }
+        ),
+    )
+    setup = AsyncMock(return_value=False)
+    monkeypatch.setattr(service, "owner_setup_resolved", setup)
+
+    result, binding = await service.admission("owner", "synthetic-owner-token")  # noqa: S106
+    assert result == {"status": "consent_required", "pkm_written": False}
+    assert binding == ""
+    setup.assert_not_awaited()
+
+
+def test_azure_public_preferences_do_not_reuse_vertex_default_consent(monkeypatch):
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
+    previous = {
+        "enabled": True,
+        "email_enabled": True,
+        "consent_version": "pwm-default-v1",
+    }
+    assert preferences.public_preferences(previous)["enabled"] is False
+    assert (
+        preferences.public_preferences(previous)["research_provider"] == "azure_openai_web_search"
+    )
+    accepted = {**previous, "consent_version": "pwm-azure-bing-v1"}
+    assert preferences.public_preferences(accepted)["enabled"] is True
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "vertex_google_search"}
+    )
+    assert preferences.public_preferences(previous)["research_provider"] == "vertex_google_search"
+
+
+@pytest.mark.asyncio
+async def test_azure_preferences_reject_legacy_client_consent_before_database_access(monkeypatch):
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
+    authority = AsyncMock()
+    monkeypatch.setattr(preferences, "validate_first_party_owner_token", authority)
+    with pytest.raises(ValueError, match="disclosure version"):
+        await preferences.update_preferences(
+            "owner",
+            "synthetic-owner-token",  # noqa: S106
+            enabled=True,
+            email_enabled=True,
+            consent_version="pwm-native-v1",
+        )
+    authority.assert_not_awaited()
+
+
+def test_preferences_route_passes_azure_consent_version_and_rejects_mismatch(monkeypatch):
+    client, routes = owner_client(monkeypatch, SimpleNamespace())
+    update = AsyncMock(return_value={"enabled": True})
+    monkeypatch.setattr(routes.preferences, "update_preferences", update)
+    response = client.put(
+        "/api/one/world-model/preferences",
+        json={
+            "enabled": True,
+            "email_enabled": True,
+            "consent_version": "pwm-azure-bing-v1",
+        },
+    )
+    assert response.status_code == 200
+    update.assert_awaited_once_with(
+        "owner",
+        "fixture",
+        enabled=True,
+        email_enabled=True,
+        consent_version="pwm-azure-bing-v1",
+    )
+    update.side_effect = ValueError("disclosure version")
+    response = client.put(
+        "/api/one/world-model/preferences",
+        json={"enabled": True, "email_enabled": True, "consent_version": "pwm-native-v1"},
+    )
+    assert response.status_code == 422
 
 
 def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch):
@@ -315,8 +580,11 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     assert ensure.await_count == 2 and start.await_count == 1
 
 
-@pytest.mark.parametrize("source_use", ["google_grounded_display_only", "owner_supplied"])
-def test_complete_refuses_display_only_google_research(monkeypatch, source_use):
+@pytest.mark.parametrize(
+    "source_use",
+    ["google_grounded_display_only", "azure_web_grounded_display_only", None, "owner_supplied"],
+)
+def test_complete_accepts_only_owner_supplied_research(monkeypatch, source_use):
     from uuid import uuid4
 
     jobs = SimpleNamespace(
@@ -332,7 +600,7 @@ def test_complete_refuses_display_only_google_research(monkeypatch, source_use):
         "/api/one/world-model/complete",
         json={"draft_id": str(uuid4()), "commits": [{"domain": "profile", "plan_id": "p1"}]},
     )
-    if source_use == "google_grounded_display_only":
+    if source_use != "owner_supplied":
         assert response.status_code == 409
         commit.assert_not_awaited()
         jobs.dismiss.assert_not_awaited()
@@ -362,6 +630,19 @@ def test_claim_research_consent_keeps_owner_email_choice(monkeypatch, existing):
     else:
         update.assert_awaited_once_with("owner", "fixture", enabled=True, email_enabled=True)
         enroll.assert_not_awaited()
+
+
+def test_invitation_claim_cannot_grant_azure_bing_consent(monkeypatch):
+    client, routes = owner_client(monkeypatch, SimpleNamespace())
+    claim = AsyncMock()
+    monkeypatch.setattr(routes.invitations, "claim", claim)
+    monkeypatch.setattr(routes, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"})
+    response = client.post(
+        "/api/one/world-model/claims",
+        json={"token": "a" * 43, "consent": True, "research_consent": True},
+    )
+    assert response.status_code == 422
+    claim.assert_not_awaited()
 
 
 def checkpoint():

@@ -5,11 +5,9 @@ decide when the current seven-day challenge round closes and when it
 started. No database, no clock -- `now` is always a parameter, never read
 internally, matching `points.py` and `milestones.py` in this package.
 
-This is a display computation only. It never creates, reads, or writes a
-`one_referral_reward_rounds` row -- that table's own schedule-slot creation
-(`get_or_create_reward_round`) is a separate, not-yet-wired operational path
-gated behind the program's own scheduler. A dashboard showing a countdown and
-a round actually being opened for finalization are different concerns.
+This pure computation never reads or writes a reward-round row. The challenge
+service persists its schedule slot through `get_or_create_reward_round` and
+reports a running countdown only when weekly prizes are enabled for that round.
 """
 
 from __future__ import annotations

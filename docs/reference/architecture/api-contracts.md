@@ -1,10 +1,70 @@
 # API Contracts
 
+## Circle Wars weekly participation
+
+Migration 358 extends `one_referral_circle_selections` and
+`one_referral_circle_contributions`; it does not introduce another referral or
+coin ledger. `one_referral_circle_teams` holds random public aliases per existing
+reward-round ID. The active program schedule owns the deadline and timezone;
+physical prize activation remains independent of team participation.
+
+All `/api/one/referrals/circle-wars` routes require a `VAULT_OWNER` bearer token
+and return `Cache-Control: private, no-store` through the existing web/native
+`apiJson` transport:
+
+| Method and suffix | Contract |
+| --- | --- |
+| GET (base) | Current persisted round and caller's optional selection. Optional `week` is a historical reward-round UUID. |
+| POST `/participation` | `{circle_id: UUID, consent: true}`; strict consent, no extra fields, active existing Circle membership. Same-team retry is idempotent; switching that week returns 409. |
+| GET `/leaderboard` | `limit` 1–100, nonnegative `offset`, optional historical `week`; global ranks, total and pagination. |
+| GET `/circles/{circle_id}` | Caller-authorized Circle statistics; unauthorized names and IDs remain private. |
+
+Qualification snapshots eligible weekly selection into the existing durable
+scoring job. The existing worker settles one raw team contribution per
+relationship alongside individual awards. Referrals opened before opt-in,
+nonmembers and inherited genealogy never imply consent. Late jobs retain their
+round; revoked relationships stop counting. Existing deletion cascades apply.
+Legacy Firebase-only Circle previews remain closed for older clients; the active
+dashboard uses these owner-authorized endpoints.
+
+The You card and Ranking/Circles pane reuse existing Circle creation and invite
+links. Other teams expose random aliases; authorized members see Circle names.
+Rewards and individual rankings retain their existing behavior. SSE and visible
+polling refresh team standings and rollover. Rollback disables new snapshot and
+notification triggers while preserving bounded history, awards and claims.
+
+The existing referral lifecycle PostgreSQL suite covers weekly opt-in,
+concurrent selection, no retroactive credit, delayed settlement, privacy,
+revocation, history, owner API authority and migration replay. Run with
+`ONE_COMMAND_TEST_DATABASE_URL` pointing to disposable PostgreSQL; CI includes
+this suite. Circle interaction tests and `verify:referral-dashboard` cover the
+frontend. Live browser qualification also needs matching nonproduction Firebase
+and backend configuration, a migrated database and a fresh invitee account.
+
 > Complete endpoint reference, authentication model, and developer integration guide.
 
 ---
 
 ## Token Hierarchy
+
+### Independent web email login
+
+`/api/auth/email/*` uses browser-bound public authentication challenges, separately
+from vault/consent access. Thin Next proxies preserve the same paths and no-store
+responses. See [Independent Email Authentication](../iam/independent-email-auth.md).
+
+| Endpoint | Request and result |
+| --- | --- |
+| `GET /api/auth/email/capabilities` | Runtime availability; no credentials or private policy evidence. |
+| `POST /api/auth/email/request` | `email`, memory-held `browser_binding`, idempotent `request_key`; current domain approval creates an opaque challenge and encrypted outbox. |
+| `POST /api/auth/email/resend` | Same bounded request shape with a new request key after cooldown; aggregate budgets remain. |
+| `POST /api/auth/email/verify` | `challenge_id`, six-digit `code`, `browser_binding`; atomic proof returns a Firebase custom token for the same verified primary-email UID; no second provider login. |
+
+Pending domain review returns `202` with no sendable challenge, a denied domain `403`,
+rate limits `429` and unavailable dependencies `503`. No response before mailbox proof
+reveals account existence. Validation errors never echo input secrets. Successful
+login grants identity only; the vault and scoped consent retain their own gates.
+
 
 Protected information access is gated by consent tokens. Firebase verifies
 identity for vault-owner bootstrap and explicitly declared account, developer
@@ -3800,13 +3860,25 @@ Firebase authentication derives the owner; client payloads cannot select one.
 - `GET /leaderboard` refreshes shared cumulative Coins snapshots independently
   of weekly prizes, with deterministic ties and off-page viewer lookup.
   `snapshot_id` pins continuation pages.
+  Chosen public aliases retain priority. Otherwise, nullable `display_name`
+  comes from the existing viewer-permitted Connect directory. Hidden, inactive
+  and unresolved people remain anonymous. The viewer may see their own profile
+  name; no peer identifiers or contact details are returned.
 - `POST /app-open` retains its compatibility path but records visible dashboard
   visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
   a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning
   streak, `server_now` and `next_day_at`. `GET /engagement` awards nothing.
-- `GET /challenge` returns Monday/Kolkata start, exclusive cutoff, server time
-  and persisted round metadata. `calendar_active`/legacy `active` are separate
-  from `campaign_active` and `weekly_prizes_enabled`. Reads never enable prizes.
+- `GET /challenge` returns persisted Monday/Kolkata round bounds and fresh server
+  time after database work. `active` and `campaign_active` both mean enabled
+  weekly prizes in an open round; `calendar_active` only describes the schedule.
+  `weekly_prizes_enabled` remains the explicit campaign setting. Reads never
+  enable prizes. A wait across cutoff resolves the next round before responding.
+  `server_processing_ms` lets clients estimate response transit separately from
+  server work, then advance `server_now` using a monotonic receipt anchor. The
+  dashboard shows one weekly-prize countdown with days/hours/minutes/seconds;
+  disabled, unknown or invalid timing never falls back to a device clock.
+  Activation sends the allowlisted global `weekly_prizes_enabled` referral
+  doorbell so open dashboards re-read state; it carries only that reason.
 - `GET /policy` supplies active amounts through compatible `points` keys,
   streak/schedule rules and flash/prize availability. UI calls amounts Coins.
 - `GET /transactions` returns owner-only cursor history; row `coins` aliases

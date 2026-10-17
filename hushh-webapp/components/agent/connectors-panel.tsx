@@ -2455,7 +2455,9 @@ function OwnerConnectorsPanel({
               {overview?.features.google_drive_live === true &&
                 (drive?.status !== "connected" || drive?.profile !== "live") && (
                 <p className="text-sm text-muted-foreground">
-                  Agent One prepares packets from your Drive automatically.
+                  {overview?.driveAgentPackagesEnabled === true
+                    ? "Agent One prepares packets from your Drive automatically."
+                    : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."}
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
@@ -2539,7 +2541,9 @@ function OwnerConnectorsPanel({
                   {liveBackground === null && liveBackgroundError && <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>}
                 </SettingsGroup>
               )}
-              {drive?.profile === "live" && drive.status === "connected" && <DriveCollectionPanel backgroundEnabled={liveBackground} />}
+              {overview?.driveAgentPackagesEnabled === true && overview.features.drive_document_indexing === true &&
+                drive?.profile === "live" && drive.status === "connected" &&
+                <DriveCollectionPanel backgroundEnabled={liveBackground} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-normal [&::-webkit-details-marker]:hidden">

@@ -31,6 +31,7 @@ const state = vi.hoisted(() => ({
   prepareRequestBulk: vi.fn(),
   prepareRequestBatch: vi.fn(),
   setLiveBackground: vi.fn(),
+  overview: vi.fn(),
   bulkShareFiles: vi.fn(),
   approveBulkShare: vi.fn(),
   retryBulkShare: vi.fn(),
@@ -90,7 +91,7 @@ vi.mock("@/lib/services/drive-search-service", async (original) => ({
   DriveSearchService: { streamStatus: searchStream.status },
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { setLiveBackground: state.setLiveBackground },
+  ExternalConnectorService: { setLiveBackground: state.setLiveBackground, overview: state.overview },
 }));
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import {
@@ -253,6 +254,7 @@ describe("exact-file document review", () => {
     state.prepareRequestBulk.mockResolvedValue(durableBulk());
     state.prepareRequestBatch.mockResolvedValue(durableBulk());
     state.setLiveBackground.mockResolvedValue(true);
+    state.overview.mockResolvedValue({ driveAgentPackagesEnabled: false });
     state.bulkShareFiles.mockResolvedValue({ shareId: bulkShareId,
       files: [{ position: 1, name: "Standup 1", mimeType: "application/vnd.google-apps.document", modifiedTime: null, openUrl: null }], nextCursor: null });
     state.approveBulkShare.mockResolvedValue(durableBulk({ status: "queued", canApprove: false }));
@@ -1311,7 +1313,7 @@ describe("exact-file document review", () => {
         purpose: "Statements", paymentRequired: true, busy: false, error: null });
       // A refused price keeps the decision open and says what to change.
       fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a price from $0.50 to $500.");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a whole-dollar price from $1 to $500.");
       expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
       expect(changed).not.toHaveBeenCalled();
 
@@ -1465,10 +1467,15 @@ describe("exact-file document review", () => {
 
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       expect(await screen.findByRole("status")).toHaveTextContent("46 file candidates to review");
-      expect(screen.getByText("Dates inside files haven't been checked; review before sharing.")).toBeVisible();
+      expect(screen.getByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeVisible();
       expect(screen.queryByText(/Matching files are found and shared automatically/)).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole("checkbox", { name: "Standup 2" }));
+      const first = await screen.findByRole("checkbox", { name: "Standup 1" });
+      expect(first).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Standup 2" })).not.toBeChecked();
+      expect(screen.getByRole("button", { name: "Review 0 files" })).toBeDisabled();
+      fireEvent.click(first);
+      fireEvent.click(screen.getByRole("checkbox", { name: "Standup 3" }));
       expect(state.prepareRequestBatch).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Review 2 files" }));
       await waitFor(() => expect(state.prepareRequestBatch).toHaveBeenCalledWith(
@@ -1513,7 +1520,7 @@ describe("exact-file document review", () => {
       expect(screen.getByText("Only Agent One's verified matches can be selected.")).toBeVisible();
       expect(screen.getByRole("heading", { name: "Verified files" })).toBeVisible();
       expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
-      expect(screen.queryByText("Dates inside files haven't been checked; review before sharing.")).toBeNull();
+      expect(screen.queryByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeNull();
       fireEvent.click(await screen.findByRole("checkbox", { name: "Standup 1" }));
       fireEvent.click(screen.getByRole("button", { name: "Review 1 file" }));
       await waitFor(() => expect(state.prepareRequestBatch).toHaveBeenCalledWith(

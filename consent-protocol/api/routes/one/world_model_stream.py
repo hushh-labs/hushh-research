@@ -6,6 +6,7 @@ Same authority as GET /jobs (vault-owner token plus that owner's chat key).
 The stream reads the job status every 2 s and sends::
 
     progress  <PwmProgress>   whenever the derived progress changes
+    partial   {validated_facts: [...]} when a cited provisional batch changes
     ping      {}              at least every 15 s
     result    <PwmResult>     when the job leaves pending/paused, needs a
                               restart, or the stream reaches its lifetime;
@@ -126,6 +127,7 @@ async def progress_events(
     started = clock()
     last_frame_at = started
     last_progress: dict | None = None
+    last_partial: list | None = None
     result = initial
     while True:
         if result is None:
@@ -145,6 +147,19 @@ async def progress_events(
             last_progress = progress
             last_frame_at = now
             yield _frame("progress", progress)
+        partial = result.get("validated_facts")
+        if (
+            isinstance(partial, list)
+            and partial != last_partial
+            and (partial or last_partial is not None)
+        ):
+            last_partial = partial
+            last_frame_at = now
+            yield _frame("partial", {"validated_facts": partial})
+        elif partial is None and last_partial:
+            last_partial = []
+            last_frame_at = now
+            yield _frame("partial", {"validated_facts": []})
         if now - started >= lifetime_seconds:
             # The key expires soon; hand back the live state so the client
             # reconnects without an idle gap.

@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
+import {
+  PwmResearchDisclosure,
+  PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+} from "@/components/onboarding/setup/pwm-research-disclosure";
 
 const state = vi.hoisted(() => ({
   user: { uid: "recipient" },
@@ -12,6 +16,9 @@ const state = vi.hoisted(() => ({
   welcome: vi.fn(),
   hasFinanceIntent: false,
   runtimeChoiceSaved: true,
+  setupChoice: "managed",
+  hasGeminiRuntimeDraft: false,
+  savedGeminiKey: false,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => state.router,
@@ -45,7 +52,7 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => ({ oneRuntimeSetupChoice: "managed" }),
+    getCachedBootstrapState: () => ({ oneRuntimeSetupChoice: state.setupChoice }),
     hasOneRuntimeChoice: () => state.runtimeChoiceSaved,
   },
 }));
@@ -95,6 +102,9 @@ beforeEach(() => {
   state.user = { uid: "recipient" };
   state.hasFinanceIntent = false;
   state.runtimeChoiceSaved = true;
+  state.setupChoice = "managed";
+  state.hasGeminiRuntimeDraft = false;
+  state.savedGeminiKey = false;
   state.finalize.mockResolvedValue(undefined);
   state.sync.mockResolvedValue(undefined);
   state.finance.mockResolvedValue(undefined);
@@ -107,6 +117,36 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
+  it("requires a distinct Azure/Bing opt-in disclosure in the UAT setup", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    try {
+      render(<PwmResearchDisclosure compact />);
+      expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+        PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+      );
+      expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+        "off until you turn it on",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([false, true])(
+    "requires a live BYOK draft even with an unlocked vault (draft: %s)",
+    async (hasDraft) => {
+      state.setupChoice = "byok_pending_vault";
+      state.hasGeminiRuntimeDraft = hasDraft;
+      render(<GeminiRuntimeConfigurationPage setupMode />);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Choose AI" })).toHaveAttribute(
+          "data-initially-configured",
+          String(hasDraft),
+        ),
+      );
+    },
+  );
+
   it.each([false, true])("embedded readiness requires the durable AI choice (%s)", (saved) => {
     state.runtimeChoiceSaved = saved;
     const ready = vi.fn();

@@ -106,6 +106,7 @@ function UnlockedRequestButton({
   getToken: () => string | null;
 }) {
   const [enabled, setEnabled] = useState(false);
+  const [agentPackagesEnabled, setAgentPackagesEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
   const [phase, setPhase] = useState<"idle" | "sending">("idle");
@@ -161,8 +162,10 @@ function UnlockedRequestButton({
             alive.current &&
             isVaultSessionEpochCurrent(epoch) &&
             getToken() === token
-          )
+          ) {
             setEnabled(result.features.drive_document_sharing === true);
+            setAgentPackagesEnabled(result.driveAgentPackagesEnabled === true);
+          }
         })
         .catch(() => {
           /* A rollout-status failure cannot enable a new action. */
@@ -332,6 +335,7 @@ function UnlockedRequestButton({
         personRef={personRef}
         personName={personName}
         getToken={getToken}
+        agentPackagesEnabled={agentPackagesEnabled}
       />
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>
         Ask about files

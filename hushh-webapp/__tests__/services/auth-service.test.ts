@@ -125,8 +125,8 @@ vi.mock("firebase/auth", () => ({
   ),
   getAuth: mockGetAuth,
   inMemoryPersistence: "in-memory-persistence",
-  OAuthProvider: function OAuthProvider() {
-    return { addScope: mockOAuthAddScope };
+  OAuthProvider: function OAuthProvider(providerId: string) {
+    return { providerId, addScope: mockOAuthAddScope, setCustomParameters: vi.fn() };
   },
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
@@ -1387,6 +1387,16 @@ describe("AuthService web provider popup continuity", () => {
     vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "firebase-client.apps.googleusercontent.com");
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     signupToken.mockReset();
+  });
+
+  it("uses the Microsoft provider and preserves the returned Firebase identity", async () => {
+    const user = { uid: "existing-owner", getIdToken: vi.fn().mockResolvedValue("identity-token") };
+    mockSignInWithPopup.mockResolvedValue({ user });
+    await expect(AuthService.signInWithMicrosoft()).resolves.toEqual({ user, idToken: "identity-token" });
+    expect(mockSignInWithPopup).toHaveBeenCalledWith(mockAuth, expect.objectContaining({ providerId: "microsoft.com" }));
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    await expect(AuthService.signInWithMicrosoft()).rejects.toThrow("web app");
+    expect(mockSignInWithPopup).toHaveBeenCalledTimes(1);
   });
 
   it.each(["", "firebase-client.apps.googleusercontent.com"])("keeps the SDK contract for callers without an explicit sign-in purpose (%s)", async (clientId) => {

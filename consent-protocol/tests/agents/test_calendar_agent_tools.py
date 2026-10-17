@@ -264,6 +264,8 @@ def test_calendar_list_missing_optional_permission_asks_for_specific_upgrade(mon
     assert result["status"] == "connection_required"
     assert result["directive"]["payload"]["confirmLabel"] == "Allow calendar list access"
     assert "subscribed calendars" in result["directive"]["payload"]["summary"]
+    assert result["directive"]["payload"]["includeCalendarList"] is True
+    assert result["reason_code"] == "calendar_list_permission_required"
 
 
 def test_calendar_connection_requirement_becomes_a_connect_directive(monkeypatch) -> None:  # noqa: ANN001
@@ -404,6 +406,9 @@ def test_calendar_confirmation_uses_the_chat_users_timezone_not_plan_utc(monkeyp
     summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
     assert "10:00 AM IST" in summary
     assert "UTC" not in summary
+    assert (
+        context.state["hussh:pending_directive:calendar"]["payload"]["timeZone"] == "Asia/Kolkata"
+    )
 
 
 class _ReadOnlyCalendar:
@@ -553,6 +558,10 @@ def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkey
     assert directive["payload"]["type"] == "calendar.connect"
     assert directive["payload"]["accessLevel"] == "manage"
     assert directive["payload"]["confirmLabel"] == "Allow Calendar scheduling"
+    assert result["reason_code"] == "google_permission_required"
+    assert directive["payload"]["reasonCode"] == "google_permission_required"
+    assert "scheduling" in directive["payload"]["summary"]
+    assert "Connect Google Calendar" not in directive["payload"]["summary"]
 
 
 def _current_event_with_guests() -> dict[str, object]:

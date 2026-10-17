@@ -244,6 +244,26 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Exit Criteria
 
+### Independent email and Microsoft authentication
+
+1. Automatic exact-domain admission, current evidence, revocation and shared
+   budgets precede every OTP submission. Optional CA evidence cannot approve alone.
+2. The existing mail API sends from `one@hushh.ai`; record inbox receipt separately
+   from API acceptance. No WorkOS or customer-admin dependency is introduced.
+3. Single-use proof, persisted failures, browser binding, resend supersession and
+   lock-wait expiry races pass real Postgres checks.
+4. OTP signs existing verified-primary-email accounts in directly with the same
+   UID. Unverified primary emails, disabled/deleted accounts and deprovisioned
+   WorkOS-created accounts stay blocked; active origin alone is not a restriction.
+5. Erasure removes email credentials; retention continues with issuance disabled.
+   Vault reset preserves enrollment. Authentication grants no consent or vault key.
+6. Personal/company Microsoft, repeat OTP UID and vault-locked behavior need live
+   acceptance. Web checks do not certify native or voice return paths.
+
+See [Independent Email Authentication](./independent-email-auth.md).
+
+### Overall exit
+
 1. All checklist sections pass.
 2. No open P0/P1 IAM defects.
 3. Rollback steps are documented.

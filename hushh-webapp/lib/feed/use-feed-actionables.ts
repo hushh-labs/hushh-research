@@ -123,7 +123,7 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationGrant,
 } from "@/lib/one-location/types";
-import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import { buildOneLocationNotificationHref, buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import {
   openProfilePane,
   profileConnectorsLocation,
@@ -136,6 +136,7 @@ import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { useAgentUpdateFeedCard } from "@/lib/feed/agent-update-feed-card";
 import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
+import type { AgentTodo } from "@/lib/services/todo-list-pkm-service";
 
 /**
  * Subset of SettingsRow's icon-well tones (that type is not exported). Feed
@@ -182,6 +183,8 @@ export interface FeedActionButton {
  */
 export interface FeedActionable {
   id: string;
+  /** Only explicit unresolved owner work participates in the private To-do list. */
+  todo?: AgentTodo;
   icon: FeedIcon;
   iconTone: FeedIconTone;
   /** Person identity to render before falling back to the domain icon. */
@@ -391,6 +394,7 @@ export function ownerConsentRequestActionable(
     : [];
   return {
     id: `consent:${request.key}`,
+    todo: { source: "consent", title: `Review ${request.headline}`, href: request.detailsHref },
     icon: ConsentAgentIcon,
     iconTone: "capability",
     person: request.isPerson
@@ -554,11 +558,12 @@ export function buildDebateFeedAnalysisHref(
     : buildKaiMarketRoute("analysis", { focus: "active", run_id: runId });
 }
 
-export function useFeedActionables(): UseFeedActionablesResult {
+export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {}): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken, getVaultOwnerToken } = useVault();
-  const userId = user?.uid ?? null;
+  const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
+  const vaultOwnerToken = enabled ? ownerToken : null;
+  const userId = enabled ? user?.uid ?? null : null;
   const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
   const agentUpdateCard = useAgentUpdateFeedCard({
     userId,
@@ -1330,6 +1335,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // answered elsewhere. Every source behind it re-checks on the same live signal
   // the list and the tab badge use.
   const refreshActionables = useCallback(async () => {
+    if (!userId) return;
     await Promise.all([
       consentSummaryRefresh({ force: true }),
       consentListRefresh({ force: true }),
@@ -1340,6 +1346,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       connectionsRefresh({ force: true }),
     ]);
   }, [
+    userId,
     connectionsRefresh,
     consentListRefresh,
     consentSummaryRefresh,
@@ -1495,6 +1502,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setupEntryIds.add(entry.id);
       const row = {
         id: `consent:${entry.id}`,
+        ...(isDocumentRequestSetupStep(setup) ? { todo: {
+          key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
+          title: documentRequestSetupLabel(setup, true),
+          href: documentRequestSetupHref(setup, "/one/todos"),
+        } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
         title: resolveConsentRequesterLabel({
@@ -1580,6 +1592,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
           ];
       items.push({
         id: `drive-payment:${payment.requestId}`,
+        ...(!paymentIsNonActionable ? { todo: {
+          source: "drive" as const, title: displayPayment.title,
+          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/todos" }),
+        } } : {}),
         icon: ConsentAgentIcon,
         iconTone: "capability",
         title: displayPayment.title,
@@ -1752,6 +1768,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
                   ];
           items.push({
             id: `consent:${entry.id}`,
+            ...((owner && !preparing && !stagedEmpty && !["pending_resolution", "answered"].includes(state)) || requesterPaying ? { todo: {
+              key: `consent:${entry.id}:${state}`, source: "consent" as const,
+              title: `Review request from ${requesterLabel}`, href,
+            } } : {}),
             icon: ConsentAgentIcon,
             iconTone: "capability",
             title:
@@ -1779,6 +1799,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
         const entryId = entry.id;
         items.push({
           id: `consent:${entry.id}`,
+          todo: {
+            key: `consent:${entry.id}:review`,
+            source: isDriveSharingEntry(entry) ? "drive" : "consent",
+            title: `Review request from ${requesterLabel}`,
+            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/todos" }),
+          },
           icon: ConsentAgentIcon,
           iconTone: "capability",
           person:
@@ -1952,6 +1978,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const label = request.requesterDisplayName?.trim() || "Someone";
       items.push({
         id: `location:${request.id}`,
+        todo: {
+          source: "location", title: `Review ${label}'s location request`,
+          href: buildOneLocationWorkflowHref({ requestId: request.id }),
+        },
         icon: LocationAgentIcon,
         iconTone: "capability",
         person:
@@ -2024,6 +2054,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const circleName = invite.circleName?.trim() || "a Circle";
       items.push({
         id: `circle-invite:${invite.id}`,
+        todo: {
+          source: "location", title: `Review invitation to ${circleName}`,
+          href: buildOneLocationWorkflowHref({ circleInviteId: invite.id }),
+        },
         icon: PeopleRowIcon,
         iconTone: "capability",
         person:
@@ -2091,6 +2125,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
       items.push({
         id: `connection:${request.id}`,
+        todo: { source: "connections", title: `Review ${label}'s connection request`, href: reviewHref },
         icon: JoinRowIcon,
         iconTone: "capability",
         person:
@@ -2260,6 +2295,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
       items.push({
         id: `debate:${task.runId}`,
+        todo: !running && task.persistenceState !== "pending"
+          ? { key: `debate:${task.runId}:${failedSave ? "save" : "review"}`, source: "kai", title: failedSave ? `Save ${task.ticker || "analysis"}` : `Review ${task.ticker || "analysis"}`, href: failedSave ? "/one/feed" : buildDebateFeedAnalysisHref(task.runId, persisted) }
+          : undefined,
         icon: FinanceAgentIcon,
         iconTone: "capability",
         spinning: running || task.persistenceState === "pending",
@@ -2313,6 +2351,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
       items.push({
         id: `task:${task.taskId}`,
+        todo: !running && task.routeHref
+          ? { key: `task:${task.taskId}:${task.startedAt}`, source: "agent", title: `Review ${task.title}`, href: task.routeHref }
+          : undefined,
         icon: FinanceAgentIcon,
         iconTone: "capability",
         spinning: running,

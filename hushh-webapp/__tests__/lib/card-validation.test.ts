@@ -60,6 +60,15 @@ describe("validateCardForRegion", () => {
     expect(result.last4).toBe("1111");
   });
 
+  it("validates optional manual codes without accepting legacy or malformed input", () => {
+    for (const securityCode of [undefined, "", "007", "0123"]) {
+      expect(validateCardForRegion({ ...base, securityCode }).valid).toBe(true);
+    }
+    for (const securityCode of ["12", "12345", "1a3", " 123", 123, null]) {
+      expect(validateCardForRegion({ ...base, securityCode } as never).errors).toContain("security_code_invalid");
+    }
+  });
+
   it("requires the name without collecting security codes", () => {
     const minimal = { ...base, issuingRegion: undefined, pin: undefined };
     expect(validateCardForRegion(minimal).valid).toBe(true);
@@ -149,4 +158,14 @@ describe("backend-supplied networks", () => {
   expect(validateCardForRegion({ ...base, pan: luhnFix("2200111111111111"), brand: "mir" }).brand).toBe("mir");
   expect(validateCardForRegion({ ...base, pan: luhnFix("2221111111111111"), brand: "mastercard" }).brand).toBe("mastercard");
  });
+});
+
+
+it("accepts checksum-valid generic 12-digit cards without broadening known network lengths", () => {
+  const input = { pan: "911111111116", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030, now: NOW };
+  expect(validateCardForRegion({ ...input, brand: "other" }).valid).toBe(true);
+  expect(validateCardForRegion({ ...input, pan: "911111111117", brand: "other" }).valid).toBe(false);
+  for (const brand of ["visa", "mastercard", "amex", "rupay"]) {
+    expect(validateCardForRegion({ ...input, brand }).errors).toContain("pan_length_invalid_for_brand");
+  }
 });

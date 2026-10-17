@@ -161,12 +161,24 @@ def test_network_contract_is_available_without_sharing_keys(selected_network):
     assert client().get(ROOT + "/networks").json()["networks"] == list(NETWORK_ORDER)
 
 
+def test_twelve_digit_other_metadata_is_accepted_without_full_pan():
+    response = client().post(
+        ROOT + "/networks/resolve",
+        json={"iinPrefix": "911111", "panLength": 12, "selectedNetwork": "other"},
+    )
+    assert response.status_code == 200
+    assert response.json()["network"] == "other"
+    assert response.json()["source"] == "owner_selected"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
 @pytest.mark.parametrize(
     "body",
     [
         {"iinPrefix": "4111111111111111", "panLength": 16},
         {"iinPrefix": "411111", "panLength": "16"},
         {"iinPrefix": "411111", "panLength": True},
+        {"iinPrefix": "911111", "panLength": 11},
         {"iinPrefix": "411111", "panLength": 16, "pan": "4111111111111111"},
         {"iinPrefix": "411111", "panLength": 16, "cvv": "123"},
     ],

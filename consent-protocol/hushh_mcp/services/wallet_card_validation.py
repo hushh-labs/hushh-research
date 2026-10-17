@@ -100,7 +100,18 @@ def validate_wallet_card_envelope(summary: Any) -> None:
     if not isinstance(summary, dict):
         raise ValueError("wallet_summary_must_be_object")
 
-    forbidden = {"pan", "cvv", "cvc", "pin", "card_number", "number", "secrets"}
+    forbidden = {
+        "pan",
+        "cvv",
+        "cvc",
+        "pin",
+        "card_number",
+        "number",
+        "secrets",
+        "manual_cvv",
+        "security_code",
+        "securitycode",
+    }
 
     def _refuse_secret_keys(node: Any) -> None:
         if isinstance(node, dict):
@@ -185,7 +196,7 @@ NETWORK_PAN_LENGTHS = {
     "mir": (16, 17, 18, 19),
     "elo": (16,),
     "verve": (16, 18, 19),
-    "other": tuple(range(13, 20)),
+    "other": tuple(range(12, 20)),
 }
 
 
@@ -199,7 +210,7 @@ def classify_card_network(
 ) -> dict:
     if not isinstance(iin_prefix, str) or re.fullmatch(r"[0-9]{6}", iin_prefix) is None:
         raise ValueError("card_network_request_invalid")
-    if type(pan_length) is not int or not 13 <= pan_length <= 19:
+    if type(pan_length) is not int or not 12 <= pan_length <= 19:
         raise ValueError("card_network_request_invalid")
     if selected_network is not None:
         selected = normalize_card_network(selected_network)

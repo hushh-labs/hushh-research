@@ -16,6 +16,8 @@ const settlement = vi.hoisted(() => {
     legal: vi.fn().mockResolvedValue(undefined),
     notify: vi.fn().mockResolvedValue(undefined),
     route: vi.fn().mockResolvedValue("/one/setup"),
+    journey: vi.fn().mockResolvedValue(undefined),
+    requiredCookie: vi.fn(), flowCookie: vi.fn(),
     router: { push: vi.fn(), replace: vi.fn() },
     progress: { registerSteps: vi.fn(), completeStep: vi.fn(), reset: vi.fn() },
     native: { enabled: false, autoReviewerLogin: false },
@@ -35,10 +37,16 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: {
 vi.mock("@/lib/services/initial-contacts-onboarding-service", () => ({ InitialContactsOnboardingService: { begin: settlement.contacts } }));
 vi.mock("@/lib/services/legal-acceptance-service", () => ({ LegalAcceptanceService: { recordSignInAcceptance: settlement.legal } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
+  emailAuthRequest: async () => ({ enabled: false }),
   getAppReviewModeConfig: async () => ({ enabled: false }), notifyFirstWelcome: settlement.notify,
 } }));
 vi.mock("@/lib/services/post-auth-route-service", () => ({ PostAuthRouteService: { resolveAfterLogin: settlement.route } }));
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { syncOnboardingJourney: async () => undefined } }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { syncOnboardingJourney: settlement.journey } }));
+vi.mock("@/lib/services/onboarding-route-cookie", () => ({
+  setOnboardingRequiredCookie: settlement.requiredCookie,
+  setOnboardingFlowActiveCookie: settlement.flowCookie,
+  isOnboardingFlowActiveCookieEnabled: () => false,
+}));
 vi.mock("@/lib/auth/google-signup-token", () => ({ preloadGoogleSignupAuth: async () => undefined }));
 vi.mock("@/lib/progress/step-progress-context", () => ({ useStepProgress: () => settlement.progress }));
 vi.mock("@/lib/capacitor/platform", () => ({ isWeb: () => true, isAndroid: () => false }));
@@ -63,6 +71,34 @@ vi.mock("@/components/onboarding/AuthProviderButton", () => ({
 describe("AuthStep committed provider settlement", () => {
   beforeEach(() => { vi.clearAllMocks(); settlement.currentUser = null; });
   afterEach(cleanup);
+
+  it.each(["unmounted-resolve", "unmounted-reject", "changed-resolve", "changed-reject"])(
+    "does not navigate or write route cookies after a pending resolver loses authority (%s)", async (scenario) => {
+      let finishRoute!: (value: string) => void;
+      let failRoute!: (error: Error) => void;
+      settlement.route.mockImplementationOnce(() => new Promise<string>((resolve, reject) => {
+        finishRoute = resolve; failRoute = reject;
+      }));
+      const user = { uid: "current-owner", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+      settlement.currentUser = user;
+      settlement.signIn.mockResolvedValueOnce({ user, idToken: "firebase-token", isNewUser: false });
+      const view = render(createElement(AuthStep, { redirectPath: "/one" }));
+      await act(async () => { fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" })); });
+      expect(settlement.route).toHaveBeenCalledTimes(1);
+      if (scenario.startsWith("unmounted")) view.unmount();
+      else settlement.currentUser = { uid: "different-owner" };
+      await act(async () => {
+        if (scenario.endsWith("reject")) failRoute(new Error("route unavailable"));
+        else finishRoute("/one/setup");
+      });
+      expect(settlement.journey).not.toHaveBeenCalled();
+      expect(settlement.requiredCookie).not.toHaveBeenCalled();
+      expect(settlement.flowCookie).not.toHaveBeenCalled();
+      expect(settlement.router.push).not.toHaveBeenCalled();
+      expect(settlement.router.replace).not.toHaveBeenCalled();
+      expect(settlement.complete).toHaveBeenCalledExactlyOnceWith(7);
+    },
+  );
 
   it.each(["same", "changed", "signed-out"] as const)("settles an unmounted signup only for its current Firebase owner (%s)", async (owner) => {
     let finish!: (result: unknown) => void;

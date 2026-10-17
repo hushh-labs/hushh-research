@@ -113,7 +113,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "cc0c0d3b654bec934835d20601017df3ae20234d71004f0119a00ad2d3717a9b",
+      "system_instruction_sha256": "23687bb235bc5dde64aad6cca05770cb8f45efa660a3a8f57b7ea31222ad9bc9",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -4537,7 +4537,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "1821e92f0d187bd50a0b6678410f5d1bb8786beca9f087e50f66ec64b10628d4",
+      "system_instruction_sha256": "e48785a440eb38a5ab24390acd88688f770b291a59983f2b8c39a96c520b688a",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

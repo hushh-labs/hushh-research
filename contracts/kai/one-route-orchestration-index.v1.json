@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1476,7 +1476,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5446,7 +5446,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.world_model",
-        "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares the model automatically; the owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
+        "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares a review draft when the owner's provider-specific setting allows it; Azure/Bing in UAT requires an explicit opt-in. The owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
         "screen": "profile_world_model",
         "entry_cue": "",
         "proactivity": "ambient",

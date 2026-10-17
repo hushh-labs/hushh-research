@@ -169,6 +169,14 @@ class AccountService:
             "ria_license_verifications": text(
                 "DELETE FROM ria_license_verifications WHERE user_id = :user_id"
             ),
+            "email_auth_challenges": text(
+                """DELETE FROM email_auth_challenges WHERE expected_uid=:user_id
+                   OR destination_hash IN (SELECT destination_hash FROM email_auth_enrollments
+                                            WHERE user_id=:user_id)"""
+            ),
+            "email_auth_enrollments": text(
+                "DELETE FROM email_auth_enrollments WHERE user_id=:user_id"
+            ),
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),
@@ -2120,6 +2128,9 @@ class AccountService:
                     conn,
                     table_names=[
                         "one_adk_sessions",
+                        # Remove challenge bindings before their enrollment lookup.
+                        "email_auth_challenges",
+                        "email_auth_enrollments",
                         "one_action_directive_ledger",
                         "webauthn_credentials",
                         "webauthn_challenges",

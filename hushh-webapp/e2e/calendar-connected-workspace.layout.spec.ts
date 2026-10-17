@@ -331,7 +331,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("heading", { name: "6 available slots today", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
     await expect(page.getByLabel("Selected date")).toHaveValue("2026-10-15");
-    await expect(page.getByRole("link", { name: /View full availability/ })).toHaveAttribute("href", "https://calendar.google.com/calendar/u/0/r/day/2026/10/15?authuser=qa-owner%40example.com");
+    await expect(page.getByRole("link", { name: "Open Google Calendar" })).toHaveAttribute("href", "https://calendar.google.com/calendar/u/0/r/day/2026/10/15?authuser=qa-owner%40example.com");
     expect(errors).toEqual([]);
     expect(unexpectedRequests).toEqual([]);
     failAvailability();
@@ -384,7 +384,7 @@ for (const width of [320, 390, 1440]) {
     const empty = await openFixture(page, width, false, "empty");
     await expect(page.getByText("No events today.", { exact: true })).toBeVisible();
     await expect(page.locator("[data-calendar-event]")).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /View more events/ })).toHaveAttribute("href", "https://calendar.google.com/calendar/u/0/r/day/2026/10/14?authuser=qa-owner%40example.com");
+    await expect(page.getByRole("link", { name: "Open Google Calendar" })).toHaveAttribute("href", "https://calendar.google.com/calendar/u/0/r/day/2026/10/14?authuser=qa-owner%40example.com");
     await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
     const emptyChrome = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
     const emptyDisconnect = (await page.getByRole("button", { name: "Disconnect Calendar", exact: true }).boundingBox())!;
@@ -459,33 +459,46 @@ for (const width of [320, 390, 1440]) {
 for (const width of [320, 390, 1440]) {
   test(`Invitations list, detail, conflict confirmation and RSVP at ${width}px`, async ({ page }, testInfo) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width);
+    const cta = page.getByRole("button", { name: "Try Calendar Agent with One", exact: true });
+    const scheduleBounds = (await cta.boundingBox())!;
+    expect(scheduleBounds.height).toBe(50);
+    expect(scheduleBounds.width).toBeLessThanOrEqual(420);
+    await expect(page.getByText("See your full day in Google Calendar")).toHaveCount(0);
     await page.getByRole("tab", { name: "Invitations", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    const invitationBounds = (await cta.boundingBox())!;
+    expect(invitationBounds.width).toBe(scheduleBounds.width);
+    expect(invitationBounds.height).toBe(scheduleBounds.height);
+    const disconnect = page.getByRole("button", { name: "Disconnect Calendar", exact: true });
+    expect((await disconnect.boundingBox())!.width).toBe(invitationBounds.width);
+    await expect(page.getByText("See more in Google Calendar")).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
     await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
     await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
-    if (width < 768) await expect(page.getByRole("heading", { name: "Needs your response" })).toBeHidden();
-    else {
-      const list = (await page.getByRole("heading", { name: "Needs your response" }).boundingBox())!;
-      const detail = (await page.getByRole("article", { name: "Invitation details: QA Product Sync" }).boundingBox())!;
-      expect(detail.x).toBeGreaterThan(list.x + 250);
-    }
+    const dialog = page.getByRole("dialog", { name: "Invitation details", exact: true });
+    await expect(dialog).toBeVisible();
+    const bounds = (await dialog.boundingBox())!;
+    expect(Math.abs(bounds.x + bounds.width / 2 - width / 2)).toBeLessThanOrEqual(2);
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toBeVisible();
+    expect(await page.locator('[data-slot="dialog-overlay"]').evaluate(node => getComputedStyle(node).backdropFilter)).not.toBe("none");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-top-${testInfo.project.name}-${width}.png`) });
-    await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
-    const chrome = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
+    await page.getByRole("button", { name: "Decline & offer another time" }).scrollIntoViewIfNeeded();
     const offerBounds = (await page.getByRole("button", { name: "Decline & offer another time" }).boundingBox())!;
-    expect(offerBounds.y + offerBounds.height).toBeLessThanOrEqual(chrome.y);
+    expect(offerBounds.y + offerBounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-${testInfo.project.name}-${width}.png`) });
+    await page.getByRole("button", { name: "Decline & offer another time" }).click();
+    await expect(dialog.getByLabel("Alternative date")).toBeVisible();
+    await expect(page.getByTestId("calendar-action")).toBeEmpty();
+    await dialog.getByRole("button", { name: "Back", exact: true }).click();
     const accept = page.getByRole("button", { name: "Accept", exact: true });
     await accept.scrollIntoViewIfNeeded();
     await accept.click();
     await expect(page.getByText("This overlaps another meeting")).toBeVisible();
     expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
     await page.getByRole("button", { name: "Accept anyway" }).click();
-    await expect(page.getByText("Your invitation was accepted.", { exact: true })).toBeVisible();
+    await expect(dialog).toBeHidden();
     expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
-    await page.getByRole("button", { name: "Invitations", exact: true }).click();
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
@@ -540,7 +553,7 @@ for (const width of [390, 1280]) {
 }
 
 for (const width of [390, 1280]) {
-  test(`date-only invitations and row-aligned details at ${width}px`, async ({ page }) => {
+  test(`date-only invitations and centered modal details at ${width}px`, async ({ page }) => {
     const fixture = await openFixture(page, width);
     const events = Array.from({ length: 10 }, (_, index) => ({ ...dayEvents("2026-10-14")[0], id: `invitation-${index + 1}`, title: `QA Invitation ${index + 1}`, response_status: "needsAction", can_respond: true, conflicts: [] }));
     events.push({ ...events[0], ...dayEvents("2026-10-15")[0], id: "tomorrow", title: "QA Tomorrow" });
@@ -560,13 +573,9 @@ for (const width of [390, 1280]) {
       await row.scrollIntoViewIfNeeded();
       await row.click();
       await expect(page.getByRole("article", { name: `Invitation details: QA Invitation ${index}` })).toBeVisible();
-      if (width >= 768) {
-        const rowBox = (await row.boundingBox())!;
-        const detailBox = (await page.locator('[aria-label="Selected invitation"]').boundingBox())!;
-        expect(Math.abs(rowBox.y - detailBox.y)).toBeLessThanOrEqual(2);
-        expect(detailBox.x).toBeGreaterThan(rowBox.x + rowBox.width);
-        expect(await page.locator('[aria-label="Invitation list"]').evaluate(node => node.scrollHeight <= node.clientHeight)).toBe(true);
-      }
+      const modal = page.getByRole("dialog", { name: "Invitation details", exact: true });
+      const detailBox = (await modal.boundingBox())!;
+      expect(Math.abs(detailBox.x + detailBox.width / 2 - width / 2)).toBeLessThanOrEqual(2);
       await page.screenshot({ path: path.join(screenshotDirectory, `invitations-day-selected-${index}-${width}.png`) });
       await page.getByRole("button", { name: "Invitations", exact: true }).click();
       await expect(row).toBeFocused();

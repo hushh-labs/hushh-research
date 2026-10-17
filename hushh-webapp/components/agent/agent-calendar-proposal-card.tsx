@@ -27,6 +27,7 @@ export type AgentCalendarProposalCardProps = {
   timeZone?: string;
   attendees: string[];
   location: string | null;
+  description?: string | null;
   sendUpdates: boolean;
   googleMeet?: boolean;
   conflicts: CalendarProposalConflict[];
@@ -74,7 +75,8 @@ function formatTimeOnly(value: string | null, timeZone?: string): string {
 function formatRange(startAt: string | null, endAt: string | null, timeZone?: string): string {
   if (!startAt) return "";
   const start = formatDateTime(startAt, timeZone);
-  const end = endAt ? formatTimeOnly(endAt, timeZone) : "";
+  const day = (value: string) => new Date(value).toLocaleDateString("en-CA", { timeZone });
+  const end = endAt ? day(startAt) === day(endAt) ? formatTimeOnly(endAt, timeZone) : formatDateTime(endAt, timeZone) : "";
   return end ? `${start} – ${end}` : start;
 }
 
@@ -100,6 +102,7 @@ export function AgentCalendarProposalCard({
   timeZone,
   attendees,
   location,
+  description,
   sendUpdates,
   googleMeet = false,
   conflicts,
@@ -116,8 +119,9 @@ export function AgentCalendarProposalCard({
   let displayZone = timeZone;
   try { new Intl.DateTimeFormat(undefined, { timeZone: displayZone }).format(); }
   catch { displayZone = undefined; }
-  const minutes = startAt && endAt ? (Date.parse(endAt) - Date.parse(startAt)) / 60000 : 0;
-  const range = [formatRange(startAt, endAt, displayZone), displayZone, minutes > 0 ? `${minutes} min` : ""].filter(Boolean).join(" · ");
+  const seconds = startAt && endAt ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 1000) : 0;
+  const duration = seconds > 0 ? `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ""}` : "";
+  const range = [formatRange(startAt, endAt, displayZone), displayZone, duration].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
 
   return (
@@ -189,6 +193,7 @@ export function AgentCalendarProposalCard({
             <p className="break-words">{location}</p>
           </div>
         ) : null}
+        {description ? <div className="space-y-1"><p className="font-semibold">Description</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{description}</p></div> : null}
         {!attendeeText ? (
           <p className="text-muted-foreground">
             {sendUpdates

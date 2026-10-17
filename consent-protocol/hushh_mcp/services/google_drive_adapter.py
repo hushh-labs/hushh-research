@@ -21,6 +21,12 @@ from typing import Any, TypeGuard
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_METADATA_BYTES_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+    valid_file_list_page_size,
+)
 from hushh_mcp.services.drive_telemetry import drive_logger
 
 logger = drive_logger(__name__)
@@ -28,9 +34,9 @@ logger = drive_logger(__name__)
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 METADATA_LIMIT = 256 * 1024
-OWNER_SEARCH_METADATA_LIMIT = 2 * 1024 * 1024
-MAX_FILE_LIST_PAGE_SIZE = 100
-MAX_OWNER_SEARCH_PAGE_SIZE = 1000
+OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
+MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
+MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
@@ -323,8 +329,11 @@ class GoogleDriveAdapter:
         params: dict[str, str],
         limit: int,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
+        if type(owner_search_page) is not bool:
+            raise DriveReadError("operation_not_allowed")
         # Fixed operation names only. The path can contain a private provider ID
         # and params can contain the owner's search, so neither is logged.
         operation = (
@@ -356,6 +365,7 @@ class GoogleDriveAdapter:
                     access_token=access_token,
                     params=params,
                     limit=limit,
+                    **({"owner_search_page": True} if owner_search_page else {}),
                     **({"resource_keys": resource_keys} if resource_keys else {}),
                 )
             outcome = "ok"
@@ -394,6 +404,7 @@ class GoogleDriveAdapter:
         params: dict[str, str],
         limit: int,
         resource_keys: dict[str, str] | None = None,
+        owner_search_page: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
         if resource_keys and any(
@@ -468,7 +479,10 @@ class GoogleDriveAdapter:
                     and FILE_ID.fullmatch(params.get("driveId", "")) is not None
                 )
                 and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
-                and re.fullmatch(r"[1-9]|[1-9][0-9]|100", params.get("pageSize", "")) is not None
+                and valid_file_list_page_size(
+                    params.get("pageSize"), owner_search_page=owner_search_page
+                )
+                and limit == (OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT)
                 and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
@@ -499,6 +513,9 @@ class GoogleDriveAdapter:
             allowed = False
         if (
             not allowed
+            or type(owner_search_page) is not bool
+            or owner_search_page
+            and path != "/files"
             or limit
             not in {
                 METADATA_LIMIT,
@@ -848,6 +865,7 @@ class GoogleDriveAdapter:
         if (
             not isinstance(page_size, int)
             or isinstance(page_size, bool)
+            or type(owner_search_page) is not bool
             or not 1
             <= page_size
             <= (MAX_OWNER_SEARCH_PAGE_SIZE if owner_search_page else MAX_FILE_LIST_PAGE_SIZE)
@@ -873,6 +891,7 @@ class GoogleDriveAdapter:
                 # metadata page. A 1000-row response is bounded to 2 MiB;
                 # oversize pages retry at 100 and then 25 without losing a token.
                 limit=OWNER_SEARCH_METADATA_LIMIT if owner_search_page else METADATA_LIMIT,
+                **({"owner_search_page": True} if owner_search_page else {}),
                 **({"resource_keys": resource_keys} if resource_keys is not None else {}),
             )
         )

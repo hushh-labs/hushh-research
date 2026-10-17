@@ -13,12 +13,17 @@ from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSource, ProfileSourceRef
 from hushh_mcp.one_adk.world_model_confidence import evidence_rating
 from hushh_mcp.one_adk.world_model_contracts import (
+    MAX_WORLD_MODEL_FACTS,
     TOPICS,
     Contract,
+    CoverageCoherenceError,
+    CoverageRepair,
+    FindingBatch,
     IdentityAssessment,
     QueryPlan,
     ShortText,
     WorldModelReport,
+    validated_facts_from_work,
 )
 
 POLICY = load_pwm_policy()
@@ -51,6 +56,21 @@ def policy_fingerprint() -> str:
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
     task = manifest()
+    if POLICY["provider"] == "azure_openai_web_search":
+        # A provider switch changes the owner-bound research generation. Keep
+        # this fingerprint separate from Vertex's existing checkpoint lineage.
+        material = {
+            "manifest": task.model_dump(mode="json"),
+            "schema": WorldModelReport.model_json_schema(),
+            "assessment": IdentityAssessment.model_json_schema(),
+            "query_plan": QueryPlan.model_json_schema(),
+            "searches": MAX_SEARCHES,
+            "calls": MAX_MODEL_CALLS,
+            "policy": POLICY,
+            "provider": "azure-openai-web-search-v1",
+            "gate": "evidence-chain-v2",
+        }
+        return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
     return hashlib.sha256(
         json.dumps(
             {
@@ -173,7 +193,7 @@ async def run_world_model(
         await require_access()
         if time.monotonic() > deadline - 70:
             raise ResearchSliceComplete()
-        if len(model_slots - used) < 3 or not set(range(1, MAX_SEARCHES + 1)) - used:
+        if len(model_slots - used) < 3:
             return {
                 "available": False,
                 "reason": "budget_exhausted",
@@ -199,9 +219,35 @@ async def run_world_model(
             "research_question": plan.question,
         }
         query_key = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
-        if any(row.get("query_key") == query_key for row in attempts.values()):
+        matching = [
+            (key, row)
+            for key, row in attempts.items()
+            if isinstance(row, dict) and row.get("query_key") == query_key
+        ]
+        # A provider failure after the paid search started may leave only a
+        # started receipt. Resume that exact slot; completed queries stay
+        # deduplicated, and no new search charge is made for the retry.
+        resumable = [
+            int(key)
+            for key, row in matching
+            if str(key).isdigit()
+            and int(key) in used
+            and row.get("state") == "started"
+            and row.get("observed") is False
+            and not row.get("answer")
+            and not row.get("source_refs")
+        ]
+        if matching and len(resumable) != len(matching):
             return {"available": False, "reason": "duplicate_query"}
-        index = await charge(range(1, MAX_SEARCHES + 1))
+        if len(resumable) > 1:
+            raise ValueError("Repeated started search receipt")
+        if not resumable and not set(range(1, MAX_SEARCHES + 1)) - used:
+            return {
+                "available": False,
+                "reason": "budget_exhausted",
+                "action": "finish_with_received_evidence",
+            }
+        index = resumable[0] if resumable else await charge(range(1, MAX_SEARCHES + 1))
         observed = False
         received = []
         attempts[str(index)] = {
@@ -313,6 +359,26 @@ async def run_world_model(
         await checkpoint()
         return {"accepted": True, "identity": assessment.identity.model_dump()}
 
+    async def record_findings(batch_json: str) -> dict:
+        """Checkpoint up to eight cited findings from one observed search.
+
+        Supply FindingBatch JSON with the accepted candidate, exact attempt_id,
+        one planned topic and received source refs. These provisional facts
+        remain read-only until the final report passes every evidence gate.
+        """
+        await require_access()
+        if assessment is None:
+            raise ValueError("Assess identity before recording findings")
+        batch = FindingBatch.model_validate_json(batch_json).validate_receipts(
+            assessment, attempts, set(receipts)
+        )
+        existing = validated_facts_from_work(history)
+        if len(existing) + len(batch.facts) > MAX_WORLD_MODEL_FACTS:
+            raise ValueError("Provisional finding limit reached")
+        history.setdefault("finding_batches", []).append(batch.model_dump())
+        await checkpoint()
+        return {"accepted": True, "validated_facts": len(validated_facts_from_work(history))}
+
     async def after_model(callback_context, llm_response):
         nonlocal parallel_response
         parts = getattr(getattr(llm_response, "content", None), "parts", None) or []
@@ -343,7 +409,7 @@ async def run_world_model(
         include_contents="none",
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
-        tools=[search_public_web, assess_identity],
+        tools=[search_public_web, assess_identity, record_findings],
         output_schema=WorldModelReport,
         before_model_callback=before_model,
         after_model_callback=after_model,
@@ -363,6 +429,16 @@ async def run_world_model(
                     "research_history": history,
                     "query_plan_schema": QueryPlan.model_json_schema(),
                     "assessment_schema": IdentityAssessment.model_json_schema(),
+                    "finding_batch_schema": FindingBatch.model_json_schema(),
+                    "finding_checkpoint_instruction": (
+                        "After an observed search and accepted identity assessment, "
+                        "call record_findings for each material group of cited findings "
+                        "before continuing research. Use the selected candidate, "
+                        "the actual attempt ID, one planned topic and only source "
+                        "refs received by that attempt. Checkpoints are read-only "
+                        "provisional work; include them in the final report unless "
+                        "later evidence requires a correction."
+                    ),
                     "topics": TOPICS,
                     "owner_decisions": decisions,
                     "requested_by": "consenting_verified_owner",
@@ -388,15 +464,71 @@ async def run_world_model(
     await require_access()
     if assessment is None:
         return {"status": "unavailable", "pkm_written": False}
-    result = (
-        WorldModelReport.model_validate(turn.structured_output)
-        .validate_receipts(
-            assessment,
-            attempts,
-            set(receipts),
+    report = WorldModelReport.model_validate(turn.structured_output)
+    try:
+        report.validate_receipts(assessment, attempts, set(receipts))
+    except CoverageCoherenceError as error:
+        # The model's topic judgment is invalid, so one paid model call may
+        # repair coverage only. Host code never invents a no-findings claim.
+        if not model_slots - used:
+            return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
+        if time.monotonic() > deadline - 40:
+            await checkpoint()
+            return {"status": "paused", "pkm_written": False, "restart_required": True}
+        repair_agent = LlmAgent(
+            name="one_personal_world_model_coverage_repair",
+            model=model,
+            mode="task",
+            instruction=(
+                "Repair only the twenty coverage rows and gaps in the supplied report. "
+                "Use the recorded search plans and observations for attempt IDs. "
+                "A topic with no recorded attempt is not_attempted. A topic with "
+                "findings in the report must be findings, and its evidence must "
+                "pass the recorded-receipt gate. Never claim checked_no_findings "
+                "from a failed or unobserved search. If an observed search has "
+                "no report finding but the supplied evidence does not establish "
+                "absence, say unavailable. Do not invent facts or searches."
+            ),
+            include_contents="none",
+            tools=[],
+            output_schema=CoverageRepair,
+            before_model_callback=before_model,
+            generate_content_config=generation,
         )
-        .model_dump()
-    )
+        repair_turn = await run_specialist_adk_turn(
+            agent=repair_agent,
+            app_name=repair_agent.name,
+            user_id=user_id,
+            consent_token=consent_token,
+            message=json.dumps(
+                {
+                    "failure": str(error),
+                    "original_coverage": [row.model_dump() for row in report.coverage],
+                    "original_gaps": report.gaps,
+                    "selected_candidate_id": assessment.identity.selected_candidate_id,
+                    "identity_state": assessment.identity.state,
+                    "section_topics": [section.kind for section in report.sections],
+                    "attempts": [
+                        {
+                            "id": key,
+                            "candidate_id": row["plan"]["candidate_id"],
+                            "topics": row["plan"]["topics"],
+                            "observed": row["observed"],
+                            "answer_excerpt": row.get("answer", "")[:1500],
+                        }
+                        for key, row in sorted(attempts.items(), key=lambda item: int(item[0]))
+                    ],
+                }
+            ),
+            max_llm_calls=1,
+            first_event_timeout_s=min(75, max(1, deadline - time.monotonic() - 5)),
+            between_event_timeout_s=75,
+            total_timeout_s=min(80, max(1, deadline - time.monotonic() - 5)),
+        )
+        repair = CoverageRepair.model_validate(repair_turn.structured_output)
+        report = report.model_copy(update={"coverage": repair.coverage, "gaps": repair.gaps})
+        report.validate_receipts(assessment, attempts, set(receipts))
+    result = report.model_dump()
     evidence = {key: result.pop(key) for key in ("identity", "coverage", "gaps")}
     for section in result["sections"]:
         for fact in section["facts"]:

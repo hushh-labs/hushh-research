@@ -45,12 +45,12 @@ const LIMITED_USE_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
-const LAST_UPDATED = "2026-10-14";
-const LAST_UPDATED_LABEL = "October 14, 2026";
-const VERSION = "2.3";
-const PRIVACY_LAST_UPDATED = "2026-10-14";
-const PRIVACY_LAST_UPDATED_LABEL = "October 14, 2026";
-const PRIVACY_VERSION = "2.4";
+const LAST_UPDATED = "2026-10-16";
+const LAST_UPDATED_LABEL = "October 16, 2026";
+const VERSION = "2.4";
+const PRIVACY_LAST_UPDATED = "2026-10-16";
+const PRIVACY_LAST_UPDATED_LABEL = "October 16, 2026";
+const PRIVACY_VERSION = "2.5";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -96,6 +96,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "To answer you, One sends the information a request needs, which can include your memories, to our servers and to the AI model for that request. It is readable there while the request runs.",
         "Your chat history is stored encrypted with a key derived from your vault key, which your device sends only while One is working on your request.",
         "Services you connect support your requests and their background features. With full Google Drive access, Agent One prepares private document packets by default; you can pause preparation in Connectors. Google information is handled under Google’s Limited Use requirements.",
+        "Where available in UAT, Personal World Model public research with Microsoft Azure AI and Bing requires a separate choice. Bing search terms may include your name and verified email or phone.",
         "You decide what to share with other people and businesses, for how long, and you can revoke access at any time.",
         "We do not sell your information, and we do not show you ads.",
         "You can delete your account in the app at any time.",
@@ -178,6 +179,13 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Where voice mode is available, your speech is streamed to Google’s Gemini Live model on Google Cloud Vertex AI in the United States, which transcribes it to understand and answer you. We do not store your audio or a transcript; we keep a short-lived session record, without your words, for up to two hours.",
         "If you use Siri to ask One something or to send an alert, Apple processes that request under Apple’s own terms before handing it to One.",
         "Hussh does not use your information, your memories, or your connected services’ information to train AI models.",
+      ),
+      h("Personal World Model public research in UAT"),
+      p(
+        "Where available in UAT, this research is off until you turn it on in Personal World Model; an earlier Google research setting does not authorize Microsoft research. GPT-5-mini on Microsoft Azure AI receives your name, verified email address or phone number, public page text and citations, and your earlier confirmations or rejections to assess likely matches and avoid repeating suggestions. Phi-4-mini helps plan searches using only which identity fields are present and public research identifiers and counts; it does not receive your raw name, verified contacts, or review decisions. This research does not receive your vault key or private memories. You review every suggested detail before it is saved.",
+      ),
+      p(
+        "Bing web search receives search terms that may include your name, verified email address or phone number, and links found on public pages. Bing search processing is outside Azure's compliance and data residency boundary; Azure's data protection commitments for AI model requests do not cover Bing search. You can turn research and its ready email off in Personal World Model.",
       ),
     ],
   },
@@ -350,7 +358,8 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), Microsoft (sign-in and resource management, only for a private agent you run in your own Azure subscription), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft (owner-authorized sign-in and resource management for a private agent in your own Azure subscription, and Azure AI model processing for Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Bing web search, only when you turn on UAT Personal World Model research. It is governed by Microsoft's separate terms and Privacy Statement; the Azure Data Protection Addendum does not apply to Bing search data.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
         "Providers you choose. When you connect a service, add your own tool, use your own model key, or run your private agent in your own cloud (your own Google Cloud project or Microsoft Azure subscription), information goes to that provider to do what you asked.",
         "People and businesses you approve, as described above.",
@@ -454,7 +463,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "Where information is processed",
     blocks: [
       p(
-        "Hussh is based in the United States, and One runs on Google Cloud in the United States. AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you run your private agent in your own cloud, such as your own Google Cloud project or Microsoft Azure subscription, it runs in the location chosen for it there, and that provider may process its AI requests in other locations, depending on how the model is deployed. If you use One from elsewhere, your information is transferred to and processed in those places, where privacy laws may differ from those where you live.",
+        "Hussh is based in the United States, and One runs on Google Cloud in the United States. AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you run your private agent in your own cloud, such as your own Google Cloud project or Microsoft Azure subscription, it runs in the location chosen for it there, and that provider may process its AI requests in other locations, depending on how the model is deployed. When you turn on UAT Personal World Model research, Microsoft Azure AI processes model requests and Bing processes web searches separately; Bing search is outside Azure's compliance and data residency boundary. If you use One from elsewhere, your information is transferred to and processed in those places, where privacy laws may differ from those where you live.",
       ),
     ],
   },
@@ -531,6 +540,11 @@ const TERMS_SECTIONS: LegalSection[] = [
         "AI can be wrong. One can misunderstand you, miss information, or produce answers that are inaccurate or out of date. Check anything important before you rely on it.",
         "You stay in charge of important actions. Before One sends an email, creates a draft, changes your mailbox or calendar, shares or trashes a Drive file, or shares your information with another person, it asks you to review and approve it. Some lower-risk actions, such as creating or organizing Drive files, and calls to tools you add yourself, can run without a separate approval. You are responsible for actions you approve and for the tools you connect.",
         "Connected services have their own terms. When you connect Google, Plaid, or another provider, their terms and privacy policies also apply to your use of them. You can disconnect them at any time.",
+      ),
+      p(
+        "Where available in UAT, Personal World Model public research with Azure AI and Bing web search requires a separate opt-in. Bing processes search data under the ",
+        { text: "Microsoft Privacy Statement", href: "https://privacy.microsoft.com/en-us/privacystatement" },
+        "; its data is outside Azure's compliance and geographic boundary. You review suggested details before saving them.",
       ),
     ],
   },

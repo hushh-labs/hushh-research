@@ -11,11 +11,18 @@ import { TodoListPage } from "@/components/todos/todo-list-page";
 import {
   TodoListPkmService,
   buildTodo,
+  agentTodoInput,
 } from "@/lib/services/todo-list-pkm-service";
+import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
   unlocked: true,
+  actionables: [] as FeedActionable[],
+  feedError: null as string | null,
+  feedLoading: false,
+  retryFeed: vi.fn(),
+  pendingKyc: null as { count: number; workflowId: string } | null,
   events: [
     {
       id: "calendar-event-1",
@@ -23,6 +30,22 @@ const mocks = vi.hoisted(() => ({
       start: { date: "2026-10-10" },
     },
   ],
+}));
+
+vi.mock("@/lib/feed/use-feed-actionables", () => ({
+  useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
+    actionables: enabled ? mocks.actionables : [],
+    error: mocks.feedError,
+    loading: mocks.feedLoading,
+    progressError: null,
+    progressLoading: false,
+    retry: mocks.retryFeed,
+  }),
+}));
+vi.mock("@/lib/feed/use-feed-briefing", () => ({
+  useFeedBriefing: ({ enabled }: { enabled: boolean }) => ({
+    pendingKyc: enabled ? mocks.pendingKyc : null, kycLoading: false, kycError: false, retryKyc: async () => {},
+  }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -73,6 +96,11 @@ describe("TodoListPage row actions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mocks.unlocked = true;
+    mocks.actionables = [];
+    mocks.feedError = null;
+    mocks.feedLoading = false;
+    mocks.pendingKyc = null;
+    mocks.retryFeed.mockReset().mockResolvedValue(undefined);
     mocks.events = [
       {
         id: "calendar-event-1",
@@ -86,6 +114,67 @@ describe("TodoListPage row actions", () => {
       saveState: "saved",
       fullBlob: {},
     });
+  });
+
+  it("projects explicit agent tasks once, saves only completion and never executes the source action", async () => {
+    const run = vi.fn();
+    const item = {
+      id: "consent:review-1",
+      title: "A request",
+      todo: { source: "drive", title: "Review shared files 📁", href: "/one/consent?request_id=review-1" },
+      actions: [{ key: "allow", run }],
+    } as FeedActionable;
+    mocks.actionables = [item, item, { ...item, id: "historical", todo: undefined }];
+    const save = vi.spyOn(TodoListPkmService, "setStatus").mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
+    const create = vi.spyOn(TodoListPkmService, "create");
+    const view = render(<TodoListPage />);
+    const checkbox = await screen.findByRole("checkbox", { name: "Mark Review shared files 📁 as completed" });
+    expect(screen.getAllByText("Review shared files 📁")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Open Review shared files 📁" })).toHaveAttribute("href", item.todo!.href);
+    expect(screen.getByText("Drive")).toBeVisible();
+    expect(create).not.toHaveBeenCalled();
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Review shared files 📁")).not.toBeInTheDocument();
+    expect(run).not.toHaveBeenCalled();
+
+    const task = save.mock.calls[0]![0].task;
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [{ ...task, status: "done" }] });
+    view.unmount();
+    render(<TodoListPage />);
+    await screen.findByText("Completed");
+    expect(screen.queryByText("Review shared files 📁")).not.toBeInTheDocument();
+  });
+
+  it("does not revive resolved live tasks from stored pending snapshots and retains available lanes on partial failure", async () => {
+    mocks.events = [];
+    const saved = buildTodo(agentTodoInput("connection:gone", { source: "connections", title: "Resolved request", href: "/one/connect" })!);
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [saved] });
+    mocks.feedError = "private raw provider diagnostic";
+    mocks.actionables = [{ id: "location:live", todo: { source: "location", title: "Review location request", href: "/one/location?requestId=live" } } as FeedActionable];
+    render(<TodoListPage />);
+    await screen.findByText("Review location request");
+    await waitFor(() => expect(TodoListPkmService.load).toHaveBeenCalled());
+    expect(screen.queryByText("Resolved request")).not.toBeInTheDocument();
+    expect(screen.queryByText("private raw provider diagnostic")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry agent tasks" }));
+    await waitFor(() => expect(mocks.retryFeed).toHaveBeenCalledOnce());
+  });
+
+  it("includes the existing KYC queue and gives a later failed agent run its own task identity", async () => {
+    mocks.events = [];
+    mocks.pendingKyc = { count: 2, workflowId: "kyc-fixture" };
+    const item = { id: "task:refresh", todo: { key: "task:refresh:run-1", source: "agent", title: "Review refresh", href: "/one/feed" } } as FeedActionable;
+    const completed = { ...buildTodo(agentTodoInput(item.id, item.todo!)!), status: "done" as const };
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [completed] });
+    mocks.actionables = [item];
+    const view = render(<TodoListPage />);
+    await screen.findByText("Completed");
+    expect(screen.queryByText("Review refresh")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Review 2 information requests" })).toHaveAttribute("href", "/one/gmail?workspace=kyc");
+    mocks.actionables = [{ ...item, todo: { ...item.todo!, key: "task:refresh:run-2" } }];
+    view.rerender(<TodoListPage />);
+    expect(await screen.findByRole("checkbox", { name: "Mark Review refresh as completed" })).toBeVisible();
   });
 
   it("hides a completed Calendar item immediately and keeps it hidden when saved state reloads", async () => {

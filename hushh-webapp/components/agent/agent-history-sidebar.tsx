@@ -51,6 +51,8 @@ type AgentHistorySidebarProps = {
   activeConversationId: string | null;
   loading?: boolean;
   disabled?: boolean;
+  /** Local draft reset can remain available while saved history is locked. */
+  createNewDisabled?: boolean;
   actionPendingId?: string | null;
   className?: string;
   collapsed?: boolean;
@@ -180,6 +182,7 @@ export function AgentHistorySidebar({
   activeConversationId,
   loading = false,
   disabled = false,
+  createNewDisabled = disabled,
   actionPendingId,
   className,
   collapsed = false,
@@ -555,7 +558,7 @@ export function AgentHistorySidebar({
               data-chat-new-button
               className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
               onClick={onCreateNew}
-              disabled={disabled}
+              disabled={createNewDisabled}
               aria-label="Create new chat"
               title="Create new chat"
             >
@@ -580,9 +583,9 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              className="h-11 w-11 rounded-xl text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
               onClick={onCreateNew}
-              disabled={disabled}
+              disabled={createNewDisabled}
               aria-label="Create new chat"
               title="New chat"
             >
@@ -598,9 +601,9 @@ export function AgentHistorySidebar({
               variant="ghost"
               size="icon"
               data-chat-new-button
-              className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              className="h-11 w-11 shrink-0 rounded-full text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
               onClick={onCreateNew}
-              disabled={disabled}
+              disabled={createNewDisabled}
               aria-label="Create new chat"
               title="New chat"
             >
@@ -638,9 +641,9 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="mt-3.5 h-9 gap-1.5 rounded-full border-[color:var(--one-chat-divider)] bg-transparent px-3.5 text-xs font-medium hover:bg-[color:var(--one-chat-row-hover)] dark:border-[color:var(--one-chat-divider)] dark:bg-transparent"
+                className="mt-3.5 h-11 gap-1.5 rounded-full border-[color:var(--one-chat-divider)] bg-transparent px-3.5 text-xs font-medium hover:bg-[color:var(--one-chat-row-hover)] dark:border-[color:var(--one-chat-divider)] dark:bg-transparent"
                 onClick={onCreateNew}
-                disabled={disabled}
+                disabled={createNewDisabled}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Start new chat</span>

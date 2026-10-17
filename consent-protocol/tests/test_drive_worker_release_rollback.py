@@ -234,6 +234,43 @@ if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true"
 """
 
 
+def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gcloud = fake_bin / "gcloud"
+    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
+    fake_gcloud.chmod(0o755)
+    name = "drive-work-suggestions-uat"
+    paused = _job(name, "suggestions", "* * * * *", "240s")
+    paused["state"] = "PAUSED"
+    state_path = tmp_path / "scheduler.json"
+    state_path.write_text(json.dumps({"jobs": {name: paused}, "mutations": 0}), encoding="utf-8")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "MOCK_SCHEDULER_STATE": str(state_path),
+            "BACKEND_URL": API_ORIGIN,
+            "OIDC_AUDIENCE": API_ORIGIN,
+            "JOB_NAME": name,
+            "STAGE": "suggestions",
+            "CRON": "* * * * *",
+        }
+    )
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
+        ["/bin/bash", "deploy/drive/setup_work_drain_scheduler.sh"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["jobs"][name]["state"] == "ENABLED"
+
+
 @pytest.mark.parametrize(
     ("quoted_job", "timestamp_value", "json_output", "valid"),
     [

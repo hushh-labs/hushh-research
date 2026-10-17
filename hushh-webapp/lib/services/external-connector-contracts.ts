@@ -64,6 +64,7 @@ export type ConnectorFeatures = Partial<
 export type ConnectorOverview = {
   connectors: ExternalConnectorSummary[];
   features: ConnectorFeatures;
+  driveAgentPackagesEnabled?: boolean;
 };
 export type DriveDocument = {
   documentId: string;

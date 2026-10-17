@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as artwork from "@/lib/services/wallet-card-artwork-service";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn(), openCard: vi.fn(), vaultKey: null as string | null, native: false }));
@@ -15,7 +18,7 @@ import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-
 const pending = { status: "verification_required", senderName: "Sender", expiresAt: "2030-01-01T00:15:00Z", serverNow: "2030-01-01T00:00:00Z" };
 const active = { ...pending, status: "active", card: { brand: "visa", last4: "1234", expiryMonth: 6, expiryYear: 2030, issuingRegion: "IN" } };
 beforeEach(() => { vi.resetAllMocks(); mocks.native = false; mocks.vaultKey = null; mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it("reveals the decrypted number only while the authorized recipient wallet is unlocked", async () => {
   mocks.vaultKey = "unlocked";
   mocks.view.mockResolvedValue({ ...active, encryptedCard: "ciphertext", senderUserId: "sender" });
@@ -36,12 +39,31 @@ it("renders the authorized masked card face", async () => {
   expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
 });
 it("renders the live permitted Profile Card and removes it on expiry", async () => {
-  mocks.view.mockResolvedValue({ ...active, card: undefined, cardType: "profile", profileCard: { fullName: "Alice Example", email: "alice@example.test", updatedOn: "2030-01-01" }, expiresAt: "2030-01-01T00:00:01Z" });
+  const monotonic = vi.spyOn(performance, "now").mockReturnValue(1000);
+  vi.spyOn(artwork, "loadWalletCardArtwork").mockImplementation(async kind => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v3.svg`), "utf8"));
+  const blobs: Blob[] = [];
+  vi.stubGlobal("URL", class extends URL {
+    static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:permitted-profile"; });
+    static revokeObjectURL = vi.fn();
+  });
+  mocks.view.mockResolvedValue({ ...active, card: undefined, cardType: "profile", profileCard: { fullName: "Alice Example", headline: "Product designer", email: "alice@example.test", updatedOn: "2030-01-01" }, expiresAt: "2030-01-01T00:00:01Z" });
   render(<WalletCardAccessMessage grantId="grant" />);
   fireEvent.click(screen.getByRole("button", { name: "View card" }));
-  expect(await screen.findByText("Alice Example")).toBeVisible();
+  const face = await screen.findByTestId("shared-profile-card-face");
+  await waitFor(() => expect(face.querySelector("img")).not.toBeNull());
+  const svg = await new Promise<string>((resolve) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blobs[0]!); });
+  expect(svg).toContain("Alice Example");
+  expect(svg).toContain("data-wallet-shared");
+  expect(svg).not.toContain("data-wallet-qr");
+  expect(svg).not.toContain("MEMBER SINCE");
+  await act(async () => { fireEvent.load(face.querySelector("img")!); });
+  expect(screen.getByRole("img", { name: "Agent One Profile", exact: true })).toBeVisible();
+  expect(screen.getByText("Product designer")).toBeVisible();
   expect(screen.getByText("alice@example.test")).toBeVisible();
+  monotonic.mockReturnValue(3000);
   await waitFor(() => expect(screen.queryByText("alice@example.test")).toBeNull(), { timeout: 2500 });
+  expect(screen.queryByTestId("shared-profile-card-face")).toBeNull();
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:permitted-profile");
 });
 it("completes verification after authentication backgrounds the tab", async () => {
   let finish!: (value: string) => void;

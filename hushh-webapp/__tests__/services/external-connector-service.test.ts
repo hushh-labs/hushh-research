@@ -32,6 +32,15 @@ describe("ExternalConnectorService source reads", () => {
     await expect(ExternalConnectorService.overview("owner-token"))
       .resolves.toMatchObject({ connectors: [] });
   });
+
+  it("reads the package runtime capability and defaults closed when absent", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ connectors: [], driveAgentPackagesEnabled: true }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ driveAgentPackagesEnabled: true });
+    apiFetch.mockResolvedValueOnce(Response.json({ connectors: [] }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ driveAgentPackagesEnabled: false });
+  });
 });
 
 describe("ExternalConnectorService native Drive OAuth", () => {

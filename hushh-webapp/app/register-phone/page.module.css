@@ -105,7 +105,11 @@
   line-height: 21px !important; box-shadow: none !important;
 }
 .phoneForm :global([data-slot="input-group-control"]::placeholder) { color: var(--phone-muted); opacity: 1; }
-.phoneForm :global([data-slot="input-group"]:focus-within) { border-color: var(--app-accent) !important; }
+.phoneForm :global([data-slot="input-group"]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border) !important;
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--phone-field)) !important;
+}
+.phoneForm :global([data-slot="input-group"]:focus-within) { box-shadow: 0 0 0 2px var(--app-focus-ring) !important; }
 .phoneForm :global([data-figma-phone-helper]) {
   margin: 14px 0 17px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
   font-size: 13px !important; font-weight: 400; line-height: 20px !important; letter-spacing: -.005em;
