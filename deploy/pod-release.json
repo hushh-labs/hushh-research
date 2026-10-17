@@ -1,25 +1,20 @@
 {
-  "version": "2026.10-dev.23",
+  "version": "2026.10-dev.24",
   "channel": "dev",
-  "summary": "Smoother Files, quieter idle agents and recovery-verified updates.",
+  "summary": "More reliable Puppy connections and clearer timeout recovery.",
   "notes": {
     "improvements": [
-      "The private agent includes the current conversation, connector and hosting improvements.",
-      "Files keeps its dedicated workspace with clearer folders and reversible actions.",
-      "An approved update preserves saved files, conversations and settings."
+      "Puppy gives the local model a bounded first-response window before applying its normal streaming limit.",
+      "Puppy keeps the shared One-style composer and responsive machine controls."
     ],
     "fixes": [
-      "Moving a file keeps the folder picker open on touch and desktop screens.",
-      "Conversation recovery avoids repeating a command whose outcome is uncertain.",
-      "Wallet preserves your reading position when your session renews.",
-      "Background status refreshes no longer wake a sleeping agent."
+      "Opening Puppy in a fresh session can recover without waiting on a withheld page.",
+      "Local response timeouts remain distinct from connection failures."
     ],
     "security": [
-      "Existing agents require recovery-qualified compatibility and exact owner approval before installation.",
-      "Computer Use and unqualified hosting moves remain unavailable."
+      "Existing agents still require recovery-qualified compatibility and exact owner approval before installation.",
+      "The total response deadline and private device permissions remain bounded."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:72b049dfdbc27801d8f2e8e6bc68808559eae6b65ec3bded65f8057c842b001b"
-  ]
+  "supportedUpgradeDigests": []
 }

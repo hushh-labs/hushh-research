@@ -42,6 +42,7 @@ MAX_FRAME_BYTES = 1_048_576
 MAX_PENDING_FRAMES = 32
 MAX_REQUEST_ID_LENGTH = 128
 INTER_FRAME_TIMEOUT_SECONDS = 65.0
+FIRST_FRAME_TIMEOUT_SECONDS = 95.0
 REQUEST_DEADLINE_SECONDS = 120.0
 
 _TERMINAL = frozenset({"inference.done", "inference.result", "inference.error"})
@@ -353,15 +354,20 @@ class PuppyBroker:
         link.pending[request_id] = queue
         link.busy_request_id = request_id
         started = time.monotonic()
+        next_frame_deadline = started + FIRST_FRAME_TIMEOUT_SECONDS
         finished = False
         try:
             await link.send(frame)
             while True:
                 try:
-                    remaining = REQUEST_DEADLINE_SECONDS - (time.monotonic() - started)
+                    now = time.monotonic()
+                    remaining = min(
+                        REQUEST_DEADLINE_SECONDS - (now - started),
+                        next_frame_deadline - now,
+                    )
                     if remaining <= 0:
                         raise asyncio.TimeoutError
-                    async with asyncio.timeout(min(INTER_FRAME_TIMEOUT_SECONDS, remaining)):
+                    async with asyncio.timeout(remaining):
                         response = await queue.get()
                 except asyncio.TimeoutError:
                     await _deliver_stop(link, request_id)
@@ -374,6 +380,11 @@ class PuppyBroker:
                     return
                 await self._require_current(incarnation)
                 finished = str(response.get("type") or "") in _TERMINAL
+                if any(
+                    isinstance(response.get(field), str) and response[field]
+                    for field in ("text", "reasoning")
+                ):
+                    next_frame_deadline = time.monotonic() + INTER_FRAME_TIMEOUT_SECONDS
                 yield response
                 if finished:
                     return

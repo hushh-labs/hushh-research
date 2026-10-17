@@ -254,6 +254,17 @@ actual report, including a terminal-only report; a requested model or heartbeat
 cannot substitute for it. Keep model metadata out of answer text and preserve
 the single executable ADK aggregate.
 
+The first-data repair uses a fixed 90-second Hermes prefill allowance and a
+95-second pod first-frame allowance, followed by the existing 60/65-second
+inactivity limits. The pod's absolute 120-second request bound remains. These
+are coordinated image/client requirements: changing only the device cannot
+extend an older pod's 65-second first-frame limit. Empty deltas and heartbeats
+must not extend either deadline. Keep Gemma 12B as the selected default for the
+current owner rehearsal; do not repeat an unrelated model qualification sweep.
+First-data repair acceptance requires the qualified new image and a completed
+browser response, not merely passing deadline tests. Keep engine termination
+separate from confirmed relay/HTTP cancellation.
+
 ### Isolated image recovery rehearsal safeguards
 
 When constructing a fixture `PodSpec`, retain its registry `billing_space_id`

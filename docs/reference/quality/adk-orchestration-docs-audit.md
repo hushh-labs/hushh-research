@@ -10,33 +10,36 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 **Continue dev qualification; hold the application merge and production rollout.**
 The exact CI-green application is deployed. The personal Azure owner approved and
-installed Dev 21 through Settings. Installed digest, recovery, normal chat,
-retained Files bytes, Puppy streaming/Stop and Feed completion pass. This resolves
+installed Dev 23 through Settings. Normal owner approval, authenticated handoff,
+recovery, digest readback and one Feed completion event are verified. Prior normal chat,
+retained Files bytes and Puppy streaming/Stop receipts remain; the latest default-model
+Puppy turn times out before text and is not accepted. This resolves
 the old-image normal-chat refusal. Shared Files transfer, consented analysis and
 reversible management pass. The disposable Shared account was erased through the
 product API with independent provider checks; a bounded-cleanup response defect
 is fixed and deployed in `0b1d4202d9`. Personal-pod Move/download/undo now passes;
-Shared-specific Move, cold latency and connectors remain gates. A fresh preloaded-model
-Puppy response and pod-confirmed Stop now pass; initial cold-model failures remain recorded.
+Shared-specific Move, cold latency and connectors remain gates. An earlier preloaded-model
+Puppy response and pod-confirmed Stop pass; those receipts do not clear the latest Gemma 12B failure.
 Computer Use, managed Hussh provisioning and cross-cloud Files moves stay disabled.
 
 ## Source and serving evidence
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Application | `5b493370ae`; [complete hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39022976568) passes | Prior `0b1d4202d9` verification remains historical evidence and the immutable pod-image source. Local quota/Puppy/integration changes are not deployed |
-| Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39024698527) is healthy. Fresh approved-ADC readback: backend `00178-mv6` / `0e745d945ea7`; frontend `00151-s57` / `befea4952189`; both source `5b493370ae`, 100% traffic | GitHub governs; Cloud Build builds. Workflow definition main `3b2635e98e7f`; no new pod image was built. Earlier 10:26 readback preceded this deployment’s completion |
-| Schema / rollback | Latest deployment migration guard/runtime parity pass; dev 959–963 applied, history cleanup 249 deferred. Next-candidate application rollback target is the observed `5b493370ae` backend `00178-mv6` and frontend `00151-s57` | Local dev-only 964 is not applied. SQL no-op rollback is not information recovery; no destructive cutover performed |
-| Published pod release | `2026.10-dev.22+0b1d4202d9b1.250aea9e`, immutable `sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1`; image source `0b1d4202d9` | Archive generation `1792232007802820`, SHA-256 `7ee5ee95c5fcfa3d9ecc2096cc813a3e3b66f6139c2d10707e76033bfe4e6208`. Empty predecessor list: no installation offered until exact-image recovery qualification |
-| Personal Azure pod | Settings-approved operation `op_19b2108a5a8e4feca31d251ec4444084`; verified 22:31:26 UTC; revision `ca-hussh-one-pod--u0f70485d740a`, installed Dev 21 digest `72b049df…842b001b` | Same service and attached identity; 1 vCPU, 2 GiB, min 0/max 1, one worker, HTTP threshold 8, relay grace 600 s. No account or device reset |
+| Application | `7b0d4c2a22`; [complete exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39047264306) and final local core pass | Concurrent changes through `216f259306` are integrated. Later independent scope-commerce commits are outside this deployed candidate. Immutable pod-image source remains `0b1d4202d9` |
+| Dev hub/frontend | [Governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39050162065) succeeded. Approved-ADC readback: backend `00180-jg4` / `45f5e81c6c88`; frontend `00152-5mh` / `d0842f4210a1`; both source `7b0d4c2a22`, 100% traffic | GitHub governs; Cloud Build builds. Trusted workflow definition main `fd3b00b3c160`. The same-SHA backend-only [publication run](https://github.com/hushh-labs/hushh-research/actions/runs/39052082764) also succeeded; frontend was not redeployed |
+| Schema / rollback | Deployment migration guard/runtime parity pass, including the dev-only 964 candidate. History cleanup 249 remains deferred. Prior application rollback target: `5b493370ae`, backend `00178-mv6`, frontend `00151-s57` | Application rollback does not reverse schema changes or recover deleted information. No destructive cutover performed |
+| Published pod release | `2026.10-dev.23+0b1d4202d9b1.250aea9e`, immutable `sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1`; image source `0b1d4202d9`, publisher `39052082764` | Serving/archive equality verified; archive generation `1792257167353875`, SHA-256 `7a15c5ecf05432856e675455691a363e218987e039cbff8e16c960eb0599813b`. Only exact predecessor `72b049df…842b001b` admitted. Publishing does not install |
+| Personal Azure pod | Settings-approved Dev 23 operation `op_80762d405b414642ad7db95eb4177cd4`; verified 17:30:21 UTC; revision `ca-hussh-one-pod--u7be9dcdfe17e`, installed digest `250aea9e…fc69f1` | Independent ARM readback: same service and attached identity; 1 vCPU, 2 GiB, min 0/max 1, one worker, HTTP threshold 8, relay grace 600 s. Exactly one matching Feed completion; no account/device reset |
 | Prior Dev 21 qualification | Both disposable clouds recovered 4,195,328 Files bytes using native identities, then upgraded from exact predecessor. Azure also retained encrypted chat/settings and completed another real response. Temporary Jobs deleted and absence verified | GCP live chat continuity and live rollback remain unverified; isolated evidence is distinct from personal Settings approval |
-| New Dev 22 native recovery | Exact `250aea9e…fc69f1` image recovers the retained 4,195,328-byte Files fixture on both clouds using native identities; keys remain inside the runtime. Both temporary Jobs were deleted and absence verified | GCP log-read 429 reconciled without rerunning its successful worker. Azure authenticated replacement retained Files, settings, key identity and the exact encrypted chat; the subsequent response reached `RUN_FINISHED` (13.089 s first content / 20.401 s completion). GCP chat returned `AGENT_ERROR` before replacement. A native-identity model probe independently returns Vertex `403 PERMISSION_DENIED` despite enabled billing/API and the existing Vertex AI User grant; a fixture-only Service Usage Consumer grant was tried, then removed by an etag-preserving exact diff with independent readback. A fresh synthetic turn still failed after seven minutes; this is not the established chat fix and no model fallback occurred. The local Dev 23 descriptor admits only exact Dev 21 digest `72b049df…842b001b` for the proven Azure owner transition, reusing the published image; it is not yet published or installed. GCP chat acceptance is not inferred |
+| New Dev 22 native recovery | Exact `250aea9e…fc69f1` image recovers the retained 4,195,328-byte Files fixture on both clouds using native identities; keys remain inside the runtime. Both temporary Jobs were deleted and absence verified | GCP log-read 429 reconciled without rerunning its successful worker. Azure authenticated replacement retained Files, settings, key identity and the exact encrypted chat; the subsequent response reached `RUN_FINISHED` (13.089 s first content / 20.401 s completion). GCP chat returned `AGENT_ERROR` before replacement. A native-identity model probe independently returns Vertex `403 PERMISSION_DENIED` despite enabled billing/API and the existing Vertex AI User grant; a fixture-only Service Usage Consumer grant was tried, then removed by an etag-preserving exact diff with independent readback. A fresh synthetic turn still failed after seven minutes; this is not the established chat fix and no model fallback occurred. The published Dev 23 descriptor admits only exact Dev 21 digest `72b049df…842b001b` for the proven Azure owner transition. Normal Settings approval completed operation `op_80762d405b414642ad7db95eb4177cd4`; durable idle, installed digest and recovery verification are recorded. GCP chat acceptance remains separate. GCP chat acceptance is not inferred |
 
 Native GCP diagnostics confirm the expected workload identity and requested
 cloud-platform scope. REST `v1` and the pinned SDK’s `v1beta1` both return 403,
 including the exact declared Vertex/Consumer role pair; the SDK sample took
 0.128 s. Temporary Jobs and diagnostic grants were removed with readback.
 Transport parity is established; the provider refusal remains unresolved.
+Policy readback and the bounded 120-second waits do not exclude IAM propagation.
 No model fallback, personal-resource change or further IAM widening is justified.
 
 The workflow-only Admin repair and `azfx` removal landed separately through
@@ -50,8 +53,8 @@ parity and landed-SHA smoke verified. Neither grants application promotion.
 | Normal private chat | Dev 21 normal owner UI, full unchanged tool catalog: HTTP 200 and `RUN_FINISHED`; POST to first content 3.141 s, completion 4.046 s. Earlier synthetic story remains visible in the same unlocked tab | One warm sample; cold p95 and recorded voice/connector journeys remain Engineering acceptance |
 | Files workspace | Dedicated `agent_files` explorer. On deployed `f378a75b5588`, normal owner navigation, folder creation, 32 KiB upload, actual Move dialog, destination readback, byte-exact download and undo with stable identity pass. Only the new synthetic file/folder were trashed. Earlier interrupted transfers, rename/undo, trash/restore and cold unlock receipts remain | Personal-pod acceptance does not prove Shared-specific Move. Fresh/existing setup and UAT storage/IAM acceptance remain; trash is not immediate physical erasure |
 | Organization | Prior normal Azure owner queue/terminal result preserves original bytes. Exact earlier target completed automatic synthetic jobs on GCP Cloud Tasks and Azure Storage Queue; original content remained byte-exact and settings restored | Current-image live foreground analysis and fresh provisioning are not inferred from older receipts |
-| Software update | Normal Settings exact approval, authenticated durable idle receipt, revision replacement, encrypted continuity and installed-digest verification. Duplicate approval returns 409 with the same operation/digest and no second installation. Feed renders the completion timestamp matching the sole durable operation event | Turn was active at approval but finished before handoff; **busy-handoff drain did not occur in this attempt**. Retain failed overlap separately from historical Dev 17 active-drain proof. Broader interruptions/rollback remain Operations acceptance |
-| Puppy | Existing Hermes identity/grant reconnects after update. Real local Gemma response streams; Stop returns HTTP 200 `stopped`; next response completes in 8.176 s, first text 8.027 s. No cloud fallback | First postrestart response took 67.133 s; local inference first content took 54.916 s. After a verified zero-instance wake, Puppy reconnects and completes another response in 28.923 s from turn start. Fresh owner withdrawal returns pod `revoked: true`; new binding is refused with 403 `PUPPY_OWNER_APPROVAL_REQUIRED`; re-enable preserves the same device and completes another response in 29.813 s. Independent phone/Mac internet remains unverified; reduced-motion emulation let the occluded owner pane mount, so this is functional rather than visual acceptance |
+| Software update | Dev 23 normal Settings approval produces one durable operation. The synthetic chat has its normal tool catalog: active work observed, authenticated prepare at 17:27:37, `RUN_FINISHED` at 17:27:44, durable idle receipt at 17:27:47, verified replacement at 17:30:21. Settings navigation/re-unlock follows the same operation; the Feed has exactly one completion event | The initial overlap attempt finished during provider selection and is retained. Server request receipts corroborate the second overlap and polling until durable idle; no destructive fault injection or live rollback performed |
+| Puppy | Prior Dev 21: existing Hermes identity/grant, real local Gemma response streams; Stop returns HTTP 200 `stopped`; next response completes in 8.176 s, first text 8.027 s. No cloud fallback | First postrestart response took 67.133 s; local inference first content took 54.916 s. After a verified zero-instance wake, Puppy reconnects and completes another response in 28.923 s from turn start. Fresh owner withdrawal returns pod `revoked: true`; new binding is refused with 403 `PUPPY_OWNER_APPROVAL_REQUIRED`; re-enable preserves the same device and completes another response in 29.813 s. Independent phone/Mac internet remains unverified; reduced-motion emulation let the occluded owner pane mount, so this is functional rather than visual acceptance |
 | Restart continuation | New installed image includes sealed private command/MCP recovery; Files jobs and updates retain their existing durable owners | Source/recovery tests do not prove every live connector/command continuation. Current admission and exact review remain necessary; uncertain effects cannot be blindly replayed |
 | AI / setup | Provider-aware Shared/GCP/Azure defaults, encrypted Azure custom keys, public-destination validation, quota preflight, billing recovery and durable setup retry are implemented and serving | Live custom-key/default responses, missing-billing return and fresh native sign-in on both platforms remain acceptance rows. Cloud readiness cannot imply available model quota |
 | Shared Files | Same disposable owner selected Shared and managed AI, created its vault normally, then cold-unlocked the same library. Interrupted/resumed 4,195,328-byte upload and byte-exact download pass; first chunk written once. Folder creation, inline rename/undo, trash/restore, warm-route vault continuity and explicit selected-file analysis pass; original bytes remain intact and Shared automatic organization stays unavailable | Move focus repair now serves and passes focused Chromium/WebKit cases; old-source negative control fails. Live repaired Move remains pending. Product cleanup succeeded after an operator-reviewed continuation of the settled first batch; this is not normal-UI deletion proof. Phone setup used a separately declared official Firebase configured-number fixture with signed proof and verified temporary-identity cleanup; ordinary CAPTCHA/SMS/legal UX is **not** passed. Original failed attempts remain recorded. A host restart ended the memory-only harness session; the same synthetic library and identity were subsequently erased through the product API without reset or recreation |
@@ -72,63 +75,41 @@ cloud fallback, re-enrollment or change to the global 12B default. Phone testing
 was removed from this pass by the owner; independent-network acceptance remains
 unclaimed and is not a device prerequisite for this pass.
 
-**Local Puppy interface follow-up — 17 October:** Gemma 12B remains the
-machine default; no additional live model qualification was run. The isolated
-patch reuses One’s composer styling and adds a responsive model/“This machine”
-ribbon. Stop preserves partial answers; History and mode changes retire model
-and machine portals. Initial 92 focused Puppy checks and 20 Chromium/WebKit
-layout cases pass. The local Hermes bridge now aborts its same upstream stream
-on request/reader cancellation; three focused lifetime cases pass. A combined
-portal test exceeded its five-second test budget on a contended host; both
-ownership states pass separately without increasing that timeout. The final
-wrapped-control alignment passes in Chromium and WebKit.
-Grid captures cover 320, 390, 768 and 1280 px; probe exports are headless
-attribution only and include hitches, not phone performance certification.
-The initial Back-generation attempt reported Memory/map failures and was
-interrupted without stamping; two isolated failed cases then passed unchanged.
-After main integration, all 472 canonical Back cases and UI contract verification
-pass. Four description-only changes use exact revision refusals for old prepared
-account-deletion/AI-setup plans; 48 graph compatibility checks pass. Type
-validation and design-system checks pass. The changes are integrated on the
-existing branch at `3129253ea1`, preserving main’s shared One chat bubbles and
-welcome styling. This UI is not deployed. The subsequent combined core stopped
-at inherited architecture debt. Independent source review qualified exact
-inherited ceilings; bounded stream, connector and checkpoint extractions plus
-unchanged notification-test relocation pass all 187 affected checks. The debt
-ratchet, core coverage and release gates remain unchanged. The full parallel
-backend run then passed 21,229 cases with four failures: two missing Shared
-fixtures, one obsolete inline-deploy test and one unchanged restart timeout.
-All 85 affected checks pass after fixture/dependency-test repairs; restart keeps
-its 30-second limit. Dependency checks refuse missing direct or sourced scripts.
-The branch also preserves the already-invoked Vertex verifier for old production
-targets; no production deployment occurred. The serial database stage passed
-1,465 cases and found one further function-list ordering mismatch; owning
-generators agree after regeneration, with unchanged membership/multiplicity.
-All 14 affected database cases and the mandatory all-test import check pass.
-The remaining canonical web-core, packaged MCP and integration stages pass on
-`fd4e38838e`. This is composite core evidence: the original failed runs and
-targeted repairs remain recorded, rather than a claim that one uninterrupted
-core invocation passed. Hosted CI on the final publication SHA remains required.
-The first hosted candidate `09f3d53a10` exposed four stale web expectations and
-one obsolete Puppy fixture anchor across the three browser shards. The existing
-runtime contracts remain unchanged: 99 affected web checks and 52 Chromium/WebKit
-model-authority checks pass after test repairs, including the original authority
-negative controls. A document-feed-only proxy-marker mutation is refused.
-The repaired hosted run `39041881593` passed all three full web shards, both
-native lanes and browser shard 2, but exposed a real 1.5 px Puppy ribbon offset,
-a local typography-fixture boundary failure and eight research-story failures.
-The grid now top-aligns both controls; reverting it reproduces the displacement.
-A generated-config test leaked `ENVIRONMENT=uat`; the story fixture also omitted
-the required consent marker. Both fixtures are corrected without changing runtime
-consent enforcement; the original ordered failure remains the negative control.
-All 66 affected backend checks, 52 chat-formatting cases and 20 ribbon cases pass
-in the appropriate Python or Chromium/WebKit lanes. The final 28 Puppy cases
-also pass with fresh grid captures; ten optional formatting exports are unrun.
-Typecheck, focused lint, UI contracts and the unchanged architecture ratchet pass.
-No live Puppy model calls were made. After reconciling concurrent source through
-`216f259306`, all 320 affected browser cases, 66 backend cases, typecheck and
-regenerated Back/Search contracts pass. The shared bottom-shell column and local
-reading gutters are retained. Exact-SHA hosted validation remains required.
+**Puppy interface — 17 October:** serving source `7b0d4c2a22` reuses One’s
+composer, bubbles and Markdown. The responsive model/“This machine” ribbon,
+partial-answer Stop and portal retirement pass 320 affected Chromium/WebKit
+checks at 320, 390, 768 and 1280 px; ten optional exports were not run.
+A real 1.5 px offset is fixed, with the original layout as a failing control.
+The local bridge cancels its same upstream stream; focused cancellation checks
+pass. Gemma 12B stays the default; this interface pass made **zero model calls**.
+Normal-owner background readback at 17:11 UTC confirms the deployed ribbon and
+composer share the same 760 px measure and start line (0 px discrepancy), both
+controls are 44 px high, and the editor is 16 px with no horizontal overflow.
+“This machine” opens with explicitly reported model, memory and scheduled-work
+observations. Same-session Settings navigation remains unlocked. A separate
+background cold-tab session hold is retained as a failed observation; it is not
+cold-start acceptance. No Chrome activation or window resizing occurred.
+The cold Puppy route was missing from the existing verified-owner recovery list.
+One supported Next refresh reaches normal unlock; the narrow allowlist addition
+passes all 20 owning checks and fails on the old code. This follow-up is local,
+not included in deployed `7b0d4c2a22`; no authentication or vault gate changes.
+
+**Latest default-model result — Dev 23:** the same Hermes identity reconnects
+with a new sealed session after installation. Two bounded Gemma 12B turns receive
+local HTTP 200 headers but no text before a 60-second read timeout. The original
+generic failure is retained. Hermes `fd8cd41dbe` now carries that timeout through
+the existing pod/browser `PUPPY_TIMEOUT` contract; the second UI settles without
+an endless busy state. No other model was tested or selected. The coordinated
+90/95-second first-data repair, existing 60/65-second subsequent inactivity limits
+and unchanged 120-second pod bound pass focused source checks; empty frames cannot
+extend them. It is **not deployed or live accepted**. Gemma 12B remains the default.
+
+Final local core passed: 21,248 parallel Python checks, 1,466 serial checks,
+web-core, packed MCP and integration. The exact-SHA hosted run linked above
+passed every job. Earlier stale fixture failures, the config test’s environment
+leak and required-consent fixture corrections remain in Git history and retained
+receipts; runtime consent enforcement and the architecture ratchet are unchanged.
+Headless frame probes include hitches and do not certify physical-device pacing.
 
 Puppy requires a registry-confirmed BYOC assignment and current owner/device/pod
 grant. Shared and Hussh-hosted modes refuse inference. Status, encrypted sync and
@@ -153,8 +134,8 @@ Economy qualification is **1 vCPU / 2 GiB, min 0/max 1, one worker**. GCP concur
 platform scale-down tails are paid time. Polling must not wake compute. Focused
 negative controls exposed hidden-tab and
 health-refresh re-wakes; a bounded frontend fix passes all 16 wake tests locally,
-including fresh foreground wake and current fault/owner fences. This fix is not
-yet deployed and is not asserted as the cause of the observed live wake. Spending
+including fresh foreground wake and current fault/owner fences. This fix now serves in `7b0d4c2a22`; it is not asserted as the cause of the
+earlier observed live wake. Spending
 thresholds warn without stopping service. See [whole-package and VM assumptions](../operations/private-files-library.md#whole-package-planning-budget).
 
 ## Owners and next gate

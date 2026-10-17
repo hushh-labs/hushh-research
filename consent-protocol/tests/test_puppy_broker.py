@@ -182,10 +182,59 @@ async def test_an_inter_frame_stall_times_out_and_cancels_at_the_device(monkeypa
     broker = pb.PuppyBroker()
     socket = _Socket()
     await _link(broker, socket)
-    frames = await _collect(broker, _request())
-    assert frames == [{"type": "inference.error", "requestId": "r1", "code": "PUPPY_TIMEOUT"}]
+    task = asyncio.create_task(_collect(broker, _request()))
+    await asyncio.sleep(0)
+    await broker.deliver(KEY, {"type": "inference.delta", "requestId": "r1", "text": "hello"})
+    frames = await task
+    assert frames[-1] == {"type": "inference.error", "requestId": "r1", "code": "PUPPY_TIMEOUT"}
     assert socket.sent[-1] == {"type": "inference.cancel", "requestId": "r1"}
     assert (await broker.status(KEY))["busy"] is False
+
+
+async def test_prefill_has_a_fixed_first_frame_budget_and_empty_frames_do_not_extend_it(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    clock = [0.0]
+    waits = []
+    real_timeout = asyncio.timeout
+
+    def observe_timeout(seconds):
+        waits.append(seconds)
+        return real_timeout(seconds)
+
+    monkeypatch.setattr(pb, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(pb.asyncio, "timeout", observe_timeout)
+    broker = pb.PuppyBroker()
+    socket = _Socket()
+    await _link(broker, socket)
+    stream = broker.dispatch(KEY, _request())
+
+    async def receive(frame):
+        pending = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        await broker.deliver(KEY, frame)
+        return await pending
+
+    try:
+        await receive({"type": "inference.delta", "requestId": "r1", "text": ""})
+        assert waits[-1] == 95.0
+        clock[0] = 25.0
+        await receive({"type": "inference.delta", "requestId": "r1", "text": "hello"})
+        assert waits[-1] == 70.0
+        clock[0] = 35.0
+        await receive({"type": "inference.delta", "requestId": "r1", "text": ""})
+        assert waits[-1] == 55.0
+        clock[0] = 75.0
+        await receive({"type": "inference.delta", "requestId": "r1", "reasoning": "working"})
+        assert waits[-1] == 15.0  # Empty data did not restart the 65-second stall budget.
+        clock[0] = 80.0
+        await receive({"type": "inference.delta", "requestId": "r1", "text": "answer"})
+        assert waits[-1] == 40.0  # Absolute 120-second turn bound still wins.
+        await receive({"type": "inference.done", "requestId": "r1"})
+    finally:
+        await stream.aclose()
 
 
 @pytest.mark.parametrize("deadline", [0.0, 0.05])
