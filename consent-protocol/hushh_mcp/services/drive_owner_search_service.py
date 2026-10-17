@@ -2228,6 +2228,11 @@ class DriveOwnerSearchService:
             if str(error) == "search_superseded":
                 await self.store.release(job, error="connection_changed")
                 return finish("superseded")
+            if str(error) == "reconnect_required":
+                # Drive rejected the current access token (HTTP 401). As with a
+                # refused refresh, the owner must reconnect; a retry cannot help
+                # and "provider unavailable" would hide the cause.
+                return finish(await self.store.release(job, error="connection_changed"))
             return finish(
                 await self.store.release(
                     job,

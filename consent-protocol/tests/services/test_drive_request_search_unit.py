@@ -2161,6 +2161,47 @@ async def test_http_rate_limited_shortcut_lookup_retries_page_without_publishing
     assert len(requests) == 2 and all(request.method == "GET" for request in requests)
 
 
+@pytest.mark.asyncio
+async def test_rejected_drive_token_fails_the_slice_as_a_reconnect_not_an_outage(monkeypatch):
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            **kw, transport=httpx.MockTransport(lambda request: httpx.Response(401))
+        ),
+    )
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    connection = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 1,
+    }
+    transport = rest.GoogleDriveRestTransport(
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(return_value=(connection, {"accessToken": "revoked"})),
+            lifecycle=SimpleNamespace(read=AsyncMock(return_value=connection)),
+        ),
+        adapter=GoogleDriveAdapter(),
+    )
+    checkpoint = _checkpoint()
+    job = {"job_id": "synthetic-job", "user_id": "owner", "checkpoint": checkpoint}
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        require_current=AsyncMock(),
+        commit_page=AsyncMock(),
+        release=AsyncMock(return_value="failed"),
+    )
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    assert await service.run_one(user_id="owner", job_id="synthetic-job") == "failed"
+    store.commit_page.assert_not_awaited()
+    # Not a retryable "provider_unavailable": the saved cursor is untouched and
+    # the status asks for the Drive connection instead of a later retry.
+    store.release.assert_awaited_once_with(job, error="connection_changed")
+    assert checkpoint["page_token"] is None
+
+
 async def test_unavailable_folder_and_traversal_limits_cannot_claim_completeness(monkeypatch):
     def respond(path, params, keys):
         if path == "/files":
