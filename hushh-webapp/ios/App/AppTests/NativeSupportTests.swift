@@ -918,7 +918,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(controller.model.navigationPath, ["account"])
         var backs = 0
         controller.model.choose = { [weak controller] action, _, _ in
-            if action == "back" { backs += 1; controller?.model.pendingSequence = backs }
+            if action == "back" || action == "root" { backs += 1; controller?.model.pendingSequence = backs }
             return true
         }
         requestBack()
@@ -985,10 +985,68 @@ final class NativeSupportTests: XCTestCase {
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 3 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [])
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"])
+        var preferences = privateDrawerState(update: 7, backEnabled: true)
+        preferences.surfaceOpen = true; preferences.profileDestinationId = "preferences-first"
+        preferences.profileStack = [NativeProfilePage(id: "preferences", title: "Appearance & preferences", sections: [
+            NativeDrawerSection(id: "appearance-settings", title: nil, rows: [
+                NativeDrawerRow(id: "theme-selector", label: "Appearance", detail: nil, symbol: "sun.max", enabled: true,
+                    destructive: nil, selected: nil, pending: nil, options: [
+                        NativeDrawerOption(id: "theme-light", label: "Light", selected: true),
+                        NativeDrawerOption(id: "theme-dark", label: "Dark", selected: false),
+                    ]),
+            ]),
+        ])]
+        XCTAssertTrue(preferences.valid)
+        XCTAssertTrue(preferences.allows(action: "row", row: "theme-dark"))
+        XCTAssertFalse(preferences.allows(action: "root", row: nil), "A single page only admits its immediate Back")
+        XCTAssertFalse(preferences.allows(action: "row", row: "theme-light"), "Reselecting does not perform another write")
+        XCTAssertFalse(preferences.allows(action: "row", row: "theme-selector"), "The trigger is not operation authority")
+        controller.update(preferences)
+        await requireRow("theme-selector")
+        let preferencesPage = try XCTUnwrap(navigation.topViewController)
+        XCTAssertEqual(preferencesPage.view.backgroundColor, UIColor.systemGroupedBackground,
+            "The first push frame must not expose the underlying web route while SwiftUI draws")
+        XCTAssertEqual(navigation.view.backgroundColor, UIColor.systemGroupedBackground)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(controller.motion.progress, 1)
+        var nested = privateDrawerState(update: 8, backEnabled: true)
+        nested.surfaceOpen = true; nested.profileDestinationId = "security-session"
+        nested.profileStack = [NativeProfilePage(id: "security", title: "Security", sections: []),
+            NativeProfilePage(id: "session", title: "Account access", sections: [])]
+        XCTAssertTrue(nested.valid)
+        XCTAssertTrue(nested.allows(action: "root", row: nil))
+        controller.update(nested)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !controller.model.navigationTransitioning && navigation.viewControllers.count == 3
+        }, object: nil)], timeout: 3)
+        navigation.popViewController(animated: true)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 4 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, ["security"], "A committed native Back pops one level, not the whole drawer")
+        var parent = privateDrawerState(update: 9, backEnabled: true)
+        parent.surfaceOpen = true; parent.profileDestinationId = "security-parent"
+        parent.profileStack = [nested.profileStack![0]]
+        controller.update(parent)
+        nested = privateDrawerState(update: 10, backEnabled: true)
+        nested.surfaceOpen = true; nested.profileDestinationId = "security-session-reopened"
+        nested.profileStack = parent.profileStack! + [NativeProfilePage(id: "session", title: "Account access", sections: [])]
+        controller.update(nested)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !controller.model.navigationTransitioning && navigation.viewControllers.count == 3
+        }, object: nil)], timeout: 3)
+        navigation.popToRootViewController(animated: true)
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 5 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, [], "Back history can return to Profile through one bounded root intent")
+        var revisited = privateDrawerState(update: 11, backEnabled: true)
+        revisited.surfaceOpen = true; revisited.profileDestinationId = "preferences-returned"
+        revisited.profileStack = preferences.profileStack
+        controller.update(revisited)
+        await requireRow("theme-selector")
+        XCTAssertTrue(navigation.topViewController === preferencesPage, "Reopening a sibling page retains its hosting controller")
+        XCTAssertTrue(controller.host === host)
         controller.retire()
         navigation.navigationController(navigation, didShow: navigation.viewControllers[0], animated: true)
         requestBack()
-        XCTAssertEqual(backs, 3, "A retained retired callback cannot invoke a route operation")
+        XCTAssertEqual(backs, 5, "A retained retired callback cannot invoke a route operation")
     }
 
     @MainActor

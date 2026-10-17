@@ -16,6 +16,28 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Shared Profile navigation and finite settings — 2026-10-16
+
+The qualification-only Profile stack now supports Account, Preferences, Security
+and Security → Session through retained UIKit page controllers and SwiftUI
+bodies. Standard Back, including the system Back-history menu, reports explicit
+bounded intents to the existing React navigation owner. Destination visits have
+fresh tokens; compatible appearance updates retain their controller and token.
+Opaque semantic page backing prevents a not-yet-drawn SwiftUI body from exposing
+the underlying workspace. This source change is not physical flicker acceptance.
+
+| Family | Renderer and operation owner | Current evidence / limit |
+|---|---|---|
+| Account, Preferences, Security and Session navigation | Retained UIKit stack; existing React query-state owner | Three nearest native regressions pass, including retained hosts, immediate/root Back and stale callbacks. Physical candidate acceptance pending. |
+| Appearance, Accent and App haptics | Owned UIKit finite menus / SwiftUI switch; existing theme, accent and Settings writers | Typecheck and 178 existing bridge tests pass. Blue/Molten Gold swatches use the authored CSS palette; no new setting store. |
+| Writing style | Existing owned native editor and encrypted React writer | Destination-bound admission/dismissal; preserve unsaved editor state throughout the Preferences subtree. Host regression passes; physical nested-editor journey pending. |
+| Voice, Gemini, Help, photos and other rich/protected details | Existing owned React content; native conversion not claimed | These remain explicit follow-up families, not qualified by the new settings stack. |
+
+Custom-native admission remains opt-in. Web, Android, older wrappers and
+unqualified iPad retain their established renderers. Capacitor core/iOS/Android
+and CLI are aligned on patched 8.4.3, including both Swift package locks; a
+successful build alone does not prove installation, visual or release acceptance.
+
 ### Shared-renderer recovery and release gate — 2026-10-16
 
 The current recovery integrates main through `190c77fab6`, including Calendar's

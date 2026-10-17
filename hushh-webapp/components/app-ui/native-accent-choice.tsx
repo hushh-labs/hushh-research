@@ -9,7 +9,7 @@ import { writeAccent, type AppAccent } from "@/lib/theme/accent";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
-function readAccentPalette(): ChromeAccentPalette | undefined {
+export function readAccentPalette(): ChromeAccentPalette | undefined {
   if (typeof document === "undefined") return undefined;
   const style = getComputedStyle(document.documentElement);
   const blue = style.getPropertyValue("--accent-preview-blue").trim();

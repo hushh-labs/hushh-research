@@ -31,19 +31,19 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
-  onPresented?: () => void;
-  stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void };
+  onPresented?: (destinationId?: string) => void;
+  stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void; root?: () => void };
 }) {
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
-    title: "Profile", profileMenuRows: true, surfaceOpen, onPresented: () => {
+    title: "Profile", profileMenuRows: true, surfaceOpen, onPresented: state => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
-      onPresented?.();
+      onPresented?.(state.profileDestinationId);
     },
     project: () => {
       const projected = projectNativeProfileMenu(name, email, ready, groups, actions, onClose);
       if (!stack) return projected;
       return { ...projected, profileStack: stack.pages, profileDestinationId: stack.destinationId, actions: { ...projected.actions,
-        rows: new Map([...projected.actions.rows, ...stack.rows]), ...(stack.pages.length ? { back: stack.back } : {}) } };
+        rows: new Map([...projected.actions.rows, ...stack.rows]), ...(stack.pages.length ? { back: stack.back } : {}), ...(stack.root ? { root: stack.root } : {}) } };
     } });
   // Confirmed absence is not a silent successful Open. Keep failures in a
   // bounded app-owned page; an uncertain native retirement remains isolated.
@@ -57,28 +57,40 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account, settings }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
   page: Omit<ComponentProps<typeof NativeFeaturePage>, "open" | "onReady" | "children">;
   children: ReactNode;
   account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
+  settings?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
 }) {
   const [stackSupported, setStackSupported] = useState<boolean | null>(null);
+  const [settingsSupported, setSettingsSupported] = useState(false);
+  const [presentedDestination, setPresentedDestination] = useState<string | undefined>();
   const hasAccount = account !== undefined;
   useEffect(() => {
     if (!hasAccount) return;
     let current = true;
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
-      if (current) setStackSupported(capability.contractVersion === 1 && capability.supported &&
-        capability.profileNavigationStack === true && capability.profileNameScene === true);
+      if (current) {
+        setStackSupported(capability.contractVersion === 1 && capability.supported &&
+          capability.profileNavigationStack === true && capability.profileNameScene === true);
+        setSettingsSupported(capability.contractVersion === 1 && capability.supported &&
+          capability.profileNavigationStack === true && capability.profileSettingsPages === true);
+      }
     }).catch(() => { if (current) setStackSupported(false); });
     return () => { current = false; };
   }, [hasAccount]);
   const nativeAccount = stackSupported === true && account?.active === true;
-  const destinationId = useMemo(() => nativeAccount && lifetime ? crypto.randomUUID() : undefined, [nativeAccount, lifetime]);
-  const webDetail = detail && !nativeAccount;
+  const nativeSettings = settingsSupported && settings?.active === true;
+  const nativePath = nativeAccount ? [account!.page] : nativeSettings ? settings!.pages : [];
+  const destinationKey = nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id)]) : "";
+  // A new destination visit gets a new token, including A → B → A. Compatible
+  // theme/content updates preserve it; an old form cannot act in a later visit.
+  const destinationId = useMemo(() => destinationKey && lifetime ? crypto.randomUUID() : undefined, [lifetime, destinationKey]);
+  const webDetail = detail && !nativeAccount && !nativeSettings;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
   // Retain the committed display, not its operation authority. On Back the
@@ -113,8 +125,11 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   if (account && stackSupported === null) return null;
   return <>
     <NativeProfileMenu {...menu} open={active && (!webDetail || prepared !== lifetime)}
-      stack={stackSupported && account ? { pages: nativeAccount ? [account.page] : [], destinationId, rows: account.rows, back: page.onBack } : undefined}
-      onPresented={() => {
+      stack={stackSupported && account ? { pages: nativePath, destinationId,
+        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : [])]), back: page.onBack,
+        ...(nativeSettings ? { root: settings!.root } : {}) } : undefined}
+      onPresented={appliedDestination => {
+      setPresentedDestination(appliedDestination);
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
     <NativeFeaturePage {...page} {...(retained ? {
@@ -127,5 +142,6 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
       </div>
     </NativeFeaturePage>
     {account?.editor(destinationId)}
+    {nativeSettings && presentedDestination === destinationId && settings?.editor?.(destinationId)}
   </>;
 }

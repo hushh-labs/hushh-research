@@ -476,6 +476,9 @@ try {
     { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
     { id: "account-reset", icon: accountIcons.ResetRowIcon },
     { id: "account-delete", icon: accountIcons.DeleteRowIcon },
+    { id: "appearance", icon: accountIcons.AppearanceRowIcon },
+    { id: "accent", icon: accountIcons.AccentRowIcon },
+    { id: "voice", icon: accountIcons.VoiceRowIcon },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {
     if (!/^[a-z][a-z-]*$/.test(entry.id)) throw new Error("Invalid authored Profile asset id");

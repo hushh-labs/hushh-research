@@ -48,7 +48,7 @@ function readPersistedThemeOption(): ThemeOption | null {
  * preference before rendering a selected segment so Profile never shows Light
  * against an already-dark app surface. `resolvedTheme` remains visual-only.
  */
-function useStableThemeSelection() {
+export function useStableThemeSelection() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [activeTheme, setActiveTheme] = useState<ThemeOption | null>(null);
 

@@ -3822,7 +3822,10 @@ final class AppUITests: XCTestCase {
         let opener = app.buttons["Open Profile"].firstMatch
         let root = app.buttons["native-profile-row-preferences"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let back = app.buttons["Back in Profile"].firstMatch
+        var back: XCUIElement {
+            let native = app.navigationBars["Appearance & preferences"].buttons["Profile"].firstMatch
+            return native.exists ? native : app.buttons["Back in Profile"].firstMatch
+        }
         let cancel = app.buttons["native-style-close"].firstMatch
         let field = app.textViews["native-style-preferred_name"].firstMatch
         let tone = app.buttons["native-style-tone"].firstMatch
@@ -3838,8 +3841,10 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_PARENT_UNAVAILABLE"); return }; back.tap()
         }
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_STYLE_PREFERENCES_UNAVAILABLE"); return }; root.tap()
-        let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Writing style")).firstMatch
-        for _ in 0..<4 { if row.exists && row.isHittable { break }; web.swipeUp() }
+        let nativeStyle = app.buttons["native-profile-row-preferences-style"].firstMatch
+        var row: XCUIElement { nativeStyle.exists ? nativeStyle : web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Writing style")).firstMatch }
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        for _ in 0..<4 { if row.exists && row.isHittable { break }; (menu.exists ? menu : web).swipeUp() }
         var originalName: String?
         for cycle in 0..<10 {
             guard waitForAdmittedControl(row) else { XCTFail("PROFILE_STYLE_ROW_UNAVAILABLE"); return }; row.tap()
@@ -3870,7 +3875,7 @@ final class AppUITests: XCTestCase {
             cancel.tap()
             let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && row.isHittable }, object: app)
             guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_DISMISSAL_BLOCKED_TOUCH"); return }
-            XCTAssertEqual(hosts.count, 1)
+            XCTAssertEqual(hosts.count, nativeStyle.exists ? 0 : 1, "Native Preferences isolates the covered WebView")
             XCTAssertFalse(web.textViews["Style note"].exists, "The complete native scene cannot expose a DOM editor duplicate")
         }
         guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_BACK_UNAVAILABLE"); return }; back.tap()
@@ -4162,7 +4167,7 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let nativeAccountBack = app.navigationBars["Your account"].buttons["Profile"].firstMatch
+        let nativeAccountBack = app.navigationBars.buttons["Profile"].firstMatch
         var back: XCUIElement {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
@@ -4283,11 +4288,12 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
-            if id == "account", nativeAccountBack.waitForExistence(timeout: 5) {
+            if ["account", "preferences", "security"].contains(id), nativeAccountBack.waitForExistence(timeout: 5) {
                 // Account has an owned UIKit destination, not the React
                 // content plane used by the remaining rich detail families.
                 // Require the actual body and return, not a path receipt.
-                let name = app.buttons["native-profile-row-account-name"].firstMatch
+                let bodyID = ["account": "account-name", "preferences": "preferences-theme", "security": "security-vault"][id]!
+                let name = app.buttons["native-profile-row-\(bodyID)"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(name) else {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
                 }
@@ -4299,7 +4305,7 @@ final class AppUITests: XCTestCase {
                 guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
                     XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_PARENT_NOT_RESTORED"); return
                 }
-                print("PROFILE_NATIVE_DESTINATION family=account warm=true single_host=true")
+                print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
                 continue
             }
             if id == "invite" {

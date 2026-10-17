@@ -47,9 +47,10 @@ final class NativeDrawerModel: ObservableObject {
         // commits the route; an arbitrary path cannot dispatch an operation.
         guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
-              projection.profileDestinationId == state.profileDestinationId, path.count + 1 == navigationPath.count,
+              projection.profileDestinationId == state.profileDestinationId,
+              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1,
               Array(navigationPath.prefix(path.count)) == path else { return }
-        guard choice("back") else { return }
+        guard choice(path.isEmpty && navigationPath.count > 1 ? "root" : "back") else { return }
         backPending = true
         // The native pop has committed. React still owns the route and
         // confirms the existing Back event; never replay UIKit's transition.
@@ -155,17 +156,20 @@ final class NativeDrawerModel: ObservableObject {
 private final class NativeProfilePageController: UIViewController {
     private let bodyHost: UIHostingController<NativeProfilePageBody>
 
-    init(model: NativeDrawerModel, account: Bool, observer: ((String, CGRect, Bool) -> Void)?) {
-        bodyHost = UIHostingController(rootView: NativeProfilePageBody(model: model, account: account, observer: observer))
+    init(model: NativeDrawerModel, pageID: String?, observer: ((String, CGRect, Bool) -> Void)?) {
+        bodyHost = UIHostingController(rootView: NativeProfilePageBody(model: model, pageID: pageID, observer: observer))
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("Native Profile pages are programmatic") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
+        // A newly pushed SwiftUI body may draw after UIKit starts its native
+        // transition. Its owning page must already be opaque, like Settings;
+        // otherwise the route behind the drawer flashes through that frame.
+        view.backgroundColor = .systemGroupedBackground
         addChild(bodyHost)
-        bodyHost.view.backgroundColor = .clear
+        bodyHost.view.backgroundColor = .systemGroupedBackground
         bodyHost.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bodyHost.view)
         NSLayoutConstraint.activate([
@@ -185,7 +189,8 @@ private final class NativeProfilePageController: UIViewController {
 final class NativeProfileNavigationController: UINavigationController, UINavigationControllerDelegate {
     private let model: NativeDrawerModel
     private let rootPage: NativeProfilePageController
-    private let accountPage: NativeProfilePageController
+    private var pages = [String: NativeProfilePageController]()
+    private let rowObserver: ((String, CGRect, Bool) -> Void)?
     private var transitioning = false
     private var applyingProjection = false
     private var retired = false
@@ -194,12 +199,16 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
     init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
         self.model = model
-        rootPage = NativeProfilePageController(model: model, account: false, observer: observer)
-        accountPage = NativeProfilePageController(model: model, account: true, observer: observer)
+        rowObserver = observer
+        rootPage = NativeProfilePageController(model: model, pageID: nil, observer: observer)
         super.init(rootViewController: rootPage)
         delegate = self
         model.profileNavigationController = self
-        for page in [rootPage, accountPage] {
+        configure(rootPage)
+        rootPage.navigationItem.backButtonDisplayMode = .default
+        reconcile()
+    }
+    private func configure(_ page: NativeProfilePageController) {
             let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in
                 guard let self, !self.retired, self.model.profileNavigationController === self,
                       self.model.interactionEnabled, self.model.allowsPageInteraction, !self.model.choicePending else { return }
@@ -208,30 +217,38 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
             close.accessibilityLabel = "Close Profile"
             close.accessibilityIdentifier = "native-profile-drawer-close"
             page.navigationItem.rightBarButtonItem = close
-        }
-        rootPage.navigationItem.backButtonDisplayMode = .default
-        reconcile()
     }
     required init?(coder: NSCoder) { fatalError("Native Profile navigation is programmatic") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+    }
 
     func reconcile() {
         guard !retired, model.profileNavigationController === self else { return }
         rootPage.title = model.projection.title
         rootPage.navigationItem.backButtonTitle = model.projection.title
-        accountPage.title = model.page("account")?.title
+        for id in model.navigationPath where pages[id] == nil {
+            let page = NativeProfilePageController(model: model, pageID: id, observer: rowObserver)
+            configure(page)
+            pages[id] = page
+        }
+        for (id, page) in pages { page.title = model.page(id)?.title }
         navigationBar.tintColor = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
         reconcileInteraction()
         guard !transitioning else { return } // didShow reconciles the latest projection.
-        let destination: UIViewController = model.navigationPath.isEmpty ? rootPage : accountPage
-        guard topViewController !== destination else { return }
+        let destinations: [UIViewController] = [rootPage] + model.navigationPath.compactMap { pages[$0] }
+        guard destinations.count == model.navigationPath.count + 1,
+              viewControllers.count != destinations.count || !zip(viewControllers, destinations).allSatisfy({ $0.0 === $0.1 }) else { return }
         applyingProjection = true
         let animated = viewIfLoaded?.window != nil && model.projection.open && !UIAccessibility.isReduceMotionEnabled
-        setViewControllers(destination === rootPage ? [rootPage] : [rootPage, accountPage], animated: animated)
+        setViewControllers(destinations, animated: animated)
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         guard !retired, model.profileNavigationController === self else { return }
-        outgoingUserPop = !applyingProjection && lastVisiblePage === accountPage && viewController === rootPage ? model.projection : nil
+        outgoingUserPop = !applyingProjection && lastVisiblePage !== viewController ? model.projection : nil
         transitioning = true
         model.navigationTransitioning = true
         reconcileInteraction()
@@ -246,13 +263,13 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         model.navigationTransitioning = false
         lastVisiblePage = viewController
         #if DEBUG
-        model.profileAccountAppeared = viewController === accountPage
+        model.profileAccountAppeared = viewController === pages["account"]
         #endif
         // An interrupted edge swipe returns to Account and emits no Back.
         // Programmatic projection changes are never echoed as user operations.
-        if !projected, let outgoing, viewController === rootPage,
-           !viewControllers.contains(where: { $0 === accountPage }), !model.navigationPath.isEmpty {
-            model.requestPath([], from: outgoing)
+        let visiblePath = viewControllers.dropFirst().compactMap { controller in pages.first { $0.value === controller }?.key }
+        if !projected, let outgoing, visiblePath.count < model.navigationPath.count {
+            model.requestPath(visiblePath, from: outgoing)
         }
         reconcile()
     }
@@ -260,7 +277,7 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         let admitted = model.interactionEnabled && model.allowsPageInteraction
         navigationBar.isUserInteractionEnabled = admitted && !model.choicePending
         navigationBar.accessibilityElementsHidden = !admitted || model.choicePending
-        for page in [rootPage, accountPage] {
+        for page in [rootPage] + Array(pages.values) {
             page.viewIfLoaded?.isUserInteractionEnabled = admitted
             page.viewIfLoaded?.accessibilityElementsHidden = !admitted
         }
@@ -279,12 +296,12 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
 private struct NativeProfilePageBody: View {
     @ObservedObject var model: NativeDrawerModel
-    let account: Bool
+    let pageID: String?
     var observer: ((String, CGRect, Bool) -> Void)?
     var body: some View {
         // Install the actual View, not a helper called on an uninstalled View:
         // its ScaledMetric and environment properties need SwiftUI ownership.
-        NativeDrawerContent(model: model, profileRowObserver: observer, profilePage: account ? .account : .menu)
+        NativeDrawerContent(model: model, profileRowObserver: observer, profilePage: pageID.map { .page($0) } ?? .menu)
     }
 }
 
@@ -699,7 +716,7 @@ private struct NativeHistoryLayoutMeasurement: ViewModifier {
 }
 
 struct NativeDrawerContent: View {
-    enum ProfilePage { case menu, account }
+    enum ProfilePage { case menu, page(String) }
     @ObservedObject var model: NativeDrawerModel
     var historyLayoutObserver: ((String, NativeHistoryLayoutPart, CGRect) -> Void)? = nil
     // Public-fixture-only measurement, never installed by a product host.
@@ -713,7 +730,10 @@ struct NativeDrawerContent: View {
     @FocusState private var renameFocused: String?
     var body: some View {
         if let profilePage {
-            profileContent(profilePage == .account ? model.page("account")?.sections ?? [] : model.projection.sections)
+            switch profilePage {
+            case .menu: profileContent(model.projection.sections)
+            case .page(let id): profileContent(model.page(id)?.sections ?? [])
+            }
         } else if model.projection.family == "profile", model.projection.profileStack != nil {
             profileNavigation
         } else {
@@ -914,7 +934,20 @@ struct NativeDrawerContent: View {
         name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
     }
     @ViewBuilder private func profileRow(_ row: NativeDrawerRow) -> some View {
-        if row.readOnly == true {
+        if row.toggle == true, let options = row.options, options.count == 2 {
+            Toggle(isOn: Binding(get: { options[0].selected }, set: { enabled in
+                model.choice("row", row: options[enabled ? 0 : 1].id)
+            })) { profileRowLabel(row) }
+                .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
+                .padding(.trailing, 16)
+                .disabled(!row.enabled || row.pending == true || !model.controlsEnabled || model.choicePending)
+                .accessibilityIdentifier("native-profile-row-\(row.id)")
+        } else if row.options != nil {
+            NativeProfileChoiceMenu(model: model, row: row)
+                .frame(minHeight: 56)
+                .padding(.horizontal, 16)
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+        } else if row.readOnly == true {
             profileRowLabel(row).accessibilityElement(children: .combine)
         } else {
             Button { model.choice("row", row: row.id) } label: { profileRowLabel(row) }
@@ -1105,5 +1138,77 @@ struct NativeDrawerRowMenu: UIViewRepresentable {
             })
         }
         button.menu = UIMenu(children: actions)
+    }
+}
+
+/// A whole native finite-choice presentation. The menu uses the same owned
+/// dismissal completion as History, and binds each option to its exact lease.
+/// Values are committed only by the existing React callback after confirmation.
+struct NativeProfileChoiceMenu: UIViewRepresentable {
+    @ObservedObject var model: NativeDrawerModel
+    let row: NativeDrawerRow
+    func makeCoordinator() -> NativeDrawerModel { model }
+    func makeUIView(context: Context) -> NativeDrawerMenuControl {
+        let button = NativeDrawerMenuControl(type: .system)
+        button.showsMenuAsPrimaryAction = true
+        button.contentHorizontalAlignment = .leading
+        model.registerMenu(button)
+        return button
+    }
+    static func dismantleUIView(_ button: NativeDrawerMenuControl, coordinator: NativeDrawerModel) {
+        coordinator.retireMenu(button)
+    }
+    func updateUIView(_ button: NativeDrawerMenuControl, context: Context) {
+        let state = model.projection
+        let options = row.options ?? []
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = row.label
+        configuration.subtitle = options.first(where: \.selected)?.label
+        configuration.titleAlignment = .leading
+        configuration.imagePadding = 12
+        configuration.contentInsets = .init(top: 8, leading: 0, bottom: 8, trailing: 0)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var attributes = incoming
+            attributes.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 16, weight: .medium))
+            return attributes
+        }
+        configuration.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var attributes = incoming
+            attributes.font = UIFont.preferredFont(forTextStyle: .subheadline)
+            attributes.foregroundColor = .secondaryLabel
+            return attributes
+        }
+        if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
+            let icon = artwork.base.withTintColor(HushhNativeControlAppearance.color(artwork.colorHex) ?? .label, renderingMode: .alwaysOriginal)
+            // Same 28pt artwork in a 32pt well as the shared SettingsRow.
+            configuration.image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { _ in
+                icon.draw(in: CGRect(x: 2, y: 2, width: 28, height: 28))
+            }.withRenderingMode(.alwaysOriginal)
+        } else if let symbol = row.symbol { configuration.image = UIImage(systemName: symbol) }
+        configuration.preferredSymbolConfigurationForImage = .init(pointSize: 24)
+        configuration.baseForegroundColor = .label
+        button.configuration = configuration
+        button.accessibilityLabel = row.label
+        button.accessibilityValue = configuration.subtitle
+        button.accessibilityIdentifier = "native-profile-row-\(row.id)"
+        button.isEnabled = row.enabled && row.pending != true && model.controlsEnabled && !model.choicePending
+        button.isUserInteractionEnabled = model.interactionEnabled && model.allowsPageInteraction
+        button.accessibilityElementsHidden = !button.isUserInteractionEnabled
+        if !button.isEnabled || !button.isUserInteractionEnabled { button.dismissOwnedMenu {} }
+        let actions = options.map { option in
+            var image = option.symbol.flatMap { UIImage(systemName: $0) }
+            if let color = HushhNativeControlAppearance.color(option.colorHex) {
+                image = UIImage(systemName: "circle.fill")?.withTintColor(color, renderingMode: .alwaysOriginal)
+            }
+            return UIAction(title: option.label, image: image, state: option.selected ? .on : .off) { [weak button, weak model] _ in
+                button?.afterDismissal {
+                    guard let model, model.projection.identity == state.identity,
+                          model.projection.updateSequence == state.updateSequence,
+                          model.projection.privacyGeneration == state.privacyGeneration else { return }
+                    model.choice("row", row: option.id)
+                }
+            }
+        }
+        button.menu = UIMenu(title: row.label, options: .singleSelection, children: actions)
     }
 }

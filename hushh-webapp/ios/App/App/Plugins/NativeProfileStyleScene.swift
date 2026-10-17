@@ -30,8 +30,9 @@ struct NativeProfileStyleProjection: Decodable {
     let canSave: Bool, busy: Bool, unavailable: Bool, suggested: Bool
     var error: String?
     let appearance: String, accentHex: String, foregroundHex: String
+    var destinationId: String? = nil
     static let fields: Set<String> = ["preferred_name", "tone", "length", "language", "avoid_em_dashes", "owner_style_note"]
-    static let keys: Set<String> = NativeProfileNameProjection.keys.subtracting(["destinationId"]).union(["choices", "unavailable", "suggested"])
+    static let keys: Set<String> = NativeProfileNameProjection.keys.union(["choices", "unavailable", "suggested"])
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
@@ -48,7 +49,8 @@ struct NativeProfileStyleProjection: Decodable {
     }
     var valid: Bool {
         let max = HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
-        return identity.valid && family == "profile" && scene == "writing-style" && updateSequence > 0 && updateSequence <= max &&
+        return identity.valid && family == "profile" && scene == "writing-style" &&
+            (destinationId == nil || NativeDrawerIdentity.identifier(destinationId!)) && updateSequence > 0 && updateSequence <= max &&
             [privacyGeneration, draftRevision, acknowledgedEditRevision].allSatisfy { $0 >= 0 && $0 <= max } &&
             Set(choices.keys) == Set(["tone", "length", "language"]) && choices.values.allSatisfy { options in
                 !options.isEmpty && options.count <= 16 && Set(options.map(\.value)).count == options.count &&
@@ -57,8 +59,10 @@ struct NativeProfileStyleProjection: Decodable {
             HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil
     }
     func receipt(_ phase: String) -> [String: Any] {
-        ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision,
+        var result: [String: Any] = ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision,
          "family": family, "scene": scene, "updateSequence": updateSequence, "privacyGeneration": privacyGeneration, "phase": phase]
+        if let destinationId { result["destinationId"] = destinationId }
+        return result
     }
 }
 
@@ -88,7 +92,7 @@ final class NativeProfileStyleModel: ObservableObject {
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: NativeProfileStyleProjection) { self.projection = projection; draft = projection.draft }
     func update(_ next: NativeProfileStyleProjection) -> Bool {
-        guard !retired, next.valid, next.identity == projection.identity, next.choices == projection.choices,
+        guard !retired, next.valid, next.identity == projection.identity, next.destinationId == projection.destinationId, next.choices == projection.choices,
               next.privacyGeneration == projection.privacyGeneration, next.updateSequence > projection.updateSequence,
               next.draftRevision >= projection.draftRevision, next.acknowledgedEditRevision >= projection.acknowledgedEditRevision,
               next.acknowledgedEditRevision <= editRevision else { return false }

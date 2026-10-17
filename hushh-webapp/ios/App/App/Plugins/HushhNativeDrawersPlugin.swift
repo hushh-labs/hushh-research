@@ -112,6 +112,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileMenuRows": self?.supported == true,
                 "profileContentHandoff": self?.supported == true,
                 "profileNavigationStack": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileSettingsPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
@@ -215,7 +216,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         #if DEBUG
         if action == "close" { controller.observeClose(sequence: sequence) }
         #endif
-        if action == "row" || action == "back" { controller.model.pendingSequence = sequence }
+        if action == "row" || action == "back" || action == "root" { controller.model.pendingSequence = sequence }
         var event = receipt(state, phase: "active")
         event.removeValue(forKey: "phase")
         event["sequence"] = sequence; event["action"] = action
@@ -363,9 +364,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
               shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
         let nativeAccount = scene == "account-name" && profile.open && profile.profileStack?.last?.id == "account" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativePreferences = scene == "writing-style" && profile.open && profile.profileStack?.last?.id == "preferences" &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount) && profile.enabled
+            (!profile.open && destinationId == nil || nativeAccount || nativePreferences) && profile.enabled
     }
     private func profileFormOwnerKey(_ identity: NativeDrawerIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
@@ -432,7 +435,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private func nameAction(_ call: CAPPluginCall, scene: String = "account-name", settlement: Bool = false) -> NativeProfileNameAction? {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene",
             "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]
-        let allowed = (settlement ? keys.union(["saved"]) : keys).union(scene == "account-name" ? ["destinationId"] : [])
+        let allowed = (settlement ? keys.union(["saved"]) : keys).union(["destinationId"])
         guard Set(call.options.keys).isSubset(of: allowed), call.getString("scene") == scene,
               let update = call.getInt("updateSequence"), update > 0,
               let edit = call.getInt("editRevision"), edit >= 0,
@@ -515,7 +518,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileStyleProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileStyleProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_STYLE_UNAVAILABLE"); return
             }
             if let scene = self.styleScene {
@@ -532,7 +535,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.edit = { [weak self, weak scene] field, value, composing, revision in
                 guard let self, let scene, self.form === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "writing-style", destinationId: state.destinationId) else { return false }
                 var event = state.receipt("active"); event.removeValue(forKey: "phase")
                 event["field"] = field; event["value"] = value?.bridge ?? NSNull()
                 event["composing"] = composing; event["editRevision"] = revision
@@ -542,7 +545,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.choose = { [weak self, weak scene] action in
                 guard let self, let scene, self.form === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: "writing-style", destinationId: state.destinationId) else { return false }
                 var event = state.receipt("active"); event.removeValue(forKey: "phase")
                 event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
                 self.notifyListeners("profileStyleAction", data: event, retainUntilConsumed: false)
@@ -550,7 +553,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return }
-                guard presented, self.form === scene, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration) else {
+                guard presented, self.form === scene, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: "writing-style", destinationId: next.destinationId) else {
                     if self.form === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_STYLE_RETIRED"); return
                 }
@@ -561,7 +564,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func confirmProfileStyleAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy), let scene = self.styleScene, scene.identity == identity,
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "writing-style", destinationId: call.getString("destinationId")),
+                  let scene = self.styleScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
                   let action = self.nameAction(call, scene: "writing-style") else { call.resolve(["valid": false]); return }
             call.resolve(["valid": scene.model.confirm(action)])
         }
@@ -569,7 +573,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func settleProfileStyleAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy), let scene = self.styleScene, scene.identity == identity,
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "writing-style", destinationId: call.getString("destinationId")),
+                  let scene = self.styleScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
                   let action = self.nameAction(call, scene: "writing-style", settlement: true) else { call.resolve(["valid": false]); return }
             call.resolve(["valid": scene.settle(action, saved: call.getBool("saved") == true)])
         }
@@ -591,6 +596,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
             self.formRevision = max(self.formRevision, identity.revision)
             var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = "writing-style"
+            if let destination = call.getString("destinationId") {
+                guard NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_STYLE_STALE_RETIREMENT"); return }
+                receipt["destinationId"] = destination
+            }
             call.resolve(receipt)
         }
     }

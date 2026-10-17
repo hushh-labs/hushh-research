@@ -43,6 +43,7 @@ import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.modu
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
+import { useNativeProfilePreferences } from "./use-native-profile-preferences";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
@@ -1116,6 +1117,14 @@ function ProfilePageContent({
       searchParams,
     ],
   );
+
+  const nativePreferences = useNativeProfilePreferences({
+    enabled: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && !activeDetail && isVaultUnlocked,
+    retainDraft: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && isVaultUnlocked,
+    userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    onGemini: () => updateProfileView({ panel: "preferences", detail: "gemini" }, "push"),
+    onVoice: () => updateProfileView({ panel: "preferences", detail: "voice" }, "push"),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -4853,7 +4862,24 @@ function ProfilePageContent({
       { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
     ] },
   ] };
+  const nativeSecurityPage: NativeProfilePage = { id: "security", title: PROFILE_LABELS.security, sections: [
+    { id: "security-methods", rows: [
+      { id: "security-vault", label: "Vault methods", detail: "Password, passkey, and unlock method.", enabled: true, artworkId: "security", chevron: true },
+    ] },
+  ] };
+  const nativeSessionPage: NativeProfilePage = { id: "session", title: PROFILE_LABELS.accountAccess, sections: [
+    { id: "security-session", rows: [
+      { id: "security-sign-out", label: "Sign out", detail: "Sign out on this device.", enabled: true, destructive: true, artworkId: "sign-out" },
+    ] },
+  ] };
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && !activeDetail ||
+        activePanel === "security" && (!activeDetail || activeDetail === "session")),
+      pages: activePanel === "preferences" ? [nativePreferences.page] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows,
+        ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
+        ["security-sign-out", () => handleSignOut()] as const,
+      ]), root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: nativePreferences.editor }}
     account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException &&
       !showDeleteConfirm && !showResetConfirm && !showVaultUnlock,
       page: nativeAccountPage, rows: new Map([

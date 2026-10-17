@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage } from "./native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage, type NativeDrawerProjection } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
 import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
@@ -13,7 +13,7 @@ export type NativeDrawerPort = {
   open: boolean; title: string; searchable?: boolean; loading?: boolean;
   profileMenuRows?: boolean;
   surfaceOpen?: boolean;
-  onPresented?: () => void;
+  onPresented?: (state: NativeDrawerProjection) => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; actions: NativeDrawerActions };
 };
 
@@ -101,7 +101,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers, isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
-    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); },
+    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(state); },
     () => isCurrent() && publish(true));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");

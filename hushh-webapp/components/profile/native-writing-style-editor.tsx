@@ -50,8 +50,8 @@ export function NativeWritingStyleEditor({ model, eligible }: { model: Model; el
   </>;
 }
 
-function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
-  model: Model; plugin: Plugin; onClose: () => void; onFallback: () => void;
+export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinationId }: {
+  model: Model; plugin: Plugin; onClose: () => void; onFallback: () => void; destinationId?: string;
 }) {
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
@@ -90,7 +90,7 @@ function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
     if (!model.ready || !model.userId || generation === undefined || shielded || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
-    const identity: NativeProfileStyleIdentity = { ...base, family: "profile", scene: "writing-style" };
+    const identity: NativeProfileStyleIdentity = { ...base, family: "profile", scene: "writing-style", ...(destinationId ? { destinationId } : {}) };
     const owner = model.userId;
     let current = true;
     const isCurrent = () => current && live.current.model.ready && live.current.model.userId === owner &&
@@ -110,7 +110,7 @@ function NativeStyleSheet({ model, plugin, onClose, onFallback }: {
     setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
-  }, [model.ready, model.userId, epoch, generation, shielded, active, plugin, publish]);
+  }, [model.ready, model.userId, epoch, generation, shielded, active, plugin, publish, destinationId]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

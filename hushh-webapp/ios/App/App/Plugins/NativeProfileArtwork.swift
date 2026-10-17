@@ -8,7 +8,7 @@ enum NativeProfileArtwork {
         let accent: UIImage?
         let colorHex: String?
     }
-    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete"]
+    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let hasAccent: Bool
@@ -38,6 +38,9 @@ enum NativeProfileArtwork {
         case "account-wallet": colorHex = "#F59E0B"; hasAccent = false
         case "account-reset": colorHex = "#F59E0B"; hasAccent = false
         case "account-delete": colorHex = "#EF4444"; hasAccent = false
+        case "appearance": colorHex = "#6366F1"; hasAccent = false
+        case "accent": colorHex = nil; hasAccent = false
+        case "voice": colorHex = "#8B5CF6"; hasAccent = false
         default: return nil
         }
         guard let base = UIImage(named: "HushhProfile-\(id)-base") else { return nil }

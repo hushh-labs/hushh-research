@@ -13,6 +13,7 @@ export type NativeDrawerActions = {
   open: () => void;
   close: () => void;
   back?: () => void;
+  root?: () => void;
 };
 export type NativeDrawerPresentationPhase = "preparing" | "active" | "quarantined" | "retired";
 
@@ -97,15 +98,17 @@ export class NativeDrawerPresentation {
   publish(state: NativeDrawerProjection, actions: NativeDrawerActions): boolean {
     if (this.disposed || this.phase === "quarantined" || !this.handle || !this.isolationHandle) return false;
     if (!this.ownerIsCurrent() || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
-        [...state.sections, ...(state.profileStack?.flatMap(page => page.sections) ?? [])].some(section => section.rows.some(row => !row.readOnly && [row.id, row.renameActionId, row.deleteActionId]
+        [...state.sections, ...(state.profileStack?.flatMap(page => page.sections) ?? [])].some(section => section.rows.some(row => !row.readOnly && (row.options ? row.options.map(option => option.id) : [row.id, row.renameActionId, row.deleteActionId])
           .some(id => id !== undefined && !actions.rows.has(id)))) ||
-        state.backEnabled && !actions.back) { this.quarantine(); return false; }
+        state.backEnabled && !actions.back || (state.profileStack?.length ?? 0) > 1 && !actions.root) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,
-      sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })),
+      sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+        ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })),
       ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
-        sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })) })) } : {}) };
+        sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+          ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;
     this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };
     this.highestUpdate = snapshot.updateSequence;
@@ -169,7 +172,7 @@ export class NativeDrawerPresentation {
     const terminal = event.action === "close" || event.action === "open";
     if (!this.fence.allows(event)) {
       // Cancel the exact unconfirmed intent, never replay it against new rows.
-      if ((event.action === "row" || event.action === "back" && this.backSettlements) && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
+      if ((event.action === "row" || (event.action === "back" || event.action === "root") && this.backSettlements) && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
         this.seenChoice = event.sequence;
         await this.settle(event, false);
       }
@@ -183,7 +186,7 @@ export class NativeDrawerPresentation {
     const current = this.current;
     if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
         !this.fence.allows(event)) {
-      if (!this.disposed && current && (event.action === "row" || event.action === "back" && this.backSettlements) && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      if (!this.disposed && current && (event.action === "row" || (event.action === "back" || event.action === "root") && this.backSettlements) && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
       else if (!this.disposed && this.fence.terminalIsCurrent(event)) this.quarantine();
       return;
     }
@@ -200,7 +203,7 @@ export class NativeDrawerPresentation {
           invoked = true; return latest(event);
         });
       if (invoked) await this.settle(event, true);
-      else if (!accepted && (event.action === "row" || event.action === "back" && this.backSettlements)) await this.settle(event, false);
+      else if (!accepted && (event.action === "row" || (event.action === "back" || event.action === "root") && this.backSettlements)) await this.settle(event, false);
       if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
     } catch {
       if (invoked) await this.settle(event, false);
@@ -211,7 +214,7 @@ export class NativeDrawerPresentation {
   }
 
   private async settle(event: NativeDrawerChoice, success: boolean): Promise<void> {
-    if (event.action !== "row" && !(event.action === "back" && this.backSettlements && this.current?.state.profileStack) || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
+    if (event.action !== "row" && !((event.action === "back" || event.action === "root") && this.backSettlements && this.current?.state.profileStack) || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
     try {
       const result = await acknowledged(this.plugin.settleChoice({ ...this.identity,
         sequence: event.sequence, privacyGeneration: event.privacyGeneration, success }));
