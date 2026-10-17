@@ -120,6 +120,8 @@ import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { CreateCirclePeopleStep, type CirclePeoplePageLoader } from "./create-circle-people-step";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
@@ -605,22 +607,36 @@ export function CreateCircleFlow({
   busy,
   onSubmit,
   showCircleType = true,
+  onLoadPeople,
+  onAddPeople,
+  onComplete,
+  pathname = ROUTES.ONE_LOCATION,
+  backLayerQuery = { action: "create-circle" },
 }: {
   busy: boolean;
-  onSubmit: (name: string, kind: OneLocationCircleKind) => Promise<void>;
+  onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string) => Promise<OneLocationCircleDetail>;
   /** Location hides the choice and retains the existing family default. */
   showCircleType?: boolean;
+  onLoadPeople: CirclePeoplePageLoader;
+  onAddPeople: (circleId: string, userIds: string[]) => Promise<unknown>;
+  onComplete: (circleId: string) => void;
+  pathname?: string;
+  backLayerQuery?: Readonly<Record<string, string>>;
 }) {
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const [step, setStep] = useState<"details" | "people">("details");
+  const [savedCircle, setSavedCircle] = useState<OneLocationCircleDetail | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [addingPeople, setAddingPeople] = useState(false);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
   const trimmedName = name.trim();
   const nameMissing = trimmedName.length < 1;
-  const canSubmit = !nameMissing && !busy;
+  const canSubmit = !nameMissing && !busy && !saving;
   const nameHelpId = "one-location-create-circle-name-help";
   const showNameError = nameRequirementActive && nameMissing;
   const showNameCount = nameFocused && !showNameError && name.length >= 64;
@@ -630,27 +646,37 @@ export function CreateCircleFlow({
       ? `${name.length} / 80`
       : "";
 
-  // Held past the caller's `busy` flag on purpose.
-  //
-  // A host that clears busy in a `finally` clears it BEFORE the navigation it
-  // then starts has committed, so there is a guaranteed render with this form
-  // still mounted, the name still in state and the button live again. One
-  // impatient double-tap made two identically-named Circles and two success
-  // toasts. Reset only on failure: after a success this form is on its way off
-  // screen and must not accept another submission on the way.
+  // Hold across the caller's busy reset to prevent duplicate creates. Returning
+  // to details releases the guard, while savedCircle keeps the existing ID.
   const submittingRef = useRef(false);
+  const backToDetails = () => {
+    if (busy || saving || addingPeople) return;
+    submittingRef.current = false;
+    setStep("details");
+    window.requestAnimationFrame(() => nameInputRef.current?.focus());
+  };
+  useBackLayer(pathname, step === "people" ? 2 : 0, () => {
+    backToDetails();
+    return true;
+  }, backLayerQuery);
+
   const submit = async () => {
-    if (submittingRef.current) return;
+    if (submittingRef.current || busy || saving) return;
     if (nameMissing) {
       setNameRequirementActive(true);
       window.requestAnimationFrame(() => nameInputRef.current?.focus());
       return;
     }
     submittingRef.current = true;
+    setSaving(true);
     try {
-      await onSubmit(trimmedName, kind);
+      const circle = savedCircle && savedCircle.name === trimmedName && savedCircle.kind === kind
+        ? savedCircle
+        : await onSubmit(trimmedName, kind, savedCircle?.id);
+      setSavedCircle(circle);
+      setStep("people");
       try {
-        trackEvent("one_location_circle_created", {
+        if (!savedCircle) trackEvent("one_location_circle_created", {
           route_id: "one_location",
           result: "success",
           circle_kind: kind,
@@ -661,15 +687,22 @@ export function CreateCircleFlow({
       toast.error(
         circleFlowErrorMessage(error, "Could not create this Circle."),
       );
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-5" data-testid="one-location-create-circle-flow">
+    <div data-testid="one-location-create-circle-flow">
+      {savedCircle ? <div hidden={step !== "people"}>
+        <CreateCirclePeopleStep circleId={savedCircle.id} circleName={savedCircle.name} active={step === "people"} onLoad={onLoadPeople}
+          onAdd={onAddPeople} onComplete={onComplete} onBack={backToDetails} onSavingChange={setAddingPeople} />
+      </div> : null}
+      <div hidden={step !== "details"} className="space-y-5">
       <h1 className="sr-only">Create a Circle</h1>
 
       <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
-        Name your Circle, then add at least one person.
+        Step 1 of 2 · Name your Circle, then add people now or later.
       </p>
 
       <label className="flex flex-col gap-2">
@@ -789,12 +822,13 @@ export function CreateCircleFlow({
           type="button"
           size="prominent"
           disabled={!canSubmit}
-          isLoading={busy}
+          isLoading={busy || saving}
           onClick={() => void submit()}
           className={cn("w-full", BLOCKED_CTA)}
         >
-          {busy ? "Creating…" : "Create Circle"}
+          {busy || saving ? "Saving…" : "Next"}
         </Button>
+      </div>
       </div>
     </div>
   );

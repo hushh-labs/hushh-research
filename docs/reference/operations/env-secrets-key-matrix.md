@@ -35,6 +35,14 @@ Profile bootstrap rule:
 
 | key | read_by_code | backend_local_env | frontend_local_env | secret_manager | backend_cloudbuild | frontend_cloudbuild | cloud_run_live_backend | cloud_run_live_frontend | classification |
 |---|---|---|---|---|---|---|---|---|---|
+| `EMAIL_AUTH_ENABLED` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | runtime JSON | runtime JSON | N | env | N | default off; UAT uses `EMAIL_AUTH_ENABLED_UAT` |
+| `EMAIL_AUTH_RISK_MANIFEST` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | runtime JSON | runtime JSON | N | env | N | packaged reviewed manifest; required when enabled |
+| `EMAIL_AUTH_MAIL_API_ENDPOINT` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | runtime JSON | runtime JSON | N | env | N | existing hushh-mail-api only |
+| `EMAIL_AUTH_MAIL_FROM` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | runtime JSON | runtime JSON | N | env | N | fixed One sender |
+| `EMAIL_AUTH_VERIFIER_KEY` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | Y | secret | N | secret | N | required when enabled; distinct stable 32-byte key |
+| `EMAIL_AUTH_PAYLOAD_KEY` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | Y | secret | N | secret | N | required when enabled; distinct stable 32-byte key |
+| `EMAIL_AUTH_LOOKUP_KEY` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | Y | secret | N | secret | N | required when enabled; preserve across redeploys |
+| `EMAIL_AUTH_MAIL_API_KEY` | `consent-protocol/hushh_mcp/services/email_auth/config.py` | Y | N | `MAIL_API_KEY` | secret | N | secret | N | One consumer acceptance required before enabled rollout |
 | `APP_SIGNING_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `VAULT_DATA_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_GENAI_AUTH_MODE` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | Y | env | N | env | N | required (`vertex_adc`) |

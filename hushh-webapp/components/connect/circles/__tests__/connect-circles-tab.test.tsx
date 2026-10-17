@@ -129,6 +129,7 @@ beforeEach(() => {
   mocks.createNamedCircle.mockResolvedValue({
     id: "new-circle",
     name: "Roommates",
+    kind: "family",
   });
   mocks.getCircle.mockResolvedValue({
     id: "mine",
@@ -682,11 +683,14 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Roommates" } });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Friends" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Circle" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
     await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenCalledWith({ vaultOwnerToken: "vault-token", name: "Roommates", kind: "friends" }));
+    await within(dialog).findByRole("heading", { name: "Add people" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add people later" }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
-    expect(new URL(String(mocks.routerPush.mock.calls[0][0]), "http://localhost").searchParams.get("circleSetup")).toBe("1");
+    expect(new URL(String(mocks.routerPush.mock.calls[0][0]), "http://localhost").searchParams.get("circleSetup")).toBeNull();
   });
 
   it("dismisses custom creation in one close action without validating an empty name", async () => {
@@ -708,6 +712,37 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     expect(mocks.createNamedCircle).not.toHaveBeenCalled();
   });
 
+  it("clears the creation picker when the vault session changes and ignores its late roster", async () => {
+    const { OneLocationService } = await import("@/lib/one-location/service");
+    let resolvePeople!: (value: unknown) => void;
+    vi.mocked(OneLocationService.listNamedCircleEligibleConnectionsPage).mockImplementationOnce(() => new Promise((resolve) => { resolvePeople = resolve; }));
+    const { rerender } = render(<ConnectCirclesTab createDialogOpen currentUserId="owner" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    await waitFor(() => expect(resolvePeople).toBeTypeOf("function"));
+    mocks.vaultOwnerToken = "next-vault-session";
+    rerender(<ConnectCirclesTab createDialogOpen currentUserId="owner" />);
+    expect(screen.getByRole("textbox", { name: "Circle name" })).toHaveValue("");
+    await act(async () => resolvePeople({ eligibleConnections: [{ connectionId: "old", userId: "old-person", displayName: "Previous owner contact", isRia: false }], pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1 }));
+    expect(screen.queryByText("Previous owner contact")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add people" })).not.toBeInTheDocument();
+  });
+
+  it("returns from the dialog's contact step on Escape without closing or recreating", async () => {
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const heading = await screen.findByRole("heading", { name: "Add people" });
+    fireEvent.keyDown(heading, { key: "Escape", code: "Escape" });
+    expect(screen.getByRole("textbox", { name: "Circle name" })).toHaveValue("Roommates");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    expect(mocks.createNamedCircle).toHaveBeenCalledTimes(1);
+  });
+
   it("renders Create a circle in place when ?action=create-circle", async () => {
     // Create stays on Connect without Location's first-run takeover.
     mocks.searchParams = new URLSearchParams(
@@ -723,15 +758,18 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
-  it("replaces full-page creation with the saved circle's member setup", async () => {
+  it("defers members and replaces full-page creation with the saved circle", async () => {
     mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
     render(<ConnectCirclesTab />);
     fireEvent.change(await screen.findByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { name: "Add people" });
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add people later" }));
     await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalled());
     const params = new URL(String(mocks.routerReplace.mock.calls[0][0]), "http://localhost").searchParams;
     expect(params.get("circleId")).toBe("new-circle");
-    expect(params.get("circleSetup")).toBe("1");
+    expect(params.get("circleSetup")).toBeNull();
     expect(params.get("action")).toBe("circle-detail");
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });

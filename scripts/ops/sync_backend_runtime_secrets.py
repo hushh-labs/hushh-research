@@ -317,6 +317,10 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
+        "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
+        "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
+        "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
+        "email_auth_mail_from": "one@hushh.ai",
         "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
         "google_cloud_project": args.project,
@@ -513,6 +517,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--email-auth-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--app-frontend-origin", required=True)
     parser.add_argument("--db-host", required=True)
     parser.add_argument("--db-port", required=True)

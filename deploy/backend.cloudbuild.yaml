@@ -394,6 +394,7 @@ steps:
     entrypoint: "bash"
     args:
       - "scripts/deploy/backend-deploy.sh"
+
     env:
       - "PROJECT_ID=$PROJECT_ID"
       - "_IMAGE_SETTINGS=${_SKIP_IMAGE_BUILD}|${_IMAGE_REFERENCE}|${_CLOUD_RUN_TAG}|${_BUILD_POD_IMAGE}|${_SECRET_PREFIX}"
