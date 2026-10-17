@@ -26,11 +26,9 @@ import {
 const SSO_BTN_CLASS =
   "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 
-// Same pattern as the Google and Apple buttons: the inline icon covers dark mode and the
-// absolutely positioned one is what the light theme paints (see AuthStepLight.module.css).
 function ShieldGlyph() {
   return (
-    <svg className="h-[25px] w-[25px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+    <svg className="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
       <path d="M12 3 5 6v5.5c0 4.2 2.8 7.9 7 9.5 4.2-1.6 7-5.3 7-9.5V6l-7-3Z" />
       <path d="m9 12 2.2 2.2L15.5 10" strokeLinecap="round" />
     </svg>
@@ -38,16 +36,7 @@ function ShieldGlyph() {
 }
 
 function SsoIcon() {
-  return (
-    <>
-      <span className={lightStyles.existingProviderIcon}>
-        <ShieldGlyph />
-      </span>
-      <span className={cn(lightStyles.providerIcon, lightStyles.ssoIcon)}>
-        <ShieldGlyph />
-      </span>
-    </>
-  );
+  return <ShieldGlyph />;
 }
 
 const GENERIC_FAILURE = "Single sign-on could not be completed. Try again.";

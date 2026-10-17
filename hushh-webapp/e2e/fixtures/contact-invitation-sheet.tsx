@@ -17,15 +17,19 @@ const CANDIDATES: InviteCandidate[] = Array.from(
   (_, index) => ({
     id: `contact-${index}`,
     displayName: `Contact person ${index + 1}`,
-    destinations: [
-      { kind: "phone", value: `+1 415 555 ${String(1000 + index)}` },
-    ],
-    classification: index < 32 ? "no_match" : "email_only",
+    destinations: [{ kind: "phone", value: `+1415555${String(1000 + index)}` }],
+    classification: "no_match",
   }),
 ).reverse();
 
+const SHARE = {
+  title: "Join One",
+  text: "Join me on One so we can connect.",
+  url: "https://one.example/r/fixture",
+  dialogTitle: "Invite",
+};
 function Harness() {
-  const draft = useInvitationQueue(CANDIDATES, null, () => () => true);
+  const draft = useInvitationQueue(CANDIDATES, SHARE, () => () => true);
   const controller = {
     enabled: true,
     version: 1,
@@ -36,7 +40,7 @@ function Harness() {
     captureSession: () => () => true,
     candidates: CANDIDATES,
     active: true,
-    share: null,
+    share: SHARE,
     preparing: false,
     error: null,
     draft,

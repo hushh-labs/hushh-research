@@ -87,7 +87,19 @@ controls reject missing response cleanup and ignored coalescing maximum wait. Th
 scheduler-sensitive payout timing test is replaced by a deterministic queued
 maximum-wait case; exact debounce/cap arithmetic and payload coverage remain.
 This repair is not yet deployed. Main integration preserves migration bodies and
-rollbacks; the canonical manifest and all environment contracts verify head 406.
+rollbacks; the canonical manifest and all environment contracts verify head 406. The final integration pin is main `188d55c0544869efa235f276b3291043ec7a4ded`;
+concurrent Puppy controls and BYOC cleanup tests remain intact. Four authored
+capability descriptions retain hosting-aware AI choices and private-cloud
+account-deletion prerequisites. Exact-revision rejection declarations cover the
+two main graph predecessors (`8845cf8eae4a24fb` and `bae648fb1e85fb89`);
+current compatible workflow runs are not silently reinterpreted. Existing
+evolution declarations and execution guards remain unchanged.
+
+The `2026-10-17T12:34:30Z` read-only provider preflight verifies the same funding
+and capital totals, balanced liabilities, settled backing and conserved fees.
+The existing signed-in browser displays an enabled price-review control for the
+inactive one-cent approval; this diagnostic does not establish a purchase or
+replace canonical same-session encrypted delivery acceptance.
 UI behavior, core, hosted CI and governed Dev deployment remain required before
 resuming the preserved financial checkpoint.
 

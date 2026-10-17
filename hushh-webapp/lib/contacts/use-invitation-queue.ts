@@ -1,89 +1,151 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import { toast } from "sonner";
-import type {
-  InviteCandidate,
-  InviteDestination,
+import {
+  MAX_INVITATION_RECIPIENTS,
+  isInvitePhone,
+  normalizeInviteEmail,
+  type InviteCandidate,
+  type InviteDestination,
 } from "./invitation-candidates";
-import { personalizeInvitation } from "./personalize-invitation";
 import {
   ContactInvitationsService,
   type InvitationOutcome,
   type InvitationShare,
 } from "@/lib/services/contact-invitations-service";
 import { isShareCancellationError } from "@/lib/share/share-link";
-import { trackOneLocationJourneyAction } from "@/lib/observability/location-events";
+import {
+  oneLocationCountBucket,
+  trackOneLocationJourneyAction,
+} from "@/lib/observability/location-events";
 
-/** Session-owned UI state and handoffs survive temporary admission-gate remounts. */
+/** Session-owned selection and one batch handoff survive admission-gate remounts. */
 export function useInvitationQueue(
-  candidates: InviteCandidate[],
+  sourceCandidates: InviteCandidate[],
   share: InvitationShare | null,
   captureSession: () => () => boolean,
 ) {
+  const native = ContactInvitationsService.isNative();
+  const candidates = useMemo(
+    () =>
+      sourceCandidates
+        .flatMap((candidate) => {
+          const destinations = candidate.destinations.flatMap((destination) => {
+            if (native)
+              return destination.kind === "phone" &&
+                isInvitePhone(destination.value)
+                ? [destination]
+                : [];
+            const email =
+              destination.kind === "email"
+                ? normalizeInviteEmail(destination.value)
+                : null;
+            return email ? [{ kind: "email" as const, value: email }] : [];
+          });
+          return destinations.length ? [{ ...candidate, destinations }] : [];
+        })
+        .sort(
+          (left, right) =>
+            left.displayName.localeCompare(right.displayName, undefined, {
+              sensitivity: "base",
+              numeric: true,
+            }) || left.id.localeCompare(right.id),
+        ),
+    [sourceCandidates, native],
+  );
   const [step, setStep] = useState<"select" | "review" | "queue">("select");
   const [query, setQuery] = useState("");
-  const [previewId, setPreviewId] = useState<string | null>(null);
   const [visible, setVisible] = useState(50);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const [selected, setSelected] = useState<Record<string, InviteDestination>>(
-    {},
-  );
-  const [processed, setProcessed] = useState<Set<string>>(() => new Set());
-  const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
+  const [selected, updateSelected] = useState<
+    Record<string, InviteDestination>
+  >({});
   const [outcome, setOutcome] = useState<InvitationOutcome | null>(null);
+  const [handoffOutcome, setHandoffOutcome] =
+    useState<InvitationOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const queue = candidates.filter((candidate) => selected[candidate.id]);
-  const current = queue.find(
-    (candidate) => !processed.has(candidate.id) && !skipped.has(candidate.id),
-  );
+
+  const setSelected = (
+    action: SetStateAction<Record<string, InviteDestination>>,
+  ) => {
+    if (busyRef.current) return;
+    updateSelected((previous) => {
+      const next = typeof action === "function" ? action(previous) : action;
+      const entries = Object.entries(next);
+      if (entries.length > MAX_INVITATION_RECIPIENTS) return previous;
+      const keys = new Set<string>();
+      for (const [id, destination] of entries) {
+        if (
+          !candidates.some(
+            (candidate) =>
+              candidate.id === id &&
+              candidate.destinations.some(
+                (allowed) =>
+                  allowed.kind === destination.kind &&
+                  allowed.value === destination.value,
+              ),
+          )
+        )
+          return previous;
+        const key = `${destination.kind}:${destination.value.toLowerCase()}`;
+        if (keys.has(key)) return previous;
+        keys.add(key);
+      }
+      return next;
+    });
+  };
 
   const reset = useCallback(() => {
     setStep("select");
     setQuery("");
-    setPreviewId(null);
     setVisible(50);
     setChoices({});
-    setSelected({});
-    setProcessed(new Set());
-    setSkipped(new Set());
+    updateSelected({});
     setOutcome(null);
+    setHandoffOutcome(null);
     setError(null);
     busyRef.current = false;
     setBusy(false);
   }, []);
 
-  const next = (skip: boolean) => {
-    if (!current || busyRef.current) return;
-    if (skip) setSkipped((previous) => new Set(previous).add(current.id));
-    else setProcessed((previous) => new Set(previous).add(current.id));
-    setOutcome(null);
-    setError(null);
-  };
-
   const act = async (kind: "compose" | "share" | "copy") => {
-    if (!current || !share || busyRef.current) return;
+    if ((kind === "compose" && !queue.length) || !share || busyRef.current)
+      return;
     const isCurrentSession = captureSession();
     if (!isCurrentSession()) return;
-    const recipient = current;
+    const message = { ...share };
+    const recipients = queue.map((candidate) => ({
+      ...selected[candidate.id]!,
+    }));
     busyRef.current = true;
     setBusy(true);
     setError(null);
     setOutcome(null);
+    if (kind === "compose") {
+      setHandoffOutcome(null);
+      setStep("queue");
+    }
     try {
-      const personal = personalizeInvitation(share, recipient.displayName);
-      // Start directly on the tap, before any await, for browser activation.
       const result =
         kind === "compose"
-          ? await ContactInvitationsService.compose(
-              selected[recipient.id]!,
-              personal,
+          ? await ContactInvitationsService.composeBatch(
+              recipients,
+              message,
+              isCurrentSession,
             )
           : kind === "share"
-            ? await ContactInvitationsService.share(personal)
-            : await ContactInvitationsService.copy(personal);
+            ? await ContactInvitationsService.share(message, isCurrentSession)
+            : await ContactInvitationsService.copy(message, isCurrentSession);
       if (!isCurrentSession()) return;
       trackOneLocationJourneyAction({
         action: "contact_invitation_handoff",
@@ -94,33 +156,24 @@ export function useInvitationQueue(
               ? "expected_error"
               : "success",
         targetType: "contacts",
-        countBucket: "1",
+        countBucket: oneLocationCountBucket(recipients.length),
       });
       if (result === "copied") toast.success("Invitation copied");
-      if (ContactInvitationsService.completesRecipient(result)) {
-        setProcessed((previous) => new Set(previous).add(recipient.id));
-      } else setOutcome(result);
+      setOutcome(result);
+      if (kind === "compose") setHandoffOutcome(result);
     } catch (failure) {
       if (!isCurrentSession()) return;
-      if (isShareCancellationError(failure)) {
-        trackOneLocationJourneyAction({
-          action: "contact_invitation_handoff",
-          result: "expected_error",
-          targetType: "contacts",
-          countBucket: "1",
-        });
-        setOutcome("cancelled");
-      } else {
-        trackOneLocationJourneyAction({
-          action: "contact_invitation_handoff",
-          result: "error",
-          targetType: "contacts",
-          countBucket: "1",
-        });
+      trackOneLocationJourneyAction({
+        action: "contact_invitation_handoff",
+        result: isShareCancellationError(failure) ? "expected_error" : "error",
+        targetType: "contacts",
+        countBucket: oneLocationCountBucket(recipients.length),
+      });
+      if (isShareCancellationError(failure)) setOutcome("cancelled");
+      else
         setError(
-          "Could not open or copy the invitation. Please try again, or select and copy the message above.",
+          "Could not open or copy the invitation. Try again, select fewer contacts, or copy the message below.",
         );
-      }
     } finally {
       if (isCurrentSession()) {
         busyRef.current = false;
@@ -130,27 +183,24 @@ export function useInvitationQueue(
   };
 
   return {
+    native,
+    candidates,
     step,
     setStep,
     query,
     setQuery,
-    previewId,
-    setPreviewId,
     visible,
     setVisible,
     choices,
     setChoices,
     selected,
     setSelected,
-    processed,
-    skipped,
     outcome,
+    handoffOutcome,
     error,
     busy,
     busyRef,
     queue,
-    current,
-    next,
     act,
     reset,
   };

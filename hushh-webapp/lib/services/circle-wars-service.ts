@@ -25,6 +25,8 @@ export type CircleWarsTeam = {
 };
 
 export type CircleWarsState = {
+  /** Client-only receipt anchor, never sent to the backend or persisted. */
+  received_at_monotonic?: number;
   period: CircleWarsPeriod;
   participation: {
     status: "active" | "withdrawn";
@@ -50,19 +52,21 @@ const headers = (vaultOwnerToken: string) => ({
 
 /** Uses apiJson's existing native direct-HTTP / web catch-all proxy transport. */
 export const CircleWarsService = {
-  getState(vaultOwnerToken: string): Promise<CircleWarsState> {
-    return apiJson(BASE, { headers: headers(vaultOwnerToken), cache: "no-store" });
+  async getState(vaultOwnerToken: string): Promise<CircleWarsState> {
+    const state = await apiJson<CircleWarsState>(BASE, { headers: headers(vaultOwnerToken), cache: "no-store" });
+    return { ...state, received_at_monotonic: performance.now() };
   },
-  optIn(vaultOwnerToken: string, circleId: string): Promise<CircleWarsState> {
-    return apiJson(`${BASE}/participation`, {
+  async optIn(vaultOwnerToken: string, circleId: string): Promise<CircleWarsState> {
+    const state = await apiJson<CircleWarsState>(`${BASE}/participation`, {
       method: "POST",
       headers: headers(vaultOwnerToken),
       body: JSON.stringify({ circle_id: circleId, consent: true }),
       cache: "no-store",
     });
+    return { ...state, received_at_monotonic: performance.now() };
   },
   getLeaderboard(vaultOwnerToken: string, offset = 0): Promise<CircleWarsLeaderboard> {
-    return apiJson(`${BASE}/leaderboard?limit=25&offset=${offset}`, {
+    return apiJson(`${BASE}/leaderboard?limit=10&offset=${offset}`, {
       headers: headers(vaultOwnerToken), cache: "no-store",
     });
   },

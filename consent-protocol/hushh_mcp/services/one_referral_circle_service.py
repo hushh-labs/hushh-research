@@ -25,21 +25,29 @@ class CircleWarsError(ValueError):
 
 
 def _period(connection, week: str | None = None) -> dict:
-    if week is None:
-        challenge = get_challenge_status()
-        if not challenge.get("calendar_active"):
-            raise CircleWarsError("COMPETITION_NOT_CONFIGURED", 503)
-        week = challenge["round_id"]
-    row = connection.execute(
-        text("""
+    current = week is None
+    # The round resolver and this DB read can straddle the weekly cutoff.
+    # Retry only current-round reads; explicit history must stay on its round.
+    for _ in range(2):
+        if current:
+            challenge = get_challenge_status()
+            if not challenge.get("calendar_active"):
+                raise CircleWarsError("COMPETITION_NOT_CONFIGURED", 503)
+            week = challenge["round_id"]
+        row = connection.execute(
+            text("""
       SELECT id,started_at,cutoff_at,timezone,status,clock_timestamp() AS now
       FROM one_referral_reward_rounds WHERE id=CAST(:rid AS UUID)
         AND started_at<=clock_timestamp()
     """),
-        {"rid": str(week)},
-    ).fetchone()
-    if row is None:
-        raise CircleWarsError("INVALID_COMPETITION_WEEK", 422)
+            {"rid": str(week)},
+        ).fetchone()
+        if row is None:
+            raise CircleWarsError("INVALID_COMPETITION_WEEK", 422)
+        if not current or row.now < row.cutoff_at:
+            break
+    else:
+        raise CircleWarsError("COMPETITION_WEEK_CHANGED", 503)
     return {
         "round_id": str(row.id),
         "status": row.status,

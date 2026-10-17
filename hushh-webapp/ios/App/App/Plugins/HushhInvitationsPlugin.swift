@@ -9,17 +9,37 @@ public class HushhInvitationsPlugin: CAPPlugin, CAPBridgedPlugin, MFMessageCompo
     public let jsName = "HushhInvitations"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "composeSms", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "composeSms", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "composeSmsBatch", returnType: CAPPluginReturnPromise)
     ]
     private var pendingCall: CAPPluginCall?
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { call.resolve(["sms": MFMessageComposeViewController.canSendText()]) }
+        DispatchQueue.main.async {
+            call.resolve(["sms": MFMessageComposeViewController.canSendText(), "maxSmsRecipients": 15])
+        }
     }
 
     @objc func composeSms(_ call: CAPPluginCall) {
-        guard let recipient = call.getString("recipient"),
-              recipient.range(of: "^\\+[1-9][0-9]{6,14}\\z", options: .regularExpression) != nil,
+        guard let recipient = call.getString("recipient") else {
+            call.reject("Invalid invitation.")
+            return
+        }
+        compose(call, recipients: [recipient])
+    }
+
+    @objc func composeSmsBatch(_ call: CAPPluginCall) {
+        guard let recipients = call.getArray("recipients", String.self) else {
+            call.reject("Invalid invitation.")
+            return
+        }
+        compose(call, recipients: recipients)
+    }
+
+    private func compose(_ call: CAPPluginCall, recipients: [String]) {
+        guard (1...15).contains(recipients.count),
+              Set(recipients).count == recipients.count,
+              recipients.allSatisfy({ $0.range(of: "^\\+[1-9][0-9]{6,14}\\z", options: .regularExpression) != nil }),
               let body = call.getString("body"), !body.isEmpty, body.utf16.count <= 2000 else {
             call.reject("Invalid invitation.")
             return
@@ -39,7 +59,7 @@ public class HushhInvitationsPlugin: CAPPlugin, CAPBridgedPlugin, MFMessageCompo
             let composer = MFMessageComposeViewController()
             composer.isModalInPresentation = true
             composer.messageComposeDelegate = self
-            composer.recipients = [recipient]
+            composer.recipients = recipients
             composer.body = body
             self.pendingCall = call
             presenter.present(composer, animated: true)

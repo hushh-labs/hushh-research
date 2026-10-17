@@ -36,8 +36,8 @@ test.beforeAll(async () => {
         name: "contact-invitation-boundaries",
         load(id) {
           if (id === "\0fixture-invitations-service")
-            return `export const ContactInvitationsService = { canComposeSms: async () => false };
-            export function invitationBody() { return ""; }
+            return `export const ContactInvitationsService = { isNative: () => true, canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
+            export function invitationBody(share) { return share.text + "\\n" + share.url; }
             export function assertInvitationShare() {}`;
         },
       },
@@ -222,5 +222,54 @@ for (const viewport of CASES) {
     expect(after.searchBottom).toBeLessThanOrEqual(
       viewport.height - viewport.keyboard,
     );
+  });
+}
+
+for (const viewport of [CASES[0], CASES[3]]) {
+  test(`batch review and result remain usable: ${viewport.name}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+    await mount(page, 0);
+    for (let i = 1; i <= 15; i++)
+      await page
+        .getByRole("checkbox", {
+          name: `Select Contact person ${i}`,
+          exact: true,
+        })
+        .click();
+    await page.getByRole("button", { name: "Review 15 invitations" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Invitation message" }),
+    ).toHaveValue(
+      "Join me on One so we can connect.\nhttps://one.example/r/fixture",
+    );
+    const open = page.getByRole("button", {
+      name: "Open Messages · 15 contacts",
+    });
+    await expect(open).toBeVisible();
+    const dimensions = await page.getByRole("dialog").evaluate((dialog) => {
+      const list = dialog.querySelector<HTMLElement>(
+        "[data-contact-invite-list]",
+      )!;
+      return {
+        horizontalOverflow: dialog.scrollWidth - dialog.clientWidth,
+        listHeight: list.clientHeight,
+        scrollable: list.scrollHeight > list.clientHeight,
+      };
+    });
+    expect(dimensions.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(dimensions.listHeight).toBeGreaterThan(120);
+    expect(dimensions.scrollable).toBe(true);
+    const box = await open.boundingBox();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    await open.click();
+    await expect(
+      page.getByRole("button", { name: "Done", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("15 selected contacts")).toBeAttached();
   });
 }
