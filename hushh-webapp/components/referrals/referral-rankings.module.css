@@ -1,0 +1,29 @@
+.table { min-width: 0; container: referral-rankings / inline-size; }
+.row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 64px; gap: 12px; align-items: center; }
+.rows { overflow: hidden; margin: 0; padding: 6px; list-style: none; border: 0; border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); }
+.row { min-height: 54px; padding: 10px; border-radius: var(--app-radius-md); }
+.row[data-viewer="true"] { background: color-mix(in srgb, var(--app-accent) 6%, var(--app-card-surface-default-solid)); }
+.rank { text-align: center; color: var(--muted-foreground); font-size: var(--type-row-description-size); font-variant-numeric: tabular-nums; }
+.rank[data-podium="1"] { color: var(--app-warning-deep); font-weight: 600; }
+.member { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.avatar.avatar { width: 30px; height: 30px; flex: none; }
+.fallback.fallback { color: var(--app-accent-deep); background: var(--app-accent-tint); font-size: var(--type-helper-text-size); font-weight: 500; }
+.fallback svg { width: 17px; height: 17px; }
+.identity { min-width: 0; }
+.nameLine { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.name.name { min-width: 0; overflow-wrap: anywhere; }
+.viewerBadge { color: var(--app-accent-deep); font-size: var(--type-helper-text-size); white-space: nowrap; }
+.description { margin: 2px 0 0; color: var(--muted-foreground); font-size: var(--type-helper-text-size); line-height: 1.35; }
+.score { min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.score strong { color: var(--foreground); font-size: var(--type-row-label-compact-size); line-height: 1.4; font-weight: 500; }
+.pagedList { display: grid; gap: 16px; min-width: 0; }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.pageNumber { margin-right: auto; color: var(--muted-foreground); font-size: var(--type-helper-text-size); }
+.pageError, .empty { margin: 0; color: var(--muted-foreground); font-size: var(--type-row-description-size); }
+@container referral-rankings (max-width: 520px) {
+  .row { grid-template-columns: 20px minmax(0, 1fr) 48px; column-gap: 8px; }
+  .rows { padding: 4px; }
+  .row { padding: 10px 8px; }
+  .member { gap: 8px; }
+  .avatar.avatar { width: 28px; height: 28px; }
+}

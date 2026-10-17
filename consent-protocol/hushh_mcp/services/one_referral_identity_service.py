@@ -1,10 +1,11 @@
-"""Viewer-permitted profile names for referral standings.
+"""Viewer-permitted profile names and portraits for referral standings.
 
 Chosen public aliases retain priority. Other names use Connect's existing
 visibility and account-lifecycle checks. Display names are not verified legal names.
 """
 
 import logging
+from typing import TypedDict
 
 from hushh_mcp.services.requester_identity import label_from_identity_row
 
@@ -27,15 +28,28 @@ def _own_profile(user_id: str) -> dict:
     return directory_auth_profiles([user_id]).get(user_id, {})
 
 
-def get_leaderboard_display_names(
+class LeaderboardProfile(TypedDict):
+    display_name: str
+    photo_url: str | None
+
+
+def _portrait(value: object) -> str | None:
+    # The existing directory/account photo contract permits HTTPS and complete
+    # uploaded raster data URLs. Preserve that representation without truncation.
+    if not isinstance(value, str) or len(value) > 600_000:
+        return None
+    return value.strip() or None
+
+
+def get_leaderboard_profiles(
     user_ids: list[str], *, viewer_user_id: str | None
-) -> dict[str, str]:
+) -> dict[str, LeaderboardProfile]:
     """Resolve this page only; unavailable identities stay anonymous."""
     if not viewer_user_id or not user_ids:
         return {}
     candidates = set(user_ids)
     peers = sorted(candidates - {viewer_user_id})
-    names = {}
+    profiles: dict[str, LeaderboardProfile] = {}
     try:
         for offset in range(0, len(peers), 100):
             for profile in _directory_profiles(viewer_user_id, peers[offset : offset + 100]):
@@ -46,7 +60,10 @@ def get_leaderboard_display_names(
                         allow_email_handle=False,
                     )
                     if label:
-                        names[uid] = label
+                        profiles[uid] = {
+                            "display_name": label,
+                            "photo_url": _portrait(profile.get("photoUrl")),
+                        }
     except Exception as exc:
         # A failed visibility/provider lookup never authorizes a private fallback.
         logger.warning("referral.directory_names_unavailable error=%s", type(exc).__name__)
@@ -57,7 +74,22 @@ def get_leaderboard_display_names(
                 {**own, "user_id": viewer_user_id}, allow_email_handle=False
             )
             if label:
-                names[viewer_user_id] = label
+                profiles[viewer_user_id] = {
+                    "display_name": label,
+                    "photo_url": _portrait(own.get("photo_url")),
+                }
         except Exception as exc:
             logger.warning("referral.own_name_unavailable error=%s", type(exc).__name__)
-    return names
+    return profiles
+
+
+def get_leaderboard_display_names(
+    user_ids: list[str], *, viewer_user_id: str | None
+) -> dict[str, str]:
+    """Compatibility projection for existing names-only callers."""
+    return {
+        uid: profile["display_name"]
+        for uid, profile in get_leaderboard_profiles(
+            user_ids, viewer_user_id=viewer_user_id
+        ).items()
+    }
