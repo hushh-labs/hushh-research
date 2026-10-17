@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   snapshotVaultSessionEpoch,
@@ -319,12 +319,14 @@ export function RequestFilesButton({
   personName,
   getToken,
   agentPackagesEnabled = false,
+  renderTrigger,
 }: {
   userId: string;
   personRef: string;
   personName: string;
   getToken: () => string | null;
   agentPackagesEnabled?: boolean;
+  renderTrigger?: (label: string) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -376,7 +378,7 @@ export function RequestFilesButton({
         }}
       >
         <DialogTrigger asChild>
-          <Button size="standard" variant="none">Request files</Button>
+          <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
         </DialogTrigger>
         <DialogContent
           data-request-files-dialog
