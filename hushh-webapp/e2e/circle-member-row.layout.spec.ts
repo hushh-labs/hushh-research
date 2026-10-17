@@ -959,7 +959,7 @@ test.describe("Circle roster row", () => {
           const menu = sheet.getByRole("menu");
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
-          await expect(share).toHaveCSS("height", "56px");
+          await expect(share).toHaveCSS("height", "52px");
           const readAccent = () => sheet.evaluate((element) => {
             const probe = document.createElement("span");
             probe.style.color = "var(--app-accent-deep)";
@@ -971,7 +971,7 @@ test.describe("Circle roster row", () => {
           const defaultAccent = await readAccent();
           await expect(share.locator("svg")).toHaveCSS("color", defaultAccent);
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
-          await expect(cancel).toHaveCSS("height", "50px");
+          await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
             await expect(remove).toHaveCSS("justify-content", "normal");
           }
