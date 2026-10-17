@@ -361,13 +361,19 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
   });
 
-  it("keeps automatic Markdown memory capture silent", () => {
+  it("keeps successful automatic Markdown memory capture silent", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain('event.actionId === "pkm.add"');
     expect(workspace).toContain('event.raw?.toolName === "add_to_pkm"');
     expect(workspace).toContain("message.memoryCapture ? <AgentMemoryCaptureStatus");
-    expect(workspace).toContain("if (!userRequestedSave) return status;");
+    const settleStart = workspace.indexOf("const settle = (status: AgentPkmCaptureStatus)");
+    expect(settleStart).toBeGreaterThan(-1);
+    const ambient = workspace.slice(settleStart, workspace.indexOf("if (!shouldPublishAgentPkmCapture", settleStart));
+    // A current failed save may notify; ambient outcomes still return before
+    // any receipt or transcript publication, independently of helper policy.
+    expect(ambient).toMatch(/if \(!userRequestedSave\) \{[\s\S]*return status;\s*\}\s*$/);
+    expect(ambient).not.toMatch(/setMessages|receipts\.set/);
     expect(workspace).toContain("confirmMemoryNeedsOwner");
     expect(workspace).not.toContain("saved in Memory");
   });

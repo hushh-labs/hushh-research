@@ -259,7 +259,7 @@ describe("document Feed stream through the proxy", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("passes a busy backend's plain Retry-After on, and never marks the consent stream", async () => {
+  it("passes a busy backend's plain Retry-After on, and marks both bounded notification streams", async () => {
     const { GET } = await route();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("busy", {
       status: 503, headers: { "Retry-After": "60" },
@@ -277,6 +277,9 @@ describe("document Feed stream through the proxy", () => {
     });
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://backend.test/api/consent/events/owner");
-    expect(init.headers).not.toHaveProperty("X-Hussh-Stream-Via");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer test-token",
+      "X-Hussh-Stream-Via": "next-proxy",
+    });
   });
 });

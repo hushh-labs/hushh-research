@@ -2,16 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * The Agent Chat header, read out of the shipped source rather than retyped.
- *
- * The workspace depends on Firebase, the vault and AG-UI; an unauthenticated
- * visit proves only the welcome screen. This fixture instead extracts shipped
- * classes, copy and conditional expressions, including imported header controls.
- * It executes plain guards with fixture state so removed gates or moved controls
- * change the measured screen. Every anchor must match exactly once.
- *
- * This proves source-derived presentation, not real React state, focus effects
- * or Radix behavior. The owning spec records those separate acceptance limits.
+ * Model authority from shipped classes, copy and plain guards, including imported
+ * controls. Every anchor matches once; changed gates alter the measured screen.
+ * Unlike an unauthenticated visit, this exercises the signed-in header shape.
+ * It proves presentation, not React state, focus or Radix behavior; the owning
+ * spec records those separate acceptance limits. No Firebase or vault is mocked.
  */
 
 const WEBAPP_ROOT = process.cwd();
@@ -82,6 +77,8 @@ export function evaluateShippedExpression(
 
 const WORKSPACE_PATH = "components/agent/agent-chat-workspace.tsx";
 const PANEL_PATH = "components/agent/hermes-chat-panel.tsx";
+const PUPPY_CONTROLS_PATH = "components/agent/puppy-chat-controls.tsx";
+const PUPPY_LOCAL_CONTROLS_PATH = "components/agent/puppy-local-controls.tsx";
 const PUPPY_PICKER_PATH = "components/agent/puppy-model-picker.tsx";
 const SEGMENTED_PATH = "lib/morphy-ux/ui/segmented-control.tsx";
 
@@ -112,10 +109,8 @@ const historyClass = one(historySource, /<NativeChatChrome\b[\s\S]*?kind="histor
   "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
- * The header is three flex regions and only the middle one may give way:
- * history (fixed), identity (flex-1, clips), actions (shrink-0). The identity
- * region carries a data attribute so this anchor names the region, not a
- * styling that may change under it.
+ * Fixed history/actions flank the shrinkable identity region. Its attribute
+ * anchors ownership independently of styling.
  */
 const identityClass = one(
   header,
@@ -352,14 +347,19 @@ const puppyMountedLazily = workspace.includes("{puppyEverOpened ? (");
 // --- The Puppy surface's own controls -------------------------------------
 
 const panel = read(PANEL_PATH);
+const puppyControls = read(PUPPY_CONTROLS_PATH);
+const puppyLocalControls = read(PUPPY_LOCAL_CONTROLS_PATH);
 const puppyPicker = read(PUPPY_PICKER_PATH);
 const segmented = read(SEGMENTED_PATH);
 
+// Follow the extracted owners; removing either composition must still fail.
+one(panel, /<PuppyLocalControls\b/, "the local controls composition", PANEL_PATH);
+one(panel, /<AgentBarSurface\b/, "the native-aware composer composition", PANEL_PATH);
 const panelHeaderClass = one(
-  panel,
-  /<div className="(flex items-center gap-2 border-b[^"]+)">/,
-  "the Puppy panel header row",
-  PANEL_PATH,
+  puppyControls,
+  /aria-label="Puppy controls"\s+data-puppy-controls\s+className="([^"]+)"/,
+  "the Puppy controls ribbon",
+  PUPPY_CONTROLS_PATH,
 )[1];
 
 const puppyComposerPlaceholder = one(
@@ -377,10 +377,10 @@ const puppySendLabel = one(
 )[1];
 
 const puppyPinLabels = one(
-  panel,
+  puppyLocalControls,
   /\{onDevice \? "([^"]+)" : "([^"]+)"\}/,
   "the on-device pin labels",
-  PANEL_PATH,
+  PUPPY_LOCAL_CONTROLS_PATH,
 );
 
 const puppyPickerMatch = one(
