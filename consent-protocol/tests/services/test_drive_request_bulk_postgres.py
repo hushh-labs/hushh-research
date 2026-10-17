@@ -1537,6 +1537,118 @@ async def test_review_ask_needs_an_owner_retry_that_can_still_run(
 
 
 @pytest.mark.asyncio
+async def test_requester_without_google_account_is_told_to_link_one(request_bulk, sharing):
+    """B has only a verified email. Google refuses the silent share; B sees why."""
+    from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
+    from hushh_mcp.services.google_drive_permission_adapter import (
+        DrivePermissionError,
+        PermissionSnapshot,
+    )
+
+    request_id = (await _trusted_request(sharing))["requestId"]
+    search = _search(
+        request_bulk, request_id=request_id, count=2, selection=FILE_ACTIVITY_SELECTION
+    )
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("trusted-member", "trusted@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1, 2],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        approval_source="trusted_auto",
+    )
+    with request_bulk.db.engine.begin() as connection:
+        generation = connection.execute(
+            text("SELECT connection_generation FROM drive_bulk_shares WHERE share_id=:share"),
+            {"share": review["shareId"]},
+        ).scalar_one()
+    # Google's answer with notification email off for an address that has no
+    # Google account: invalidSharingRequest, and no grant exists afterwards.
+    adapter = SimpleNamespace(
+        inspect_shareable=AsyncMock(),
+        list_permissions=AsyncMock(return_value=PermissionSnapshot(())),
+        create_reader=AsyncMock(
+            side_effect=DrivePermissionError(
+                "permission_outcome_unknown",
+                outcome_unknown=True,
+                share_hint="recipient_needs_google_account",
+            )
+        ),
+    )
+    worker = DriveBulkShareWorker(
+        store=request_bulk,
+        adapter=adapter,
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(
+                return_value=(
+                    {"connection_generation": generation},
+                    {
+                        "accessToken": "synthetic-token",
+                        "subject": "owner-google",
+                        "oauthClientId": "synthetic-client",
+                    },
+                )
+            )
+        ),
+        verify_recipient=AsyncMock(),
+        wake=AsyncMock(),
+    )
+    rows = [
+        {
+            "user_id": "owner",
+            "share_id": review["shareId"],
+            "position": position,
+            "recipient_user_id": "trusted-member",
+        }
+        for position in (1, 2)
+    ]
+    projections = DriveSuggestionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+
+    async def requester_view():
+        snapshot = await projections.delivery_snapshot(
+            user_id="trusted-member", request_id=request_id, views=True
+        )
+        return snapshot["result"]
+
+    assert [await worker._effect(row) for row in rows] == ["unknown", "unknown"]
+    # Until reconciliation reads the ACL, B is told the outcome is being checked.
+    checking = await requester_view()
+    assert checking["counts"]["unknown"] == 2
+    assert checking["issues"] == [{"reasonCode": "permission_outcome_unknown", "count": 2}]
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects
+              SET next_at=clock_timestamp()-INTERVAL '1 second' WHERE share_id=:share"""),
+            {"share": review["shareId"]},
+        )
+    assert [await worker._effect(row) for row in rows] == ["failed", "failed"]
+    assert adapter.create_reader.await_count == 2
+    view = await requester_view()
+    assert view["sharedCount"] == 0 and view["counts"]["failed"] == 2
+    assert view["issues"] == [{"reasonCode": "recipient_needs_google_account", "count": 2}]
+    assert view["recovery"]["reasons"] == [
+        {"reasonCode": "recipient_needs_google_account", "count": 2}
+    ]
+    # An owner retry cannot help until B links a Google account.
+    assert view["recovery"]["ownerRetry"]["state"] == "unavailable"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "blocker",
     [

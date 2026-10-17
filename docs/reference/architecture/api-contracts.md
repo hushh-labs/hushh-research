@@ -3226,6 +3226,17 @@ Only one bulk share can be prepared for a saved search, including across chats o
 repeated requests with different client IDs; reopening recovers the same review
 or progress rather than queueing duplicate grants.
 
+Google's answers to a grant are classified, never echoed. `invalidSharingRequest`,
+which Google also returns after a successful share whose email could not be sent,
+is uncertain: read-only reconciliation records the exact requested Viewer grant as
+a confirmed grant that Stop and expiry can remove. Without that grant the effect
+fails as `recipient_needs_google_account` (the address is not a Google account;
+per-file email stays off), `drive_policy_blocked` (Workspace or shared-drive
+sharing rules) or `permission_rejected`. `sharingRateLimitExceeded` returns the
+effect, and the rest of its batch, to the queue for 5, 10, 20 and then 40 minutes.
+Each retry repeats the absence check before any POST; a fifth refusal fails as
+`sharing_rate_limited`.
+
 Owner status includes `issues: [{reasonCode,count}]`, `retryableCount` and `canRetry`.
 The displayed partition is `shared + alreadyShared + skipped + failed + needsReview
 + unknown + pending = total`; `processed` counts terminal effects, including failures,

@@ -842,7 +842,8 @@ export type DriveBulkShareCounts = {
 const BULK_REASON_CODES = [
   "source_changed", "source_not_shareable", "recipient_changed", "connection_changed", "stopped",
   "sharing_unavailable", "date_range_required", "retry_limit", "provider_unavailable", "permission_rejected",
-  "permission_outcome_unknown", "permission_catalog_incomplete", "unavailable",
+  "permission_outcome_unknown", "permission_catalog_incomplete", "sharing_rate_limited",
+  "recipient_needs_google_account", "drive_policy_blocked", "unavailable",
 ] as const;
 export type DriveBulkReasonCode = (typeof BULK_REASON_CODES)[number];
 export type DriveBulkShareIssue = { reasonCode: DriveBulkReasonCode; count: number };

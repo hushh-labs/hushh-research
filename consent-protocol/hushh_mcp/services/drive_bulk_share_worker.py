@@ -12,8 +12,14 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
-from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_bulk_share_store import (
+    PENDING_CREATE_PROVENANCE,
+    RECONCILED_CREATE_PROVENANCE,
+    DriveBulkShareStore,
+)
 from hushh_mcp.services.drive_permission_executor import (
+    SHARE_REFUSAL_CODES,
+    attributable_reader,
     existing_individual_permission,
     require_recipient_identity,
     verified_issuer,
@@ -77,6 +83,9 @@ def _failure_code(error: BaseException) -> str:
             "permission_catalog_incomplete",
             "permission_catalog_changed",
             "permission_catalog_too_large",
+            "sharing_rate_limited",
+            "recipient_needs_google_account",
+            "drive_policy_blocked",
         }
         else "timeout"
         if isinstance(error, TimeoutError)
@@ -175,6 +184,51 @@ class DriveBulkShareWorker:
             await self.store.require_reconciliation_current(job)
         except (DriveReadError, DriveSharingError, DriveOAuthError, TimeoutError):
             return await self.store.release(job, error="permission_outcome_unknown", uncertain=True)
+        # The worker's own sealed note: Google answered this create with
+        # invalidSharingRequest after a complete absence check.
+        pending = job.get("pending_receipt") or {}
+        hint = pending.get("share_hint")
+        issuer = pending.get("issuer")
+        if (
+            hint
+            and present is not None
+            and isinstance(issuer, dict)
+            and attributable_reader(
+                present,
+                email=job["recipient"]["email"],
+                expiration_time=pending.get("expiration_time"),
+            )
+        ):
+            # That answer can follow a real share. The exact requested grant
+            # is recorded as One's own, so Stop and expiry can remove it.
+            await self._settle_receipt(
+                job,
+                state="succeeded",
+                receipt={
+                    "managed": True,
+                    "permission_id": present["id"],
+                    "email": present["emailAddress"],
+                    "issuer": issuer,
+                    "provenance": RECONCILED_CREATE_PROVENANCE,
+                    **(
+                        {"expiration_time": present["expirationTime"]}
+                        if present.get("expirationTime")
+                        else {}
+                    ),
+                },
+            )
+            self._speed_up()
+            return "succeeded"
+        if hint and hint != "shared_without_email" and present is None:
+            # No grant exists. Report Google's refusal; never POST again.
+            code = hint if hint in SHARE_REFUSAL_CODES else "permission_rejected"
+            await self.store.settle(
+                job,
+                state="failed",
+                safe_error_code=code,
+                receipt={"managed": False, "provenance": "reconciled_absence_only"},
+            )
+            return "failed"
         # A later ACL match cannot establish that this process created the
         # permission. Both outcomes require a fresh owner decision to retry.
         state = "present_unattributed" if present is not None else "absent"
@@ -195,6 +249,8 @@ class DriveBulkShareWorker:
         dispatched = False
         provider_succeeded = False
         stage = "recipient"
+        credentials = None
+        expiration_time = None
         try:
             recipient = job["recipient"]
             file = job["file"]
@@ -292,6 +348,9 @@ class DriveBulkShareWorker:
             uncertain = dispatched and (
                 not isinstance(error, DrivePermissionError) or error.outcome_unknown
             )
+            hint = (
+                error.share_hint if uncertain and isinstance(error, DrivePermissionError) else None
+            )
             safe = (
                 "permission_outcome_unknown"
                 if uncertain
@@ -305,25 +364,55 @@ class DriveBulkShareWorker:
                 if code in {"connection_changed", "reconnect_required"}
                 else "permission_catalog_incomplete"
                 if code.startswith("permission_catalog")
+                else code
+                if dispatched
+                and code
+                in {
+                    "permission_rejected",
+                    "sharing_rate_limited",
+                    "recipient_needs_google_account",
+                    "drive_policy_blocked",
+                }
                 else "permission_rejected"
                 if code == "permission_rejected"
                 else "provider_unavailable"
             )
             logger.warning(
                 "drive_bulk_share.effect_failure stage=%s code=%s dispatched=%s "
-                "retryable=%s uncertain=%s",
+                "retryable=%s uncertain=%s hint=%s",
                 stage,
                 _failure_code(error),
                 dispatched,
                 retryable and not uncertain,
                 uncertain,
+                hint or "none",
             )
+            pending = self._pending_create(hint, credentials, expiration_time)
             return await self.store.release(
                 job,
                 error=safe,
                 retryable=retryable and not uncertain,
                 uncertain=uncertain,
+                **({"pending": pending} if pending is not None else {}),
             )
+
+    @staticmethod
+    def _pending_create(hint, credentials, expiration_time):
+        """What reconciliation needs to record a grant Google may have made."""
+        if not hint or credentials is None:
+            return None
+        try:
+            issuer = verified_issuer(credentials)
+        except DriveSharingError:
+            # Without the issuing account a found grant stays unattributed.
+            issuer = None
+        return {
+            "managed": False,
+            "provenance": PENDING_CREATE_PROVENANCE,
+            "share_hint": hint,
+            "issuer": issuer,
+            "expiration_time": expiration_time,
+        }
 
     async def _effect(self, row, *, v1_only=False):
         job = await self.store.claim(

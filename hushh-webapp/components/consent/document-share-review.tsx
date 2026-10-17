@@ -201,6 +201,9 @@ const ISSUE_COPY: Record<DriveBulkReasonCode, { reason: string; action: string }
   permission_rejected: { reason: "Google Drive denied sharing.", action: "Check the file's sharing permissions in Google Drive." },
   permission_outcome_unknown: { reason: "The sharing result has not been confirmed.", action: "Check access in Google Drive before trying again." },
   permission_catalog_incomplete: { reason: "Google Drive could not confirm existing access.", action: "Check access in Google Drive before trying again." },
+  sharing_rate_limited: { reason: "Google Drive limited how many files you could share at once.", action: "Sharing waits and retries a few times before it stops." },
+  recipient_needs_google_account: { reason: "The recipient's email isn't a Google account.", action: "They need to link a Google account, then request again." },
+  drive_policy_blocked: { reason: "Your Google Workspace settings block sharing this file with them.", action: "Ask your Workspace admin or shared drive manager." },
   unavailable: { reason: "Sharing could not be completed.", action: "Check the file in Google Drive." },
 };
 

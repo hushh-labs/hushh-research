@@ -6,7 +6,11 @@ import type {
   RecoveryRefundState,
   RequesterRecovery,
 } from "@/lib/consent/document-request-requester-view";
-import type { SharingDelivery, SharingStatus } from "@/lib/services/drive-sharing-service";
+import type {
+  DriveBulkReasonCode,
+  SharingDelivery,
+  SharingStatus,
+} from "@/lib/services/drive-sharing-service";
 
 const state = vi.hoisted(() => ({
   reviewRequest: vi.fn(),
@@ -176,6 +180,30 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
     rerender(panel(recovery("unavailable"), onChanged));
     expect(screen.queryByRole("button", { name: "Request review" })).toBeNull();
     expect(live().textContent).toBe("");
+  });
+
+  it("tells a requester without a Google account how to receive files", () => {
+    const delivery = (reasonCode: DriveBulkReasonCode): SharingDelivery => ({
+      status: "partial",
+      files: [],
+      bulkShareId: "55555555-5555-4555-8555-555555555555",
+      fileCount: 2,
+      sharedCount: 0,
+      counts: { total: 2, processed: 2, shared: 0, alreadyShared: 0, skipped: 0,
+        failed: 2, needsReview: 0, unknown: 0, pending: 0 },
+      issues: [{ reasonCode, count: 2 }],
+    });
+    const props = { requestId: REQUEST_ID, status: { ...STATUS, status: "partial" }, context: null,
+      locked: false, surface: "sheet" as const, onCancel: vi.fn(), onChanged: vi.fn() };
+    const issues = () => screen.getByRole("list", { name: "Sharing issues" });
+    const { rerender } = render(
+      <DocumentRequestRequesterPanel {...props} delivery={delivery("recipient_needs_google_account")} />,
+    );
+    expect(issues()).toHaveTextContent("2 files: Link a Google account to receive files.");
+    // Negative control: a refusal on the owner's side never asks B to link one.
+    rerender(<DocumentRequestRequesterPanel {...props} delivery={delivery("permission_rejected")} />);
+    expect(issues()).toHaveTextContent("Google Drive denied sharing.");
+    expect(issues()).not.toHaveTextContent("Link a Google account");
   });
 
   it("says nothing when the recovery row first appears after loading", () => {
