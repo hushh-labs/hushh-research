@@ -47,7 +47,6 @@ import {
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
@@ -161,12 +160,6 @@ const BOTTOM_NAV_OPTION_META: Record<
     label: "Systems",
     icon: Database,
     dataTourId: "nav-one-systems",
-  },
-  search: {
-    value: "search",
-    label: "Search",
-    ...BOTTOM_NAVIGATION_ICONS.search,
-    dataTourId: "nav-search",
   },
   profile: {
     value: "profile",
@@ -437,10 +430,6 @@ export const Navbar = ({
         ? bottomNavScope
         : "one",
     );
-    if (action.type === "command") {
-      openKaiCommandBar({ feedback: "selection" });
-      return;
-    }
     if (action.type === "route") {
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
@@ -498,7 +487,7 @@ export const Navbar = ({
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
         // `lg`, so hiding it above 1024px leaves signed-in users with no way to
-        // reach One / Connect / Feed / Search at all.
+        // reach One / Connect / Feed at all.
         "pointer-events-none",
       )}
       style={

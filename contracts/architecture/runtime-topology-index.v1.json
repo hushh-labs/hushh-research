@@ -1833,6 +1833,17 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "system_push_outbox",
+        "system_push_device_deliveries"
+      ],
+      "id": "system_push_delivery",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "trusted_connections"
       ],
       "id": "trusted_connections_graph",
@@ -3898,6 +3909,7 @@
           "location.remove_from_circle",
           "location.rename_circle",
           "location.resume_updates",
+          "location.review_notifications",
           "location.revoke_public_link",
           "location.save_current_location",
           "location.select_ask_recipient",
@@ -6503,21 +6515,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "03fd2ea83ef71de7625a9d5cfcb0d0438c6e3f005e947c4c79a5ca2c54567034",
+    "action_gateway": "71a222bc99d70e56200d31a94568b1ae4b1220890cdaa247cbb336877a6f6a19",
     "agent_registry": "9a092434cd1d1238f8873e3be6d0fc0eadba592feb8ccbc2f4a4e93dafef1f2a",
     "cache_manifest": "0699f0edbab8fb67bb30ca41e797d04e1a0ef43b6691f278d0eeab88eb3545a3",
-    "data_plane": "21af698f46486e2eb6c0099e9ee7bb94ef00098d89d4256c8df63ff2ab1be235",
+    "data_plane": "bf4e5b5a6f6f40ae2156ec45c5d54d393a534cc9c5a40cea3b22c64cc9bfae9b",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "4269813a1f31eb9b9767d6bf8a96ecea465eeb3a1eeeade5ebc0f4d4233c2120",
-    "route_layout": "4febf2d57ba8064cbb4bb3a069097b92e65a3a406e1dd661fdc7971abbbbd3c0",
-    "surface_map": "a4345b25fec4fdb0b32a0820670de5f329d1b14173d65cc4bdb426be7f3b1601",
+    "route_index": "b641243a4e46367f6360bcfe06f5298be472e7c6f742c96c23be416afad4863b",
+    "route_layout": "b3c1a6c87931c49898e2177ad617ef8742e5a5f49bd4465c01259aa05e7d8721",
+    "surface_map": "19470f9696bd9d83f9a780310d6f5c166b5d8d8272f5c2d76fd98138254b7e20",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 257,
+    "actions": 258,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6525,6 +6537,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 154,
     "semantic_routes": 17,
-    "table_families": 110
+    "table_families": 111
   }
 }

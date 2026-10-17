@@ -16,6 +16,11 @@ Nothing here reads owner content. Lifecycle logs carry codes and counts only;
 the sealed job state (draft, sources, identity) is only readable with the
 owner's request-scoped chat key and never appears in logs.
 
+UAT currently uses Azure GPT-5-mini and Phi-4-mini with Bing web search after
+explicit Azure/Bing consent. Production remains on Vertex. The Google-specific
+provider refusal and project checks below apply to Vertex; first identify the
+serving provider when investigating UAT.
+
 ## Quick status
 
 ```bash
@@ -52,7 +57,7 @@ counts, a collapsed timeline, and one verdict line:
    failure), `budget_starts` (hourly start budget spent), `capacity_busy`,
    `lost_race`, `changed`, `refused`. `starts_hour`, `searches_used` and
    `model_calls_used` on every decision line say how much of the draft's budget
-   (32 searches, 128 model calls) is gone.
+   is gone (UAT Azure: 8 searches, 16 model calls; Vertex: 32 and 128).
 4. **Slices and checkpoints.** The worker logs `one.pwm_started` and runs the
    specialist with Google Search for one slice (240 s, job timeout 270 s,
    lease 300 s). Every attempt is charged to the sealed state before the
@@ -126,17 +131,24 @@ an old frontend. Nothing is lost: the sealed state and its budget stay as they
 were, and the next admitted `/ensure` resumes.
 
 **Pending for long.** `GET /jobs` answering `pending` for more than one slice
-(about five minutes) without a new `one.pwm_started` line means the lease is
-held but no worker is running on it, usually after an instance was replaced
-mid-slice. The lease expires after 300 s and the next `/ensure` reclaims it
-(`decision=resumed`). `one.pwm_checkpoint_unavailable` means the terminal
-write failed; the draft is discarded and the next `/ensure` starts clean.
+(about five minutes) without a new `one.pwm_started` line requires checking
+the paired `/ensure` response. A pending lease may have lost its worker when
+an instance was replaced mid-slice; it expires after 300 s and `/ensure`
+reclaims it (`decision=resumed`). `one.pwm_checkpoint_unavailable` means the
+terminal write failed; the draft is discarded and the next `/ensure` starts
+clean.
+If repeated `POST /ensure` calls instead return fast 503s and no new
+`one.pwm_started` appears, inspect the service failure before blaming the
+provider. A Vertex checkpoint's 160-slot ledger cannot be read as Azure's
+24-slot ledger. The owner-authorized `/ensure` path migrates a recognized old
+provider checkpoint to a fresh provider ledger, retaining the three-starts-per-
+hour counter. Never clear the encrypted row manually to make a retry work.
 
 ## What the owner sees
 
 | Backend state | Pane |
 | --- | --- |
-| `pending` / `paused` | "Preparing your model" with live progress: the step running, searches done, sources found, last activity. Never idle. |
+| `pending` / `paused` | "Preparing your model" with checkpoint progress when present. After five minutes without a new checkpoint, the pane says research has not updated and offers Try again. |
 | `offered` with undecided details | "Ready to review" and the count to confirm; Yes / No / Edit / Remove per detail; an uncertain person is shown as a possible match, never blank. |
 | `offered`, all decided | "Up to date". |
 | `saved` | "Nothing to review right now"; the next check is days away. |

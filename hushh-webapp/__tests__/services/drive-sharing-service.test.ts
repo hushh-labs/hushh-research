@@ -148,6 +148,34 @@ describe("requester document payment boundary", () => {
     expect(owner).not.toHaveProperty("price");
   });
 
+  it("reads the additive queue pair and price rule, dropping a malformed pair", async () => {
+    const queue = { queuedAt: "2026-10-17T02:32:50+00:00", queueDelayed: true };
+    const status = { requestId, status: "pending", revision: 0 };
+    for (const direction of ["incoming", "outgoing"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...status, direction, ...queue }));
+      expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(queue);
+    }
+    for (const malformed of [{ queuedAt: "soon", queueDelayed: true }, { queuedAt: queue.queuedAt }]) {
+      fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", ...malformed }));
+      const read = await DriveSharingService.status("vault", requestId, guard);
+      expect(read).not.toHaveProperty("queuedAt");
+      expect(read).not.toHaveProperty("queueDelayed");
+    }
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), wholeDollarPrice: true, ...queue }));
+    expect(await DriveSharingService.review("vault", requestId, guard))
+      .toMatchObject({ wholeDollarPrice: true, ...queue });
+    fetcher.mockResolvedValueOnce(reply(rawReview()));
+    expect(await DriveSharingService.review("vault", requestId, guard)).not.toHaveProperty("wholeDollarPrice");
+    // Started work that no worker moves: one additive time, dropped when malformed.
+    const work = { workDelayedSince: "2026-10-17T03:10:00+00:00" };
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "outgoing", ...work }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), ...work }));
+    expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject(work);
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", workDelayedSince: "later" }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).not.toHaveProperty("workDelayedSince");
+  });
+
   it("returns a withdrawal's payment view and surfaces a paid refusal", async () => {
     const payment = {
       state: "refund_pending", amountCents: 2500, currency: "usd",

@@ -4153,6 +4153,7 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.review_notifications",
         "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
@@ -10381,5 +10382,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cd78c0b35d05e9d8dc526a8829172a6ad74d9395fe14f9a4e1e38912896dcf03"
+  "content_sha256": "a5669c7c3774f71406ddd7eee7f0ef967fe000b32b81e98b1b3b8391dff4fd49"
 }

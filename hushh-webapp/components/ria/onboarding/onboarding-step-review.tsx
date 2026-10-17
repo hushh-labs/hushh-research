@@ -1,7 +1,6 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import { AskOneButton } from "@/components/agent/ask-one-button";
 import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { RiaChip } from "@/components/ria/ui/ria-primitives";
@@ -26,7 +25,6 @@ interface OnboardingStepReviewProps {
   fullStreetAddress: string;
   advisoryAccessReady: boolean;
   onEditSection: (section: "license" | "services") => void;
-  onAskKaiUpdateAnything: () => void;
 }
 
 function SectionCard({
@@ -257,7 +255,6 @@ export function OnboardingStepReview({
   areaLocality,
   fullStreetAddress,
   onEditSection,
-  onAskKaiUpdateAnything,
 }: OnboardingStepReviewProps) {
   return (
     <div className="space-y-[14px]">
@@ -302,9 +299,6 @@ export function OnboardingStepReview({
         </span>
       </div>
 
-      <AskOneButton onClick={onAskKaiUpdateAnything} showIcon={false}>
-        Ask One to update anything
-      </AskOneButton>
     </div>
   );
 }

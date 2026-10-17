@@ -20,6 +20,22 @@
   },
   "actions": [
     {
+      "action_id": "location.review_notifications",
+      "label": "Check Location notification settings",
+      "meaning": "Review Location alerts.",
+      "aliases": ["location notifications", "SMS alert sound", "Save My Soul notifications"],
+      "search_keywords": ["notifications", "sound", "alerts", "SMS", "push"],
+      "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []},
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "execution_target": {"status": "wired", "path": "route", "target": "/one/location?action=settings"},
+      "control_ids": ["one-location-notification-recovery"],
+      "state_exposure": ["device notification registration", "device alert and sound settings"]
+    },
+    {
       "action_id": "location.open_now",
       "label": "Open Location overview",
       "meaning": "Opens the Overview tab of Location, which shows current sharing status and the quick actions.",
@@ -3986,6 +4002,7 @@
         "location.change_share_duration"
       ],
       "settings": [
+        "location.review_notifications",
         "location.pause_updates",
         "location.resume_updates",
         "location.set_auto_share",

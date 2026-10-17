@@ -12,6 +12,13 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
 from hushh_mcp.services.drive_request_payment_view import requester_payment_view
+from hushh_mcp.services.drive_request_queue import (
+    EVALUATION_WAITING_SINCE_SQL,
+    SEARCH_WAITING_SINCE_SQL,
+    SHARING_WAITING_SINCE_SQL,
+    queue_delayed,
+    started_work_waiting_since,
+)
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -72,7 +79,11 @@ WITH participants AS (
     {estimate_known} AS estimate_known,
     {estimate_cents} AS estimate_cents,
     {agent_package} AS agent_package,
-    {v1_live_request} AS v1_live_request
+    {v1_live_request} AS v1_live_request,
+    drive_share_requests.preparation_next_at AS automatic_queued_at,
+    {owner_search_waiting_since} AS owner_search_waiting_since,
+    {owner_evaluation_waiting_since} AS owner_evaluation_waiting_since,
+    {trusted_sharing_waiting_since} AS trusted_sharing_waiting_since
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -81,7 +92,8 @@ WITH participants AS (
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE,
+    NULL::timestamptz,NULL::timestamptz,NULL::timestamptz,NULL::timestamptz
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -148,7 +160,8 @@ _QUERIES = """
       ELSE status END,
     NULL::text,NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer,FALSE,FALSE,
+    NULL::timestamptz,NULL::timestamptz,NULL::timestamptz,NULL::timestamptz
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -377,6 +390,14 @@ def _projection(
         "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
         "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
         "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
+        # Started work nobody holds (drive_request_queue); NULL without the table.
+        "owner_search_waiting_since": SEARCH_WAITING_SINCE_SQL
+        if owner_search
+        else "NULL::timestamptz",
+        "owner_evaluation_waiting_since": EVALUATION_WAITING_SINCE_SQL
+        if owner_search and evaluations
+        else "NULL::timestamptz",
+        "trusted_sharing_waiting_since": SHARING_WAITING_SINCE_SQL if bulk else "NULL::timestamptz",
         "payment_status": """(SELECT CASE WHEN pay.stripe_mode<>:stripe_mode
           AND pay.status IN ('awaiting_payment','checkout_open') THEN 'expired' ELSE pay.status END
           FROM drive_request_payment_orders pay
@@ -489,10 +510,26 @@ def _projection(
     return projection
 
 
-def entry(row: Any) -> dict[str, Any]:
+def _waiting_since(row: Any, stage: str, search_state: Any, now: datetime) -> datetime | None:
+    """Since when this stage's automatic work has waited; None while it moves."""
+    if stage == "preparing":
+        queued_at = row.get("automatic_queued_at")
+        return min(queued_at, now) if isinstance(queued_at, datetime) else None
+    clocks = []
+    if stage in {"finding", "checking"} or search_state in {"queued", "running"}:
+        clocks.append(row.get("owner_search_waiting_since"))
+    if stage == "checking":
+        clocks.append(row.get("owner_evaluation_waiting_since"))
+    if stage == "sharing":
+        clocks.append(row.get("trusted_sharing_waiting_since"))
+    return started_work_waiting_since(*clocks, now=now)
+
+
+def entry(row: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """Closed presentation shape; cannot enter the generic PKM grant path."""
     if row.get("source") == "query":
         return _query_entry(row)
+    now = now or datetime.now(UTC)
     preparation_code = row.get("preparation_error_code")
     search_state = row.get("owner_search_state")
     evaluation_state = row.get("owner_evaluation_state")
@@ -543,8 +580,20 @@ def entry(row: Any) -> dict[str, Any]:
         row.get("payment_status") in {"awaiting_payment", "checkout_open", "refunded", "expired"}
         or row.get("payment_reconciliation_required") is True
     )
+    # Automatic sharing claims a batch as each search page commits. A completed
+    # search with results left and no automatic batch had every claim refused,
+    # because its plan needs the owner's exact review (document_coverage, as in
+    # the planner fallback). That is an owner task, not a search still finding
+    # files. A package keeps its own Allow lane.
+    review_handoff = bool(
+        search_state == "completed"
+        and row.get("agent_package") is not True
+        and row.get("trusted_batch_seen") is not True
+    )
     live_search = search_state in {"queued", "running"} or (
-        search_state == "completed" and row.get("trusted_work_active") is True
+        search_state == "completed"
+        and row.get("trusted_work_active") is True
+        and not review_handoff
     )
     # V1 checks content before payment for both Trusted and owner-reviewed
     # requests. A running search/evaluation is not yet an owner decision.
@@ -603,6 +652,27 @@ def entry(row: Any) -> dict[str, Any]:
             if search_state in {"queued", "running", "completed"}
             else "preparing"
         )
+    # "preparing" kept its legacy name, but nothing has started: the request
+    # waits in the durable queue for the scheduled drain. Started work that no
+    # worker holds waits the same way. Past the threshold either one reads
+    # "delayed". Never "paused": the API's drain flag is off in production,
+    # where the scheduled drain runs.
+    waiting_since = (
+        _waiting_since(row, automatic_stage, search_state, now) if automatic_stage else None
+    )
+    delayed = waiting_since is not None and queue_delayed(waiting_since, now)
+    progress_state = (
+        "delayed"
+        if delayed
+        else {
+            "checking": "checking",
+            "sharing": "sharing",
+            "finding": "searching",
+            "preparing": "queued",
+        }.get(automatic_stage or "")
+    )
+    # A queued request always says since when; started work once it waits.
+    shown_waiting_since = waiting_since if automatic_stage == "preparing" or delayed else None
     # Allow/Deny belongs only to the owner's own open request task.
     owner_decision_available = bool(
         row["direction"] == "incoming"
@@ -652,6 +722,14 @@ def entry(row: Any) -> dict[str, Any]:
             "recorded_outcome_only": True,
             "automatic_progress_active": automatic_progressing,
             "automatic_progress_stage": automatic_stage,
+            # Additive and truthful: queued | delayed | searching | sharing | checking.
+            "automatic_progress_state": progress_state,
+            # Since when a queued or delayed request has waited.
+            **(
+                {"automatic_queued_at": shown_waiting_since.isoformat()}
+                if shown_waiting_since is not None
+                else {}
+            ),
             "accessStopped": row.get("access_stopped") is True,
             # A Trusted Circle request stays pending while automatic search and
             # sharing run. Only the sharing authority can distinguish that

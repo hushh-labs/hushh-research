@@ -51,6 +51,7 @@ from hushh_mcp.services.one_location_public_invite_url import (
 from hushh_mcp.services.people_search_sql import (
     directory_contact_match_params,
     directory_search_rank,
+    mask_directory_phone,
     people_query_match_params,
 )
 from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
@@ -1748,10 +1749,10 @@ class OneLocationAgentService:
         data: dict[str, str | None],
         show_alert: bool = True,
     ) -> bool:
-        """Best-effort metadata-only FCM delivery for location workflow state.
+        """Source-backed delivery for core alerts; best-effort for other state.
 
         Returns True when at least one registered device's push was queued for
-        asynchronous dispatch. False covers missing tokens, Firebase not being
+        durable or asynchronous dispatch. False covers missing tokens, Firebase not being
         configured, rejected payloads, and executor submission failures.
 
         This is a dispatch request, not an FCM acknowledgement or device receipt.
@@ -1762,6 +1763,15 @@ class OneLocationAgentService:
         if not user_id or _contains_plaintext_location_key(safe_data):
             return False
         try:
+            from hushh_mcp.services.system_push_delivery import durable_push_receipt
+
+            receipt = (
+                durable_push_receipt(user_id, notification_type, safe_data)
+                if (show_alert and str(safe_data.get("sync_only", "")).lower() != "true")
+                else None
+            )
+            if receipt is not None:
+                return receipt > 0
             rows = (
                 get_db()
                 .execute_raw(
@@ -2077,6 +2087,7 @@ class OneLocationAgentService:
         row: dict[str, Any] | None,
         *,
         allow_email_handle: bool = False,
+        directory_phone_mask: bool = False,
     ) -> dict[str, Any] | None:
         """Project one person for a client list.
 
@@ -2097,6 +2108,10 @@ class OneLocationAgentService:
 
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
+        if directory_phone_mask:
+            masked_phone = (
+                mask_directory_phone(row.get("phone_number")) if row.get("phone_verified") else None
+            )
         user_id = str(row.get("user_id") or "")
         # The masked phone stays a rung, below the name and the handle. It is
         # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
@@ -5046,7 +5061,11 @@ class OneLocationAgentService:
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
                 LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
                 OR (a.phone_verified = TRUE
-                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains)
+                    AND (
+                      REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains
+                      OR REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g')
+                           LIKE ANY(CAST(:phone_alternates AS TEXT[]))
+                    ))
               ))
               OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
@@ -5175,7 +5194,11 @@ class OneLocationAgentService:
         )
         has_more = len(eligible_rows) > offset + limit
         page_rows = eligible_rows[offset : offset + limit]
-        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        recipients = [
+            payload
+            for row in page_rows
+            if (payload := self._recipient_payload(row, directory_phone_mask=True))
+        ]
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -5760,11 +5783,28 @@ class OneLocationAgentService:
         reason: str | None,
         resolved_kind: str,
     ) -> bool:
-        """Notify the recipient. Returns False when they had no reachable device.
+        return self._send_metadata_notification(
+            **self._location_share_created_notification(
+                grant=grant,
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration=duration,
+                reason=reason,
+                resolved_kind=resolved_kind,
+            )
+        )
 
-        Save My Soul surfaces this per recipient, so a sender is never shown a
-        confident "SENT" for an alert that had nowhere to land.
-        """
+    def _location_share_created_notification(
+        self,
+        *,
+        grant: dict[str, Any],
+        owner_user_id: str,
+        recipient_user_id: str,
+        duration: float | None,
+        reason: str | None,
+        resolved_kind: str,
+    ) -> dict[str, Any]:
+        """One copy/payload contract for live callers and durable recovery."""
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
@@ -5802,7 +5842,7 @@ class OneLocationAgentService:
         else:
             notification_title = "Location shared"
             notification_body = f"{owner_label} shared location access with you."
-        return self._send_metadata_notification(
+        return dict(
             user_id=recipient_user_id,
             notification_type="location_share_created",
             title=notification_title,
@@ -10587,7 +10627,7 @@ class OneLocationAgentService:
                         WHEN :expires_after_hours IS NULL THEN NULL
                         ELSE clock_timestamp() + (:expires_after_hours * INTERVAL '1 hour')
                       END,
-                      '{}'::jsonb,
+                      jsonb_build_object('notify_owner', CAST(:notify_owner AS BOOLEAN)),
                       :requested_duration_hours, :requested_duration_mode,
                       CAST(:extends_grant_id AS UUID), 1
                     )
@@ -10602,6 +10642,7 @@ class OneLocationAgentService:
                         "requested_duration_mode": duration_mode_value,
                         "extends_grant_id": extends_grant_value,
                         "expires_after_hours": expires_after_hours,
+                        "notify_owner": notify_owner,
                     },
                 )
                 transitioned = row is not None
@@ -10638,6 +10679,9 @@ class OneLocationAgentService:
                             requested_duration_mode = :requested_duration_mode,
                             extends_grant_id = CAST(:extends_grant_id AS UUID),
                             request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
+                            metadata = CASE WHEN :ask_changed THEN
+                              COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('notify_owner', CAST(:notify_owner AS BOOLEAN))
+                              ELSE metadata END,
                             requested_at = CASE
                               WHEN :ask_changed THEN clock_timestamp()
                               ELSE requested_at
@@ -10660,6 +10704,7 @@ class OneLocationAgentService:
                             "extends_grant_id": extends_grant_value,
                             "ask_changed": ask_changed,
                             "expires_after_hours": expires_after_hours,
+                            "notify_owner": notify_owner,
                         },
                     )
                     if refreshed:

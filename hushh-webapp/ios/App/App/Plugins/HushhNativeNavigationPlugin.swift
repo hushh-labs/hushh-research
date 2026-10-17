@@ -3,7 +3,8 @@ import UIKit
 
 /// Presentation metadata only. React retains routing, consent and session authority.
 struct HushhNativeNavigationState {
-    static let tabs = ["chat", "dashboard", "connect", "feed", "search"]
+    static let contractVersion = 3
+    static let tabs = ["chat", "dashboard", "connect", "feed"]
     private(set) var documentId: String?
     private(set) var revision = -1
     private(set) var visible = false
@@ -61,7 +62,7 @@ struct HushhNativeNavigationScrollState {
 
 enum HushhNativeNavigationArtwork {
     static func items(image: (String) -> UIImage? = { UIImage(named: $0) }) -> [UITabBarItem]? {
-        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
+        let labels = ["Chat", "One", "Connect", "Feed"]
         var items = [UITabBarItem]()
         for (index, tab) in HushhNativeNavigationState.tabs.enumerated() {
             // Assets are generated from the shared Phosphor registry descriptor.
@@ -150,7 +151,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true,
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
                               "contentBackedPresentation": self.compositor?.legacyRegionPresentation == true,
                               "reservedPresentationRegions": self.compositor?.legacyRegionPresentation == true,
@@ -160,7 +161,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                               "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
         }
     }

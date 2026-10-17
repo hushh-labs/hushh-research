@@ -553,13 +553,35 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Manage access", "Request cards"]);
+    ).toEqual(["Request", "Share profile", "Request cards", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
       historyHeading.compareDocumentPosition(reviewButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("keeps the four card actions reachable in reading order without changing their dialogs", async () => {
+    mocks.realDialogs = true;
+    mocks.user = { uid: "viewer", getIdToken: async () => "viewer-token" };
+    mocks.vaultOwnerToken = "synthetic-owner-token";
+    mocks.connectorOverview.mockResolvedValue({ features: { drive_document_sharing: true }, driveAgentPackagesEnabled: false });
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    const actions = await screen.findByLabelText("Relationship actions");
+    await within(actions).findByRole("button", { name: "Ask about files", exact: true });
+    const labels = ["Request files", "Ask about files", "Request scope", "Request cards"];
+    const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
+    expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
+    expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
+      .toEqual(["Request", "Share profile", ...labels, "Manage access"]);
+    fireEvent.click(cards[0]);
+    expect(await screen.findByRole("dialog", { name: "Request files", exact: true })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(cards[1]);
+    expect(await screen.findByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {

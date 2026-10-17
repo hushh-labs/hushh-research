@@ -31,6 +31,13 @@ function Workspace() {
       <DialogHeader><DialogTitle>Create a Circle</DialogTitle></DialogHeader>
       <CreateCircleFlow busy={false} onSubmit={async (name, kind) => {
         circle.current = { ...circle.current, name, kind };
+        return circle.current;
+      }} onLoadPeople={async () => ({ eligibleConnections: [{ connectionId: "connection-bob", userId: "bob", displayName: names[1], isRia: false }], pendingInvites: [], remainingCapacity: 19, page: 1, hasMore: false, totalCount: 1 })}
+      onAddPeople={async (_id, userIds) => {
+        circle.current = { ...circle.current, memberCount: circle.current.memberCount + userIds.length,
+          members: [...circle.current.members, ...initial.members.filter((member) => userIds.includes(member.userId))] };
+      }} onComplete={() => {
+        setMemberSetup(false);
         setCreating(false);
       }} />
     </DialogContent>

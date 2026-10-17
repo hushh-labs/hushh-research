@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Search, X } from "@/components/icons";
+import { ArrowLeft, X } from "@/components/icons";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -24,7 +24,6 @@ import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-vie
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -207,7 +206,6 @@ export function KaiAnalysisPageContent() {
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
-  const analysisSearchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [startingPreviewDebate, setStartingPreviewDebate] = useState(false);
   // The URL (as a string) at the moment a live debate was cancelled. While the
   // URL still reads the same, the cancelled run's `focus`/`ticker` must not
@@ -969,12 +967,6 @@ export function KaiAnalysisPageContent() {
     setShowHistoryWhileActive(false);
     router.replace(buildKaiMarketRoute("analysis"), { scroll: false });
   }, [router, setAnalysisParams]);
-  const handleChangePreviewStock = useCallback(() => {
-    openKaiCommandBar({
-      intent: "finance_stock_analysis",
-      initialQuery: "Analyze ",
-    });
-  }, []);
   useLocalOnboardingActionHandler("analysis.back_to_history", () => {
     setAnalysisParams(null);
     setFocusedRunId(null);
@@ -1464,16 +1456,6 @@ export function KaiAnalysisPageContent() {
                   It may have expired, been deleted, or never finished saving to your history.
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <MorphyButton
-                    onClick={() =>
-                      openKaiCommandBar({
-                        intent: "finance_stock_analysis",
-                        initialQuery: "Analyze ",
-                      })
-                    }
-                  >
-                    Start a new analysis
-                  </MorphyButton>
                   <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
                     Back to history
                   </MorphyButton>
@@ -1481,24 +1463,10 @@ export function KaiAnalysisPageContent() {
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}
-          <SurfaceCard className="w-full">
-            <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
-                <button
-                  ref={analysisSearchButtonRef}
-                  type="button"
-                  onClick={() =>
-                    openKaiCommandBar({
-                      intent: "finance_stock_analysis",
-                      initialQuery: "Analyze ",
-                    })
-                  }
-                  className="flex h-9 w-full items-center gap-2 rounded-full border border-border/70 px-3.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Icon icon={Search} size="sm" className="shrink-0" />
-                  Search any stock to analyze
-                </button>
-                {analysisSuggestions.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-2">
+          {analysisSuggestions.length > 0 ? (
+            <SurfaceCard className="w-full">
+              <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="mr-1 text-xs font-medium text-muted-foreground">
                     Research starters
                   </span>
@@ -1517,16 +1485,15 @@ export function KaiAnalysisPageContent() {
                       </span>
                     </MorphyButton>
                   ))}
-                  </div>
-                ) : null}
+                </div>
               </SurfaceCardContent>
             </SurfaceCard>
+          ) : null}
           <KaiControlSurface
             open={Boolean(previewTickerFromQuery)}
             onOpenChange={(open) => {
               if (open) return;
               handleBrowseRecommendations();
-              requestAnimationFrame(() => analysisSearchButtonRef.current?.focus());
             }}
             leading={
               previewTickerFromQuery ? (
@@ -1563,7 +1530,6 @@ export function KaiAnalysisPageContent() {
               error={stockPreviewError}
               onStartDebate={handleStartDebateFromPreview}
               onBrowseRecommendations={handleBrowseRecommendations}
-              onChangeStock={handleChangePreviewStock}
               activePickSource={previewPickSource}
               onPickSourceChange={setPreviewPickSource}
               compact

@@ -5,13 +5,11 @@ import {
 } from "@/lib/consent/consent-sheet-route";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
-import { isKaiCommandBarOpen } from "@/lib/navigation/search-route";
 
 export type SharedBottomNavKey =
   | "dashboard"
   | "chat"
   | "connect"
-  | "search"
   | "profile";
 export type InvestorNavKey =
   SharedBottomNavKey | "finance" | "portfolio" | "connect" | "analysis";
@@ -32,7 +30,6 @@ export type AppBottomNavKey = InvestorNavKey | RiaNavKey | OneNavKey;
 export type AppBottomNavScope = "one" | "investor" | "ria";
 export type AppBottomNavAction =
   | { type: "route"; href: string }
-  | { type: "command"; mode: "search" }
   | { type: "none" };
 export type AppBottomNavContext = {
   lastAgentNavScope?: AppBottomNavScope | null;
@@ -240,9 +237,8 @@ export function resolveRiaActiveNav(
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
   _scope: AppBottomNavScope,
-  searchParams: { get(name: string): string | null } | null = null,
+  _searchParams: { get(name: string): string | null } | null = null,
 ): AppBottomNavKey {
-  if (isKaiCommandBarOpen(searchParams)) return "search";
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.HOME) return "chat";
   // Direct messages are Chat: keep their visible bottom-tab state in sync
@@ -282,7 +278,7 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["chat", "dashboard", "connect", "feed", "search"];
+  return ["chat", "dashboard", "connect", "feed"];
 }
 
 /** Contextual workspace tabs belong exclusively to the unified top shell. */
@@ -305,8 +301,6 @@ export function resolveBottomNavAction(
       return { type: "route", href: ROUTES.ONE_HOME };
     case "chat":
       return { type: "route", href: ROUTES.HOME };
-    case "search":
-      return { type: "command", mode: "search" };
     case "gmail":
       return { type: "route", href: ROUTES.GMAIL };
     case "email":

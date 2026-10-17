@@ -375,10 +375,14 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
     assert "git rev-parse HEAD" in _named(steps, "Assert source SHA")["run"]
 
     export = _named(steps, "Export and upload TestFlight build")
-    assert 'if [ "${{ inputs.dry_run }}" = "true" ]' in export["run"]
-    assert "Set :destination export" in export["run"]
-    assert '-exportPath "$RUNNER_TEMP/export"' in export["run"]
-    assert '-authenticationKeyPath "$RUNNER_TEMP/asc.p8"' in export["run"]
+    # The shared exporter owns verified export -> optional Xcode upload.
+    # Its behavioral dry-run/failure gates live in test_ios_uat_passkey_config.py.
+    assert "python3 scripts/ci/export-ios-distribution.py" in export["run"]
+    assert '--dry-run "${{ inputs.dry_run }}"' in export["run"]
+    assert '--archive "$RUNNER_TEMP/App.xcarchive"' in export["run"]
+    assert '--export-path "$RUNNER_TEMP/export"' in export["run"]
+    assert "--options hushh-webapp/ios/ExportOptions/AppStoreConnect.plist" in export["run"]
+    assert '--p8-path "$RUNNER_TEMP/asc.p8"' in export["run"]
     signing = _named(steps, "Create signing keychain")
     assert "APPSTORE_DISTRIBUTION_CERT_P12_B64" in signing["run"]
     assert "security import" in signing["run"]
@@ -533,7 +537,7 @@ def test_appstore_upload_receipt_keeps_source_with_effective_packaging_version(
     }
     assert (
         'MARKETING_VERSION="${IOS_MARKETING_VERSION}"'
-        in _named(steps, "Archive (production entitlements)")["run"]
+        in _named(steps, "Archive with target-owned automatic signing")["run"]
     )
     assert (
         '--marketing-version "${IOS_MARKETING_VERSION}"'

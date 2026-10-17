@@ -1,4 +1,4 @@
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
@@ -412,6 +412,9 @@ function createAgentStreamLiveness(
   onSilent: () => void,
   onBytes: () => void = () => undefined,
   onCleanEof: () => void = onSilent,
+  transport: Pick<ApiFetchOptions, "beforeDispatch" | "isEffectCurrent"> & {
+    onHeaders?: () => void;
+  } = {},
 ) {
   let lastBytesAtMs = Date.now();
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -427,7 +430,21 @@ function createAgentStreamLiveness(
   };
   return {
     fetch: async (init: RequestInit | undefined): Promise<Response> => {
-      const response = await nativeStreamFetch("/api/one/agent-chat", init);
+      const caller = init as ApiFetchOptions | undefined;
+      const response = await nativeStreamFetch("/api/one/agent-chat", {
+        ...init,
+        ...(transport.beforeDispatch ? {
+          beforeDispatch: async () => {
+            await caller?.beforeDispatch?.();
+            await transport.beforeDispatch?.();
+          },
+        } : {}),
+        ...(transport.isEffectCurrent ? {
+          isEffectCurrent: () => (!caller?.isEffectCurrent || caller.isEffectCurrent() === true) &&
+            transport.isEffectCurrent?.() === true,
+        } : {}),
+      });
+      transport.onHeaders?.();
       touch();
       onBytes();
       if (!response.ok || !response.body) return response;
@@ -1196,6 +1213,41 @@ export type PendingEmailDraftContext = {
   sourceBound: boolean;
 };
 
+/** Start the first catalog read beside memory preparation, without adding a cache. */
+export function prepareAgentChatConnectorConfigurations(input: {
+  userId: string;
+  loadConnectorConfigurations: () => Promise<CustomConnectorConfiguration[]>;
+  signal?: AbortSignal;
+}): () => Promise<CustomConnectorConfiguration[]> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const assertCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!owner || owner.userId !== input.userId ||
+        !isValidatedAuthSessionOwnerCurrent(owner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
+      throw new Error("Your vault session changed. Unlock and try again.");
+    }
+  };
+  const load = async () => {
+    assertCurrent();
+    const configurations = await input.loadConnectorConfigurations();
+    assertCurrent();
+    return configurations;
+  };
+  const preparation = load();
+  // Required memory preparation may fail first. Retain this rejection for its
+  // eventual consumer without creating an unhandled background rejection.
+  void preparation.catch(() => undefined);
+  return async () => {
+    assertCurrent();
+    await preparation;
+    assertCurrent();
+    // Re-enter the existing session cache: settings may have invalidated it
+    // while required memory was preparing. Unchanged records need no new read.
+    return load();
+  };
+}
+
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
@@ -1254,6 +1306,15 @@ export async function streamAgentChat(input: {
   // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
   // a turn that still carries a raw one is refused before any request exists.
   assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
+  const timingPhases = ["wire-start", "response-headers", "first-text"] as const;
+  for (const phase of timingPhases) performance.clearMarks(`hushh:agent-chat:${phase}`);
+  const recordedTimings = new Set<typeof timingPhases[number]>();
+  const markTiming = (phase: typeof timingPhases[number]) => {
+    if (recordedTimings.has(phase)) return;
+    recordedTimings.add(phase);
+    // Fixed names only: no prompt, owner, conversation, key or connector detail.
+    performance.mark(`hushh:agent-chat:${phase}`);
+  };
   const timezone = resolveBrowserTimeZone();
   // Closed to the server's schema here, so a stale branch never refuses the turn.
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
@@ -1266,6 +1327,14 @@ export async function streamAgentChat(input: {
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
     isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
   );
+  const turnSessionCurrent = () => isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted &&
+    (!mcpOwner || (mcpOwner.userId === input.userId && isValidatedAuthSessionOwnerCurrent(mcpOwner)));
+  const assertTurnSessionCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!turnSessionCurrent()) {
+      throw new Error("Your vault session changed. Unlock and try again.");
+    }
+  };
   // Owner-authored names from the owner's own vault, keyed by opaque id. The
   // provider-authored tool name never labels a step: a server can write anything.
   const connectorNames = new Map<string, string>();
@@ -1279,6 +1348,10 @@ export async function streamAgentChat(input: {
     for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
     return { mcpConfigurations };
   };
+  // Callers may have started their catalog read beside Soul preparation. For
+  // other callers, overlap it with the derived key and optional location read.
+  const initialConnectorProjection = connectorProjection();
+  void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
@@ -1319,6 +1392,7 @@ export async function streamAgentChat(input: {
     [chatKeyHeaders, turnLocation] = await Promise.all([
       oneChatKeyHeaders(input.vaultKey),
       resolveTurnLocation(),
+      initialConnectorProjection,
     ]);
   } catch (error) {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
@@ -1339,6 +1413,17 @@ export async function streamAgentChat(input: {
     onLostTransport,
     () => handlers.onStreamHealth?.({ kind: "bytes" }),
     onLostTransport,
+    {
+      beforeDispatch: async () => {
+        assertTurnSessionCurrent();
+      },
+      isEffectCurrent: () => {
+        if (!turnSessionCurrent()) return false;
+        markTiming("wire-start");
+        return true;
+      },
+      onHeaders: () => markTiming("response-headers"),
+    },
   );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
@@ -1387,6 +1472,7 @@ export async function streamAgentChat(input: {
     finishTerminalRun();
   };
   const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0]) => {
+    assertTurnSessionCurrent();
     runTerminal = false;
     streamLost = false;
     liveness.start();
@@ -1556,6 +1642,7 @@ export async function streamAgentChat(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (event.delta.length > 0) markTiming("first-text");
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
@@ -2085,7 +2172,7 @@ export async function streamAgentChat(input: {
       tools,
       context: [],
       forwardedProps: {
-        ...await connectorProjection(),
+        ...await initialConnectorProjection,
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,

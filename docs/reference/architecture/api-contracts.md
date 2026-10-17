@@ -2048,10 +2048,29 @@ Connect directory search keeps the existing exact-name, name-prefix and
 word-prefix ranking. It also matches case-insensitive literal email fragments
 (including before `@`) and digit fragments of verified phone numbers from the
 first character. Phone formatting (`+`, spaces, parentheses and hyphens) is
-ignored; national numbers match stored international numbers without assuming
+ignored, including Unicode phone digits, pasted direction markers and dashes.
+International `00` and optional national trunk prefixes are normalized while
+preserving the original digits and countries' significant leading zeros;
+national numbers match stored international numbers without assuming
 a fixed country-code or national-number length. Contact-only matches follow
 name matches in stable alphabetical order. Matching and eligibility checks
-happen before pagination, and email/phone response labels remain masked.
+happen before pagination, and email/phone response labels remain masked. Directory
+phone labels exclude the country calling code and expose only the first two and
+last two national digits, with `*` for every middle digit: `+91 9876543210`
+becomes `98******10`. Significant national leading zeros are preserved. Ambiguous
+legacy numbers without a region and legacy last-four masks are omitted rather
+than guessing a prefix; raw phone values never enter the directory response.
+
+Existing accounts whose provider-verified phone never reached the identity
+cache need a one-time index repair. Run
+`python scripts/backfill_actor_identity_cache.py --missing-phones-only --limit 1000`
+from `consent-protocol` to count candidates; add `--execute` to repair them.
+This bounded repair uses fresh enabled Firebase evidence and the canonical
+serialized writer. Add `--all` to continue through bounded batches past
+phone-less profiles. It preserves existing verified phone bindings, including
+claims committed during provider lookup, and changes neither discoverability
+nor referral/reward state.
+
 Voice and chat name resolvers use `name_only=true` matching so contact
 fragments cannot interfere with person disambiguation or near-spelling fallback.
 

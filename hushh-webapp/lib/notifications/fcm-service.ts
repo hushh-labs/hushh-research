@@ -325,13 +325,23 @@ export interface FCMInitResult {
 
 export type FCMInitOptions = {
   requestPermission?: boolean;
+  /** AuthProvider owns native identity; the web Firebase observer may be empty. */
+  getIdToken?: () => Promise<string>;
 };
+
+async function registrationIsAccepted(response: Response): Promise<boolean> {
+  if (!response.ok) return false;
+  const payload = await response.clone().json().catch(() => null) as {
+    degraded?: boolean; registered?: boolean; success?: boolean;
+  } | null;
+  return !payload?.degraded && payload?.registered !== false && payload?.success !== false;
+}
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
-let lastKnownSession: { userId: string; idToken: string } | null = null;
+let lastKnownSession: { userId: string; idToken: string; getIdToken?: () => Promise<string> } | null = null;
 let notificationSessionGeneration = 0;
 const pushCleanupControllers = new Set<AbortController>();
 let pendingChatTaps: Array<Record<string, unknown>> = [];
@@ -662,7 +672,7 @@ export async function initializeFCM(
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
   for (const cleanup of pushCleanupControllers) cleanup.abort();
-  lastKnownSession = { userId, idToken };
+  lastKnownSession = { userId, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
   notificationSessionGeneration++;
 
   if (isNative) {
@@ -875,8 +885,19 @@ async function initializeNativeFCM(
       };
     }
 
+    // Firebase treats provisional iOS authorization and Android <33 as granted.
+    // Preserve registration, but expose OS settings that can make alerts quiet.
+    let detail: string | undefined;
+    try {
+      const { HushhNotifications } = await import("@/lib/capacitor");
+      const settings = await HushhNotifications.getNotificationSettings();
+      if (!settings.alertsEnabled) detail = "native_alerts_disabled";
+      else if (!settings.soundsEnabled) detail = "native_sound_disabled";
+      else if (!settings.emergencySoundEnabled) detail = "native_emergency_sound_disabled";
+    } catch { /* Earlier installed wrappers retain registration and their existing settings action. */ }
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
     console.log("[FCM] ✅ Native initialization complete");
-    return { status: "push_active" };
+    return { status: "push_active", ...(detail ? { detail } : {}) };
   } catch (error) {
     console.error("[FCM] ❌ Native initialization failed:", error);
     return {
@@ -1096,7 +1117,7 @@ async function initializeWebFCM(
       isCurrent,
     );
 
-    if (response.ok) {
+    if (await registrationIsAccepted(response)) {
       console.log("[FCM] ✅ Token registered with backend");
     } else {
       const detail = await response.text().catch(() => "");
@@ -1107,7 +1128,7 @@ async function initializeWebFCM(
       );
       return {
         status: "push_failed",
-        detail: `backend_register_${response.status}`,
+        detail: response.ok ? "backend_register_degraded" : `backend_register_${response.status}`,
       };
     }
 
@@ -1318,15 +1339,15 @@ function setupNativeListeners(): Promise<void> {
             const session = lastKnownSession;
             const generation = notificationSessionGeneration;
             if (session) {
-              const { auth } = await import("@/lib/firebase/config");
-              const user = auth.currentUser;
-              if (!user || user.uid !== session.userId) return;
+              const auth = session.getIdToken ? null : (await import("@/lib/firebase/config")).auth;
+              const user = auth?.currentUser;
+              if (!session.getIdToken && (!user || user.uid !== session.userId)) return;
               // A refresh callback can contain a token being deleted for the
               // previous owner. Resolve the provider's current token only once
               // the native deletion barrier has completed.
               const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
-              const freshToken = await user.getIdToken();
-              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && auth.currentUser?.uid === session.userId;
+              const freshToken = await (session.getIdToken ? session.getIdToken() : user!.getIdToken());
+              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && Boolean(session.getIdToken || auth?.currentUser?.uid === session.userId);
               if (!isCurrent()) return;
               const response = await ApiService.registerPushToken(
                 session.userId,
@@ -1335,7 +1356,7 @@ function setupNativeListeners(): Promise<void> {
                 freshToken,
                 isCurrent,
               );
-              if (!response.ok) throw new Error("Notification registration unavailable");
+              if (!await registrationIsAccepted(response)) throw new Error("Notification registration unavailable");
               console.log("[FCM] Refreshed token re-registered with backend");
             }
           } catch (err) {

@@ -696,6 +696,7 @@ class ActorIdentityService:
         email_verified: bool | None = None,
         phone_verified: bool | None = None,
         source: str = "unknown",
+        preserve_verified_phone: bool = False,
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -750,10 +751,20 @@ class ActorIdentityService:
                         ON CONFLICT (user_id) DO UPDATE SET
                           display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
                           email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
-                          phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
+                          phone_number = CASE
+                            WHEN $9 AND actor_identity_cache.phone_verified = TRUE
+                              AND NULLIF(BTRIM(actor_identity_cache.phone_number), '') IS NOT NULL
+                            THEN actor_identity_cache.phone_number
+                            ELSE COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number)
+                          END,
                           photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
                           email_verified = COALESCE($6, actor_identity_cache.email_verified),
-                          phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
+                          phone_verified = CASE
+                            WHEN $9 AND actor_identity_cache.phone_verified = TRUE
+                              AND NULLIF(BTRIM(actor_identity_cache.phone_number), '') IS NOT NULL
+                            THEN actor_identity_cache.phone_verified
+                            ELSE COALESCE($7, actor_identity_cache.phone_verified)
+                          END,
                           source = CASE
                             WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
                             ELSE EXCLUDED.source
@@ -781,6 +792,7 @@ class ActorIdentityService:
                         email_verified,
                         phone_verified,
                         str(source or "").strip() or "unknown",
+                        preserve_verified_phone,
                     )
         except Exception as exc:
             logger.error(
@@ -789,7 +801,9 @@ class ActorIdentityService:
             )
             return None
 
-        if phone_verified is True:
+        # A missing-only directory repair restores an index, not a new signup
+        # verification event. Keep referral/reward state outside that repair.
+        if phone_verified is True and not preserve_verified_phone:
             await self._sync_referral_qualification_best_effort(normalized_user_id)
 
         return self._normalize_row(row)
@@ -1477,7 +1491,9 @@ class ActorIdentityService:
             ) from exc
         return self._normalize_alias_row(verified)
 
-    async def sync_verified_phone_from_firebase(self, user_id: str) -> dict[str, Any] | None:
+    async def sync_verified_phone_from_firebase(
+        self, user_id: str, *, missing_only: bool = False
+    ) -> dict[str, Any] | None:
         """Repair an incomplete phone shadow using existing provider verification.
 
         A fresh shadow can predate signup verification. Its cache TTL is not
@@ -1487,6 +1503,32 @@ class ActorIdentityService:
         admission still belongs to its database policy gate.
         """
         try:
+            if missing_only:
+                # A stale complete backend OTP claim is still authoritative.
+                # Do not let cache freshness trigger a provider replacement.
+                identity = (await self.get_many([user_id])).get(user_id)
+                if (
+                    identity
+                    and identity.get("phone_verified") is True
+                    and identity.get("phone_number")
+                ):
+                    return identity
+                record = await self._get_firebase_user_record(user_id, require_success=True)
+                phone = getattr(record, "phone_number", None)
+                if not phone or getattr(record, "disabled", False):
+                    return identity
+                # The SQL conflict update rechecks completeness after locking,
+                # including an OTP claim committed during the provider lookup.
+                updated = await self.upsert_identity(
+                    user_id=user_id,
+                    phone_number=phone,
+                    phone_verified=True,
+                    source="firebase_auth",
+                    preserve_verified_phone=True,
+                )
+                if updated is None:
+                    raise ActorIdentitySyncUnavailableError()
+                return updated
             identity = await self.sync_from_firebase(user_id, force=False)
             if (
                 identity

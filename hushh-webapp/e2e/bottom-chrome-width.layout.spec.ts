@@ -407,7 +407,7 @@ for (const width of [393, 1440])
         }
         const selected = page.getByRole("radio", { name: "Connect" });
         const accent = await selected.evaluate((element) => getComputedStyle(element).color);
-        for (const label of ["Chat", "One", "Feed", "Search"]) {
+        for (const label of ["Chat", "One", "Feed"]) {
           const button = page.getByRole("radio", { name: label });
           await button.hover();
           await page.mouse.down();

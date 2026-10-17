@@ -3235,7 +3235,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
-                "metadata": {},
+                "metadata": {"notify_owner": params.get("notify_owner", True)},
             }
             self.requests[request_id] = row
             return row
@@ -3264,6 +3264,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 request["extends_grant_id"] = params.get("extends_grant_id")
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
+                    request["metadata"]["notify_owner"] = params.get("notify_owner", True)
                     request["requested_at"] = datetime.now(timezone.utc)
                     if params.get("expires_after_hours") is not None:
                         request["expires_at"] = datetime.now(timezone.utc) + timedelta(
@@ -4169,6 +4170,51 @@ def test_directory_pages_current_accounts_after_stale_auth_rows() -> None:
     assert service.scanned_offsets == [0, 100, 0, 100]
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "+91 98765-43210",
+        "919876543210",
+        "9876543210",
+        "98765",
+        "09876543210",
+        "00919876543210",
+        "+91 (0) 98765 43210",
+        "+91 (0) 98765",
+        "+९१ ९८७६५ ४३२१०",
+        "＋９１ ９８７６５ ４３２１０",
+        "+91\u200e 98765\u201143210",
+    ],
+)
+def test_directory_phone_search_returns_only_first_and_last_two_digits(query: str) -> None:
+    service = DirectoryScanProbe(
+        named=[
+            {
+                "user_id": "verified",
+                "display_name": "Synthetic Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": True,
+            },
+            {
+                "user_id": "unverified",
+                "display_name": "Another Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": False,
+            },
+        ],
+        active={"verified", "unverified"},
+    )
+
+    result = service.search_directory_candidates(owner_user_id="owner", query=query)
+
+    assert [person["userId"] for person in result["items"]] == ["verified"]
+    assert result["items"][0]["maskedPhone"] == "98******10"
+    assert "9876543210" not in json.dumps(result)
+    assert all(
+        "phone_number" not in person and "phoneNumber" not in person for person in result["items"]
+    )
+
+
 def test_directory_merges_provider_named_profiles_before_search_rank_and_paging() -> None:
     service = DirectoryScanProbe(
         named=[
@@ -4373,6 +4419,7 @@ def test_directory_candidate_search_filters_before_pagination(
         "name_search": True,
         "email_contains": "%cara%",
         "phone_contains": None,
+        "phone_alternates": [],
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
@@ -5930,11 +5977,15 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert len(service.requests) == 1
     assert next(iter(service.requests.values()))["status"] == "pending"
     assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
+    assert next(iter(service.requests.values()))["metadata"]["notify_owner"] is False
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
+    }
+    assert "location_access_request" not in {
+        item["notification_type"] for item in service.notifications
     }
 
 

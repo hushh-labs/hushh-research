@@ -500,15 +500,30 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(currentVault.getVaultOwnerToken()).toBeNull();
   });
 
-  it("does not renew while identity verification is unresolved", async () => {
-    const view = renderVault();
-    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
-    mocks.sessionVerificationRequired = true;
-    view.rerender(<VaultProvider><VaultHarness /></VaultProvider>);
-    await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
-    expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
-    expect(currentVault.getVaultKey()).toBe("vault-key");
-  });
+  it.each(["sessionVerificationRequired", "authLoading"] as const)(
+    "withdraws token access while %s and restores it without another unlock",
+    async (gate) => {
+      const storageWrites = vi.spyOn(Storage.prototype, "setItem");
+      const view = renderVault();
+      fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+      // A detached capture retains this callback; it must read the provider's
+      // current readiness rather than its originating component's snapshot.
+      const getToken = currentVault.getVaultOwnerToken;
+      expect(getToken()).toBe("vault-token");
+      mocks[gate] = true;
+      view.rerender(<VaultProvider><VaultHarness /></VaultProvider>);
+      await act(async () => { await currentVault.retryOwnerTokenRenewal(); });
+      expect(getToken()).toBeNull();
+      expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+
+      mocks[gate] = false;
+      view.rerender(<VaultProvider><VaultHarness /></VaultProvider>);
+      expect(getToken()).toBe("vault-token");
+      expect(currentVault.getVaultKey()).toBe("vault-key");
+      expect(storageWrites.mock.calls.some(([, value]) => value.includes("vault-key"))).toBe(false);
+    },
+  );
 
   it("drops late iMessage publication when the local session locks", async () => {
     mocks.iosPlatform = true;

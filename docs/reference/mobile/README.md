@@ -28,10 +28,10 @@ shared web navigation. Native installation must acknowledge before DOM tabs
 are replaced by a measured layout reservation.
 
 React's `app-bottom-nav.ts` remains the routing authority for Chat, One,
-Connect, Feed and Search. Native taps carry only an allowlisted tab identity,
-document identity, interaction epoch and ordered tap sequence; Search still opens the existing command
-palette. Credentials, owner information and destination URLs do not cross
-this presentation bridge. Stale state updates and retired documents cannot act;
+Connect and Feed. Navigation capability version 3 removes Search; older wrappers
+use the four-tab web fallback. Native taps carry only an allowlisted tab identity,
+document identity, interaction epoch and ordered tap sequence. Credentials,
+owner information and destination URLs do not cross this presentation bridge. Stale state updates and retired documents cannot act;
 each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.

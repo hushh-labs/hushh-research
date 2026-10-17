@@ -1,13 +1,14 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
 Status: **V1 chat memory, an open, unlocked source projection and one shared Live Mirror are implemented; lossless history and locked or closed-app operation are not.**
-Updated: 2026-10-15.
+Updated: 2026-10-17.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  Legacy[Existing encrypted PKM domains] -->|first-session compatibility seed| Client[Open unlocked owner client]
+  Legacy[Existing encrypted PKM domains] --> Specialists[Existing specialist workflows]
+  Client[Open unlocked owner client]
   Client --> ChatMemory[Canonical One one_memory.markdown]
   ChatMemory --> Prompt[Whole file in every One prompt]
   Sources[Profile, Consent, connections, curated OAuth, document earnings, PKM domains] -->|verified snapshots while unlocked| Client
@@ -24,9 +25,18 @@ Solid arrows describe the implemented unlocked flow. The dotted journal and devi
 
 For One chat, `one_memory.markdown` is the V1 memory authority. It is one Markdown document inside one client-encrypted PKM domain. The backend stores ciphertext and never receives the vault key. Unlock decrypts the document into process memory, every One turn receives the whole document as private context, and chat memory capture rewrites the encrypted document through the existing conflict-aware coordinator. Vault teardown clears the plaintext session copy and fences late publication.
 
-Existing structured PKM domains remain compatibility sources for Finance, KYC, Consent, and other specialist workflows. When an owner has no `one_memory` document yet, the unlocked client renders the existing agent-safe PKM packet into a session-only Markdown seed. The first authorized memory write persists that seed plus the new facts atomically. This preserves existing information without making a background unlock look like owner confirmation. One chat reads the Markdown authority after that first write; specialist contracts continue to use their current stores until separately migrated.
+Existing structured PKM domains remain compatibility sources for Finance, KYC, Consent, and other specialist workflows. When an owner has no `one_memory` document yet, the client starts an empty Markdown document. It does not import specialist inventories into chat memory; those workflows retain their current stores until separately migrated.
 
 Chat facts are selected by the existing semantic preparation stage using `soul_markdown_v1`, then silently applied to the RAM document and encrypted through the existing writer. The model supplies a plain attributed bullet and section; corrections/extensions replace an exact offered bullet, and deletions remove it rather than saving the request. No legacy domains are imported. This V1 path has no per-fact confirmation card or automatic-memory switch: while the vault is unlocked, usable durable facts use the product-default authorization record and no capture status is added to chat. Owner identifiers may be retained; passwords, passphrases, API keys, tokens, private keys, PINs and card security codes are omitted. The whole document is bounded to 18,000 characters; reconciliation offers at most 256 bullets without silent truncation.
+
+Typed text and pasted text attachments are assessed together. Preparation runs
+beside the answer and can finish after navigation to Memory or another chat in
+the same unlocked owner session. Lock, owner changes, token replacement, expired
+access and unavailable authentication still fence effects, including after the
+chat component unmounts. Only the originating mounted chat receives UI updates.
+Incomplete preparation refuses automatic writes and reports failure while that
+chat remains visible; a valid assessment with no durable facts remains quiet.
+RAM publication precedes encrypted cloud sync, whose status is shown in Memory.
 
 Target references exist only in the preparation snapshot and encrypted recovery envelope, never as paths or IDs inside Soul.md. Stale, duplicate or unoffered targets fail closed. Automatic replacement refuses masked targets; multiline/nested owner-authored bullets need the editor rather than partial mutation. Unrelated text and fenced examples remain unchanged. Encrypted recovery envelopes carry their staging order, so interrupted dependent corrections replay FIFO even when device keys or encryption finish out of order. If any envelope cannot be read, recovery waits rather than replaying a later correction first.
 
@@ -45,7 +55,7 @@ Profile Live Mirror, the Memory workspace, the private agent's profile sheet and
 | Document earnings | Existing owner-vault document payout earnings endpoint | Live and test partitions, bounded keyset pages and two matching complete scans; request ID, status, gross/refund/net cents and timestamps without description, bank data or provider references. This is owner earnings, not all transactions or requester payments. |
 | Saved Location and visit notes | Existing encrypted Location PKM writers | Stable source IDs, original creation time when known, revision receipts and deletion tombstones; every persisted note retained |
 | To-Do | Existing encrypted one_todos private tasks | Creation/edit/completion/deletion, source ID and record revision; stale completion cannot overwrite an edit or revive a deletion |
-| Memory and eligible specialist sources | Existing encrypted domains remain compatibility inputs | First authorized V1 write carries the decrypted agent-safe view into `one_memory.markdown`; later One prompts use that Markdown authority |
+| Memory and eligible specialist sources | Specialist stores remain compatibility inputs to their owning workflows | Chat reads `one_memory.markdown`; an absent document starts empty, without importing specialist inventories |
 | Chat with One | Semantic fact selection plus the encrypted Markdown writer | Explicit and eligible automatic facts create/update/delete flat bullets in one document; credentials are omitted, while owner identifiers may be retained |
 
 The Consent inventory uses a bounded owner-scoped MVCC equality fence before and after two complete scans. It detects row changes, delete/recreate and effective expiry while paging; it is not a durable owner revision. Reads never settle expiry or modify grants. UI flags and presentation grouping cannot silently remove source records. Authority tokens and provider payloads are excluded from the source projection. Exact private PKM keys survive segmented encrypted storage/readback; neither storage-ID normalization nor a summary may replace the authored complete records.

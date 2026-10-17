@@ -264,6 +264,7 @@ import {
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
 import {
+  isUnresolvedSourceBlock,
   prepareNaturalLanguagePkm,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
@@ -331,6 +332,7 @@ import {
   InformationRequestReceiptError,
   recordAgentChatInformationRequestWithRetry,
   parseRestoredTurnActivity,
+  prepareAgentChatConnectorConfigurations,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import {
@@ -467,8 +469,8 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
-// Every memory capture job ends. Automatic capture includes semantic
-// preparation; an explicit owner save writes the selected passage directly.
+// Every memory capture job ends. Automatic and explicit captures share the
+// semantic preparation contract and the encrypted Markdown writer.
 const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 
@@ -5437,8 +5439,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [conversationId, getVaultOwnerToken],
   );
 
-  // One memory-only job belongs to its originating turn. Later turns may
-  // continue; a conversation/owner/vault change cancels pending effects.
+  // Capture belongs to the unlocked owner session. Changing screens or chats
+  // must not discard a profile while its semantic preparation is still running.
   const captureEligiblePkmFactsInBackground = useCallback(
     (params: {
       turnId: string;
@@ -5470,11 +5472,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       const userId = user.uid;
       const controller = new AbortController();
+      const captureChatEpoch = chatSessionRef.current.value;
+      const captureVaultEpoch = snapshotVaultSessionEpoch();
+      const mayUpdateWorkspace = () => workspaceOwnerIdRef.current === userId &&
+        chatSessionRef.current.isCurrent(captureChatEpoch) &&
+        isVaultSessionEpochCurrent(captureVaultEpoch);
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        isEnabled: () => isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
+        isEnabled: () => getVaultOwnerToken() === token &&
+          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
-      pkmAbortControllersRef.current.add(controller);
+      // UI/meeting controllers are aborted on navigation. This bounded capture
+      // uses global owner/vault guards instead, including after chat unmounts.
       setActivePkmToolCount((count) => count + 1);
       let timedOut = false;
       // Every job ends. Before this deadline a vault token that expired by the
@@ -5484,7 +5493,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         timedOut = true;
         controller.abort();
       }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
-      const settle = (status: AgentPkmCaptureStatus) => status;
+      const settle = (status: AgentPkmCaptureStatus) => {
+        if (status.phase === "failed" && mayUpdateWorkspace()) {
+          toast.error("One couldn't update memory.md. Your message is still in chat; try saving it again.");
+        }
+        return status;
+      };
       const job = (async (): Promise<AgentPkmCaptureStatus> => {
         try {
           await guard.assertCurrent();
@@ -5502,6 +5516,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             isEffectCurrent: guard.isCurrent,
           });
           await guard.assertCurrent();
+          if (prepared.sourceCoverage?.some(isUnresolvedSourceBlock) ||
+              prepared.cards.some(card => card.preparation_requires_review || card.preview_degraded || card.drift_flags?.fallback_used) ||
+              prepared.previews?.some(preview => preview.used_fallback || preview.error)) {
+            return settle({ phase: "failed", saved: 0 });
+          }
           // The V1 Markdown document has no review queue. The semantic agents
           // still decide what is durable; this projection accepts every usable
           // fact and leaves do_not_save/degraded output out.
@@ -5531,7 +5550,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
             },
           });
-          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.success ? 0 : 1 });
+          if (mayUpdateWorkspace()) appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.success ? 0 : 1 });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
             saved_count_bucket: toPkmFactCountBucket(result.saved),
@@ -5547,7 +5566,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             saved: result.saved,
           });
         } catch {
-          appendDebugEvent(params.turnId, "pkm_capture_failed", {
+          if (mayUpdateWorkspace()) appendDebugEvent(params.turnId, "pkm_capture_failed", {
             kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
             requested_by_owner: userRequestedSave,
           });
@@ -5555,8 +5574,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
           globalThis.clearTimeout(deadline);
-          // A canceled old job must not decrement a new conversation's count.
-          if (pkmAbortControllersRef.current.delete(controller)) {
+          // A detached job keeps saving but cannot update another chat's UI.
+          if (mayUpdateWorkspace()) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
           }
         }
@@ -6170,6 +6189,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       : null;
     const pkmContextStartedAt = performance.now();
     performance.mark("hushh:agent-chat:pkm-prepare-start");
+    const loadConnectorConfigurations = prepareAgentChatConnectorConfigurations({
+      userId,
+      signal: streamAbortController.signal,
+      loadConnectorConfigurations: async () => {
+        if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
+        return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
+      },
+    });
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
@@ -6340,10 +6367,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
-        loadConnectorConfigurations: async () => {
-          if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
-          return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token })).configurations;
-        },
+        loadConnectorConfigurations,
         pkmContext: agentPkmContext.text || undefined,
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
