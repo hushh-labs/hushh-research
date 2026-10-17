@@ -14,6 +14,10 @@ def test_private_analysis_scope_policy_retires_raw_finance_artifacts_and_broad_l
     assert is_private_pkm_export_scope("attr.financial.*") is True
     assert is_private_pkm_export_scope("attr.financial.portfolio.*") is False
     assert is_private_pkm_export_scope("attr.financial.analysis.decisions.*") is False
+    for domain in ("runtime_secrets", "kyc_connector", "kyc_workflow"):
+        for suffix in ("", ".*", ".connectors", ".connectors.*"):
+            assert is_private_pkm_export_scope(f"attr.{domain}{suffix}") is True
+    assert is_private_pkm_export_scope("attr.professional.onboarding.*") is False
 
 
 def test_private_analysis_manifest_policy_blocks_history_paths() -> None:

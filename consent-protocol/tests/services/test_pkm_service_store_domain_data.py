@@ -874,29 +874,27 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
 
 
 @pytest.mark.asyncio
-async def test_source_library_mutation_has_no_external_sharing_impact(monkeypatch):
-    service = PersonalKnowledgeModelService()
-
+async def test_private_mutations_have_no_external_sharing_impact(monkeypatch):
     class _UnexpectedConsentDBService:
         def __init__(self):
-            raise AssertionError("private Source Library mutations must not inspect grants")
+            raise AssertionError("private mutations must not inspect external grants")
 
     monkeypatch.setattr(consent_db_module, "ConsentDBService", _UnexpectedConsentDBService)
-
-    impact = await service.get_mutation_sharing_impact(
-        user_id="user-source",
-        domain="source_library",
-        scope_path="knowledge",
-    )
-
-    assert impact == {
-        "active_recipient_count": 0,
-        "recipient_labels": [],
-        "enters_next_export_revision": False,
-        "summary": "No active recipients are affected.",
-        "affected_grant_ids": [],
-        "affected_export_ids": [],
-    }
+    for domain, scope_path in (
+        ("source_library", "knowledge"),
+        ("runtime_secrets", "connectors"),
+    ):
+        impact = await PersonalKnowledgeModelService().get_mutation_sharing_impact(
+            user_id="user-private", domain=domain, scope_path=scope_path
+        )
+        assert impact == {
+            "active_recipient_count": 0,
+            "recipient_labels": [],
+            "enters_next_export_revision": False,
+            "summary": "No active recipients are affected.",
+            "affected_grant_ids": [],
+            "affected_export_ids": [],
+        }
 
 
 @pytest.mark.asyncio

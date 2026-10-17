@@ -139,10 +139,20 @@ debt qualification, not completed core, release or financial acceptance.
 UI behavior, core, hosted CI and governed Dev deployment remain required before
 resuming the preserved financial checkpoint.
 
-The private agent's latest authenticated read-only connector observation
-(`2026-10-17T09:04Z`) still has no verified Stripe OAuth account/balance connection.
-One normal owner sign-in action produced two private catalog 401 responses and
-saved no connection. Source inspection found that Firebase subject classification
+The private agent still has no verified Stripe OAuth account/balance connection.
+At `2026-10-17T16:05Z`, correlated server frames traced normal owner connection
+attempts to `get_mutation_sharing_impact`: an existing grant without an
+authoritative request ID blocks the encrypted `runtime_secrets` configuration
+save before OAuth begins. The installed atomic commit function matches its
+canonical migration; the failing path does not reach that function. The root
+repair excludes canonical internal-only domains from external sharing-impact
+inspection through the shared private-scope predicate. All 42 nearest service
+and policy cases pass, and restoring the original
+condition fails the focused internal-domain regression. Missing grant lineage
+still refuses mutations of shareable information. This repair is not deployed;
+owner OAuth and authenticated reads remain required.
+
+Earlier source inspection found that Firebase subject classification
 also decoded `pst1` pod-session claims, permitting a provider sign-in challenge to
 refresh and replay with Firebase authority. The client correction excludes pod
 sessions from Firebase recovery and invalidation while retaining the existing pod
