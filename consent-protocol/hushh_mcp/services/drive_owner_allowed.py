@@ -212,6 +212,24 @@ def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
     return _complete_selection(marker) if marker is not None else trusted_selection_marker(private)
 
 
+def autoshare_owner_allow_authority(private: Mapping[str, Any]) -> bool:
+    """The owner's sealed Allow is the whole payment authority for this request.
+
+    The autoshare flow prices a requested period, never a file list, so the
+    requester may be asked to pay as soon as the owner allows: no frozen batch
+    and no owner file review stand between Allow and the payment ask. Package
+    and V1 requests bind an exact digest instead and keep their own lane.
+    Callers must still recheck the live pair with automatic_recipient_current.
+    """
+    return (
+        autoshare_request(private)
+        and private.get("agent_package_required") is not True
+        and private.get("v1_live_request") is not True
+        and private.get("trusted_auto") is True
+        and owner_allowed_marker(private) is not None
+    )
+
+
 def owner_allowed_price_cents(private: Mapping[str, Any]) -> int | None:
     """The owner's chosen price, or None for a free or non-allowed request."""
     marker = owner_allowed_marker(private)
