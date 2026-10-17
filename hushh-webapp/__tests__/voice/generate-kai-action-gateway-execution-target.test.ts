@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 
 import {
   KNOWN_EXECUTION_TARGET_PATHS,
   normalizeExecutionTarget,
+  listContractFiles,
 } from "../../scripts/voice/generate-kai-action-gateway.mjs";
 
 /**
@@ -16,6 +20,24 @@ import {
  * authoring time. These tests pin that it now does.
  */
 describe("normalizeExecutionTarget rejects an unrecognized wired path", () => {
+  it("discovers new authored contracts without walking ignored Next build caches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hushh-gateway-discovery-"));
+    const authored = ["app/example.voice-action-contract.json", "components/new-feature/action.voice-action-contract.json",
+      "lib/.next-authored/retained.voice-action-contract.json"];
+    const generated = [".next/server/cache.voice-action-contract.json", ".next-native-uat/server/cache.voice-action-contract.json",
+      ".next-reviewer/cache.voice-action-contract.json", "node_modules/vendor/cache.voice-action-contract.json"];
+    try {
+      for (const file of [...authored, ...generated]) {
+        const target = join(root, file);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, "{}");
+      }
+      expect((await listContractFiles(root)).map(file => relative(root, file)).sort()).toEqual(authored.sort());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("accepts every path the frontend gateway parser also accepts", () => {
     for (const path of KNOWN_EXECUTION_TARGET_PATHS) {
       expect(() =>
