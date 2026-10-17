@@ -163,7 +163,9 @@ class AzurePwmGateway:
         token = await asyncio.to_thread(supplier)
         if not isinstance(token, str) or not token:
             raise RuntimeError("PWM provider token is unavailable")
-        return AsyncOpenAI(api_key=token, base_url=endpoint, timeout=75.0)
+        # A 429 may follow a billable web search without a receipt. Let the
+        # checkpoint worker handle one rejection instead of the SDK replaying it.
+        return AsyncOpenAI(api_key=token, base_url=endpoint, timeout=75.0, max_retries=0)
 
     async def plan(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Use Phi for a proposed next query, never for evidence or identity."""
@@ -211,10 +213,11 @@ class AzurePwmGateway:
                     "infer sensitive traits, or present search-query text as source evidence."
                 ),
                 input=json.dumps(request, sort_keys=True),
-                tools=[{"type": "web_search"}],
+                tools=[{"type": "web_search", "search_context_size": "low"}],
                 tool_choice="required",
                 include=["web_search_call.action.sources"],
-                max_output_tokens=4096,
+                reasoning={"effort": "low"},
+                max_output_tokens=2048,
             )
         return cast(Mapping[str, Any], response.model_dump(mode="json"))
 
@@ -828,6 +831,11 @@ async def run_world_model_azure(
                 break
 
         if assessment is None:
+            # A dispatched search without a receipt has an unknown Bing charge.
+            # billed_searches() deliberately treats it as the full budget, so
+            # this checkpoint cannot make progress on a later owner retry.
+            if billed_searches() >= MAX_AZURE_BING_REQUESTS:
+                return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
             return {"status": "unavailable", "pkm_written": False}
         if not set(_MODEL_SLOTS) - used:
             return {"status": "unavailable", "pkm_written": False, "research_exhausted": True}
