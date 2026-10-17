@@ -1180,6 +1180,18 @@ describe("exact-file document review", () => {
       search: null, bulkShare: null, allowAvailable: true, paymentRequired: true,
       ownerAllowed: false, priceCents: null, ...overrides });
 
+    it("offers only whole-dollar prices for a whole-dollar request even when packages are on", async () => {
+      // 2026-10-17: a cents price on this request got a 422 from Allow.
+      state.overview.mockResolvedValue({ driveAgentPackagesEnabled: true });
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({ wholeDollarPrice: true }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+      await screen.findByRole("dialog", { name: "Set a price" });
+      await waitFor(() => expect(state.overview).toHaveBeenCalled());
+      await waitFor(() => expect(priceSheet.props?.moneyPolicy).toBe("legacy_whole_dollars"));
+    });
+
     it("gives the owner's price sheet the estimate the requester saw, parsed from the real /review reply", async () => {
       const actual = await vi.importActual<typeof import("@/lib/services/drive-sharing-service")>(
         "@/lib/services/drive-sharing-service");

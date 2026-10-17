@@ -834,10 +834,13 @@ function UnlockedDocumentReview({
   }, [load, requestId, run]);
 
   const review = snapshot?.review;
-  const allowCents = agentPackagesEnabled || review?.agentPackage !== undefined ||
+  // A whole-dollar request refuses cents (the 2026-10-17 first-Allow 422),
+  // so its own sealed rule wins over the feature heuristic.
+  const allowCents = review?.wholeDollarPrice !== true && (
+    agentPackagesEnabled || review?.agentPackage !== undefined ||
     review?.v1ManualReview === true ||
     (review?.estimateCents != null && review.estimateCents % 100 !== 0) ||
-    (review?.priceCents != null && review.priceCents % 100 !== 0);
+    (review?.priceCents != null && review.priceCents % 100 !== 0));
   const v1ManualReview = review?.v1ManualReview === true;
   const requestedAccessDays = review?.requestedAccessDays ?? 30;
   const accessDayChoices = [7, 30, 90].filter(days => days <= requestedAccessDays);
