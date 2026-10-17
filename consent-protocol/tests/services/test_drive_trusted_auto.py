@@ -1267,7 +1267,8 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     )
     service = SimpleNamespace(
         store=SimpleNamespace(
-            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}]),
+            # The in-run continuation asks the queue again and finds nothing.
+            due=AsyncMock(side_effect=[[{"user_id": "owner", "job_id": str(uuid4())}], []]),
             status=AsyncMock(return_value={"errorCode": None}),
         ),
         run_one=provider_slice,

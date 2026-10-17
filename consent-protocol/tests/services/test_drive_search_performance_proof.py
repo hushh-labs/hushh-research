@@ -6,6 +6,7 @@ Synthetic corpora contain 10,000 originals and never call Drive or an LLM.
 
 import copy
 import json
+import math
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -1083,3 +1084,410 @@ async def test_v1_lane_scans_thousand_row_pages_and_shares_nothing_mid_search(mo
     assert store.row["matched"] == MAX_RESULTS
     assert store.row["status"] == "limited" and store.row["incomplete"]
     assert store.row["error"] == "search_limit"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic request brain: Drive-app parity, query compile, Gear 1 merge
+# and slice chaining. Every request below is planned without a model.
+
+REQUESTED_AT = datetime(2026, 10, 3, tzinfo=UTC)
+GDOC = "application/vnd.google-apps.document"
+_REAL_ASYNC_CLIENT = httpx.AsyncClient
+
+
+def _brain(text, **kwargs):
+    from hushh_mcp.services.drive_request_brain import interpret_request, suggested_plan
+
+    result = interpret_request(text, now=REQUESTED_AT, timezone="UTC", **kwargs)
+    return result, suggested_plan(result, text)
+
+
+def _brain_queries(text):
+    result, plan = _brain(text)
+    queries, _ = compile_request_queries(
+        plan, {"purpose": text, **STREAM_PERIOD}, "UTC", requested_at=REQUESTED_AT, brain=result
+    )
+    return queries
+
+
+def test_brain_compiles_title_pass_before_content_pass_within_budget():
+    from hushh_mcp.services.google_drive_rest_transport import rest_query
+
+    queries = _brain_queries("1:1 notes")
+    title, content = (item["arguments"] for item in queries)
+    # The title pass has no fullText, so it can list newest first.
+    assert not query_has_full_text_term(title["query"]) and title["orderBy"] == "modifiedTime desc"
+    # Drive refuses orderBy with fullText; the content pass carries none.
+    assert query_has_full_text_term(content["query"]) and "orderBy" not in content
+    assert all(len(item["arguments"]["query"]) <= 1800 for item in queries)
+    # fullText matches whole tokens: punctuation spellings stay title clues.
+    assert "name contains '1:1'" in content["query"]
+    assert "fullText contains '1:1'" not in content["query"]
+    assert "fullText contains 'notes'" in content["query"]
+    for item in queries:
+        drive_query(rest_query(item["arguments"]["query"]))  # parses in Drive's grammar
+
+
+def test_long_requests_drop_optional_spellings_instead_of_failing():
+    from hushh_mcp.services.drive_owner_search_service import _brain_queries
+    from hushh_mcp.services.drive_request_brain import Concept, DocPart, RequestBrain
+
+    def concept(word):
+        return Concept(word, tuple([word] + [f"{word}{'x' * 40}{n}" for n in range(9)]))
+
+    huge = RequestBrain(
+        topics=tuple(concept(word) for word in ("alpha", "bravo", "charlie")),
+        parts=(DocPart("terms", tuple(concept(word) for word in ("delta", "echo", "foxtrot"))),),
+        file_kind="document",
+        suggested_period=None,
+        corrected=False,
+    )
+    base = [search_module._request_discovery_clause("document")]
+    queries = _brain_queries(huge, base, "modifiedTime")
+    for item in queries:
+        query = item["arguments"]["query"]
+        assert len(query) <= 1800
+        # Optional spellings went first; every concept's own word survived.
+        for word in ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot"):
+            assert f"name contains '{word}'" in query
+        assert "x" * 40 not in query or len(query) <= 1800
+
+
+def _fixture(file_id, name, *, day="2026-09-15", content="", mime=PDF, can_share=True):
+    stamp = f"{day}T10:00:00Z"
+    return {
+        "id": file_id,
+        "name": name,
+        "mimeType": mime,
+        "modifiedTime": stamp,
+        "createdTime": stamp,
+        "driveId": None,
+        "parents": [],
+        "trashed": False,
+        "canShare": can_share,
+        "content": content,
+    }
+
+
+# Files an owner's Drive app search would return for a meeting-notes request,
+# and files it must never return (wrong kind, unrelated) or share (outside
+# the picked dates).
+PARITY_FILES = {
+    item["id"]: item
+    for item in [
+        _fixture("plain", "Meeting notes - Falcon kickoff.pdf"),
+        _fixture("mom", "MoM - Vendor review.pdf"),
+        _fixture("minutes", "Minutes of meeting 2026-09-10.pdf"),
+        _fixture("camel", "MeetingNotes_Q3Planning.pdf"),
+        _fixture("gemini", "Weekly sync - 2026/09/24 10:00 IST - Notes by Gemini", mime=GDOC),
+        _fixture("typo_title", "Metting notes draft.pdf"),
+        _fixture("standup", "Standup minutes.pdf"),
+        _fixture("body", "Q3 review.pdf", content="action items from the meeting notes"),
+        _fixture("old", "Meeting notes - offsite.pdf", day="2026-03-01"),
+        _fixture("video", "Meeting notes recording.mp4", mime="video/mp4"),
+        _fixture("image", "Meeting notes whiteboard.png", mime="image/png"),
+        _fixture("invoice", "Invoice 42.pdf", content="invoice"),
+        _fixture("settings", "Settings notes.pdf"),
+    ]
+}
+TITLE_EVIDENCE = {"plain", "mom", "minutes", "camel", "gemini", "typo_title", "standup"}
+NEVER_FOUND = {"video", "image", "invoice", "settings"}
+
+
+async def run_brain_search(monkeypatch, files, text, *, autoshare=False, owner_index=None):
+    drive = StreamedDrive(files)
+    drive.faults, drive.empty_pages, drive.target_faults = {}, set(), set()
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: _REAL_ASYNC_CLIENT(**kw, transport=httpx.MockTransport(drive)),
+    )
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
+    connection = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 1,
+    }
+    transport = rest.GoogleDriveRestTransport(
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(
+                return_value=(connection, {"accessToken": "synthetic-grant"})
+            ),
+            lifecycle=SimpleNamespace(read=AsyncMock(return_value=connection)),
+        ),
+        adapter=GoogleDriveAdapter(),
+    )
+    store = StreamedSearchStore(drive.events)
+    service = DriveOwnerSearchService(
+        store=store, transport=transport, **({"owner_index": owner_index} if owner_index else {})
+    )
+    result, plan = _brain(text)
+    await service.create_for_request(
+        user_id=STREAM_OWNER,
+        request_id=STREAM_REQUEST,
+        request_revision=1,
+        purpose={"purpose": text, **STREAM_PERIOD},
+        plan=plan,
+        require_current=AsyncMock(),
+        authority_mode="trusted_auto" if autoshare else "owner",
+        requested_at=REQUESTED_AT,
+        brain=result.as_checkpoint(),
+        plan_source="deterministic_brain",
+        **({"autoshare": True} if autoshare else {}),
+    )
+    for _ in range(50):
+        if store.row["status"] not in {"queued", "running"}:
+            break
+        await service.run_one(user_id=STREAM_OWNER, job_id=STREAM_JOB, require_current=AsyncMock())
+    assert store.row["status"] == "completed" and not store.row["incomplete"]
+    return store, drive
+
+
+def _shareable(store):
+    return {identity for identity, (_, item) in store.results.items() if item.get("shareable")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # A correctly typed request does not match a misspelled title, as in Drive.
+        ("meeting notes", TITLE_EVIDENCE - {"typo_title"}),
+        # The typo is corrected and the typed spelling kept: both titles match.
+        ("metting notes", TITLE_EVIDENCE),
+    ],
+)
+async def test_drive_app_parity_for_meeting_notes_without_a_model(monkeypatch, text, expected):
+    # Owner review: everything Drive's own search returns is a candidate,
+    # including a PDF that only mentions the words in its body.
+    store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text)
+    found = set(store.results)
+    assert expected | {"body", "old"} <= found
+    assert not found & NEVER_FOUND
+    # Automatic sharing: title evidence and the picked dates still decide.
+    store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
+    assert _shareable(store) == expected
+    assert not set(store.results) & (NEVER_FOUND | {"old", "body"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["MoM", "minutes of meeting"])
+async def test_drive_app_parity_for_minutes_of_meeting(monkeypatch, text):
+    store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
+    assert _shareable(store) == {"mom", "minutes", "standup"}
+
+
+class FakeOwnerIndex:
+    enabled = True
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    async def match_owner_files(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.rows
+
+    async def owner_vocabulary(self, **kwargs):
+        return None
+
+
+def _index_row(item, *, capabilities=True):
+    row = {key: item[key] for key in ("id", "name", "mimeType", "modifiedTime", "createdTime")}
+    if capabilities:
+        row["capabilities"] = {"canShare": item["canShare"]}
+    return row
+
+
+@pytest.mark.asyncio
+async def test_gear_one_candidates_commit_first_and_dedupe_with_drive(monkeypatch):
+    indexed_only = _fixture("indexed_only", "Meeting notes - archive copy.pdf")
+    index = FakeOwnerIndex(
+        [
+            _index_row(indexed_only),
+            _index_row(PARITY_FILES["plain"]),
+            # No Drive canShare answer: left to Drive, never frozen unverified.
+            _index_row(PARITY_FILES["camel"], capabilities=False),
+        ]
+    )
+    store, drive = await run_brain_search(
+        monkeypatch, PARITY_FILES, "meeting notes", autoshare=True, owner_index=index
+    )
+    # Gear 1 rows are the first committed positions, before any Drive page.
+    first = sorted(store.results.items(), key=lambda pair: pair[1][0])
+    assert [identity for identity, _ in first[:2]] == ["indexed_only", "plain"]
+    assert drive.events[0] == ("commit", 2)
+    # Drive's own copy of "plain" deduplicated; Drive still found the rest.
+    assert store.view()["coverage"]["deduplicatedCount"] >= 1
+    assert _shareable(store) == TITLE_EVIDENCE - {"typo_title"} | {"indexed_only"}
+    assert store.results["camel"][1]["shareable"] is True
+    assert index.calls[0]["concepts"][0][0] == "meeting"
+    assert index.calls[0]["period"]["start"] == STREAM_PERIOD["periodStart"]
+
+
+@pytest.mark.asyncio
+async def test_without_an_index_the_search_starts_on_drive_as_before(monkeypatch):
+    store, drive = await run_brain_search(monkeypatch, PARITY_FILES, "meeting notes")
+    checkpoint = json.loads(store.row["checkpoint"])
+    assert "localIndexFirst" not in checkpoint["coverage_manifest"]
+    assert "localIndexCandidates" not in checkpoint["coverage_counts"]
+    assert drive.events[0][0] == "list"
+
+
+class QueueStore(StreamedSearchStore):
+    """The store plus the worker's queue: one job, due whenever unleased."""
+
+    async def due(self, limit=1, **kwargs):
+        if self.row["status"] in {"queued", "running"} and not self.row["lease"]:
+            return [{"user_id": STREAM_OWNER, "job_id": STREAM_JOB}]
+        return []
+
+
+PAGE_SECONDS = 1.5  # one 100-row Drive page, simulated
+DISPATCH_SECONDS = 4.0  # Scheduler dispatch, OIDC check and drain setup, simulated
+
+
+async def drain_until_complete(monkeypatch, *, slices_per_run, wake_enabled):
+    """Count cron ticks and wakes to finish the 40,000-file Drive.
+
+    A simulated clock advances per Drive page and per drain dispatch. Cron
+    fires each minute; a wake starts the next drain without waiting for it.
+    """
+    import math
+
+    from hushh_mcp.services import drive_owner_search_worker as worker_module
+    from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
+
+    files, _ = streamed_corpus()
+    drive = StreamedDrive(files)
+    drive.faults, drive.empty_pages, drive.target_faults = {}, set(), set()
+    clock = SimpleNamespace(t=0.0)
+    served = drive.__call__
+
+    def timed(request):
+        if request.url.path.endswith("/files"):
+            clock.t += PAGE_SECONDS
+        return served(request)
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: _REAL_ASYNC_CLIENT(**kw, transport=httpx.MockTransport(timed)),
+    )
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    monkeypatch.setattr(search_module, "wake_drive_work", AsyncMock())
+    monkeypatch.setattr(search_module, "_clock", lambda: clock.t)
+    monkeypatch.setattr(DriveOwnerSearchWorker, "_now", staticmethod(lambda: clock.t))
+    monkeypatch.setattr(worker_module, "MAX_SLICES_PER_RUN", slices_per_run)
+    wakes = []
+
+    async def wake(stage):
+        assert stage == "suggestions"
+        wakes.append(clock.t)
+        return wake_enabled
+
+    monkeypatch.setattr(worker_module, "wake_drive_work", wake)
+    connection = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 1,
+    }
+    transport = rest.GoogleDriveRestTransport(
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(
+                return_value=(connection, {"accessToken": "synthetic-grant"})
+            ),
+            lifecycle=SimpleNamespace(read=AsyncMock(return_value=connection)),
+        ),
+        adapter=GoogleDriveAdapter(),
+    )
+    store = QueueStore(drive.events)
+    scanner = DriveOwnerSearchService(store=store, transport=transport)
+    result, plan = _brain("meeting notes")
+    await scanner.create_for_request(
+        user_id=STREAM_OWNER,
+        request_id=STREAM_REQUEST,
+        request_revision=1,
+        purpose={"purpose": "meeting notes", **STREAM_PERIOD},
+        plan=plan,
+        require_current=AsyncMock(),
+        # The automatic flow: picked dates and title evidence select files.
+        authority_mode="trusted_auto",
+        autoshare=True,
+        requested_at=REQUESTED_AT,
+        brain=result.as_checkpoint(),
+        plan_source="deterministic_brain",
+    )
+    first_page_at = clock.t
+    worker = DriveOwnerSearchWorker(scanner)
+    drains = cron_ticks = 0
+    next_tick = 0.0
+    chained = False
+    while store.row["status"] in {"queued", "running"}:
+        assert drains < 2000, "the search did not terminate"
+        if not chained:
+            clock.t = max(clock.t, next_tick)
+            cron_ticks += 1
+        next_tick = (math.floor(clock.t / 60) + 1) * 60
+        clock.t += DISPATCH_SECONDS
+        drains += 1
+        before = len(wakes)
+        await worker.run(max_jobs=1, deadline_seconds=90)
+        chained = wake_enabled and len(wakes) > before
+    assert store.row["status"] == "completed" and not store.row["incomplete"]
+    return {
+        "drains": drains,
+        "cron_ticks": cron_ticks,
+        "wakes": len(wakes),
+        "minutes": round(clock.t / 60, 1),
+        "first_page_seconds": first_page_at,
+        "matched": store.row["matched"],
+        "pages": store.row["pages"],
+        "results": set(store.results),
+    }
+
+
+@pytest.mark.asyncio
+async def test_chained_slices_finish_a_forty_thousand_file_drive_in_fewer_ticks(monkeypatch):
+    from hushh_mcp.services.drive_owner_search_worker import MAX_SLICES_PER_RUN
+
+    runs = {}
+    for name, slices, wake in (
+        ("before_cron_only", 1, False),
+        ("before_wake_per_slice", 1, True),
+        ("after_cron_only", MAX_SLICES_PER_RUN, False),
+        ("after_chained", MAX_SLICES_PER_RUN, True),
+    ):
+        with monkeypatch.context() as patch:
+            runs[name] = await drain_until_complete(patch, slices_per_run=slices, wake_enabled=wake)
+    # Chaining changes when slices run, never what the search finds.
+    assert len({frozenset(run["results"]) for run in runs.values()}) == 1
+    assert len({run["pages"] for run in runs.values()}) == 1
+    before, after = runs["before_cron_only"], runs["after_chained"]
+    # Cron alone: one four-page slice per minute (the ~1 hour baseline).
+    assert before["cron_ticks"] == before["drains"] >= 60
+    # After: a drain chains bounded slices, then one wake continues at once.
+    assert after["cron_ticks"] == 1
+    assert after["drains"] <= math.ceil(before["drains"] / MAX_SLICES_PER_RUN) + 1
+    assert after["minutes"] < runs["before_wake_per_slice"]["minutes"] < before["minutes"]
+    assert runs["after_cron_only"]["cron_ticks"] <= math.ceil(before["cron_ticks"] / 4)
+    # One wake per drain at most: chains never fan out.
+    assert all(run["wakes"] <= run["drains"] for run in runs.values())
+    print(
+        json.dumps(
+            {
+                "proof": "chained_search_slices_synthetic_40k_drive",
+                "page_seconds": PAGE_SECONDS,
+                "dispatch_seconds": DISPATCH_SECONDS,
+                "provider_pages": after["pages"],
+                **{
+                    name: {key: run[key] for key in ("drains", "cron_ticks", "wakes", "minutes")}
+                    for name, run in runs.items()
+                },
+            },
+            sort_keys=True,
+        )
+    )
