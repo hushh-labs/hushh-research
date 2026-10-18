@@ -78,6 +78,10 @@ export function useFeedBriefing() {
 export function useCalendarConnectionStatus() {
   return { connected: false };
 }
+// This persistence/lifecycle fixture has no linked Gmail account.
+export function useGmailConnectorStatus() {
+  return { status: null };
+}
 export function useCalendarUpcomingEvents() {
   return { events: [] };
 }
