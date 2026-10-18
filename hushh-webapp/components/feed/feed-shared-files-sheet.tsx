@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 
 import { SettingsDetailPanel } from "@/components/app-ui/settings-ui";
+import { SectionLabel } from "@/components/app-ui/typography";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,6 +26,12 @@ import {
   DOCUMENT_FLOW_DIALOG_TYPE,
   DOCUMENT_FLOW_SURFACE_TYPE,
 } from "@/lib/consent/document-request-flow";
+import {
+  DrivePossibleMatchesService,
+  type PossibleMatch,
+  type PossibleMatchKind,
+  type PossibleMatchesPage,
+} from "@/lib/services/drive-possible-matches-service";
 import {
   DriveSharedFilesService,
   type SharedFile,
@@ -334,6 +341,182 @@ export function SharedFileRow({
   );
 }
 
+/**
+ * Why One found a possible match (decision D3). Its own title does not name
+ * what was asked, so One never sends it without the owner's tap.
+ */
+export const POSSIBLE_MATCH_REASON: Record<PossibleMatchKind, string> = {
+  content: "Found by content",
+  corrected: "Similar spelling",
+  synonym: "Similar word",
+  walk: "In a shared folder",
+};
+
+export function possibleMatchesHeading(count: number): string {
+  return `Possible matches · ${count}`;
+}
+
+export function possibleMatchLine(match: PossibleMatch, canSend: boolean): string {
+  if (match.status === "queued") return "Queued to send.";
+  if (match.status === "sending") return "Sending.";
+  return `${POSSIBLE_MATCH_REASON[match.kind]}. ${canSend ? "Not sent yet." : "Not sent."}`;
+}
+
+/**
+ * The owner's possible matches for one request, with one-tap Send and Send
+ * all. Send only queues: the scheduled drain shares a file in the next batch,
+ * after payment when it is still due. Hidden when there are none, and on any
+ * load failure, since it only adds to the files One already sent.
+ */
+export function PossibleMatchesSection({
+  requestId,
+  getVaultOwnerToken,
+}: {
+  requestId: string;
+  getVaultOwnerToken: () => string | null;
+}) {
+  const headingId = useId();
+  const [page, setPage] = useState<PossibleMatchesPage | null>(null);
+  const [pending, setPending] = useState<Set<string>>(() => new Set());
+  const [announcement, setAnnouncement] = useState("");
+  const loadEpoch = useRef(0);
+
+  const load = useCallback(async () => {
+    const epoch = ++loadEpoch.current;
+    const token = getVaultOwnerToken();
+    if (!token) {
+      setPage(null);
+      return;
+    }
+    try {
+      const next = await DrivePossibleMatchesService.list(token, requestId);
+      if (epoch === loadEpoch.current) setPage(next);
+    } catch {
+      if (epoch === loadEpoch.current) setPage(null);
+    }
+  }, [getVaultOwnerToken, requestId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!page || page.count === 0 || page.matches.length === 0) return null;
+
+  const sendable = page.canSend
+    ? page.matches.filter((match) => match.status === "possible" && !pending.has(match.matchRef))
+    : [];
+
+  const send = async (refs: string[]) => {
+    const token = getVaultOwnerToken();
+    if (!token) {
+      toast.error("Unlock One to send files.");
+      return;
+    }
+    setPending((current) => new Set([...current, ...refs]));
+    try {
+      const result = await DrivePossibleMatchesService.send(token, requestId, refs);
+      const changes = new Map(result.matches.map((change) => [change.matchRef, change.status]));
+      setPage((current) =>
+        current
+          ? {
+              ...current,
+              matches: current.matches.map((match) => {
+                const status = changes.get(match.matchRef);
+                return status ? { ...match, status } : match;
+              }),
+            }
+          : current,
+      );
+      setAnnouncement(
+        refs.length === 1 ? "Queued 1 file to send." : `Queued ${refs.length} files to send.`,
+      );
+    } catch {
+      toast.error("Couldn't send. Try again.");
+      // A finished request comes back read-only.
+      void load();
+    } finally {
+      setPending((current) => {
+        const next = new Set(current);
+        for (const ref of refs) next.delete(ref);
+        return next;
+      });
+    }
+  };
+
+  return (
+    <section aria-labelledby={headingId} data-testid="feed-possible-matches" className="pt-4">
+      <div className="flex items-center justify-between gap-3 pb-1.5">
+        <SectionLabel
+          as="h3"
+          compact
+          id={headingId}
+          aria-label={`Possible matches, ${page.count}`}
+          className="px-1 text-[color:var(--app-section-label)]"
+        >
+          {possibleMatchesHeading(page.count)}
+        </SectionLabel>
+        {sendable.length >= 2 ? (
+          <button
+            type="button"
+            data-slot="possible-matches-send-all"
+            className={`shrink-0 ${ACTION_CLASS}`}
+            aria-label={`Send all ${sendable.length} possible matches`}
+            onClick={() => void send(sendable.map((match) => match.matchRef))}
+          >
+            Send all
+          </button>
+        ) : null}
+      </div>
+      {page.canSend ? null : <p className={NOTE_CLASS}>This request has finished.</p>}
+      <ul
+        aria-label="Possible matches"
+        className="overflow-hidden rounded-[16px] border border-[color:var(--app-card-border-standard)]"
+      >
+        {page.matches.map((match) => {
+          const busy = pending.has(match.matchRef);
+          return (
+            <li
+              key={match.matchRef}
+              data-testid="possible-match-row"
+              data-match-status={match.status}
+              className="relative flex min-h-[52px] items-center gap-2 bg-[color:var(--app-card-surface-default-solid)] px-3 py-2 text-[color:var(--app-label)] after:pointer-events-none after:absolute after:bottom-0 after:left-3 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden max-[360px]:px-[9px]"
+            >
+              <span className="min-w-0 flex-1">
+                <span data-slot="possible-match-name" className={ROW_TITLE_CLASS}>
+                  {match.name}
+                </span>
+                <span data-slot="possible-match-status" className={ROW_META_CLASS}>
+                  {busy ? "Sending." : possibleMatchLine(match, page.canSend)}
+                </span>
+              </span>
+              {page.canSend && match.status === "possible" ? (
+                <button
+                  type="button"
+                  data-slot="possible-match-send"
+                  className={`shrink-0 ${ACTION_CLASS}`}
+                  aria-label={`Send ${match.name}`}
+                  disabled={busy}
+                  onClick={() => void send([match.matchRef])}
+                >
+                  Send
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {page.count > page.matches.length ? (
+        <p className={NOTE_CLASS}>
+          Showing {page.matches.length} of {page.count}.
+        </p>
+      ) : null}
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+    </section>
+  );
+}
+
 type LoadState =
   | { kind: "loading" }
   | { kind: "locked" }
@@ -530,6 +713,9 @@ export function FeedSharedFilesSheet({
             ) : null}
           </>
         )}
+        {open && requestId && state.kind !== "locked" ? (
+          <PossibleMatchesSection requestId={requestId} getVaultOwnerToken={getVaultOwnerToken} />
+        ) : null}
       </div>
     </SettingsDetailPanel>
   );

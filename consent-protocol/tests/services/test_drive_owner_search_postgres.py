@@ -646,17 +646,250 @@ async def test_limit_is_incomplete_and_has_no_live_lease(store, monkeypatch):
     assert sql(store, "SELECT lease_id FROM drive_owner_search_jobs").scalar_one() is None
 
 
-async def test_retry_preserves_checkpoint_and_stops_after_three_failures(store):
+def due_in(store):
+    """Seconds until the job's next_at, then make it due now (a fake clock step)."""
+    seconds = float(
+        sql(
+            store,
+            "SELECT EXTRACT(EPOCH FROM next_at-clock_timestamp()) FROM drive_owner_search_jobs",
+        ).scalar_one()
+    )
+    sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+    return seconds
+
+
+def page(numbers, cursor=None):
+    return ExternalMcpToolResult(
+        False,
+        {"files": [file(n) for n in numbers], "nextPageToken": cursor, "incompleteSearch": False},
+        False,
+    )
+
+
+def rate_limited(retry_after=None):
+    return DriveReadError(
+        "provider_unavailable", retryable=True, reason="rate_limited", retry_after=retry_after
+    )
+
+
+def no_drives(result):
+    """Answer the shared-drive inventory with none, else return ``result``."""
+
+    async def read(*, user_id, tool_name, arguments):
+        if tool_name == "list_shared_drives":
+            return ExternalMcpToolResult(False, {"drives": [], "nextPageToken": None}, False)
+        return await result(arguments)
+
+    return read
+
+
+async def test_retry_preserves_checkpoint_and_fails_only_after_six_consecutive_failures(store):
     state, _ = await create(store)
     transport = SimpleNamespace(
         read_tool=AsyncMock(side_effect=DriveReadError("provider_unavailable", retryable=True))
     )
     service = DriveOwnerSearchService(store=store, transport=transport)
-    for expected in ("queued", "queued", "failed"):
+    for expected in ("queued",) * 5 + ("failed",):
         assert await service.run_one(user_id="owner", job_id=state["jobId"]) == expected
         sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
-    assert transport.read_tool.await_count == 3
-    assert (await store.status(user_id="owner", job_id=state["jobId"]))["pagesScanned"] == 0
+    assert transport.read_tool.await_count == 6
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["pagesScanned"] == 0 and final["errorCode"] == "provider_unavailable"
+    # The public column keeps its 0..3 constraint; the run of six is sealed.
+    assert sql(store, "SELECT retry_count FROM drive_owner_search_jobs").scalar_one() == 3
+
+
+async def test_committed_page_resets_the_consecutive_failure_run(store):
+    """Negative control: six failures that are not consecutive never fail the job."""
+    state, _ = await create(store)
+    outcomes = [rate_limited()] * 5 + [page([1], cursor="2")] + [rate_limited()] * 5
+
+    async def result(arguments):
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    slices = 0
+    while outcomes and slices < 20:
+        # The successful page and the failure after it share one slice.
+        assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "queued"
+        sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+        slices += 1
+    assert outcomes == [] and slices == 10
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["status"] == "queued" and final["matched"] == 1
+
+
+async def test_seventy_second_rate_limit_storm_still_completes(store):
+    """Each retry waits out its own backoff on a fake clock; a 70 s storm ends first."""
+    state, _ = await create(store)
+    clock = {"now": 0.0}
+    delays = []
+
+    async def result(arguments):
+        if clock["now"] < 70:
+            raise rate_limited()
+        return page([1, 2])
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    while (await store.status(user_id="owner", job_id=state["jobId"]))["canStop"]:
+        await service.run_one(user_id="owner", job_id=state["jobId"])
+        delay = due_in(store)
+        if delay > 0.5:
+            delays.append(delay)
+            clock["now"] += delay
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["status"] == "completed" and final["matched"] == 2
+    # Five jittered waits of [4,8], [8,16], [16,32], [32,64], [32,64] seconds.
+    assert len(delays) <= 5 and sum(delays) >= 70
+    assert all(delay <= 64.5 for delay in delays)
+
+
+async def test_retry_after_is_a_floor_capped_at_sixty_four_seconds(store):
+    state, _ = await create(store)
+    errors = [rate_limited(retry_after=50), rate_limited(retry_after=600), rate_limited()]
+
+    async def result(arguments):
+        raise errors.pop(0)
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    observed = []
+    for _ in range(3):
+        assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "queued"
+        observed.append(due_in(store))
+    # Google asked for 50 s: the first retry (nominally 4-8 s) waits at least that.
+    assert 49 <= observed[0] <= 51
+    # A Retry-After beyond Google's 64 s backoff ceiling is capped.
+    assert 63 <= observed[1] <= 64.5
+    # Without Retry-After the third retry is the jittered 32 s step: [16, 32].
+    assert 15 <= observed[2] <= 32.5
+
+
+async def test_rejected_page_token_restarts_the_pass_without_duplicate_rows(store):
+    state, _ = await create(store)
+    tokens = []
+    rejected = {"t2"}
+
+    async def result(arguments):
+        token = arguments.get("pageToken")
+        tokens.append(token)
+        if token in rejected:
+            rejected.discard(token)
+            # What the adapter raises for Drive's 400 on an expired token.
+            raise DriveReadError(
+                "provider_response_invalid", status_code=400, reason="page_token_invalid"
+            )
+        if token is None:
+            return page([1, 2, 3], cursor="t2" if len(tokens) == 1 else "t3")
+        return page([4, 5])
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "queued"
+    after_restart = sql(
+        store, "SELECT error_code,retry_count,status FROM drive_owner_search_jobs"
+    ).one()
+    # A restart is not an outage: no public error, no retry count, due now.
+    assert tuple(after_restart) == (None, 0, "queued")
+    assert due_in(store) <= 0.5
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "completed"
+    assert tokens == [None, "t2", None, "t3"]
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["matched"] == 5 and final["status"] == "completed"
+    assert sql(store, "SELECT count(*) FROM drive_owner_search_results").scalar_one() == 5
+
+
+async def test_third_rejected_page_token_in_one_pass_fails_with_precise_cause(store):
+    state, _ = await create(store)
+    tokens = []
+
+    async def result(arguments):
+        token = arguments.get("pageToken")
+        tokens.append(token)
+        if token is not None:
+            raise DriveReadError(
+                "provider_response_invalid", status_code=400, reason="page_token_invalid"
+            )
+        return page([1], cursor="next")
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    outcomes = []
+    for _ in range(3):
+        outcomes.append(await service.run_one(user_id="owner", job_id=state["jobId"]))
+        sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+    assert outcomes == ["queued", "queued", "failed"]
+    assert tokens == [None, "next", None, "next", None, "next"]
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["errorCode"] == "provider_response_invalid"
+    assert final["errorCause"] == "page_token_invalid"
+    assert final["matched"] == 1
+    # The rejected cursor is discarded, so an owner's retry restarts at page 1.
+    row = sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one()
+    assert store._checkpoint(row)["page_token"] is None
+
+
+async def test_local_quota_deferral_never_fails_a_job(store):
+    state, _ = await create(store)
+    deferrals = {"left": 9}
+
+    async def result(arguments):
+        if deferrals["left"]:
+            deferrals["left"] -= 1
+            # The adapter's own unit budget: nothing was sent to Google.
+            raise DriveReadError(
+                "provider_unavailable", retryable=True, reason="quota_deferred", retry_after=5
+            )
+        return page([1])
+
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_tool=AsyncMock(side_effect=no_drives(result)))
+    )
+    for _ in range(9):
+        assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "queued"
+        row = sql(store, "SELECT error_code,retry_count FROM drive_owner_search_jobs").one()
+        assert tuple(row) == ("provider_unavailable", 0)
+        # Waits the deferral (plus up to 25% jitter), never a growing backoff.
+        assert 4.5 <= due_in(store) <= 6.5
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "completed"
+
+
+@pytest.mark.parametrize(
+    ("reason", "cause"),
+    [
+        ("domain_policy", "domain_policy"),
+        ("app_not_authorized", "app_not_authorized"),
+        ("drive_membership_required", "drive_membership_required"),
+        # Negative control: a plain 403 stays the broad real-loss-of-access cause.
+        ("source_unavailable", "source_unavailable"),
+    ],
+)
+async def test_non_retryable_drive_denial_fails_at_once_with_sealed_cause(store, reason, cause):
+    state, _ = await create(store)
+    transport = SimpleNamespace(
+        read_tool=AsyncMock(
+            side_effect=DriveReadError("source_unavailable", status_code=403, reason=reason)
+        )
+    )
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "failed"
+    assert transport.read_tool.await_count == 1
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    # The constrained public column is unchanged; the owner sees the cause.
+    assert final["errorCode"] == "provider_unavailable"
+    assert final["errorCause"] == cause
+    stored = str(sql(store, "SELECT * FROM drive_owner_search_jobs").all())
+    assert cause not in stored
 
 
 def test_migration_has_working_down_path(store):
@@ -1024,3 +1257,264 @@ async def test_search_reads_never_write_a_connection_row_without_a_catalog_row(s
     # exact production failure in this environment.
     with pytest.raises(ConnectorLifecycleError, match="connector_storage_unavailable"):
         await store.stop(user_id="owner", job_id=missing)
+
+
+async def test_real_adapter_page_token_rejection_restarts_the_durable_pass(store, monkeypatch):
+    """Google's captured 400 for an expired cursor, through the real adapter and transport."""
+    import httpx
+
+    from hushh_mcp.services import google_drive_rest_transport as rest
+    from hushh_mcp.services.google_drive_adapter import GoogleDriveAdapter
+
+    state, _ = await create(store)
+    sent = []
+    expired = {"cursor-2"}
+
+    def drive(request):
+        token = request.url.params.get("pageToken")
+        if request.url.path.endswith("/drives"):
+            return httpx.Response(200, stream=httpx.ByteStream(b'{"drives": []}'))
+        sent.append(token)
+        if token in expired:
+            expired.discard(token)
+            body = {
+                "error": {
+                    "code": 400,
+                    "message": "Invalid Value",
+                    "errors": [
+                        {
+                            "domain": "global",
+                            "reason": "invalid",
+                            "message": "Invalid Value",
+                            "locationType": "parameter",
+                            "location": "pageToken",
+                        }
+                    ],
+                }
+            }
+            return httpx.Response(400, stream=httpx.ByteStream(json.dumps(body).encode()))
+        numbers, following = (range(4, 6), None) if token else (range(1, 4), None)
+        if token is None:
+            following = "cursor-2" if sent.count(None) == 1 else "cursor-3"
+        files = [
+            {
+                "id": f"file-{n}",
+                "name": f"Synthetic private file {n}",
+                "mimeType": "application/pdf",
+                "modifiedTime": "2026-09-27T00:00:00Z",
+                "size": str(n * 1_000_000),
+                "capabilities": {"canShare": True, "canDownload": True},
+            }
+            for n in numbers
+        ]
+        payload = {"files": files, **({"nextPageToken": following} if following else {})}
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(payload).encode()))
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(drive))
+    )
+    monkeypatch.setattr(rest, "connector_feature_enabled", lambda *_: True)
+    connection = {
+        "status": "connected",
+        "validation_state": "verified",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+        "connection_generation": 7,
+    }
+    transport = rest.GoogleDriveRestTransport(
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(return_value=(connection, {"accessToken": "synthetic"})),
+            lifecycle=SimpleNamespace(read=AsyncMock(return_value=connection)),
+        ),
+        adapter=GoogleDriveAdapter(),
+    )
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    outcomes = []
+    while (await store.status(user_id="owner", job_id=state["jobId"]))["canStop"]:
+        assert len(outcomes) < 6
+        outcomes.append(await service.run_one(user_id="owner", job_id=state["jobId"]))
+    assert outcomes == ["queued", "completed"]
+    assert sent == [None, "cursor-2", None, "cursor-3"]
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["status"] == "completed" and final["matched"] == 5
+    assert final["errorCode"] is None and "errorCause" not in final
+    assert sql(store, "SELECT count(*) FROM drive_owner_search_results").scalar_one() == 5
+
+
+async def test_an_earlier_retry_cause_is_never_shown_for_a_later_failure(store):
+    state, _ = await create(store)
+    errors = [
+        # A garbled 403 body: retried, and its cause sealed while queued.
+        DriveReadError(
+            "provider_unavailable",
+            retryable=True,
+            status_code=403,
+            reason="provider_response_invalid",
+        ),
+        # Then Drive rejects the token: a failure with no precise read cause.
+        DriveReadError("reconnect_required"),
+    ]
+    transport = SimpleNamespace(read_tool=AsyncMock(side_effect=errors))
+    service = DriveOwnerSearchService(store=store, transport=transport)
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "queued"
+    queued = await store.status(user_id="owner", job_id=state["jobId"])
+    assert "errorCause" not in queued
+    sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+    assert await service.run_one(user_id="owner", job_id=state["jobId"]) == "failed"
+    final = await store.status(user_id="owner", job_id=state["jobId"])
+    assert final["errorCode"] == "connection_changed"
+    assert "errorCause" not in final
+
+
+# --- the shared-folder walk's cursor and per-folder refusals ------------------
+
+
+def walk_checkpoint(*, queue, cursor=None):
+    state = checkpoint()
+    state.update(
+        phase="shared_walk",
+        coverage_counts={},
+        coverage_manifest={"sharedFolderWalk": "planned"},
+        shared_walk={
+            "stage": "folders",
+            "queue": queue,
+            "visited": ["0123456789abcdef"],
+            "token": cursor,
+            "tokens": ["fedcba9876543210"] if cursor else [],
+        },
+    )
+    return state
+
+
+async def run_walk(store, monkeypatch, state, read):
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    job, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Synthetic"},
+        checkpoint=state,
+        confirmed=True,
+    )
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_owner_search_page=AsyncMock(side_effect=read))
+    )
+    outcomes = []
+    for _ in range(8):
+        outcome = await service.run_one(user_id="owner", job_id=job["jobId"])
+        outcomes.append(outcome)
+        if outcome != "queued":
+            break
+        sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+    final = await store.status(user_id="owner", job_id=job["jobId"])
+    row = sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one()
+    return outcomes, final, store._checkpoint(row)
+
+
+def empty_walk_page(cursor=None):
+    return ExternalMcpToolResult(
+        False, {"files": [], "nextPageToken": cursor, "incompleteSearch": False}, False
+    )
+
+
+def token_rejected():
+    from hushh_mcp.services.google_drive_adapter import PAGE_TOKEN_INVALID, provider_failure
+
+    return provider_failure(PAGE_TOKEN_INVALID, status_code=400)
+
+
+async def test_a_rejected_walk_token_restarts_that_folder_listing(store, monkeypatch):
+    """Once: the rejected cursor is dropped and the folder is listed from page 1."""
+    calls = []
+
+    async def read(*, user_id, tool_name, arguments):
+        calls.append(arguments.get("pageToken"))
+        if arguments.get("pageToken") == "walk-token-2":
+            raise token_rejected()
+        return empty_walk_page()
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]], cursor="walk-token-2")
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert outcomes[-1] == "completed" and final["status"] == "completed"
+    assert calls == ["walk-token-2", None]
+    assert final["errorCode"] is None
+    counts = saved["coverage_counts"]
+    assert counts["pageTokenRestarts"] == 1 and counts["sharedFoldersWalked"] == 1
+    assert final["coverage"]["sharedFolderWalk"] == "complete"
+    assert final["coverage"]["coveragePartial"] is False
+
+
+async def test_a_walk_listing_rejected_three_times_is_skipped_and_the_search_completes(
+    store, monkeypatch
+):
+    """Never a failed search: past two restarts the folder is skipped, coverage partial."""
+    calls = []
+    fresh = iter(f"fresh-{number}" for number in range(10))
+
+    async def read(*, user_id, tool_name, arguments):
+        token = arguments.get("pageToken")
+        calls.append(token)
+        if token is not None:
+            raise token_rejected()
+        return empty_walk_page(next(fresh))
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]], cursor="walk-token-2")
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed" and "failed" not in outcomes
+    assert calls == ["walk-token-2", None, "fresh-0", None, "fresh-1"]
+    assert saved["shared_walk"]["token"] is None and saved["shared_walk"]["queue"] == []
+    assert saved["coverage_counts"]["sharedFolderWalkSkipped"] == 1
+    assert final["coverage"]["sharedFolderWalk"] == "partial"
+    assert final["coverage"]["coveragePartial"] is True
+
+
+async def test_a_shared_drive_folder_is_listed_again_without_its_drive(store, monkeypatch):
+    """Not a member of that shared drive: list the folder in A's own corpus."""
+    from hushh_mcp.services.google_drive_adapter import DRIVE_MEMBERSHIP_REQUIRED, provider_failure
+
+    calls = []
+
+    async def read(*, user_id, tool_name, arguments):
+        calls.append({key: arguments.get(key) for key in ("folderId", "driveId")})
+        if arguments.get("driveId"):
+            raise provider_failure(DRIVE_MEMBERSHIP_REQUIRED, status_code=403)
+        return empty_walk_page()
+
+    state = walk_checkpoint(queue=[["Folder1", None, "Drive1"]])
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed"
+    assert calls == [
+        {"folderId": "Folder1", "driveId": "Drive1"},
+        {"folderId": "Folder1", "driveId": None},
+    ]
+    counts = saved["coverage_counts"]
+    assert counts["sharedFoldersWalked"] == 1 and not counts.get("sharedFolderWalkUnavailable")
+    assert final["coverage"]["sharedFolderWalk"] == "complete"
+
+
+@pytest.mark.parametrize(
+    "cause,status,partial",
+    [
+        # Negative control: a real 404 is lost access; coverage stays whole.
+        ("source_unavailable", 404, False),
+        # A policy refusal or a 400 on one listing leaves files unsearched.
+        ("domain_policy", 403, True),
+        (None, 400, True),
+    ],
+)
+async def test_a_refused_folder_is_skipped_and_only_lost_access_keeps_coverage_whole(
+    store, monkeypatch, cause, status, partial
+):
+    from hushh_mcp.services.google_drive_adapter import provider_failure
+
+    async def read(*, user_id, tool_name, arguments):
+        if cause is None:
+            raise DriveReadError("provider_response_invalid", status_code=status)
+        raise provider_failure(cause, status_code=status)
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]])
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed" and outcomes == ["completed"]
+    assert final["coverage"]["sharedFolderWalk"] == ("partial" if partial else "complete")
+    assert final["coverage"]["coveragePartial"] is partial
+    counts = saved["coverage_counts"]
+    assert bool(counts.get("sharedFolderWalkUnavailable")) is (not partial)

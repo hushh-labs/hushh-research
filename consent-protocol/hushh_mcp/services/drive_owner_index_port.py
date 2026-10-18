@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable, Collection, Sequence
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 # One Gear 1 lookup per search; its rows are committed in 100-row pages.
@@ -75,6 +76,33 @@ class OwnerIndex(Protocol):
         """Casefolded title words the owner's Drive really contains, if indexed."""
         ...
 
+    async def remember_files(
+        self, *, owner_id: str, rows: Sequence[dict], connection_generation: int | None = None
+    ) -> int:
+        """Add rows another fenced listing found (the shared-folder walk's).
+
+        ``rows`` are owner-search page rows, already projected; names stay in
+        this process only, keyed by the listing grant's generation.
+        """
+        ...
+
+    async def recent_files(
+        self,
+        *,
+        owner_id: str,
+        since: str | None,
+        file_kind: str,
+        limit: int = MAX_LOCAL_CANDIDATES,
+        connection_generation: int | None = None,
+    ) -> list[dict]:
+        """REST rows of files created or changed since the ISO day ``since``.
+
+        Newest change first, folders and shortcuts left out, from what this
+        process already holds (no Drive call). The request-time content check
+        picks its Drive-blind candidates from them.
+        """
+        ...
+
 
 class NoOwnerIndex:
     """No local index: Gear 2 alone, exactly the previous behaviour."""
@@ -86,6 +114,12 @@ class NoOwnerIndex:
 
     async def owner_vocabulary(self, **_: object) -> Collection[str] | None:
         return None
+
+    async def remember_files(self, **_: object) -> int:
+        return 0
+
+    async def recent_files(self, **_: object) -> list[dict]:
+        return []
 
 
 def _rest_row(file: dict) -> dict:
@@ -101,6 +135,8 @@ def _rest_row(file: dict) -> dict:
         "modifiedTime": file.get("modifiedTime"),
         "createdTime": file.get("createdTime"),
         "webViewLink": file.get("viewUrl"),
+        # Drive sends int64 as a decimal string; the page projection reads it so.
+        **({"size": str(file["size"])} if type(file.get("size")) is int else {}),
         **{key: file[key] for key in _REST_FIELDS if file.get(key) is not None},
         **(
             {"clientEncryptionDetails": file["clientEncryptionDetails"]}
@@ -209,6 +245,94 @@ class MetadataOwnerIndex:
         rows.sort(key=lambda row: row["id"])
         rows.sort(key=lambda row: row.get("modifiedTime") or "", reverse=True)
         return rows
+
+    async def remember_files(
+        self,
+        *,
+        owner_id: str,
+        rows: Sequence[dict],
+        connection_generation: int | None = None,
+        **_: object,
+    ) -> int:
+        # No generation, no names: rows are keyed by the grant that listed them.
+        if type(connection_generation) is not int or not isinstance(rows, Sequence):
+            return 0
+        return self._owner_indexer().remember(
+            owner_id, rows, connection_generation=connection_generation
+        )
+
+    async def recent_files(
+        self,
+        *,
+        owner_id: str,
+        since: str | None,
+        file_kind: str,
+        limit: int = MAX_LOCAL_CANDIDATES,
+        connection_generation: int | None = None,
+        **_: object,
+    ) -> list[dict]:
+        # No generation, no names: rows are keyed by the grant that listed them.
+        if type(connection_generation) is not int:
+            return []
+        since_ts = None
+        if since is not None:
+            try:
+                since_ts = datetime.fromisoformat(since).replace(tzinfo=UTC).timestamp()
+            except (TypeError, ValueError):
+                return []
+        from hushh_mcp.services.drive_owner_search_service import _matches_requested_kind
+
+        rows = await self._owner_indexer().recent(
+            owner_id,
+            connection_generation=connection_generation,
+            since_ts=since_ts,
+            mime_filter=lambda mime: _matches_requested_kind(file_kind, mime),
+            limit=limit,
+        )
+        return [_rest_row(file) for file in rows]
+
+    async def prepare_recent_files(
+        self,
+        *,
+        owner_id: str,
+        connection_generation: int | None = None,
+        require_current: Callable[[], Awaitable[object]] | None = None,
+        **_: object,
+    ) -> bool:
+        """Spend a bounded, fenced listing so ``recent_files`` can vouch for this owner.
+
+        A ready index costs nothing. Otherwise at most INDEX_LISTING_PAGES
+        pages (INDEX_LISTING_SECONDS) build it further, as a search start
+        does. True only when the index is then whole and current.
+        """
+        if type(connection_generation) is not int:
+            return False
+        indexer = self._owner_indexer()
+        if indexer.recent_ready(owner_id, connection_generation=connection_generation):
+            return True
+        status = await indexer.refresh(
+            owner_id,
+            connection_generation=connection_generation,
+            max_pages=INDEX_LISTING_PAGES,
+            deadline_seconds=INDEX_LISTING_SECONDS,
+            require_current=require_current,
+        )
+        return status.complete is True
+
+    async def recent_files_ready(
+        self, *, owner_id: str, connection_generation: int | None = None, **_: object
+    ) -> bool:
+        """Whether ``recent_files`` holds this owner's whole, current index (no Drive call)."""
+        from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+        if type(connection_generation) is not int:
+            return False
+        try:
+            return self._owner_indexer().recent_ready(
+                owner_id, connection_generation=connection_generation
+            )
+        except DriveReadError:
+            return False
 
     async def owner_vocabulary(
         self, *, owner_id: str, connection_generation: int | None = None, **_: object

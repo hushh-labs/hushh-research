@@ -20,6 +20,7 @@ import pytest
 from hushh_mcp.services import drive_owner_search_service as search_module
 from hushh_mcp.services import drive_trusted_auto_service as trusted_module
 from hushh_mcp.services import google_drive_rest_transport as rest
+from hushh_mcp.services.drive_match_evidence import POSSIBLE_KINDS, awaiting_owner
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
     compile_request_queries,
@@ -421,11 +422,15 @@ def drive_query(q):
             assert token == "mimeType"
             return lambda f: text in f["mimeType"]
         expected = value == "true" if value in {"true", "false"} else literal(value)
-        field = {"trashed": "trashed", "mimeType": "mimeType"}[token]
+        # sharedWithMe: the shared-folder walk's seed listing (no fixture is
+        # shared with the owner unless it says so).
+        field = {"trashed": "trashed", "mimeType": "mimeType", "sharedWithMe": "sharedWithMe"}[
+            token
+        ]
         if operator == "=":
-            return lambda f: f[field] == expected
+            return lambda f: f.get(field, False) == expected
         assert operator == "!="
-        return lambda f: f[field] != expected
+        return lambda f: f.get(field, False) != expected
 
     predicate = expression()
     assert cursor[0] == len(tokens), q
@@ -1267,7 +1272,26 @@ async def run_brain_search(
 
 
 def _shareable(store):
-    return {identity for identity, (_, item) in store.results.items() if item.get("shareable")}
+    """What autoshare may claim: shareable results, never a possible match (D3)."""
+    checkpoint = json.loads(store.row["checkpoint"])
+    return {
+        identity
+        for identity, (_, item) in store.results.items()
+        if item.get("shareable") and not awaiting_owner(checkpoint, item)
+    }
+
+
+def _possible(store):
+    """Results the search kept only as owner-only possible matches."""
+    return {
+        identity
+        for identity, (_, item) in store.results.items()
+        if item.get("evidenceKind") in POSSIBLE_KINDS
+    }
+
+
+def _title_results(store):
+    return set(store.results) - _possible(store)
 
 
 @pytest.mark.asyncio
@@ -1296,7 +1320,12 @@ async def test_drive_app_parity_for_meeting_notes_without_a_model(
     # Automatic sharing: title evidence and the picked dates still decide.
     store, _ = await run_brain_search(monkeypatch, PARITY_FILES, text, autoshare=True)
     assert _shareable(store) == shared
-    assert not set(store.results) & (NEVER_FOUND | LOOSE_ONLY | {"old", "body"})
+    assert not _title_results(store) & (NEVER_FOUND | LOOSE_ONLY | {"old", "body"})
+    # Discovery-only files wait for the owner's tap (D3): the body-only PDF is
+    # listed as a possible match; files out of the period or never matched
+    # are not listed at all.
+    assert "body" in _possible(store)
+    assert not set(store.results) & (NEVER_FOUND | {"old"})
 
 
 @pytest.mark.asyncio
@@ -1335,7 +1364,9 @@ async def test_personal_mom_files_are_never_shared_as_meeting_notes(monkeypatch,
     files = {**PARITY_FILES, **MOM_FILES}
     store, _ = await run_brain_search(monkeypatch, files, text, autoshare=True)
     assert not _shareable(store) & set(MOM_FILES)
-    assert not set(store.results) & set(MOM_FILES)
+    # Drive's prefix match may list them as possible matches for the owner;
+    # never as title results an automatic step could claim.
+    assert not _title_results(store) & set(MOM_FILES)
     # Positive control: the cased abbreviation counts only when typed.
     assert ("mom" in _shareable(store)) is cased
 
@@ -1478,7 +1509,8 @@ async def test_worker_owner_index_adds_titles_drive_search_cannot_match(monkeypa
         assert checkpoint["coverage_manifest"]["localIndexFirst"] is True
         assert checkpoint["coverage_counts"]["localIndexCandidates"] >= 1
         assert 1000 in drive.page_sizes  # the fenced owner-search listing page
-        assert not set(store.results) & (NEVER_FOUND | {"old", "body"})
+        assert not _title_results(store) & (NEVER_FOUND | {"old", "body"})
+        assert not set(store.results) & (NEVER_FOUND | {"old"})
         # The cold index never takes the create-time page: that page is
         # Drive's 25-row search, and its rows are committed at once. The
         # index lists Drive only in the following worker slice.

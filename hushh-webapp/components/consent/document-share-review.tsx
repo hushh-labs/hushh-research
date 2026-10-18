@@ -1311,7 +1311,10 @@ function UnlockedDocumentReview({
     : requesterPaymentState === "request_expired"
       ? REQUESTER_PAYMENT_TITLES.requestExpired
     : outgoingStatus.status === "completed" && sentCount > 0
-      ? `All files sent · ${sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
+      // The owner's search could not reach every file (a shared folder only
+      // partly searched, or files left unread): never claim "All".
+      ? `${snapshot?.delivery?.coveragePartial ? "Files sent" : "All files sent"} · ${
+        sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
     // Autoshare refunds what it could not send; the payment row says how much.
     : outgoingStatus.status === "partial" && sentCount > 0 && requesterPayment?.autoshare === true
       ? `Files sent · ${sentCount.toLocaleString()}`

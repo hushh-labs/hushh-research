@@ -13,6 +13,18 @@ const service = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn(), restore: vi.
 vi.mock("@/lib/services/drive-shared-files-service", () => ({
   DriveSharedFilesService: service,
 }));
+// The possible-matches section (D3) has its own tests; here it is empty.
+vi.mock("@/lib/services/drive-possible-matches-service", () => ({
+  DrivePossibleMatchesService: {
+    list: vi.fn(async (_token: string, requestId: string) => ({
+      requestId,
+      canSend: false,
+      count: 0,
+      matches: [],
+    })),
+    send: vi.fn(),
+  },
+}));
 
 import {
   FEED_SHARED_FILES_HINT,

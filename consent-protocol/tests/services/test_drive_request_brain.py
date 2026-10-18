@@ -747,3 +747,80 @@ async def test_gemini_planner_runs_only_when_the_operator_opts_in(monkeypatch):
     assert kwargs["plan_source"] == "model"
     assert kwargs["planner_fallback"]["plan"] == "meeting_notes"
     assert "brain" not in kwargs
+
+
+def _parts(result):
+    return [[concept.canonical for concept in part.concepts] for part in result.parts]
+
+
+@pytest.mark.parametrize(
+    "hindi,english",
+    [
+        ("पैन कार्ड और आधार", "PAN card and aadhaar"),
+        ("PAN card aur aadhaar", "PAN card and aadhaar"),
+        ("बैंक स्टेटमेंट या सैलरी स्लिप", "bank statement or salary slip"),
+        ("bank statement ya salary slip", "bank statement or salary slip"),
+        ("पैन कार्ड तथा आधार", "PAN card and aadhaar"),
+    ],
+)
+def test_hindi_and_romanised_coordinators_split_documents_like_english(hindi, english):
+    """ "और"/"या"/"aur"/"ya" list separate documents: the same parts as English."""
+    hindi_brain, english_brain = brain(hindi), brain(english)
+    assert _parts(hindi_brain) == _parts(english_brain) and len(hindi_brain.parts) == 2
+    assert [concept.canonical for concept in hindi_brain.topics] == []
+    assert "aur" not in spellings(hindi_brain) and "ya" not in spellings(hindi_brain)
+
+
+@pytest.mark.parametrize(
+    "text,titles",
+    [
+        ("पैन कार्ड और आधार", ("पैन कार्ड.pdf", "आधार.pdf")),
+        ("PAN card aur aadhaar", ("PAN card.pdf", "Aadhaar.pdf")),
+        ("बैंक स्टेटमेंट या सैलरी स्लिप", ("बैंक स्टेटमेंट.pdf", "सैलरी स्लिप.pdf")),
+    ],
+)
+def test_each_listed_hindi_document_is_found_on_its_own_title(text, titles):
+    result = brain(text)
+    assert all(_brain_title_evidence(result, title) for title in titles)
+    # Negative control: a title naming neither document is not evidence.
+    assert not _brain_title_evidence(result, "Holiday photos 2026.pdf")
+
+
+@pytest.mark.parametrize(
+    "text,title",
+    [
+        ("mujhe bank ka statement bhejo", "HDFC Bank Statement Sep 2026.pdf"),
+        ("last 6 months ke bank statements", "HDFC Bank Statement Sep 2026.pdf"),
+        ("electricity bill ki copy", "Electricity bill Sep 2026.pdf"),
+        ("aadhaar card ki photo", "Aadhaar card.jpg"),
+        ("bank statement bhej do", "HDFC Bank Statement Sep 2026.pdf"),
+        ("rent agreement de do", "Rent agreement 2026.pdf"),
+        ("mujhe pan card se related file chahiye", "PAN card.pdf"),
+    ],
+)
+def test_hinglish_particles_and_verbs_are_filler_not_required_topics(text, title):
+    result = brain(text)
+    fillers = {"ka", "ki", "ke", "ko", "se", "bhej", "de", "do", "bhejo", "chahiye", "mujhe"}
+    assert not fillers & {concept.canonical for concept in result.concepts}
+    assert not fillers & set(result.dropped)
+    assert _brain_title_evidence(result, title)
+    # Negative control: the subject itself is still required.
+    assert not _brain_title_evidence(result, "Holiday photos 2026.pdf")
+
+
+@pytest.mark.parametrize(
+    "text,abbreviation,title",
+    [
+        ("PE fund statements", "pe", "Mutual fund statement Sep 2026.pdf"),
+        ("DE incorporation documents", "de", "Incorporation certificate.pdf"),
+        ("KA vehicle registration", "ka", "Vehicle registration.pdf"),
+    ],
+)
+def test_a_capitalised_abbreviation_is_never_hinglish_filler(text, abbreviation, title):
+    """Negative control for the filler rule: "PE fund" keeps PE as a required subject."""
+    result = brain(text)
+    assert abbreviation in {concept.canonical for concept in result.topics}
+    # A title without the abbreviation is not evidence: autoshare never widens.
+    assert not _brain_title_evidence(result, title)
+    # Typed in lowercase, the same word is Hinglish filler.
+    assert abbreviation not in {concept.canonical for concept in brain(text.lower()).topics}

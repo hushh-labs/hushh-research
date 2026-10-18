@@ -11,6 +11,7 @@ import pytest
 from hushh_mcp.services import drive_owner_search_service as search_module
 from hushh_mcp.services import google_drive_rest_transport as rest
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_match_evidence import POSSIBLE_KINDS, awaiting_owner
 from hushh_mcp.services.drive_owner_allowed import LEGACY_REQUEST_POLICY
 from hushh_mcp.services.drive_owner_search_service import (
     DriveOwnerSearchService,
@@ -22,6 +23,7 @@ from hushh_mcp.services.drive_request_bulk_service import (
     _deterministic_statement_plan,
 )
 from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
+from hushh_mcp.services.drive_title_dates import period_decision
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -121,7 +123,9 @@ async def test_search_release_keeps_local_contract_error_in_encrypted_checkpoint
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("draw", "retry_count", "delay"), [(0.0, 0, 2.5), (0.999, 1, 9.995)])
+@pytest.mark.parametrize(
+    ("draw", "retry_count", "delay"), [(0.0, 0, 4.0), (0.999, 1, 15.992), (0.0, 3, 32.0)]
+)
 async def test_rate_limited_search_retries_back_off_with_jitter(
     monkeypatch, draw, retry_count, delay
 ):
@@ -144,16 +148,22 @@ async def test_rate_limited_search_retries_back_off_with_jitter(
     monkeypatch.setattr(
         store, "_transaction", AsyncMock(side_effect=lambda operation: operation(connection))
     )
+    detail = {"page_token": "saved-page", "provider_retry_streak": retry_count}
+    monkeypatch.setattr(store, "_checkpoint", lambda _row: detail)
+    monkeypatch.setattr(store, "_seal", lambda *_args: "sealed-checkpoint")
     monkeypatch.setattr(store_module.random, "random", lambda: draw)
     state = await store.release(
         {"user_id": "owner", "job_id": "job", "lease_id": "lease"},
         error="provider_unavailable",
         retryable=True,
     )
-    # Same durable cursor, queued again within [half, full] of 5s, 10s, 20s.
+    # Same durable cursor, queued again within [half, full] of 8s, 16s, 32s, 64s.
     assert state == "queued"
     assert updated[0]["delay"] == pytest.approx(delay)
-    assert updated[0]["retries"] == retry_count + 1
+    # The public column keeps its 0..3 constraint; the true run is sealed.
+    assert detail["provider_retry_streak"] == retry_count + 1
+    assert detail["page_token"] == "saved-page"
+    assert updated[0]["retries"] == min(retry_count + 1, 3)
 
 
 @pytest.mark.parametrize(
@@ -1546,6 +1556,16 @@ def _request_candidate(identity, name, mime="application/vnd.google-apps.documen
     return {**_provider_file(identity, name, mime, **changes), "title": name}
 
 
+def _auto_claimable(checkpoint, files):
+    """What autoshare may claim: a possible match (D3) never counts."""
+    return {file["id"]: file["shareable"] for file in files if not awaiting_owner(checkpoint, file)}
+
+
+def _possible_ids(files):
+    """Results kept only as owner-only possible matches, tagged by the search."""
+    return {file["id"] for file in files if file.get("evidenceKind") in POSSIBLE_KINDS}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("order", ["modifiedTime desc", "createdTime desc"])
 async def test_folder_continuation_keeps_its_saved_provider_order(order):
@@ -1891,10 +1911,13 @@ async def test_autoshare_gemini_title_never_stands_in_for_the_request_subject(
     files, _ = await service._request_candidates(
         {"user_id": "owner"}, checkpoint, candidates, folder_scoped=folder_scoped, drive_id=None
     )
-    assert {file["id"]: file["shareable"] for file in files} == {
-        "pricing": True,
-        "titled": True,
-    }
+    assert _auto_claimable(checkpoint, files) == {"pricing": True, "titled": True}
+    # The unrelated notes never autoshare. An autoshare brain search keeps
+    # them only as owner-only possible matches (D3); a topical folder's
+    # children and a model plan keep none.
+    possible = {"hr", "therapy", "acme"} if planned_by == "brain" and not folder_scoped else set()
+    assert _possible_ids(files) == possible
+    assert {file["id"] for file in files} == {"pricing", "titled"} | possible
 
 
 @pytest.mark.asyncio
@@ -1935,7 +1958,8 @@ async def test_autoshare_specific_meeting_kind_never_shares_every_gemini_note(te
         {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
     )
     # A Gemini title stands in for the generic ask only; the kind must be named.
-    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+    assert _auto_claimable(checkpoint, files) == {"own": True}
+    assert _possible_ids(files) == ({"therapy"} if planned_by == "brain" else set())
     # Negative control: the generic ask shares every in-period Gemini note.
     service, generic = await _autoshare_checkpoint(text="meeting notes", planned_by=planned_by)
     files, _ = await service._request_candidates(
@@ -2075,7 +2099,9 @@ async def test_brain_autoshare_never_shares_a_title_the_request_did_not_name(tex
         drive_id=None,
     )
     # Positive control: the title the request names is still shared.
-    assert {file["id"]: file["shareable"] for file in files} == {"own": True}
+    assert _auto_claimable(checkpoint, files) == {"own": True}
+    # Every other title waits for the owner's tap as a possible match.
+    assert _possible_ids(files) == {f"other{n}" for n in range(len(unrelated))}
 
 
 @pytest.mark.parametrize(
@@ -2104,6 +2130,31 @@ def test_autoshare_never_grants_a_title_date_outside_the_period(title, shared):
         "modified_time": "2026-09-10T00:00:00Z",
     }
     assert search_module._in_requested_period(match, period, precedence=True) is shared
+
+
+@pytest.mark.parametrize(
+    "title,created,shared",
+    [
+        # Month-only and year-less titles naming August decide, though each
+        # file was created inside September (the gold rent_receipts case).
+        ("Rent receipt Aug 2026.pdf", "2026-09-03T00:30:00Z", False),
+        ("rent_receipt_2026-08.pdf", "2026-09-03T00:30:00Z", False),
+        ("Rent receipt Aug 28.pdf", "2026-09-02T00:30:00Z", False),
+        # A September month title decides too, though created in October.
+        ("Rent receipt Sep 2026 scanned.pdf", "2026-10-03T00:30:00Z", True),
+        ("rent_receipt_2026-09.pdf", "2026-10-03T00:30:00Z", True),
+        ("Rent receipt Sept 4.pdf", "2026-09-05T00:30:00Z", True),
+        # Negative controls: an undated title still falls back to the created time.
+        ("Rent receipt.pdf", "2026-09-03T00:30:00Z", True),
+        ("Rent receipt.pdf", "2026-10-03T00:30:00Z", False),
+    ],
+)
+def test_autoshare_reads_month_only_and_year_less_title_dates(title, created, shared):
+    period = {"start": "2026-09-01", "end": "2026-09-30", "timezone": "Asia/Kolkata"}
+    match = {"name": title, "created_time": created, "modified_time": created}
+    assert search_module._in_requested_period(match, period, precedence=True) is shared
+    # The autoshare rule is the shared title-date rule Gear 1 and the walk use.
+    assert period_decision(match, period, precedence=True).in_period is shared
 
 
 @pytest.mark.asyncio

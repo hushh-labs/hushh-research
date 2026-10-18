@@ -1048,3 +1048,72 @@ async def test_retry_access_failure_is_fatal_even_with_a_provider_error_code():
     with pytest.raises(DriveReadError, match="provider_unavailable"):
         await reader.read_matches(matches=[{"file_id": "file-1", "name": "March statement.pdf"}])
     assert mcp.read_tool.await_count == 1 and reader._rows == []
+
+
+@pytest.mark.asyncio
+async def test_unreadable_file_carries_the_precise_drive_cause_and_counts_only(caplog):
+    caplog.set_level("INFO", logger="hushh_mcp.services.drive_live_reader")
+    reader, _, matches = three_file_reader({"file-1": {"fileContent": "Statement period"}})
+    adapter = reader.adapter
+    names = {"file-1": "March statement.pdf", "file-2": "Locked.pdf", "file-3": "Huge.pdf"}
+    errors = {
+        "file-2": DriveReadError(
+            "source_unavailable", status_code=403, reason="download_restricted"
+        ),
+        "file-3": DriveReadError("source_unavailable", status_code=404),
+    }
+
+    async def metadata(*, file_id, **_):
+        if file_id in errors:
+            raise errors[file_id]
+        return DriveMetadata(
+            file_id, names[file_id], "application/pdf", "11", "2026-04-01T00:00:00Z", 100, None
+        )
+
+    adapter.get_metadata.side_effect = metadata
+    result = await reader.read_matches(matches=matches)
+    assert result["unreadable"] == [
+        {
+            "name": "Locked.pdf",
+            "reason": "source_unavailable",
+            "source_ref": matches[1]["source_ref"],
+            "cause": "download_restricted",
+        },
+        # Negative control: a plain loss of access adds no extra cause.
+        {
+            "name": "Huge.pdf",
+            "reason": "source_unavailable",
+            "source_ref": matches[2]["source_ref"],
+        },
+    ]
+    assert "causes=download_restricted:1,source_unavailable:1" in caplog.text
+    assert "Locked.pdf" not in caplog.text and "file-2" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unreadable_provider_error_body_skips_one_bound_file_not_the_search():
+    reader, adapter, mcp, _ = fixture()
+    good = DriveMetadata(
+        "file-2", "Recent.pdf", "application/pdf", "11", "2026-09-23T10:00:00Z", 100, None
+    )
+    garbled = DriveReadError(
+        "provider_unavailable", retryable=True, status_code=403, reason="provider_response_invalid"
+    )
+    adapter.get_share_metadata.side_effect = [garbled, good, good]
+    matches = [
+        {"file_id": "file-1", "name": "Old.pdf", "mime_type": "application/pdf"},
+        {"file_id": "file-2", "name": "Recent.pdf", "mime_type": "application/pdf"},
+    ]
+    window = {
+        "time_field": "modifiedTime",
+        "start_time": "2026-09-22T00:00:00Z",
+        "end_time": "2026-09-24T00:00:00Z",
+    }
+    result = await reader.bind_matches(matches=matches, **window)
+    assert result["truncated"] is True
+    assert [row["file_id"] for row in reader._rows] == ["file-2"]
+    # Negative control: a real provider outage still fails the bind.
+    reader, adapter, _, _ = fixture()
+    adapter.get_share_metadata.side_effect = DriveReadError("provider_unavailable", retryable=True)
+    with pytest.raises(DriveReadError, match="provider_unavailable"):
+        await reader.bind_matches(matches=matches, **window)

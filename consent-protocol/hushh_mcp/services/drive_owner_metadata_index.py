@@ -58,7 +58,6 @@ import heapq
 import re
 import sys
 import time
-import unicodedata
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -66,6 +65,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.drive_telemetry import drive_logger
+from hushh_mcp.services.drive_text_tokens import fold, letter_runs, words
 from hushh_mcp.services.drive_title_dates import (
     RawTitleDates,
     parse_title_dates,
@@ -73,7 +73,12 @@ from hushh_mcp.services.drive_title_dates import (
     period_window,
     timestamp_seconds,
 )
-from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    FILE_ID,
+    RESOURCE_KEY,
+    DriveReadError,
+    read_failure_reason,
+)
 
 logger = drive_logger("drive_owner_metadata_index")
 
@@ -115,6 +120,10 @@ _TRANSIENT_ERRORS = frozenset(
     {"provider_unavailable", "provider_response_invalid", "file_too_large"}
 )
 MAX_DELTA_FAILURES = 3
+# Drive rejected a listing page token (it expired while the listing paused):
+# restart that pass from page 1, at most this many times per pass. Rows are
+# keyed by file ID, so a restart never adds a second copy.
+PAGE_TOKEN_RESTARTS_PER_PASS = 2
 
 # Token match scores. Exact words outrank spelling forms, prefixes ("state"
 # for "statement", like Drive's own name search), inner words and typos.
@@ -127,16 +136,19 @@ _STOPWORDS = frozenset(
 )
 _EXTENSION = re.compile(r"\.(?=[A-Za-z0-9]{0,4}[A-Za-z])[A-Za-z0-9]{1,5}$")
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-_NON_WORD = re.compile(r"[\W_]+")
-_ALNUM_PARTS = re.compile(r"[^\W\d_]+|\d+")
 
 
 def _fold(text: str) -> str:
-    """Lowercase and drop accents: "Résumé" and "RESUME" both become "resume"."""
-    if text.isascii():
-        return text.lower()
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+    """Lowercase and drop Latin accents: "Résumé" and "RESUME" both become "resume".
+
+    Marks of other scripts stay: they are part of a Devanagari word's spelling.
+    """
+    return fold(text)
+
+
+def _mixed(word: str) -> bool:
+    """Letters and digits in one word ("q3", "inv2026"), split into runs as well."""
+    return not word.isdigit() and any(character.isdigit() for character in word)
 
 
 def name_tokens(name: str) -> tuple[tuple[str, ...], str]:
@@ -144,24 +156,26 @@ def name_tokens(name: str) -> tuple[tuple[str, ...], str]:
 
     "Q3_BankStatement-final.PDF" gives q3, bank, statement, final, q, 3 and
     the compound bankstatement: the extension goes, camelCase, underscores and
-    hyphens split, letter/digit runs split, and accents fold.
+    hyphens split, letter/digit runs split, and Latin accents fold. Combining
+    marks are word characters, so 'हिंदी बैंक स्टेटमेंट.pdf' gives the three
+    whole words हिंदी, बैंक and स्टेटमेंट (see ``drive_text_tokens``).
     """
     stem = _EXTENSION.sub("", name) or name
     spaced = _CAMEL.sub(" ", stem)
-    words = [word for word in _NON_WORD.split(_fold(spaced)) if word]
-    tokens = dict.fromkeys(words)
-    for word in words:
-        if not word.isalpha() and not word.isdigit():
-            tokens.update(dict.fromkeys(_ALNUM_PARTS.findall(word)))
+    parts = words(_fold(spaced))
+    tokens = dict.fromkeys(parts)
+    for word in parts:
+        if _mixed(word):
+            tokens.update(dict.fromkeys(letter_runs(word)))
     if spaced != stem:
-        tokens.update(dict.fromkeys(word for word in _NON_WORD.split(_fold(stem)) if word))
-    return tuple(sys.intern(token) for token in tokens), " ".join(words)
+        tokens.update(dict.fromkeys(words(_fold(stem))))
+    return tuple(sys.intern(token) for token in tokens), " ".join(parts)
 
 
 def _concept_tokens(text: str) -> tuple[str, ...]:
-    words = [word for word in _NON_WORD.split(_fold(_CAMEL.sub(" ", text))) if word]
-    kept = [word for word in words if word not in _STOPWORDS]
-    return tuple(dict.fromkeys(kept or words))
+    parts = words(_fold(_CAMEL.sub(" ", text)))
+    kept = [word for word in parts if word not in _STOPWORDS]
+    return tuple(dict.fromkeys(kept or parts))
 
 
 def _plural_forms(token: str) -> set[str]:
@@ -247,6 +261,8 @@ class _Entry:
     title_dates: RawTitleDates
     created_ts: float | None
     modified_ts: float | None
+    # Bytes Drive reports (blobs and editor files); None when not listed.
+    size: int | None = None
 
     def provider_row(self) -> dict:
         """The exact owner-search projection this entry was built from."""
@@ -256,6 +272,7 @@ class _Entry:
             "mimeType": self.mime,
             "modifiedTime": self.modified,
             "createdTime": self.created,
+            **({"size": self.size} if self.size is not None else {}),
             **({"driveId": self.drive_id} if self.drive_id is not None else {}),
             **({"resourceKey": self.resource_key} if self.resource_key is not None else {}),
             "viewUrl": self.view_url,
@@ -321,6 +338,9 @@ def _entry(ordinal: int, row: object) -> _Entry | None:
         title_dates=parse_title_dates(name),
         created_ts=timestamp_seconds(created),
         modified_ts=timestamp_seconds(modified),
+        # The transport projects Drive's int64 string as an int; anything
+        # else is no size (routing then treats the size as unknown).
+        size=row["size"] if type(row.get("size")) is int and 0 <= row["size"] < 10**20 else None,
     )
 
 
@@ -451,6 +471,40 @@ class OwnerMetadataIndex:
 
     def vocabulary(self) -> set[str]:
         return set(self._postings)
+
+    def recent(
+        self,
+        *,
+        since_ts: float | None,
+        mime_filter: Callable[[str], bool] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[dict]:
+        """Files created or changed at or after ``since_ts``, newest change first.
+
+        Folders and shortcuts are left out. The request-time content check
+        picks its Drive-blind candidates (big, scanned, fresh, non-Latin)
+        from these rows; nothing here reads content or calls Drive.
+        """
+        if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
+            raise DriveReadError("invalid_argument")
+        picked: list[tuple[float, str, _Entry]] = []
+        for entry in self._entries:
+            if entry is None or entry.mime in (FOLDER_MIME, SHORTCUT_MIME):
+                continue
+            if mime_filter is not None and not mime_filter(entry.mime or ""):
+                continue
+            moments = [
+                value for value in (entry.modified_ts, entry.created_ts) if value is not None
+            ]
+            if not moments:
+                continue
+            changed = max(moments)
+            if since_ts is not None and changed < since_ts:
+                continue
+            picked.append((changed, entry.file_id, entry))
+        # Newest change first, file ID breaking ties: equal inputs, equal order.
+        newest = heapq.nlargest(limit, picked, key=lambda item: (item[0], item[1]))
+        return [entry.provider_row() for _, _, entry in newest]
 
     def _expand(self, token: str) -> dict[str, tuple[float, str]]:
         """Vocabulary words this concept word should match, with a score each."""
@@ -659,6 +713,7 @@ class _OwnerState:
     rows: int = 0
     built_at: float | None = None
     delta_failures: int = 0
+    token_restarts: int = 0
     error: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -755,8 +810,52 @@ class OwnerMetadataIndexer:
             self._owners.popitem(last=False)
         return state
 
+    def _peek(self, owner_id: str, generation: int) -> _OwnerState | None:
+        """This owner's live state for ``generation``, never creating one.
+
+        A peek must not build an empty state for a cold owner: that would
+        claim a slot of the bounded cache and push a warm owner out.
+        """
+        if not isinstance(owner_id, str) or not 1 <= len(owner_id) <= 255:
+            raise DriveReadError("invalid_argument")
+        if type(generation) is not int or generation < 1:
+            raise DriveReadError("invalid_argument")
+        state = self._owners.get(owner_id)
+        if (
+            state is None
+            or state.generation != generation
+            or state.built_at is not None
+            and self._clock() - state.built_at > self._ttl
+        ):
+            return None
+        return state
+
+    def recent_ready(self, owner_id: str, *, connection_generation: int) -> bool:
+        """Whether ``recent`` can vouch for this owner's recent files: built, whole, current."""
+        state = self._peek(owner_id, connection_generation)
+        return bool(state is not None and state.ready and not state.incomplete)
+
     def forget(self, owner_id: str) -> None:
         self._owners.pop(owner_id, None)
+
+    def remember(self, owner_id: str, rows: Iterable[object], *, connection_generation: int) -> int:
+        """Add rows another fenced listing returned (the shared-folder walk's).
+
+        Google's user corpus leaves out files reachable only through a folder
+        shared with the owner, so the walk's rows join this owner's names
+        under the generation that listed them. A reconnect, a new generation
+        or the periodic relist drops them with everything else; the bounds
+        on files hold. Returns how many rows were added.
+        """
+        state = self._state(owner_id, connection_generation)
+        added = 0
+        for row in rows:
+            if len(state.index) >= self._max_files:
+                state.incomplete = True
+                break
+            if state.index.upsert(row):
+                added += 1
+        return added
 
     def clear(self) -> None:
         self._owners.clear()
@@ -837,6 +936,18 @@ class OwnerMetadataIndexer:
                 )
                 break
             except DriveReadError as error:
+                if (
+                    read_failure_reason(error) == "page_token_invalid"
+                    and state.page_token
+                    and state.token_restarts < PAGE_TOKEN_RESTARTS_PER_PASS
+                ):
+                    # The pass restarts from page 1 (research P0-3); a third
+                    # rejection in one pass propagates as provider trouble.
+                    state.token_restarts += 1
+                    state.page_token = None
+                    state.seen_tokens.clear()
+                    arguments.pop("pageToken", None)
+                    continue
                 if str(error) != "file_too_large" or state.page_size == PAGE_SIZES[-1]:
                     raise
                 # Same cursor, less metadata: a page over the response budget
@@ -875,6 +986,7 @@ class OwnerMetadataIndexer:
         state.page_token = next_token
         if not next_token:
             state.seen_tokens.clear()
+            state.token_restarts = 0
             if state.phase == "drive":
                 state.drives_done.add(state.drive_queue.pop(0))
             self._advance(state)
@@ -1105,6 +1217,33 @@ class OwnerMetadataIndexer:
             elapsed_ms=elapsed,
             error=status.error,
         )
+
+    async def recent(
+        self,
+        owner_id: str,
+        *,
+        connection_generation: int,
+        since_ts: float | None,
+        mime_filter: Callable[[str], bool] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[dict]:
+        """Recent rows this process already holds; never lists Drive (a peek).
+
+        A cold, expired or other-generation owner returns nothing and creates
+        no state (see ``recent_ready`` for whether the rows are whole).
+        """
+        state = self._peek(owner_id, connection_generation)
+        if state is None:
+            logger.info("drive_metadata_index.recent returned=0 indexed=0 ready=0")
+            return []
+        rows = state.index.recent(since_ts=since_ts, mime_filter=mime_filter, limit=limit)
+        logger.info(
+            "drive_metadata_index.recent returned=%d indexed=%d ready=%d",
+            len(rows),
+            len(state.index),
+            int(state.ready),
+        )
+        return rows
 
     async def vocabulary(
         self,
