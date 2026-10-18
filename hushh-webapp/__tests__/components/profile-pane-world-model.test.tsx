@@ -47,7 +47,7 @@ const vault = vi.hoisted(() => ({
   vaultOwnerToken: "token-a",
   isVaultUnlocked: true,
   tokenExpiresAt: null,
-  getVaultOwnerToken: async () => "token-a",
+  getVaultOwnerToken: () => "token-a",
 }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
 vi.mock("@/lib/persona/persona-context", () => ({
