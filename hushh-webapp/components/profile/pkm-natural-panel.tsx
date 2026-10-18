@@ -1534,7 +1534,7 @@ export function PkmNaturalPanel({
   return (
     <>
       {nativeBeacon}
-      <div className="space-y-4">
+      <div className="space-y-[var(--page-header-section-gap)]">
         <SegmentedTabs
           value={workspaceTab}
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
