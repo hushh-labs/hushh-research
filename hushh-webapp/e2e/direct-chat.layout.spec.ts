@@ -209,6 +209,10 @@ test("New chat creates a first private conversation and sends two distinct emoji
   await expect(picker).toHaveCount(0);
   const composer = page.getByRole("textbox", { name: "Message Leah Roy" });
   await expect(composer).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Leah Roy", exact: true })).toBeVisible();
+  await expect(page.getByText("Start the conversation with Leah Roy.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Conversation", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("connected-person-new-chat.png"), animations: "disabled" });
   for (const emoji of ["😀", "🐱"]) {
     await page.getByRole("button", { name: "Choose emoji", exact: true }).click();
     await page.getByPlaceholder("Search emoji").fill(emoji);
@@ -218,6 +222,25 @@ test("New chat creates a first private conversation and sends two distinct emoji
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(transcript(page).getByText("😀🐱", { exact: true })).toBeVisible();
   await expect(composer).toBeEmpty();
+});
+
+test("a selected connected person opens their existing thread instead of an empty draft", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  const errors = await mount(page, false, false, true);
+  await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+  const picker = page.getByRole("dialog", { name: "New chat" });
+  await picker.getByRole("searchbox", { name: "Search connections" }).fill("Maya");
+  await picker.getByRole("button", { name: "Message Maya Rao", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Maya Rao", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao", exact: true })).toBeEnabled();
+  await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
+  await expect(transcript(page).getByText("Let’s meet tomorrow. I’ll share the details here 😊", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Start the conversation with/)).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).directChatFixture.routeRequests.at(-1))).toEqual({ personRef: "person-maya" });
+  expect(await page.evaluate(() => (window as any).directChatFixture.sends)).toHaveLength(0);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("connected-person-existing-chat.png"), animations: "disabled" });
 });
 
 test("system Back closes the New chat picker before leaving the inbox", async ({ page }) => {

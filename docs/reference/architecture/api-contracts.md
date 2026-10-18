@@ -1884,6 +1884,15 @@ connection ended.
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
 
+Opening a person returns their participant-safe `peerDisplayName` and
+`peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
+connection's draft before its first message. Draft identity is checked against
+the current connection and block state in the same read. An unavailable draft
+returns no name or photo; existing participant history remains readable and
+keeps its peer identity. Opening never creates a conversation: first send owns
+that write. Anonymous public-profile visibility is a separate discovery policy
+and does not hide an already-accepted connection's identity.
+
 Message projections include nullable `deliveredAt`; `readAt` implies delivery,
 including legacy read rows. Send acceptance and push hints do not establish
 recipient delivery. Inbox body previews and authenticated history can be

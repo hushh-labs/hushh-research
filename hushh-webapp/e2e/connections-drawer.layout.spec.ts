@@ -1379,6 +1379,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
         connected: calendar.connected,
         status: calendar.connected ? "connected" : "disconnected",
         access_level: calendar.connected ? "read" : null,
+        google_email: calendar.connected ? "calendar-owner@synthetic.invalid" : null,
       }),
     });
   });
@@ -1474,8 +1475,12 @@ test("Calendar connects in a popup and the drawer updates in place", async ({ pa
     page.getByRole("region", { name: "Calendar details" }).getByText("Connected", { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Disconnect Calendar" }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calendar details" }).getByText("Connected as calendar-owner@synthetic.invalid", { exact: true })).toBeVisible();
   expect(calendar.starts).toBe(1);
   await expectChatStateIntact(page, navigations);
+  await page.getByRole("button", { name: "Back to connectors", exact: true }).click();
+  await expect(page.getByText("Connected as calendar-owner@synthetic.invalid", { exact: true })).toBeVisible();
+  await expect(page.getByText("Connected as mail-owner@synthetic.invalid", { exact: true })).toBeVisible();
 });
 
 test("Calendar falls back to a new tab and settles through storage when the opener is severed", async ({ page }) => {
