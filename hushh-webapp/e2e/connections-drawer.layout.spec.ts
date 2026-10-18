@@ -101,6 +101,12 @@ test.beforeAll(async () => {
             "e2e/fixtures/connections-boundaries.tsx",
           ),
         })),
+        // PKM imports these same providers as siblings. Keep their boundary
+        // synthetic for both import spellings instead of loading Firebase.
+        {
+          find: /^\.\/(?:api-service|auth-service)$/,
+          replacement: path.join(root, "e2e/fixtures/connections-boundaries.tsx"),
+        },
         { find: "@", replacement: root },
       ],
     },
@@ -277,7 +283,12 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
-  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  try {
+    await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  } catch (error) {
+    expect(fixtureErrors, "Connections fixture initialization errors").toEqual([]);
+    throw error;
+  }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
