@@ -561,12 +561,16 @@ final class NativeSupportTests: XCTestCase {
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
+        let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
+            "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
+        let accentedArtwork: Set<String> = ["payouts", "request-pricing", "my-data", "world-model", "accent",
+            "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             let glyphSize: CGFloat = id == "gemini" ? 32 : 28
             XCTAssertEqual(artwork.base.size, CGSize(width: glyphSize, height: glyphSize))
-            XCTAssertEqual(artwork.base.renderingMode, id == "gemini" ? .alwaysOriginal : .alwaysTemplate)
-            XCTAssertEqual(artwork.accent != nil, ["payouts", "request-pricing", "my-data", "world-model", "accent"].contains(id))
+            XCTAssertEqual(artwork.base.renderingMode, originalArtwork.contains(id) ? .alwaysOriginal : .alwaysTemplate, id)
+            XCTAssertEqual(artwork.accent != nil, accentedArtwork.contains(id), id)
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("account")?.colorHex, "#2563EB")
         XCTAssertEqual(NativeProfileArtwork.resolve("vault-methods")?.colorHex, "#10B981")
