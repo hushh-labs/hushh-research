@@ -1,7 +1,7 @@
-"""Checkpointed Drive REST metadata collection under explicit per-search consent.
+"""Checkpointed discovery and request-local verified candidate collection.
 
-The planner runs once in the authenticated route. This service freezes that
-plan; background work never invokes a model, reads contents, or grants access.
+Legacy searches retain their frozen metadata policy. Enrolled searches assess
+bounded contents before committing results; permission effects stay separate.
 """
 
 from __future__ import annotations
@@ -555,6 +555,8 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
 
 
 def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bool:
+    if checkpoint.get("semantic_plan") is not None:
+        return True  # The sealed semantic assessor owns document meaning.
     if not _filename_candidate(checkpoint, match):
         return False
     owner_review = checkpoint.get("request_owner_review_required") is True
@@ -591,6 +593,8 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
 
 
 def _filename_candidate(checkpoint: dict, match: dict) -> bool:
+    if checkpoint.get("semantic_plan") is not None:
+        return True  # A provider fullText hit is a candidate, not title proof.
     if checkpoint.get("request_owner_review_required") is True:
         exact = checkpoint.get("request_exact_title")
         return not exact or exact in {match["name"], match.get("shortcut_name")}
@@ -872,6 +876,27 @@ def compile_request_queries(
     parsed = LiveSearchPlan.model_validate(plan)
     if parsed.mode != "find":
         raise DriveReadError("invalid_argument")
+    if parsed.semantic_query is not None:
+        from hushh_mcp.services.drive_request_semantic_plan import (
+            SemanticPlanInputRequired,
+            compile_semantic_queries,
+        )
+
+        try:
+            queries = compile_semantic_queries(
+                parsed.semantic_query,
+                file_kind=parsed.file_kind,
+                period_start=purpose.get("periodStart"),
+                period_end=purpose.get("periodEnd"),
+                timezone=timezone,
+            )
+        except SemanticPlanInputRequired:
+            raise DriveReadError("narrow_selection_required") from None
+        return queries, {
+            "start": purpose["periodStart"],
+            "end": purpose["periodEnd"],
+            "timezone": timezone,
+        }
     now = requested_at if requested_at is not None else datetime.now(UTC)
     if now.tzinfo is None or now.utcoffset() is None:
         raise DriveReadError("invalid_argument")
@@ -1428,6 +1453,8 @@ class DriveOwnerSearchService:
         packet_matcher=None,
         packet_checker=None,
         owner_index=None,
+        candidate_assessor=None,
+        reader_factory=None,
     ):
         self.store = store or DriveOwnerSearchStore()
         self.transport = transport or GoogleDriveRestTransport()
@@ -1438,6 +1465,8 @@ class DriveOwnerSearchService:
         self.packet_checker = packet_checker
         # Gear 1: the owner's local metadata index. The default is a no-op.
         self.owner_index = owner_index or default_owner_index()
+        self.candidate_assessor = candidate_assessor
+        self.reader_factory = reader_factory or DriveLiveReader
 
     def _facts_store(self):
         if self.facts is None:
@@ -1752,6 +1781,7 @@ class DriveOwnerSearchService:
         autoshare=False,
         brain=None,
         plan_source=None,
+        semantic_search=False,
     ):
         """Start or resume the owner-approved request's durable metadata search.
 
@@ -1796,6 +1826,21 @@ class DriveOwnerSearchService:
         await require_current()
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
+        semantic_plan = plan.get("semantic_query")
+        if bool(semantic_plan is not None) != semantic_search:
+            raise DriveReadError("invalid_argument")
+        if semantic_plan is not None:
+            from hushh_mcp.services.drive_request_semantic_plan import (
+                SemanticDrivePlan,
+                semantic_plan_digest,
+            )
+
+            semantic_plan = SemanticDrivePlan.model_validate(semantic_plan).model_dump(mode="json")
+            if v1_live_request or indexed or parsed_brain is not None:
+                raise DriveReadError("invalid_argument")
+            from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+
+            semantic_policy = assessment_policy_version()
         request = self._request(query, timezone)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and existing["status"] in {"queued", "running"}:
@@ -1846,7 +1891,7 @@ class DriveOwnerSearchService:
         direct_originals = (
             result_limit is not None and not plan.get("terms") and not plan.get("exact_title")
         )
-        order_field = queries[0]["arguments"]["orderBy"].split()[0]
+        order_field = queries[0]["arguments"].get("orderBy", "modifiedTime desc").split()[0]
         state, created = await self.store.create(
             user_id=user_id,
             client_request_id=request_id,
@@ -1862,6 +1907,18 @@ class DriveOwnerSearchService:
                 "query_index": 0,
                 "request_origin_id": request_id,
                 "request_revision": request_revision,
+                **(
+                    {
+                        "semantic_plan": semantic_plan,
+                        "semantic_plan_digest": semantic_plan_digest(semantic_plan),
+                        "semantic_assessment_policy": semantic_policy,
+                        "semantic_pending": [],
+                        "semantic_seen": [],
+                        "semantic_purpose": purpose,
+                    }
+                    if semantic_plan is not None
+                    else {}
+                ),
                 "evidence_route": route["kind"],
                 **(
                     {
@@ -1906,7 +1963,8 @@ class DriveOwnerSearchService:
                 "request_result_limit": result_limit,
                 "request_order_field": order_field,
                 "request_direct_originals": direct_originals,
-                "request_notes": bool(re.search(r"\b(?:notes?|minutes)\b", query, re.I)),
+                "request_notes": semantic_plan is None
+                and bool(re.search(r"\b(?:notes?|minutes)\b", query, re.I)),
                 "request_explicit_dates": bool(
                     purpose.get("periodStart") and purpose.get("periodEnd")
                 ),
@@ -2176,6 +2234,17 @@ class DriveOwnerSearchService:
         )
 
         def period_matches(match):
+            semantic = checkpoint.get("semantic_plan")
+            if semantic is not None:
+                basis = semantic["date_basis"]
+                if basis == "content":
+                    return True  # Original picked dates go to the content assessor.
+                if basis in {"created", "modified"}:
+                    field = "created_time" if basis == "created" else "modified_time"
+                    return _in_requested_period(
+                        {"name": "", field: match.get(field)}, period, precedence=True
+                    )
+                return _in_requested_period(match, period, precedence=True)
             if owner_review_required:
                 # Creation, modification and title dates do not establish the
                 # period covered by a document's contents.
@@ -2264,6 +2333,7 @@ class DriveOwnerSearchService:
             if match["mime_type"] == FOLDER_MIME:
                 if (
                     folder_scoped
+                    or checkpoint.get("semantic_plan") is not None
                     or _subject_matches(checkpoint, match["name"])
                     or _v1_folder_clue_matches(checkpoint, match["name"])
                     or (
@@ -2302,6 +2372,7 @@ class DriveOwnerSearchService:
                 folder_scoped
                 and not checkpoint.get("request_notes")
                 and not checkpoint.get("v1_live_request")
+                and checkpoint.get("semantic_plan") is None
                 and not _subject_matches(checkpoint, match["name"])
                 and not _subject_matches(checkpoint, match.get("shortcut_name", ""))
             ):
@@ -2320,6 +2391,18 @@ class DriveOwnerSearchService:
                     "mimeType": match["mime_type"],
                     "modifiedTime": match["modified_time"],
                     "createdTime": match["created_time"],
+                    **(
+                        {
+                            "sourceVersion": str(source.get("version", "")),
+                            **{
+                                key: source[key]
+                                for key in ("owners", "sharingUser")
+                                if key in source
+                            },
+                        }
+                        if checkpoint.get("semantic_plan") is not None
+                        else {}
+                    ),
                     **(
                         {"shortcutName": match["shortcut_name"]}
                         if match.get("shortcut_name")
@@ -2517,7 +2600,128 @@ class DriveOwnerSearchService:
             done = False
         return checkpoint, files, False, done
 
+    async def _semantic_assessment_page(self, job, checkpoint):
+        """Drain one durable candidate under the current search lease.
+
+        Discovery cursors and pending metadata commit before any content read.
+        A crash repeats assessment, never advances a cursor or permission effect.
+        Only validated positive observations enter the normal paid-batch path.
+        """
+        from hushh_mcp.services.drive_document_pages import OCR_IMAGE_MIMES
+        from hushh_mcp.services.drive_request_candidate_assessment import (
+            CandidateContent,
+            assess_request_candidates,
+            verified_evidence_matches,
+        )
+        from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+
+        pending = checkpoint.get("semantic_pending", [])
+        if not pending:
+            return checkpoint, [], False, bool(checkpoint.get("semantic_discovery_done"))
+        metadata = pending[0]
+
+        async def current():
+            await self.store.require_current(job)
+
+        async def read(candidate):
+            await current()
+            reader = self.reader_factory(user_id=job["user_id"], require_access=current)
+            item = candidate["metadata"]
+            match = {"file_id": item["id"], "name": item["name"], "mime_type": item["mimeType"]}
+            if item["mimeType"] in {"application/pdf", *OCR_IMAGE_MIMES}:
+                source, pages, truncated, fingerprint = await reader.read_request_visual_pages(
+                    match=match
+                )
+                pieces = tuple(
+                    (f"page:{page.page_number}", page.text) for page in pages if page.text.strip()
+                )
+            else:
+                source, body, truncated = await reader.read_compilation_match(match=match)
+                pieces = (("content", body),)
+                fingerprint = hashlib.sha256(body.encode("utf-8")).hexdigest()
+            await current()
+            return CandidateContent(
+                file_id=match["file_id"],
+                name=source.name,
+                mime_type=source.mime_type,
+                source_version=str(source.version),
+                pieces=pieces,
+                content_fingerprint=fingerprint,
+                truncated=bool(truncated),
+            )
+
+        position = checkpoint.get("semantic_assessed", 0) + 1
+        candidate = {
+            "position": position,
+            "document_ref": f"candidate_{position}",
+            "metadata": metadata,
+        }
+        policy = checkpoint["semantic_assessment_policy"]
+        if policy != assessment_policy_version():
+            raise DriveReadError("source_changed")
+        assessor = self.candidate_assessor or assess_request_candidates
+        observations = await assessor(
+            user_id=job["user_id"],
+            request_id=checkpoint["request_origin_id"],
+            request_revision=checkpoint["request_revision"],
+            connection_generation=job["generation"],
+            plan_digest=checkpoint["semantic_plan_digest"],
+            purpose={**checkpoint["semantic_purpose"], "semanticPlan": checkpoint["semantic_plan"]},
+            candidates=[candidate],
+            read_candidate=read,
+            require_current=current,
+            policy_version=policy,
+            assessment_timeout_seconds=60,
+            total_timeout_seconds=85,
+        )
+        await current()
+        if not isinstance(observations, list) or len(observations) != 1:
+            raise DriveReadError("provider_response_invalid")
+        observation = observations[0]
+        decision = observation.get("decision")
+        files = []
+        if decision == "verified_match":
+            if not verified_evidence_matches(
+                observation,
+                user_id=job["user_id"],
+                request_id=checkpoint["request_origin_id"],
+                request_revision=checkpoint["request_revision"],
+                connection_generation=job["generation"],
+                plan_digest=checkpoint["semantic_plan_digest"],
+                metadata=metadata,
+                policy_version=policy,
+            ):
+                raise DriveReadError("provider_response_invalid")
+            files.append({**metadata, "contentVerified": True, "requestEvidence": observation})
+            _counter(checkpoint, "verifiedCandidateCount")
+        elif decision == "excluded":
+            _counter(checkpoint, "contentExcludedCount")
+        elif decision == "unavailable":
+            if observation.get("code") in {
+                "assessment_unavailable",
+                "content_unavailable",
+                "provider_unavailable",
+            }:
+                raise DriveReadError("provider_unavailable", retryable=True)
+            # Account for a bounded/unsupported read while later files continue.
+            # The incomplete flag forbids a terminal zero-match conclusion.
+            _counter(checkpoint, "unavailableCandidateCount")
+            checkpoint["semantic_coverage_incomplete"] = True
+        else:
+            raise DriveReadError("provider_response_invalid")
+        checkpoint["semantic_assessed"] = position
+        checkpoint["semantic_pending"] = pending[1:]
+        done = (
+            not checkpoint["semantic_pending"] and checkpoint.get("semantic_discovery_done") is True
+        )
+        return checkpoint, files, False, done
+
     async def _page(self, job, *, page_size_override=None):
+        if job["checkpoint"].get("semantic_plan") is not None and (
+            job["checkpoint"].get("semantic_pending")
+            or job["checkpoint"].get("semantic_discovery_done")
+        ):
+            return await self._semantic_assessment_page(job, copy.deepcopy(job["checkpoint"]))
         if (
             job["checkpoint"].get("evidence_route") in {"index", "packet"}
             or job["checkpoint"].get("phase") == "index"
@@ -2592,7 +2796,9 @@ class DriveOwnerSearchService:
             done = _advance_query(checkpoint) if not drives and not next_token else False
             return checkpoint, [], False, done
         file_page_size = (
-            PAGE_SIZE
+            checkpoint.get("semantic_page_size", PAGE_SIZE)
+            if checkpoint.get("semantic_plan") is not None
+            else PAGE_SIZE
             if checkpoint.get("file_page_size") == PAGE_SIZE or page_size_override == PAGE_SIZE
             else FILE_LIST_PAGE_SIZE
             if checkpoint.get("file_page_size") == FILE_LIST_PAGE_SIZE
@@ -2626,12 +2832,19 @@ class DriveOwnerSearchService:
                 )
                 break
             except DriveReadError as error:
-                if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
+                semantic = checkpoint.get("semantic_plan") is not None
+                if str(error) != "file_too_large" or file_page_size == (
+                    1 if semantic else PAGE_SIZE
+                ):
                     raise
                 # Retry the exact cursor with less metadata; never advance a
                 # checkpoint from a page that exceeded the response budget.
-                file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
-                checkpoint["file_page_size"] = file_page_size
+                if semantic:
+                    file_page_size = 5 if file_page_size > 5 else 1
+                    checkpoint["semantic_page_size"] = file_page_size
+                else:
+                    file_page_size = FILE_LIST_PAGE_SIZE if file_page_size > 100 else PAGE_SIZE
+                    checkpoint["file_page_size"] = file_page_size
                 args["pageSize"] = file_page_size
         payload = result.payload
         if not isinstance(payload, dict):
@@ -2774,6 +2987,68 @@ class DriveOwnerSearchService:
         if done:
             # Drive, the completeness authority, has finished: no head start.
             checkpoint.pop("local_offset", None)
+        if checkpoint.get("semantic_plan") is not None:
+            seen = set(checkpoint.get("semantic_seen", []))
+            pending = []
+            for item in files:
+                if len(seen) >= 1500:
+                    # This is an explicit request work budget, never evidence
+                    # of provider exhaustion. Keep the checkpoint bounded.
+                    _counter(checkpoint, "unassessedCandidateCount")
+                    checkpoint["coverage_counts"]["workLimitReached"] = True
+                    incomplete, done = True, True
+                    continue
+                digest = hashlib.sha256(item["id"].encode()).hexdigest()[:24]
+                if digest in seen:
+                    _counter(checkpoint, "deduplicatedCount")
+                    continue
+                seen.add(digest)
+                pending.append(item)
+            checkpoint["semantic_seen"] = sorted(seen)
+            checkpoint["semantic_pending"] = pending
+            checkpoint["semantic_discovery_done"] = done
+            if incomplete:
+                # Partial discovery is distinct from result eligibility: each
+                # committed semantic result has independent positive evidence.
+                checkpoint["semantic_coverage_incomplete"] = True
+                incomplete = False
+            _counter(checkpoint, "uniqueCandidateCount", len(pending))
+            queued_bytes = len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))
+            if queued_bytes > MAX_CHECKPOINT_BYTES:
+                if file_page_size > 1:
+                    # Re-read the exact original cursor with fewer rows. No
+                    # cursor, seen set or folder queue from the oversized page
+                    # may commit, or candidates would be silently skipped.
+                    retry_job = dict(job)
+                    retry_checkpoint = copy.deepcopy(job["checkpoint"])
+                    retry_checkpoint["semantic_page_size"] = 5 if file_page_size > 5 else 1
+                    retry_counts = retry_checkpoint.setdefault("coverage_counts", {})
+                    for key in ("providerRowsScanned", "providerFilePages"):
+                        retry_counts[key] = checkpoint.get("coverage_counts", {}).get(key, 0)
+                    retry_counts["resizedProviderPages"] = (
+                        retry_counts.get("resizedProviderPages", 0) + 1
+                    )
+                    retry_checkpoint["semantic_provider_incomplete"] = (
+                        retry_checkpoint.get("semantic_provider_incomplete") is True or incomplete
+                    )
+                    retry_job["checkpoint"] = retry_checkpoint
+                    return await self._page(retry_job)
+                from hushh_mcp.services.drive_sharing_contract import MAX_ENVELOPE_BYTES
+
+                if queued_bytes > MAX_ENVELOPE_BYTES:
+                    # Refuse without committing or advancing an irreducible
+                    # page that cannot fit the existing encrypted envelope.
+                    raise DriveReadError("provider_response_invalid")
+                checkpoint["coverage_counts"]["workLimitReached"] = True
+                checkpoint["semantic_discovery_done"] = True
+                incomplete, done = True, True
+            incomplete = incomplete or checkpoint.get("semantic_provider_incomplete") is True
+            if incomplete:
+                checkpoint["semantic_coverage_incomplete"] = True
+                incomplete = False
+            files = []
+            # Pending observations are encrypted with this provider cursor.
+            done = done and not pending
         return checkpoint, files, incomplete, done
 
     @drive_operation(job_key="job_id")
@@ -2818,6 +3093,9 @@ class DriveOwnerSearchService:
 
         try:
             checkpoint = job["checkpoint"]
+            if checkpoint.get("semantic_pending") and deadline_seconds < 88:
+                # A short scheduler remainder is not a failed provider attempt.
+                return finish(await self.store.release(job))
             saved_request = checkpoint.get("request")
             from hushh_mcp.services.drive_request_bulk_service import (
                 _deterministic_statement_plan,
@@ -2825,6 +3103,7 @@ class DriveOwnerSearchService:
 
             if (
                 checkpoint.get("request_origin_id")
+                and checkpoint.get("semantic_plan") is None
                 and checkpoint.get("evidence_route", "provider") == "provider"
                 and checkpoint.get("request_coverage_query_version") != 1
                 and _legacy_single_query(checkpoint)
@@ -2944,6 +3223,10 @@ class DriveOwnerSearchService:
                             return finish(state)
                     if result["status"] != "running":
                         return finish(result["status"])
+                    if checkpoint.get("semantic_plan") is not None:
+                        # One content assessment per 90s slice fits the existing
+                        # 120s lease; progressive sharing runs after each commit.
+                        break
             return finish(await self.store.release(job))
         except TimeoutError:
             if handing_off:

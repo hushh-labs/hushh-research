@@ -28,6 +28,8 @@ from hushh_mcp.services.drive_document_retrieval import (
     DriveSuggestionRetrievalStore,
 )
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_packet_contract import EvidenceModel
+from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     LiveReviewedSource,
@@ -240,6 +242,8 @@ class LiveSearchPlan(BaseModel):
     # Only an explicit transaction request count bounds the final ranked set.
     # Missing counts preserve older frozen plans and exhaustive discovery.
     result_limit: int | None = Field(default=None, ge=1, le=1000)
+    # New request policies retain the full expression; older stored plans omit it.
+    semantic_query: SemanticDrivePlan | None = None
 
     @field_validator("terms")
     @classmethod
@@ -274,9 +278,14 @@ class LiveSearchPlan(BaseModel):
 
     @model_validator(mode="after")
     def require_search_boundary(self):
-        if self.subject_complete is False:
+        unresolved = (
+            self.semantic_query is not None and self.semantic_query.status == "input_required"
+        )
+        if self.subject_complete is False and not unresolved:
             raise ValueError("requested search subject is incomplete")
-        if self.subject_scope == "specific_records" and not (self.terms or self.exact_title):
+        if self.subject_scope == "specific_records" and not (
+            self.terms or self.exact_title or self.semantic_query is not None
+        ):
             raise ValueError("specific records require a search subject")
         if self.subject_scope == "metadata_listing" and (self.terms or self.exact_title):
             raise ValueError("metadata listing cannot also name a search subject")
@@ -293,6 +302,7 @@ class LiveSearchPlan(BaseModel):
             or self.file_kind != "any"
             or self.shared_with_me
             or self.sort == "recent"
+            or self.semantic_query is not None
         ):
             raise ValueError("search terms, a file type, a date range or a recent listing required")
         if (self.relative_days is not None or dated) and self.time_intent != "file_activity":
@@ -401,7 +411,7 @@ PLANNER_TIMEOUT_SECONDS = 30
 SUGGESTIONS_TIMEOUT_SECONDS = 60
 
 
-class LiveSearchModelPlan(LiveSearchPlan):
+class LiveSearchModelPlan(LiveSearchPlan, EvidenceModel):
     """Require the model's subject audit without invalidating stored plans."""
 
     subject_scope: Literal["specific_records", "metadata_listing"]
@@ -412,14 +422,38 @@ class LiveSearchModelPlan(LiveSearchPlan):
     expected_document_anatomy: str = Field(min_length=1, max_length=500)
 
 
+class SemanticLiveSearchModelPlan(LiveSearchModelPlan):
+    """New request interpretation; legacy hints never replace the full expression."""
+
+    semantic_query: SemanticDrivePlan
+
+    @model_validator(mode="after")
+    def semantic_subject(self):
+        if self.semantic_query.status == "ready":
+            if self.subject_complete is not True:
+                raise ValueError("ready semantic plan requires a complete subject audit")
+            if (self.subject_scope == "metadata_listing") != self.semantic_query.metadata_listing:
+                raise ValueError("semantic and compatibility subject scopes disagree")
+        return self
+
+
 async def interpret_live_search(*, prompt, user_id):
+    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=False)
+
+
+async def interpret_semantic_live_search(*, prompt, user_id):
+    return await _interpret_live_search(prompt=prompt, user_id=user_id, semantic=True)
+
+
+async def _interpret_live_search(*, prompt, user_id, semantic):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
     )
-    gene = next(child for child in manifest.subagents if child.id == "agent_documents_live_search")
+    gene_id = "agent_documents_request_search" if semantic else "agent_documents_live_search"
+    gene = next(child for child in manifest.subagents if child.id == gene_id)
     agent = build_single_turn_agent(
         gene,
-        output_schema=LiveSearchModelPlan,
+        output_schema=SemanticLiveSearchModelPlan if semantic else LiveSearchModelPlan,
     )
     result = await run_single_turn(
         agent,
@@ -454,6 +488,21 @@ async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
             prompt = (
                 f"{prompt}\n\nplanner_validation_feedback: invalid_plan_or_missing_subject_audit"
             )
+    raise AssertionError("unreachable")
+
+
+async def plan_semantic_live_search(planner, *, prompt, user_id) -> SemanticLiveSearchModelPlan:
+    """Validate the entire semantic output; never replace an invalid interpretation."""
+    for attempt in (1, 2):
+        try:
+            return SemanticLiveSearchModelPlan.model_validate(
+                await planner(prompt=prompt, user_id=user_id)
+            )
+        except (ValueError, SpecialistAdkTurnError, DriveReadError):
+            if attempt == 2:
+                raise
+            logger.info("drive_search_plan.retry reason=invalid_semantic_plan")
+            prompt = f"{prompt}\n\nplanner_validation_feedback: invalid_semantic_plan"
     raise AssertionError("unreachable")
 
 

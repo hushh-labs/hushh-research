@@ -234,6 +234,36 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   manifest-backed planner (default off); its model-failure fallback stays
   recorded in `planner_fallback`.
 
+### Declared: request-local semantic Drive search
+
+- Owner: Documents `agent_documents_request_search` plans a
+  `SemanticLiveSearchModelPlan` independently of the legacy live-search
+  instruction; its `semantic_query` is a strict versioned disjunction of
+  conjunctions. Documents `agent_documents_request_assessment` assesses candidates through
+  `generic_request_candidate_v1`. Both instructions live in
+  `hushh_mcp/agents/documents/agent.yaml`; no service-local semantic prompt or
+  lexical substitute participates in this policy.
+- Admission: only new UAT requests seal `semantic_search_policy_version=1`.
+  `DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=false` stops new enrollment. Historical
+  and refunded requests keep their original contracts. This supersedes the
+  October 17 deterministic-planner decision only for the enrolled cohort.
+- Host validation: validate and escape the complete interpretation, retain
+  provider content hits independently of filenames, and assess a durable bounded
+  candidate queue under the existing search lease. Only source-bound positive
+  observations commit as eligible results. Unresolved identities require input;
+  model/provider failure remains unavailable; incomplete reads cannot establish
+  an exhausted empty result. Scores and spelling clues grant no authority.
+- Source, request revision, connection generation, original purpose, plan digest
+  and assessment-policy digest bind encrypted evidence. The permission worker
+  checks the assessed provider version, current consent and payment separately.
+  Selected dates retain title → created → modified precedence by default;
+  explicit created/modified or content-period intent remains distinct.
+- Promotion evidence: production-function regression tests plus the opt-in
+  `consent-protocol/scripts/eval_drive_semantic_request.py` exercise independently labelled
+  synthetic planner and assessor cases. Report all-attempt precision/recall,
+  abstentions, errors and latency. These checks do not prove complete Google UI
+  parity, OCR accuracy on arbitrary originals or production-corpus recall.
+
 ### Declared: Continuous Drive evidence and reusable packets
 
 - Owner: existing Documents `agent_documents_suggestions` gene in

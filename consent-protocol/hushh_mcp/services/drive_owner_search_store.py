@@ -202,6 +202,11 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         "unsupportedCandidateCount",
                         "matchingFoldersDiscovered",
                         "matchingFoldersExhausted",
+                        "uniqueCandidateCount",
+                        "verifiedCandidateCount",
+                        "contentExcludedCount",
+                        "unavailableCandidateCount",
+                        "unassessedCandidateCount",
                     )
                 },
                 "workLimitReached": checkpoint.get("coverage_counts", {}).get(
@@ -209,6 +214,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ),
                 "providerPagesExhausted": row["status"] == "completed"
                 and not row["incomplete_search"]
+                and checkpoint.get("semantic_coverage_incomplete") is not True
                 and not checkpoint.get("request_rank_pruned", False)
                 and checkpoint.get("evidence_route") not in {"index", "packet"},
             }
@@ -1218,7 +1224,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if origin is not None:
             request = self._row(
                 connection,
-                """SELECT status,revision,expires_at,bulk_search_started_at,
+                """SELECT status,revision,expires_at,bulk_search_started_at,access_stop_requested_at,
                   preparation_error_code,recipient_user_id,request_envelope
                 FROM drive_share_requests WHERE request_id=:request AND user_id=:user""",
                 {"request": origin, "user": job["user_id"]},
@@ -1226,6 +1232,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             if (
                 request is None
                 or request["status"] != "pending"
+                or request.get("access_stop_requested_at") is not None
                 or request["revision"] != job["checkpoint"].get("request_revision")
                 or request["bulk_search_started_at"] is None
                 or current_mode == "trusted_auto"
@@ -1242,6 +1249,38 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     resource_id=str(origin),
                     purpose="request",
                 )
+                from hushh_mcp.services.drive_owner_allowed import semantic_search_request
+                from hushh_mcp.services.drive_request_semantic_plan import (
+                    SemanticDrivePlan,
+                    semantic_plan_digest,
+                )
+
+                claimed = job["checkpoint"]
+                frozen = self._checkpoint(row)
+                semantic = claimed.get("semantic_plan")
+                if semantic_search_request(private) != (semantic is not None):
+                    raise DriveReadError("search_superseded")
+                if semantic is not None:
+                    try:
+                        parsed = SemanticDrivePlan.model_validate(semantic)
+                        valid = (
+                            parsed.status == "ready"
+                            and semantic_plan_digest(parsed) == claimed.get("semantic_plan_digest")
+                            and claimed.get("semantic_purpose") == private.get("purpose")
+                            and all(
+                                claimed.get(key) == frozen.get(key)
+                                for key in (
+                                    "semantic_plan",
+                                    "semantic_plan_digest",
+                                    "semantic_purpose",
+                                    "semantic_assessment_policy",
+                                )
+                            )
+                        )
+                    except ValueError:
+                        valid = False
+                    if not valid:
+                        raise DriveReadError("search_superseded")
                 if (
                     private.get("agent_package_required") is not True
                     if current_mode == "agent_package"
@@ -1360,6 +1399,46 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         def operation(connection):
             row = self._current(connection, job)
             saved_checkpoint = self._checkpoint(row)
+            if (saved_checkpoint.get("semantic_plan") is not None) != (
+                checkpoint.get("semantic_plan") is not None
+            ):
+                raise DriveReadError("search_superseded")
+            if saved_checkpoint.get("semantic_plan") is not None:
+                from hushh_mcp.services.drive_request_candidate_assessment import (
+                    verified_evidence_matches,
+                )
+
+                if (
+                    any(
+                        checkpoint.get(key) != saved_checkpoint.get(key)
+                        for key in (
+                            "semantic_plan",
+                            "semantic_plan_digest",
+                            "semantic_assessment_policy",
+                            "semantic_purpose",
+                            "request_origin_id",
+                            "request_revision",
+                        )
+                    )
+                    or done
+                    and (
+                        checkpoint.get("semantic_pending")
+                        or checkpoint.get("semantic_discovery_done") is not True
+                    )
+                ):
+                    raise DriveReadError("search_superseded")
+                for item in files:
+                    if item.get("contentVerified") is not True or not verified_evidence_matches(
+                        item.get("requestEvidence"),
+                        user_id=job["user_id"],
+                        request_id=saved_checkpoint["request_origin_id"],
+                        request_revision=saved_checkpoint["request_revision"],
+                        connection_generation=job["generation"],
+                        plan_digest=saved_checkpoint["semantic_plan_digest"],
+                        metadata=item,
+                        policy_version=saved_checkpoint["semantic_assessment_policy"],
+                    ):
+                        raise DriveReadError("provider_response_invalid")
             if v1_large_page and saved_checkpoint.get("v1_live_request") is not True:
                 raise DriveReadError("search_superseded")
             selection = _bounded_selection(saved_checkpoint)

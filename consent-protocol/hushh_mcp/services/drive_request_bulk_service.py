@@ -23,7 +23,9 @@ from hushh_mcp.services.drive_suggestion_service import (
     LiveSearchPlan,
     explicitly_requests_file_activity,
     interpret_live_search,
+    interpret_semantic_live_search,
     plan_live_search,
+    plan_semantic_live_search,
 )
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -198,6 +200,7 @@ class DriveRequestBulkService:
         require_owner=None,
         wake=None,
         owner_index=None,
+        semantic_planner=None,
     ):
         self.sharing = sharing or DriveSharingStore()
         self.search = search or DriveOwnerSearchService()
@@ -206,6 +209,7 @@ class DriveRequestBulkService:
         # when one is injected or the operator explicitly enables the flag.
         self.planner = planner or (interpret_live_search if gemini_planner_enabled() else None)
         self.owner_index = owner_index or default_owner_index()
+        self.semantic_planner = semantic_planner or interpret_semantic_live_search
         self.recipient_identity = recipient_identity or recipient_identity_for_user
         self.require_owner = require_owner
         self.wake = wake or wake_drive_work
@@ -430,7 +434,49 @@ class DriveRequestBulkService:
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
             )
-        if route and route["kind"] in {"packet", "index"}:
+        if context.get("semanticSearch") is True:
+            # This creation-time policy never falls back to a lexical planner.
+            # The complete interpretation is sealed and later content-verified.
+            prompt = {
+                "document_request": purpose,
+                "transaction_search": True,
+                "current_time_utc": (
+                    requested_at if isinstance(requested_at, datetime) else datetime.now(UTC)
+                )
+                .astimezone(UTC)
+                .isoformat(timespec="seconds"),
+                "user_timezone": timezone,
+            }
+            try:
+                async with asyncio.timeout(2):
+                    vocabulary = await self.owner_index.owner_vocabulary(owner_id=user_id)
+                if vocabulary:
+                    # Existing owner-scoped metadata only; never enumerate a
+                    # new corpus or turn a spelling hint into identity proof.
+                    prompt["untrusted_owner_vocabulary"] = sorted(
+                        {
+                            word
+                            for word in vocabulary
+                            if isinstance(word, str) and 1 <= len(word) <= 80
+                        }
+                    )[:120]
+            except Exception:
+                pass  # Optional discovery hints cannot change the request.
+            try:
+                planned = await plan_semantic_live_search(
+                    self.semantic_planner,
+                    prompt=json.dumps(prompt, ensure_ascii=False),
+                    user_id=user_id,
+                )
+            except Exception as error:
+                if isinstance(error, DriveReadError):
+                    raise
+                raise DriveReadError("provider_unavailable", retryable=True) from None
+            if planned.semantic_query.status != "ready":
+                raise DriveReadError("narrow_selection_required")
+            plan = planned.model_dump(mode="json")
+            plan_source = "model"
+        elif route and route["kind"] in {"packet", "index"}:
             # Meaning is assessed against all indexed facts. No filename/date
             # metadata filter is allowed to discard a relevant candidate.
             plan = {
@@ -516,6 +562,7 @@ class DriveRequestBulkService:
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
+            **({"semantic_search": True} if context.get("semanticSearch") is True else {}),
             # A new automatic request shares every in-period match. An owner
             # takeover keeps the owner's exact review.
             **(
