@@ -618,10 +618,10 @@ final class NativeSupportTests: XCTestCase {
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
                                    appearance: String = "light", privacy: Int = 0, enabled: Bool = true,
-                                   sampleRow: NativeDrawerRow? = nil, backEnabled: Bool = false) -> NativeDrawerProjection {
+                                   sampleRow: NativeDrawerRow? = nil, backEnabled: Bool = false, title: String = "Public sample") -> NativeDrawerProjection {
         NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
             updateSequence: update, privacyGeneration: privacy, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
-            title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
+            title: title, sections: [NativeDrawerSection(id: "settings", title: "Settings",
                 rows: [sampleRow ?? NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
                     enabled: true, destructive: nil, selected: nil, pending: nil)])],
             open: open, enabled: enabled, backEnabled: backEnabled)
@@ -1187,6 +1187,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(memory.allows(action: "ancestor", row: "account"))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-confirm"]))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "account-delete"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-shared", "memory-shared-person"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-received", "memory-received-files"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-shared", "memory-confirm"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-secrets", "memory-secret", "memory-secret-remove"]))
+        XCTAssertTrue(NativeDrawerProjection.validMemoryPath(["memory", "memory-secrets", "memory-identity"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-secret-remove"]))
         var worldModel = account
         worldModel.profileStack = ["world-model", "world-model-sources", "world-model-review", "world-model-review-fact"].map {
             NativeProfilePage(id: $0, title: "Synthetic World Model navigation", sections: [])
@@ -1327,6 +1333,16 @@ final class NativeSupportTests: XCTestCase {
         await requireClose("Account")
         await requireRow("edit-name")
         let envelopeNavigation = try XCTUnwrap(controller.model.profileNavigationController)
+        let rootNavigationItem = try XCTUnwrap(envelopeNavigation.viewControllers.first).navigationItem
+        var repeatedBackTitleWrites = 0
+        let backTitleObservation = rootNavigationItem.observe(\.backButtonTitle, options: [.new]) { _, _ in repeatedBackTitleWrites += 1 }
+        let originalBackTitle = rootNavigationItem.backButtonTitle
+        rootNavigationItem.backButtonTitle = originalBackTitle
+        XCTAssertEqual(repeatedBackTitleWrites, 1, "Negative control must observe UIKit's redundant Back-label assignment")
+        repeatedBackTitleWrites = 0
+        for _ in 0..<3 { envelopeNavigation.reconcile() }
+        XCTAssertEqual(repeatedBackTitleWrites, 0, "Compatible content refreshes must not rebuild the native Back label")
+        backTitleObservation.invalidate()
         let navigationFrame = envelopeNavigation.view.convert(envelopeNavigation.view.bounds, to: window)
         let panelFrame = controller.host.view.convert(controller.host.view.bounds, to: window)
         XCTAssertEqual(navigationFrame.minY, panelFrame.minY, accuracy: 1, "Profile navigation must cover the panel's top safe area")
@@ -1393,11 +1409,15 @@ final class NativeSupportTests: XCTestCase {
         let navigation = try XCTUnwrap(controller.model.profileNavigationController)
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2, "A native pop cannot commit React Back before UIKit completes")
-        var replacement = privateDrawerState(update: 6, backEnabled: true)
+        var replacement = privateDrawerState(update: 6, backEnabled: true, title: "Updated Profile")
         replacement.surfaceOpen = true; replacement.profileDestinationId = "account-replacement"
         replacement.profileStack = account.profileStack
+        let transitioningBackTitle = rootNavigationItem.backButtonTitle
         controller.update(replacement)
+        navigation.reconcile()
+        XCTAssertEqual(rootNavigationItem.backButtonTitle, transitioningBackTitle, "A refresh must not replace Back text during UIKit's active pop")
         await requireRow("edit-name")
+        XCTAssertEqual(rootNavigationItem.backButtonTitle, replacement.title, "The latest title applies when navigation settles")
         XCTAssertEqual(backs, 2, "The old pop cannot commit Back against a newer Account incarnation")
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2)

@@ -87,7 +87,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onSharedMemoryCapability, onSecretMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -106,6 +106,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onPricingCapability?: (supported: boolean) => void;
   onPayoutCapability?: (supported: boolean) => void;
   onMemoryCapability?: (supported: boolean) => void;
+  onSharedMemoryCapability?: (supported: boolean) => void;
+  onSecretMemoryCapability?: (supported: boolean) => void;
   onFinanceCapability?: (supported: boolean) => void;
   onWorldModelCapability?: (supported: boolean) => void;
   onRuntimeCapability?: (supported: boolean) => void;
@@ -168,6 +170,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setPayoutSupported(payout); onPayoutCapability?.(payout);
         const memory = stack && capability.profileMemoryPages === true && capability.profileMemoryScene === true && hasNativeProfileScene(nativeDrawers, "memory-financial-context");
         setMemorySupported(memory); onMemoryCapability?.(memory);
+        onSharedMemoryCapability?.(memory && capability.profileSharedMemoryPages === true);
+        onSecretMemoryCapability?.(memory && capability.profileSecretMemoryPages === true);
         const finance = settings && capability.profileFinancePreferences === true;
         setFinanceSupported(finance); onFinanceCapability?.(finance);
         const worldModel = stack && capability.profileWorldModelPages === true && hasNativeProfileScene(nativeDrawers, "world-model");
@@ -177,9 +181,9 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         const connectors = stack && capability.profileConnectorPages === true && capability.profileConnectorScene === true && hasNativeProfileScene(nativeDrawers, "connector-custom-server");
         setConnectorsSupported(connectors); onConnectorsCapability?.(connectors);
       }
-    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); setRuntimeSupported(false); onRuntimeCapability?.(false); setConnectorsSupported(false); onConnectorsCapability?.(false); } });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); onSharedMemoryCapability?.(false); onSecretMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); setRuntimeSupported(false); onRuntimeCapability?.(false); setConnectorsSupported(false); onConnectorsCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability]);
+  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onSharedMemoryCapability, onSecretMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability, onConnectorsCapability]);
   useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
   const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
   const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);

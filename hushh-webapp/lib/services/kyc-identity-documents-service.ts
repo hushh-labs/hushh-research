@@ -35,8 +35,12 @@ export class KycIdentityDocumentsService {
     documentType: IdentityDocumentType;
     number: string;
     label: string;
+    beforeEffect?: () => Promise<void>;
+    /** Existing encrypted source reference supplies retry identity, never a value. */
+    sourceSecretId?: string;
   }): Promise<PkmWriteCoordinatorResult> {
-    const documentId = `doc_${globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    if (params.sourceSecretId !== undefined && !/^sec_[a-f0-9]{16}$/.test(params.sourceSecretId)) throw new Error("invalid_secret_reference");
+    const documentId = params.sourceSecretId ? `doc_${params.sourceSecretId.slice(4)}` : `doc_${globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const filedAt = new Date().toISOString();
     return PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
@@ -44,10 +48,13 @@ export class KycIdentityDocumentsService {
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
       confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_document_file" },
+      beforeEffect: params.beforeEffect,
       build: (context) => {
         const base = isRecord(context.currentDomainData) ? context.currentDomainData : {};
         const documents = isRecord(base.identity_documents) ? { ...base.identity_documents } : {};
-        documents[documentId] = {
+        // An uncertain/repeated filing must not append another record or
+        // overwrite edits made to the first committed identity document.
+        if (!Object.hasOwn(documents, documentId)) documents[documentId] = {
           document_type: params.documentType,
           number: params.number,
           label: params.label,

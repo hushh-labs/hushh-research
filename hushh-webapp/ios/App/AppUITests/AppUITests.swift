@@ -4804,6 +4804,18 @@ final class AppUITests: XCTestCase {
                 guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_SHARING_RETURN_FAILED"); return
                 }
+                // Cover new private sub-pages through their authored entry,
+                // without disclosing, copying or mutating reviewer records.
+                for label in ["Shared with you", "Drive files shared with you", "Secrets & identity documents"] {
+                    let entry = app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+                    guard waitForAdmittedControl(entry) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_ENTRY_UNAVAILABLE"); return }
+                    entry.tap()
+                    guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_BACK_UNAVAILABLE"); return }
+                    XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_MEMORY_PRIVATE_BODY_NOT_NATIVE")
+                    memoryBack.tap()
+                    guard waitForAdmittedControl(live) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_RETURN_FAILED"); return }
+                }
+                print("PROFILE_NATIVE_MEMORY_PRIVATE shared=true drive=true secrets=true returned=true mutated=false")
                 // A disposable financial record is not invented on the shared
                 // reviewer. Exercise the real editor only when its category
                 // exists, and record absence separately from editor acceptance.

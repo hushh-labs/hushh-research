@@ -18,7 +18,37 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Profile roster and source coverage — 2026-10-18
 
-Referrals continuation (unadmitted source candidate): the standard route has a
+Installed `a8efed082b` (UAT Debug iPhone qualification, matching app and runner)
+passes normal passphrase unlock and one attach-only traversal of all 13 Profile
+destinations. The run reaches Account/Phone and destructive Cancel, Payouts,
+Pricing, Memory/editor Cancel, World Model, Preferences/Voice/provider editor,
+Vault/editor Cancel, Devices, Connector details/editors, Referrals' three tabs
+and rules/Back, Help without sending, and both legal readers. It performs no
+record mutations. This supersedes earlier runner-startup failures, not their
+diagnosis: OS automation authorization was established before the passing run.
+It does not establish visual/accessibility, actual-save or Release-performance
+acceptance, and predates the following shared/protected Memory source batch.
+
+Memory's private native stack now source-maps received consented records and
+Drive collections/files through the same retained readers as web. Sensitive
+fields require explicit disclosure; Copy checks the exact grant, content and
+privacy lifetime before clipboard work and any asynchronous fallback. Secrets
+uses the shared list/reveal/removal/identity-filing owner, the existing 45-second
+hide and second-tap Copy policy, and existing encrypted writers. Native Back and
+confirmations stay within Profile. Values remain private in-process replicas;
+vault keys, tokens and wrapping material never enter projections. These new
+paths require additive iPhone qualification capabilities; old wrappers retain
+their complete web bodies. Physical acceptance of this batch is pending.
+
+The reported nested Back-label flicker exposed unconditional UIKit title and
+`backButtonTitle` assignments on every model refresh, including active push/pop.
+The candidate updates navigation metadata only when changed and after UIKit
+settles. Controllers, navigation items and the native transition remain retained;
+appearance/content refreshes are not a reason to rebuild Back. The nearest host
+regression observes actual navigation-item writes and mid-pop refresh ordering.
+Exact-candidate physical transition acceptance remains separate from that check.
+
+Referrals continuation (qualification-only candidate): the standard route has a
 private body projection independent of Profile's modal lifetime. It maps You,
 Ranking, Rewards, rules, existing Share, Circle selection/joining, creation and
 people selection through shared feature models. Catalogue filtering and reward
@@ -31,7 +61,8 @@ the stationary shell seat owns vertical chrome clearance; scrolling page height
 never becomes native viewport height. Titles and the existing route beacon match
 the web presentation. The latest five native host editor/owner/scroll cases pass;
 the changed-family physical journey also traverses all three tabs and rules/Back.
-That journey must pass on the newly installed candidate before it counts as evidence.
+The installed `a8efed082b` journey passes those tabs and rules/Back; mutations and
+visual/performance qualification remain separate.
 
 The body uses retained UIKit containment below native drawers, a shared owner
 fence, exact post-confirmation projection checks, cancellation tombstones,
@@ -70,9 +101,9 @@ The shared operation owner now rejects superseded/dismissed preview loads and
 old-owner refreshes, serializes whole-domain sharing/context writes and keeps
 confirmed mutations distinct from a later refresh failure. Native revocation
 retains the existing scope-wide effect, explicitly explained in confirmation.
-Shared records, protected details and the full Memory
-workspace retain an explicit complete-body handoff; they are reachable, **not
-counted as converted**. Search, native row presence and a successful build do
+Shared records and protected details now have the source mappings described
+above; the route-bound full Memory workspace retains its explicit complete-body
+handoff. Search, native row presence and a successful build do
 not establish visual, accessibility, device-performance or whole-roster parity.
 
 Financial-context creation/editing now uses a closed NativeDrawers v1 private
@@ -147,13 +178,13 @@ not integrated Connector presentation or physical-device qualification.
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
 | Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; installed activity/filter/Back journey passes, mutation and receipt-path qualification remain separate |
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
-| Memory | Native category/section/entity browsing, search, sharing, Live Memory and financial-context editing; shared/protected bodies and the route-bound full workspace retain their explicit handoff. Integrated qualification is separate |
+| Memory | Native category/section/entity browsing, search, sharing, Live Memory, financial-context editing and source-mapped received/shared/protected details; the route-bound full workspace retains its explicit handoff. Exact-candidate qualification is separate |
 | Personal World Model | Native research/status, cited facts/decisions/corrections/removal, public-source preparation/review/sharing confirmation, invitation create/share/revoke/claim and research/email settings are source-mapped; combined candidate qualification is separate |
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor and Gemini configuration now source-mapped through shared controllers; their candidate qualification remains separate |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
 | Connectors | Catalog/filter, provider details, Drive/preparation/files/packets/trust and custom setup/tools/removal now map through retained shared owners; three closed private editor variants. Qualification-only iPhone admission; exact-candidate device/visual/performance acceptance separate |
-| Invite friends | Route-bound native candidate maps You/Ranking/Rewards, Share, rules, Circle choice/creation/people and server-authoritative claims; capability remains unadvertised pending combined integration |
+| Invite friends | Route-bound native candidate maps You/Ranking/Rewards, Share, rules, Circle choice/creation/people and server-authoritative claims; iPhone qualification capability only. Installed three-tab/rules/Back journey passes |
 | Help & feedback | Native form, message types, draft and delivery outcomes |
 | Privacy | Native authored-document reader and links |
 | Terms | Native authored-document reader and links |

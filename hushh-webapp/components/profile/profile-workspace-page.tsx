@@ -87,11 +87,13 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
+import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import {
   ProfileStackNavigator,
   type ProfileStackEntry,
@@ -1015,6 +1017,8 @@ function ProfilePageContent({
   const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
   const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
   const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
+  const [nativeSharedMemoryAvailable, setNativeSharedMemoryAvailable] = useState(false);
+  const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
   const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
   const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
@@ -1040,6 +1044,12 @@ function ProfilePageContent({
     return () => { contextVisit.active = false; };
   }, [contextVisit]);
   useLayoutEffect(() => { setNativeMemoryWebBody(false); }, [activeDetail, nativeMenuOpen, nativeDetailOwner]);
+  const memoryShared = useMemorySharedModel({ owner: nativeDetailOwner, token: vaultOwnerToken, visit: activeDetail,
+    active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSharedMemoryAvailable || nativeMemoryWebBody)),
+    native: nativeMemoryActive && nativeSharedMemoryAvailable && !nativeMemoryWebBody, current: contextVisit.current });
+  const memorySecrets = useSecretsListModel({
+    active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
+    native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
   const nativePayout = useNativePayouts(nativePayoutActive);
@@ -1290,6 +1300,8 @@ function ProfilePageContent({
     manifestLoading: !!selectedDomain && !!loadingDomainManifests[selectedDomain.key],
     manifestFailed: !!selectedDomain && !!domainManifestErrors[selectedDomain.key], pendingPermissions: pendingPermissionToggles,
     preview: domainPreview,
+    shared: nativeSharedMemoryAvailable ? memoryShared : undefined,
+    secrets: nativeSecretsAvailable ? memorySecrets : undefined,
     openDomain: key => updateProfileView({ panel: "my-data", detail: `domain:${key}` }, "push"),
     openConnection: id => updateProfileView({ panel: "my-data", detail: `connection:${id}` }, "push"),
     openSharing: () => updateProfileView({ panel: "my-data", detail: "sharing" }, "push"),
@@ -3481,9 +3493,9 @@ function ProfilePageContent({
         }
       />
       {isVaultUnlocked ? (
-        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} />
+        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} model={memoryShared.shared} received={memoryShared.received} />
       ) : null}
-      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
+      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} model={memorySecrets} /> : null}
     </div>
   );
 
@@ -4963,7 +4975,7 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
     workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
       visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },

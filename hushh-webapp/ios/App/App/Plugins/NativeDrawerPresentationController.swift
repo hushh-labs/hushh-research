@@ -290,26 +290,34 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
     func reconcile() {
         guard !retired, model.profileNavigationController === self else { return }
-        rootPage.title = model.projection.title
-        rootPage.navigationItem.backButtonTitle = model.projection.title
+        reconcileInteraction()
+        // UIKit owns the active navigation transition, including its Back
+        // label. Reapplying metadata (even the same text) invalidates that
+        // presentation on ordinary SwiftUI/model refreshes. Reconcile only
+        // actual changes, after UIKit has finished the current transition.
+        guard !transitioning else { return } // didShow applies the latest state.
+        updateTitles(rootPage, title: model.projection.title, back: model.projection.title)
         for id in model.navigationPath where pages[id] == nil {
             let page = NativeProfilePageController(model: model, pageID: id, observer: rowObserver)
             configure(page)
             pages[id] = page
         }
         for (id, page) in pages {
-            page.title = model.page(id)?.title
-            page.navigationItem.backButtonTitle = id == "preferences" ? "Preferences" : page.title
+            let title = model.page(id)?.title
+            updateTitles(page, title: title, back: id == "preferences" ? "Preferences" : title)
         }
-        navigationBar.tintColor = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
-        reconcileInteraction()
-        guard !transitioning else { return } // didShow reconciles the latest projection.
+        let tint = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
+        if !navigationBar.tintColor.isEqual(tint) { navigationBar.tintColor = tint }
         let destinations: [UIViewController] = [rootPage] + model.navigationPath.compactMap { pages[$0] }
         guard destinations.count == model.navigationPath.count + 1,
               viewControllers.count != destinations.count || !zip(viewControllers, destinations).allSatisfy({ $0.0 === $0.1 }) else { return }
         applyingProjection = true
         let animated = viewIfLoaded?.window != nil && model.projection.open && !UIAccessibility.isReduceMotionEnabled
         setViewControllers(destinations, animated: animated)
+    }
+    private func updateTitles(_ page: UIViewController, title: String?, back: String?) {
+        if page.title != title { page.title = title }
+        if page.navigationItem.backButtonTitle != back { page.navigationItem.backButtonTitle = back }
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {

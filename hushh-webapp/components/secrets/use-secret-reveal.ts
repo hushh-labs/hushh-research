@@ -15,7 +15,7 @@ import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/l
  * unlocked vault, held in component memory, and dropped the moment the vault
  * locks. Never logged, never stored, never sent anywhere.
  */
-export function useSecretReveal() {
+export function useSecretReveal(active = true) {
   const { user } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
@@ -25,13 +25,13 @@ export function useSecretReveal() {
   const requests = useRef(new Map<string, symbol>());
   const mounted = useRef(false);
   const token = getVaultOwnerToken();
-  const locked = !user?.uid || !vaultKey || !token || privacy?.shielded || privacy?.appIsActive === false ||
+  const locked = !active || !user?.uid || !vaultKey || !token || privacy?.shielded || privacy?.appIsActive === false ||
     Capacitor.isNativePlatform() && !privacy;
   const uid = user?.uid ?? null;
-  const current = useRef({ uid, vaultKey, epoch });
+  const current = useRef({ uid, vaultKey, epoch, active });
 
   useLayoutEffect(() => {
-    current.current = { uid, vaultKey, epoch };
+    current.current = { uid, vaultKey, epoch, active };
     mounted.current = true;
     const pending = requests.current;
     const conceal = () => {
@@ -50,23 +50,23 @@ export function useSecretReveal() {
       pending.clear();
       unsubscribe(); document.removeEventListener("visibilitychange", visibility);
     };
-  }, [uid, vaultKey, epoch, locked]);
+  }, [uid, vaultKey, epoch, locked, active]);
 
   const reveal = useCallback(
     async (secretId: string): Promise<void> => {
       const owner = snapshotValidatedAuthSessionOwner();
       const privacy = nativePrivacyObservation().state;
       const vaultOwnerToken = getVaultOwnerToken();
-      if (!uid || !vaultKey || !mounted.current || owner?.userId !== uid || requests.current.has(secretId) ||
+      if (!active || !current.current.active || !uid || !vaultKey || !mounted.current || owner?.userId !== uid || requests.current.has(secretId) ||
           !vaultOwnerToken || Capacitor.isNativePlatform() && !privacy ||
           current.current.uid !== uid || current.current.vaultKey !== vaultKey || current.current.epoch !== epoch ||
           snapshotVaultSessionEpoch() !== epoch ||
           document.visibilityState === "hidden" || privacy?.shielded || privacy?.appIsActive === false) return;
       const request = Symbol();
       requests.current.set(secretId, request);
-      const active = () => {
+      const acceptsResult = () => {
         const privacy = nativePrivacyObservation().state;
-        return mounted.current && requests.current.get(secretId) === request &&
+        return mounted.current && current.current.active && requests.current.get(secretId) === request &&
           current.current.uid === uid && current.current.vaultKey === vaultKey && current.current.epoch === epoch &&
           snapshotVaultSessionEpoch() === epoch && isValidatedAuthSessionOwnerCurrent(owner) &&
           !!getVaultOwnerToken() && document.visibilityState !== "hidden" && !privacy?.shielded && privacy?.appIsActive !== false &&
@@ -80,7 +80,7 @@ export function useSecretReveal() {
           vaultOwnerToken,
           secretId,
         });
-        if (value && active()) setSnapshot(previous => ({ ...previous, values: { ...previous.values, [secretId]: value } }));
+        if (value && acceptsResult()) setSnapshot(previous => ({ ...previous, values: { ...previous.values, [secretId]: value } }));
       } catch {
         // A failed decrypt never surfaces secret material in an error path.
       } finally {
@@ -90,7 +90,7 @@ export function useSecretReveal() {
         }
       }
     },
-    [getVaultOwnerToken, uid, vaultKey, epoch],
+    [getVaultOwnerToken, uid, vaultKey, epoch, active],
   );
 
   const hide = useCallback((secretId: string) => {

@@ -161,6 +161,45 @@ describe("native Memory operation boundary", () => {
       previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
       removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
   }
+  it("keeps shared grants opaque and fences sensitive disclosure and asynchronous copying", async () => {
+    let copyAllowed = true;
+    const person = { personRef: "private-person-ref", person: "Synthetic person", labels: ["Legal entity"], items: [] };
+    const shared = { location: { page: "person" }, shared: { failed: false, shares: [], people: [person], refresh: vi.fn() }, person,
+      received: { shares: [], failed: false, refresh: vi.fn() }, card: { items: [{ key: "private-grant-ref", label: "Legal entity", state: "ready", sensitive: false,
+        sharedAt: null, accessEndsAt: null, purpose: null, fields: [{ name: "Registered agent", sensitivity: "sensitive" }],
+        data: { fein: "12-3456789", trade_name: "Acme Coffee", registered_agent: "Jordan Lee" } }], retry: vi.fn() },
+      exposed: [], actionRevision: "synthetic-visit", canCopy: () => copyAllowed, openShared: vi.fn(), openDrive: vi.fn(), selectPerson: vi.fn(), toggleExposure: vi.fn(), back: vi.fn(), reset: vi.fn(),
+    } as unknown as NonNullable<NativeMemoryModel["shared"]>;
+    const hook = renderHook(({ value }) => useNativeMemory(model({ shared: value })), { initialProps: { value: shared } });
+    const reading = () => JSON.stringify(hook.result.current.pages);
+    expect(validNativeMemoryPath(hook.result.current.pages)).toBe(true);
+    expect(reading()).toContain("Acme Coffee");
+    expect(reading()).not.toMatch(/12-3456789|Jordan Lee|private-person-ref|private-grant-ref/);
+    const reveal = hook.result.current.pages.at(-1)!.sections[0]!.rows.find(row => row.label === "Show Legal entity")!;
+    act(() => { void hook.result.current.rows.get(reveal.id)?.(); });
+    expect(shared.toggleExposure).toHaveBeenCalledExactlyOnceWith("private-grant-ref");
+    hook.rerender({ value: { ...shared, exposed: ["private-grant-ref"] } });
+    expect(reading()).toContain("12-3456789");
+    expect(validNativeMemoryPath([{ id: "memory" }, { id: "memory-shared" }, { id: "memory-confirm" }] as NativeProfilePage[])).toBe(false);
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const exec = Object.getOwnPropertyDescriptor(document, "execCommand");
+    let reject!: (error: Error) => void;
+    const fallback = vi.fn(() => true);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(() => new Promise<void>((_, failure) => { reject = failure; })) } });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: fallback });
+    try {
+      const copy = hook.result.current.pages.at(-1)!.sections[0]!.rows.find(row => row.label === "Copy Trade name")!;
+      let pending: void | Promise<void> = undefined;
+      act(() => { pending = hook.result.current.rows.get(copy.id)?.(); });
+      copyAllowed = false; // A privacy/grant/disclosure withdrawal wins the await.
+      await act(async () => { reject(new Error("clipboard_unavailable")); await pending; });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(document.querySelector("textarea")).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard); else Reflect.deleteProperty(navigator, "clipboard");
+      if (exec) Object.defineProperty(document, "execCommand", exec); else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
   it("bounds large category projections, preserves Unicode and rejects callbacks from a retired owner", () => {
     const text = "😀漢字".repeat(5000);
     const chunks = nativeMemoryText(text);

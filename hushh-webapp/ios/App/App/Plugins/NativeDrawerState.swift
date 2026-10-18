@@ -217,7 +217,9 @@ struct NativeDrawerProjection: Codable {
     static func validMemoryPath(_ path: [String]) -> Bool {
         guard path.first == "memory", path.count <= 5 else { return false }
         let children: [String: Set<String>] = [
-            "memory": ["memory-domain", "memory-sharing", "memory-live"],
+            "memory": ["memory-domain", "memory-sharing", "memory-live", "memory-shared", "memory-received", "memory-secrets"],
+            "memory-secrets": ["memory-secret", "memory-identity"], "memory-secret": ["memory-secret-remove", "memory-identity"],
+            "memory-shared": ["memory-shared-person"], "memory-received": ["memory-received-files"],
             "memory-domain": ["memory-section"], "memory-section": ["memory-entity"],
             "memory-entity": ["memory-confirm"], "memory-sharing": ["memory-connection"],
             "memory-connection": ["memory-confirm"], "memory-live": ["memory-record"]

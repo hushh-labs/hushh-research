@@ -10,6 +10,12 @@ import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-mod
 import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
 import { ROUTES } from "@/lib/navigation/routes";
+import type { MemorySharedModel } from "./use-memory-shared-model";
+import type { SecretsListModel } from "@/components/secrets/use-secrets-list-model";
+import { SECRET_OFFER_ROUTES } from "@/lib/pkm/secret-offer-handoff";
+import { sharedDatesLine, sharedValueRows } from "@/components/agent/consent/shared-with-you-card-view";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { LIVE_MEMORY_BOUNDARY_COPY, LIVE_MIRROR_HIDDEN_PREDICATES } from "@/lib/pkm/live-mirror-contract";
 import { formatLiveMirrorDateTime, liveMirrorStatus, liveMirrorRecordRows, liveMirrorSourceRoute, liveMirrorSourceDescription, liveMirrorSourceStateLabel,
   liveMirrorClaimText, liveMirrorConflictKey, liveMirrorFixRoutes, liveMirrorHistoryAction, liveMirrorHistoryDetail, liveMirrorGapText, LIVE_MIRROR_HISTORY_FOOTER } from "@/lib/pkm/live-mirror-presentation";
@@ -22,6 +28,8 @@ export type NativeMemoryModel = {
   permissions: readonly PkmDomainPermissionPresentation[]; upgrade: PkmDomainUpgradePresentation | null;
   manifestLoading: boolean; manifestFailed: boolean; pendingPermissions: Readonly<Record<string, boolean>>;
   preview: { open: boolean; title: string; presentation: PkmSectionPreviewPresentation | null; loading: boolean; error: string | null; deletingEntityKey: string | null };
+  shared?: MemorySharedModel;
+  secrets?: SecretsListModel;
   openDomain: (key: string) => void; openConnection: (id: string) => void; openSharing: () => void; openRoot: () => void;
   refresh: () => void; navigate: (href: string) => void; closePreview: () => void;
   openRetainedDetails: () => void;
@@ -45,9 +53,9 @@ class MemoryVisit {
   retire() { this.live = false; this.handles.clear(); }
 }
 type Local = { query: string; pages: Partial<Record<NativeMemoryPageId, number>>; liveTab: "facts" | "history" | "preview";
-  liveOpen: boolean; record: string | null; conflict: string | null; entity: string | null;
+  liveOpen: boolean; secretsOpen: boolean; record: string | null; conflict: string | null; entity: string | null;
   confirmation: { kind: "entity" | "grant"; key: string; privacy: number } | null; outcome: string | null };
-const initial = (): Local => ({ query: "", pages: {}, liveTab: "facts", liveOpen: false, record: null, conflict: null, entity: null, confirmation: null, outcome: null });
+const initial = (): Local => ({ query: "", pages: {}, liveTab: "facts", liveOpen: false, secretsOpen: false, record: null, conflict: null, entity: null, confirmation: null, outcome: null });
 const retainedRoot = (value: Local): Local => ({ ...initial(), query: value.query, pages: { memory: value.pages.memory } });
 // A replacement record may have the same display ordinal/title. Bind its
 // opaque handle to the private target, not to its current list position.
@@ -114,7 +122,10 @@ export function useNativeMemory(model: NativeMemoryModel) {
     action("memory-sharing", "Manage sharing", model.openSharing, { chevron: true, artworkId: "security" }),
     action("memory-refresh", "Refresh", model.refresh),
     action("memory-browse", "Browse all memory", () => model.navigate(ROUTES.PKM), { chevron: true }),
-    action("memory-retained", "Shared records & protected details", model.openRetainedDetails, { chevron: true }),
+    ...(model.shared ? [action("memory-shared", "Shared with you", model.shared.openShared, { chevron: true }),
+      action("memory-received", "Drive files shared with you", model.shared.openDrive, { chevron: true })] : []),
+    model.secrets ? action("memory-secrets", "Secrets & identity documents", () => change(value => ({ ...value, secretsOpen: true })), { chevron: true })
+      : action("memory-retained", model.shared ? "Secrets & identity documents" : "Shared records & protected details", model.openRetainedDetails, { chevron: true }),
   ];
   if (!model.metadataReady) root.push(...read("memory-status", model.metadataFailed ? "Saved details are temporarily unavailable. Refresh to try again." : "Loading saved details…"));
   else if (!model.domains.length) root.push(...read("memory-empty", "No saved details yet"));
@@ -132,6 +143,117 @@ export function useNativeMemory(model: NativeMemoryModel) {
       if (visit.current() && typeof choice?.text === "string" && choice.text.length <= 256)
         change(value => ({ ...value, query: choice.text!, pages: { ...value.pages, memory: 0 } }));
     });
+  }
+  const shared = model.shared;
+  const secrets = model.secrets;
+  if (secrets && local.secretsOpen) {
+    const key = `secrets:${secrets.lifetime.id}`;
+    const content: NativeDrawerRow[] = [];
+    if (secrets.loading) content.push(...read(`${key}:loading`, "Loading Secrets…"));
+    if (secrets.failed) content.push(...read(`${key}:error`, "Secrets couldn’t load."));
+    if (!secrets.loading && !secrets.failed && !secrets.items.length) content.push(...read(`${key}:empty`, "No Secrets saved"));
+    for (const item of secrets.panelItems) content.push(action(`${key}:select:${item.id}`, item.label, () => secrets.select(item.id),
+      { detail: item.filedLabel || item.kindLabel, chevron: true, enabled: !secrets.pending }));
+    content.push(action(`${key}:refresh`, "Refresh", secrets.refresh, { enabled: !secrets.pending && !secrets.loading }));
+    if (secrets.outcome) content.push(...read(`${key}:outcome`, secrets.outcome));
+    page("memory-secrets", "Secrets", content);
+    if (secrets.selected) {
+      const item = secrets.panelItems.find(value => value.id === secrets.selected!.id)!;
+      const itemKey = `${key}:item:${item.id}`;
+      const rows = [...read(`${itemKey}:kind`, item.kindLabel)];
+      if (secrets.value) {
+        rows.push(...read(`${itemKey}:value`, secrets.value),
+          action(`${itemKey}:hide`, "Hide", () => secrets.hide(item.id)),
+          action(`${itemKey}:copy`, secrets.copy.copyState === "confirm" ? "Tap to confirm copy" : secrets.copy.copyState === "copied" ? "Copied" : "Copy", secrets.copy.copy),
+          ...read(`${itemKey}:expiry`, "Hides after 45 seconds or when you leave the app."),
+          action(`${itemKey}:remove`, "Remove from Secrets", () => secrets.askRemove(item.id), { destructive: true, enabled: !secrets.pending }));
+      } else rows.push(action(`${itemKey}:reveal`, secrets.busyId === item.id ? "Opening…" : "Reveal on this device", () => secrets.reveal(item.id), { enabled: !secrets.pending && !secrets.busyId }));
+      if (item.offer && !item.filedLabel) rows.push(action(`${itemKey}:offer`, item.offer.actionLabel, () => {
+        const target = secrets.offer(item.id); if (target && target !== "kyc_identity_documents") model.navigate(SECRET_OFFER_ROUTES[target]);
+      }, { enabled: !secrets.pending, chevron: true }));
+      if (item.filedLabel) rows.push(...read(`${itemKey}:filed`, item.filedLabel));
+      page("memory-secret", item.label, rows);
+    }
+    if (secrets.target) page("memory-secret-remove", `Remove ${secrets.target.label}?`, [
+      ...read(`${key}:remove-warning`, "It is deleted from your vault. This cannot be undone."),
+      action(`${key}:remove-confirm:${secrets.target.id}`, "Remove", secrets.remove, { destructive: true, pending: secrets.pending, enabled: !secrets.pending && !secrets.uncertain }),
+      action(`${key}:remove-cancel`, "Keep", () => secrets.askRemove(null), { enabled: !secrets.pending }),
+      ...(secrets.outcome ? read(`${key}:remove-outcome`, secrets.outcome) : []),
+      ...(secrets.uncertain ? [action(`${key}:remove-refresh`, "Refresh", secrets.refresh)] : []),
+    ]);
+    if (secrets.filing && !secrets.target) {
+      const { item, state } = secrets.filing;
+      page("memory-identity", "Identity documents", [
+        ...read(`${key}:filing-label`, item.label), ...read(`${key}:filing-boundary`, "Nothing is shared until you approve a request."),
+        ...(state === "filed" ? read(`${key}:filing-complete`, "Filed in Identity documents") : state === "failed"
+          ? read(`${key}:filing-failed`, "Filing wasn’t confirmed. Check your identity documents before trying again.")
+          : [action(`${key}:file:${item.id}`, `File ${item.offerNoun || "ID number"}`, secrets.file, { enabled: !secrets.pending, pending: secrets.pending })]),
+        action(`${key}:filing-cancel`, state === "filed" ? "Done" : "Not now", secrets.dismissFiling, { enabled: !secrets.pending }),
+      ]);
+    }
+  }
+  if (shared?.location?.page === "shared" || shared?.location?.page === "person") {
+    page("memory-shared", "Shared with you", shared.shared.failed
+      ? [...read("shared-error", "Shared information couldn’t load."), action("shared-retry", "Try again", shared.shared.refresh)]
+      : shared.shared.shares === null ? read("shared-loading", "Checking what others share…")
+      : shared.shared.people.length ? shared.shared.people.map(person => action(`shared-person:${person.personRef}`, person.person,
+        () => shared.selectPerson(person.personRef), { detail: person.labels.join(" · "), chevron: true })) : read("shared-empty", "Nothing shared with you right now"));
+    if (shared.location.page === "person") {
+      const content: NativeDrawerRow[] = [];
+      if (!shared.person) content.push(...read("shared-missing", "This shared information is no longer available."));
+      else {
+        for (const item of shared.card.items) {
+          const key = `shared-value:${shared.actionRevision}:${item.key}`;
+          content.push(...read(`${key}:title`, item.label));
+          const when = sharedDatesLine(item.sharedAt, item.accessEndsAt);
+          if (when) content.push(...read(`${key}:dates`, when));
+          if (item.purpose) content.push(...read(`${key}:purpose`, item.purpose));
+          if (item.state !== "ready") {
+            content.push(...read(`${key}:state`, item.state === "loading" ? "Opening on this device…" : item.state === "locked" ? "Unlock to view"
+              : item.state === "ended" ? item.endedReason === "revoked" ? "Access revoked" : "Access expired" : item.state === "unopenable" ? "This item cannot be opened here." : "Couldn’t open on this device."));
+            continue;
+          }
+          const values = sharedValueRows(item.data, item.label, item.fields);
+          const exposed = shared.exposed.includes(item.key);
+          if (item.sensitive || values.some(value => value.sensitive)) content.push(action(`${key}:expose`, exposed ? `Hide ${item.label}` : `Show ${item.label}`,
+            () => shared.toggleExposure(item.key)));
+          for (const [index, value] of values.entries()) {
+            const hidden = !exposed && (item.sensitive || value.sensitive);
+            content.push(...field(`${key}:${index}`, value.label || item.label, hidden ? "Hidden" : value.value));
+            if (!hidden) content.push(action(`${key}:copy:${index}`, `Copy ${value.label || item.label}`, async () => {
+              const generation = nativePrivacyObservation().state?.generation;
+              const current = () => visit.current() && nativePrivacyObservation().state?.generation === generation && shared.canCopy(item.key, shared.card.lifetime, !!(item.sensitive || value.sensitive), item.data);
+              const copied = await copyToClipboard(value.value, current);
+              if (!current()) return;
+              change(previous => ({ ...previous, outcome: copied ? "Copied" : "Couldn’t copy" }));
+            }));
+          }
+        }
+        if (shared.card.items.some(item => item.state === "unavailable")) content.push(action("shared-open-retry", "Try again", shared.card.retry));
+      }
+      if (local.outcome) content.push(...read("shared-outcome", local.outcome));
+      page("memory-shared-person", shared.person?.person || "Shared information", content);
+    }
+  }
+  if (shared?.location?.page === "drive" || shared?.location?.page === "files") {
+    page("memory-received", "Drive files shared with you", shared.received.failed
+      ? [...read("received-error", "Couldn’t load Drive files."), action("received-retry", "Try again", shared.received.refresh)]
+      : shared.received.shares === null ? read("received-loading", "Checking Drive shares…")
+      : shared.received.shares.length ? shared.received.shares.map(collection => action(`received:${collection.shareId}`,
+        `${collection.sharedCount.toLocaleString()} ${collection.sharedCount === 1 ? "file" : "files"}`,
+        () => shared.selectDrive(collection.shareId), { detail: new Date(collection.createdAt).toLocaleDateString(), chevron: true })) : read("received-empty", "No Drive files shared yet"));
+    if (shared.location.page === "files") {
+      const content = !shared.drive ? read("received-missing", "This collection is no longer available.") : shared.files.failed
+        ? [...read("received-files-error", "Couldn’t load these files."), action("received-files-retry", "Try again", shared.files.retry)]
+        : shared.files.loading ? read("received-files-loading", "Loading shared files…")
+        : shared.files.page?.files.flatMap((file, index) => file.openUrl
+          ? [action(`received-file:${shared.drive!.shareId}:${index}:${file.openUrl}`, file.name, () => openExternalUrl(file.openUrl!), { chevron: true })]
+          : read(`received-file:${index}`, file.name)) ?? [];
+      if (shared.drive?.status === "queued" || shared.drive?.status === "running") content.push(...read("received-running", "More files may arrive as sharing continues."));
+      if (shared.files.canPrevious) content.push(action("received-previous", "Previous", shared.files.previous, { enabled: !shared.files.loading }));
+      if (shared.files.canNext) content.push(action("received-next", "Next 25", shared.files.next, { enabled: !shared.files.loading }));
+      page("memory-received-files", "Shared Drive files", content);
+    }
   }
   const domain = model.selectedDomain;
   if (model.detail?.startsWith("domain:")) {
@@ -284,17 +406,35 @@ export function useNativeMemory(model: NativeMemoryModel) {
     ]);
   }
   const back = () => {
-    if (visit.pending || model.preview.deletingEntityKey) return true;
+    if (visit.pending || model.preview.deletingEntityKey || model.secrets?.pending) return true;
+    if (model.secrets && local.secretsOpen) {
+      if (model.secrets.target) model.secrets.askRemove(null);
+      else if (model.secrets.filing) model.secrets.dismissFiling();
+      else if (model.secrets.selected) model.secrets.select(null);
+      else change(value => ({ ...value, secretsOpen: false }));
+      return true;
+    }
     if (confirmationVisible) { change(value => ({ ...value, confirmation: null })); return true; }
     if (local.entity && model.preview.open) { change(value => ({ ...value, entity: null })); return true; }
     if (model.preview.open) { model.closePreview(); return true; }
     if (pages.some(page => page.id === "memory-record")) { change(value => ({ ...value, record: null, conflict: null })); return true; }
     if (local.liveOpen) { change(value => ({ ...value, liveOpen: false })); return true; }
+    if (model.shared?.location) { change(value => ({ ...value, outcome: null })); return model.shared.back(); }
     return false;
   };
   const ancestor = (choice: { rowId?: string }) => {
-    if (!visit.current() || visit.pending || model.preview.deletingEntityKey || !pages.slice(0, -2).some(page => page.id === choice.rowId)) return false;
+    if (!visit.current() || visit.pending || model.secrets?.pending || model.preview.deletingEntityKey || !pages.slice(0, -2).some(page => page.id === choice.rowId)) return false;
     change(() => initial());
+    if (choice.rowId === "memory-secrets" || choice.rowId === "memory-secret") {
+      model.secrets?.askRemove(null); model.secrets?.dismissFiling();
+      if (choice.rowId === "memory-secrets") model.secrets?.select(null);
+      change(value => ({ ...value, secretsOpen: true })); return true;
+    }
+    model.secrets?.select(null);
+    model.secrets?.dismissFiling();
+    if (choice.rowId === "memory-shared") { model.shared?.openShared(); return true; }
+    if (choice.rowId === "memory-received") { model.shared?.openDrive(); return true; }
+    model.shared?.reset();
     if (choice.rowId !== "memory-section") model.closePreview();
     if (choice.rowId === "memory") model.openRoot();
     else if (choice.rowId === "memory-sharing") model.openSharing();
@@ -302,6 +442,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
     else if (choice.rowId === "memory-live") change(value => ({ ...value, liveOpen: true }));
     return true;
   };
-  return { pages, rows: actions, back, ancestor, nested: local.liveOpen || confirmationVisible || model.preview.open,
-    busy: visit.pending || !!model.preview.deletingEntityKey };
+  return { pages, rows: actions, back, ancestor, nested: local.secretsOpen || !!model.shared?.location || local.liveOpen || confirmationVisible || model.preview.open,
+    busy: visit.pending || !!model.preview.deletingEntityKey || !!model.secrets?.pending };
 }
