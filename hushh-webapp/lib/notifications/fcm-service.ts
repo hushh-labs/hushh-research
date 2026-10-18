@@ -332,9 +332,9 @@ export type FCMInitOptions = {
 async function registrationIsAccepted(response: Response): Promise<boolean> {
   if (!response.ok) return false;
   const payload = await response.clone().json().catch(() => null) as {
-    degraded?: boolean; registered?: boolean; success?: boolean;
+    degraded?: boolean; registered?: boolean; success?: boolean; chatReady?: boolean;
   } | null;
-  return !payload?.degraded && payload?.registered !== false && payload?.success !== false;
+  return !payload?.degraded && payload?.registered !== false && payload?.success !== false && payload?.chatReady !== false;
 }
 
 let nativeListenersConfigured = false;
@@ -864,6 +864,7 @@ async function initializeNativeFCM(
         .catch(() => null)) as {
         degraded?: unknown;
         registered?: unknown;
+        chatReady?: boolean;
       } | null;
       if (payload?.degraded || payload?.registered === false) {
         console.warn(
@@ -873,6 +874,12 @@ async function initializeNativeFCM(
           status: "push_failed",
           detail: "backend_register_degraded",
         };
+      }
+      if (payload?.chatReady === false) {
+        // Generic push registration can succeed while native preview custody
+        // fails. Do not advertise working chat delivery; the existing retry
+        // schedule repairs preparation without weakening recipient fences.
+        return { status: "push_failed", detail: "native_chat_key_unavailable" };
       }
       console.log("[FCM] ✅ Token registered with backend");
     } else {
@@ -892,6 +899,8 @@ async function initializeNativeFCM(
       const { HushhNotifications } = await import("@/lib/capacitor");
       const settings = await HushhNotifications.getNotificationSettings();
       if (!settings.alertsEnabled) detail = "native_alerts_disabled";
+      else if (settings.chatAlertsEnabled === false) detail = "native_chat_alerts_disabled";
+      else if (settings.chatSoundsEnabled === false) detail = "native_chat_sound_disabled";
       else if (!settings.soundsEnabled) detail = "native_sound_disabled";
       else if (!settings.emergencySoundEnabled) detail = "native_emergency_sound_disabled";
     } catch { /* Earlier installed wrappers retain registration and their existing settings action. */ }

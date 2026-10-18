@@ -9,7 +9,6 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   FormEvent,
-  PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -25,6 +24,8 @@ import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import { MessageReactionMenu, QUICK_MESSAGE_REACTIONS } from "@/components/app-ui/message-reaction-menu";
+import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
 import { shareFile } from "@/lib/share/share-file";
@@ -132,7 +133,6 @@ const EMPTY_THREAD: ThreadState = {
   nextBefore: null,
 };
 
-const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"] as const;
 
 function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
   const reactions = [...(message.reactions ?? [])];
@@ -414,7 +414,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editDraftGeneration = useRef(0);
-  const messageLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const messageSearchRef = useRef(messageSearchQuery); messageSearchRef.current = messageSearchQuery;
@@ -564,10 +563,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       attachmentDrafts.current.clear(); sendAttempts.current.clear();
       sendingSelections.current.clear(); reactionPending.current.clear();
     }
-    if (messageLongPressTimer.current) {
-      clearTimeout(messageLongPressTimer.current);
-      messageLongPressTimer.current = null;
-    }
+    messageLongPress.cancel();
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
     acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
@@ -597,7 +593,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   useEffect(() => {
     return () => {
-      if (messageLongPressTimer.current) clearTimeout(messageLongPressTimer.current);
       inboxLoadGeneration.current += 1;
     };
   }, []);
@@ -624,6 +619,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useChatAlertVisibility(lane === "people" && isCurrentRead && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
   const canCompose = hasRouteSelection && !pendingSelection && isCurrentRead && thread.canSend;
+  const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer);
+  useEffect(() => messageLongPress.cancel, [requestedPersonRef, requestedConversationId, lane, messageLongPress.cancel]);
 
   const loadInbox = useCallback(
     async (options?: { preserveItems?: boolean }) => {
@@ -891,7 +888,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           const complete = remainder.slice(0, splitAt + 2);
           remainder = remainder.slice(splitAt + 2);
           for (const frame of parseSseFrames(complete)) {
-            if (frame.event !== "direct_message") continue;
+            if (frame.event !== "direct_message" && frame.event !== "resync") continue;
             const conversationId = String(frame.data.conversationId || "").trim() || null;
             const messageId = String(frame.data.messageId || "").trim() || null;
             dispatchDirectMessagesUpdated({
@@ -1308,26 +1305,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setEditingContent(message.content);
   };
 
-  const clearMessageLongPress = () => {
-    if (messageLongPressTimer.current) {
-      clearTimeout(messageLongPressTimer.current);
-      messageLongPressTimer.current = null;
-    }
-  };
-
-  const handleMessagePointerDown = (
-    event: ReactPointerEvent<HTMLElement>,
-    message: DirectMessage,
-  ) => {
-    if (event.pointerType === "mouse") return;
-    if ((event.target as HTMLElement).closest("button, textarea")) return;
-    clearMessageLongPress();
-    messageLongPressTimer.current = setTimeout(() => {
-      setActiveMessageActions(message.id);
-      setOpenReactionPicker(message.id);
-      window.navigator.vibrate?.(8);
-      messageLongPressTimer.current = null;
-    }, 450);
+  const openMessageActions = (message: DirectMessage) => {
+    if (!isCurrentRead || message.conversationId !== activeConversationId || pendingSelection || blockingLayer) return;
+    replyFocus.current = null;
+    messageMenuOpening.current = {
+      generation: operationGeneration.current,
+      sequence: ++messageMenuSequence.current,
+      conversationId: message.conversationId,
+      messageId: message.id,
+    };
+    setActiveMessageActions(message.id);
+    setOpenReactionPicker(null);
+    setOpenMessageMenu(message.id);
   };
 
   const saveEdit = () => {
@@ -1766,11 +1755,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                             );
                           }
                         }}
-                        onPointerDown={(event) => handleMessagePointerDown(event, message)}
-                        onPointerUp={clearMessageLongPress}
-                        onPointerCancel={clearMessageLongPress}
+                        onPointerDown={(event) => messageLongPress.start(event, () => openMessageActions(message))}
+                        onPointerMove={messageLongPress.move}
+                        onPointerUp={messageLongPress.cancel}
+                        onPointerCancel={messageLongPress.cancel}
                         onPointerLeave={(event) => {
-                          clearMessageLongPress();
+                          messageLongPress.cancel();
                           if (event.pointerType === "mouse" && !openMessageMenu &&
                             !event.currentTarget.contains(document.activeElement)) {
                             setActiveMessageActions((current) =>
@@ -1778,9 +1768,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                             );
                           }
                         }}
-                        onClick={(event) => {
-                          if ((event.target as HTMLElement).closest("button, textarea")) return;
-                          setActiveMessageActions(message.id);
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          messageLongPress.cancel();
+                          if (!pendingSelection && !blockingLayer) openMessageActions(message);
                         }}
                       >
                         {!message.senderIsViewer ? (
@@ -1866,7 +1857,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     </PopoverTrigger>
                                     <PopoverContent side="top" align={message.senderIsViewer ? "end" : "start"}
                                       collisionPadding={12} className={styles.reactionPicker} aria-label="Choose a reaction">
-                                      {QUICK_REACTIONS.map((emoji) => (
+                                      {QUICK_MESSAGE_REACTIONS.map((emoji) => (
                                         <button key={emoji} type="button" aria-label={`React ${emoji}`}
                                           onClick={() => saveReaction(message, emoji)}>{emoji}</button>
                                       ))}
@@ -1877,17 +1868,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                   modal={false}
                                   open={openMessageMenu === message.id}
                                   onOpenChange={(open) => {
-                                    if (open) {
-                                      replyFocus.current = null;
-                                      messageMenuOpening.current = {
-                                        generation: operationGeneration.current,
-                                        sequence: ++messageMenuSequence.current,
-                                        conversationId: message.conversationId,
-                                        messageId: message.id,
-                                      };
-                                    }
-                                    setOpenMessageMenu(open ? message.id : null);
-                                    if (open) setActiveMessageActions(message.id);
+                                    if (open) openMessageActions(message);
+                                    else setOpenMessageMenu(null);
                                   }}
                                 >
                                   <DropdownMenuTrigger asChild>
@@ -1920,6 +1902,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       composerRef.current?.focus();
                                     }}
                                   >
+                                    {!message.deletedForEveryoneAt ? <MessageReactionMenu
+                                      disabled={reactionPending.current.has(message.id)}
+                                      onSelect={(emoji) => { setOpenMessageMenu(null); saveReaction(message, emoji); }} /> : null}
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem onSelect={() => startReply(message)}>
                                         <Quote className="h-3.5 w-3.5" aria-hidden="true" />

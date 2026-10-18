@@ -62,6 +62,7 @@ async def notification_events(
     lease: streams.StreamLease | None = None,
     authorize: streams.Authorize | None = None,
     backfill: Backfill | None = None,
+    snapshot_resets: bool = False,
     heartbeat_seconds: float = 30,
     lifetime_seconds: float | None = None,
     auth_recheck_seconds: float = streams.FEED_AUTH_RECHECK_SECONDS,
@@ -99,7 +100,12 @@ async def notification_events(
 
     try:
         queue = await asyncio.wait_for(
-            consent_listener.subscribe_consent_queue(user_id), max(0, deadline - clock())
+            (
+                consent_listener.subscribe_consent_queue(user_id, snapshot_resets=True)
+                if snapshot_resets
+                else consent_listener.subscribe_consent_queue(user_id)
+            ),
+            max(0, deadline - clock()),
         )
         if lease is not None:
             lease.queue = queue

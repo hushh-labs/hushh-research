@@ -6,6 +6,7 @@ from api.routes import (
     drive_request_payments,
     drive_request_requester,
     drive_searches,
+    drive_shared_files,
     drive_sharing,
     drive_work_drain,
     external_connectors,
@@ -27,6 +28,7 @@ def register_connector_routes(app: FastAPI) -> None:
         scope_commerce.webhook_router,
         scope_commerce_work.router,
         drive_searches.router,
+        drive_shared_files.router,
         drive_work_drain.router,
         profile_discovery_work_drain.router,
     ):

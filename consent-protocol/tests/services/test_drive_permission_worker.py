@@ -11,7 +11,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_revocation_executor import DriveRevocationExecutor
-from hushh_mcp.services.google_drive_permission_adapter import DrivePermissionError
+from hushh_mcp.services.google_drive_permission_adapter import (
+    DrivePermissionError,
+    PermissionSnapshot,
+)
 from tests.services.test_drive_permission_executor import (  # noqa: F401
     connector_postgres_url,
     documents,
@@ -138,3 +141,36 @@ async def test_worker_bounds_are_enforced(bounds):
     worker = DrivePermissionWorker(object())
     with pytest.raises(ValueError, match="invalid worker bounds"):
         await worker.run(**bounds)
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_grant_is_deferred_and_never_reposted_without_absence_check(
+    permission_setup,
+):
+    store, executor, adapter, _ = permission_setup
+    adapter.create_reader.side_effect = DrivePermissionError("sharing_rate_limited", retryable=True)
+    worker = DrivePermissionWorker(executor)
+    assert (await worker.run())["outcomes"] == {"deferred": 2}
+    # Minutes-long timer leases: nothing is due and nothing is POSTed again.
+    assert await worker.due(8) == []
+    assert (await worker.run())["outcomes"] == {}
+    assert adapter.create_reader.await_count == 2
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_permission_operations
+              SET lease_expires_at=clock_timestamp()-INTERVAL '1 second'""")
+        )
+    # The grants exist after all: the absence check finds them, so no POST.
+    adapter.list_permissions.return_value = PermissionSnapshot(
+        (
+            {
+                "id": "granted-meanwhile",
+                "type": "user",
+                "role": "reader",
+                "emailAddress": "recipient@example.invalid",
+            },
+        )
+    )
+    assert (await worker.run())["outcomes"] == {"preexisting": 2}
+    assert adapter.create_reader.await_count == 2
+    assert rows(store, "drive_share_requests")[0]["status"] == "completed"

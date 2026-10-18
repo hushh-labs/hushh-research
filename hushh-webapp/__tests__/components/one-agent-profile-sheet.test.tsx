@@ -74,6 +74,27 @@ vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
   isLocalCrmBuildEnabled: () => false,
 }));
 
+vi.mock("@/lib/services/todo-list-pkm-service", () => ({
+  TodoListPkmService: {
+    load: vi.fn().mockResolvedValue({
+      tasks: [
+        { id: "task-anytime", title: "Anytime task", date: null, status: "pending", type: "manual" },
+        { id: "task-dated", title: "Tomorrow task", date: "2099-01-01", status: "pending", type: "manual" },
+      ],
+    }),
+    setStatus: vi.fn().mockResolvedValue({ success: true }),
+    remove: vi.fn().mockResolvedValue({ success: true }),
+  },
+  openTodoItems: (tasks: any[]) => tasks.filter((t: any) => t.status !== "done"),
+  completedTodoItems: (tasks: any[]) => tasks.filter((t: any) => t.status === "done"),
+  TODO_SOURCE_LABELS: { calendar: "Calendar", gmail: "Mail", manual: "Personal" },
+}));
+vi.mock("@/lib/profile/gmail-connector-store", () => ({
+  useGmailConnectorStatus: () => ({
+    status: { connected: true, google_email: "test@example.com" },
+  }),
+}));
+
 const item = (id: string, event_type: string) => ({
   id,
   event_type,
@@ -558,5 +579,29 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-conflict")).toBeNull();
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
+  });
+  it("renders the To-do tab between Feed and Profile and shows tasks preview", async () => {
+    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual([
+      "Feed",
+      "To-do",
+      "Profile",
+    ]);
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await screen.findByText("To-do list");
+    expect(screen.getByText("Anytime task")).toBeInTheDocument();
+    expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", { name: /Open To-do List/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open To-do List/i })).not.toBeInTheDocument();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 });

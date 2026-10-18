@@ -2607,6 +2607,7 @@ describe("NearbyCheckInSheet", () => {
       expect(savedPlaces.addSavedLocation.mock.calls[0]?.[0]).toMatchObject({
         input: {
           category: "other",
+          savedFrom: "check_in",
           label: "Blue Bottle Coffee",
           latitude: 37.4275,
           longitude: -122.1697,
@@ -2642,6 +2643,7 @@ describe("NearbyCheckInSheet", () => {
 
       await screen.findByTestId("nearby-presence-active");
       const checkOut = screen.getByRole("button", { name: "I'm leaving" });
+      expect(checkOut.closest('[data-ui-role="flow-actions"]')).toHaveClass("mx-auto", "max-w-[244px]");
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");

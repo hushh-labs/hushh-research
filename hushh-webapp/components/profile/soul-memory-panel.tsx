@@ -135,12 +135,12 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
   return <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
     {livePreview}
     <section aria-label="memory.md" className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm text-muted-foreground">The memory One uses in every conversation.</p>
-      {editing ? <div className="flex gap-2">
-        <Button variant="muted" disabled={saving} onClick={cancelEdit}>Cancel</Button>
-        <Button disabled={saving || current.draft === current.document.markdown || current.draft.length > MAX_MARKDOWN_MEMORY_CHARS} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button>
-      </div> : <Button variant="muted" disabled={loading} onClick={() => setState({ ...current, editing: true })}>Edit memory.md</Button>}
+    <div className="flex flex-col items-start gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <p className="ui-text-row-description min-w-0 flex-1">The memory One uses in every conversation.</p>
+      {editing ? <div className="flex flex-wrap gap-2">
+        <Button variant="muted" className="min-h-11" disabled={saving} onClick={cancelEdit}>Cancel</Button>
+        <Button className="min-h-11" disabled={saving || current.draft === current.document.markdown || current.draft.length > MAX_MARKDOWN_MEMORY_CHARS} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</Button>
+      </div> : <Button variant="muted" className="min-h-11 shrink-0" disabled={loading} onClick={() => setState({ ...current, editing: true })}>Edit memory.md</Button>}
     </div>
     {sync === "saving" ? <p role="status" className="text-xs text-muted-foreground">Syncing your latest memories…</p> : null}
     {sync === "retryable" ? <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">

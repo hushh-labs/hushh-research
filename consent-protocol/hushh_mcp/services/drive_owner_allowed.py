@@ -17,6 +17,7 @@ an Allow, as it never restores revoked scope grants or named Circles.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -33,6 +34,35 @@ MIN_OWNER_PRICE_CENTS = 50
 MAX_OWNER_PRICE_CENTS = 50_000
 LEGACY_REQUEST_POLICY = "oct13_restored"
 LEGACY_DEFAULT_PRICE_CENTS = 1_000
+# Sealed at creation on requester-origin requests since 2026-10-17: a Trusted
+# request, or one the owner allowed, shares every in-period match after
+# payment with no owner file selection, at a price from $0.50 in cents. Older
+# sealed requests keep their own price and review contract.
+AUTOSHARE_REQUEST_FLOW = "oct17_autoshare"
+
+
+def autoshare_enabled() -> bool:
+    """New requests seal the autoshare flow everywhere except production.
+
+    Production keeps the owner-review flow until it is approved there; requests
+    already sealed keep their own contract either way.
+    """
+    return os.getenv("ENVIRONMENT", "").strip().lower() != "production"
+
+
+def autoshare_request(private: Mapping[str, Any]) -> bool:
+    """The request was created for automatic sharing of every in-period match."""
+    return (
+        private.get("request_flow") == AUTOSHARE_REQUEST_FLOW
+        and private.get("agent_package_required") is not True
+    )
+
+
+def whole_dollar_request(private: Mapping[str, Any]) -> bool:
+    """Only an October 13 restored request without the autoshare flow keeps whole dollars."""
+    return private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY and not autoshare_request(
+        private
+    )
 
 
 def request_has_document_scope(private: Mapping[str, Any]) -> bool:
@@ -71,8 +101,15 @@ def valid_owner_price_cents(value: object) -> bool:
 
 
 def valid_legacy_request_price_cents(value: object) -> bool:
-    """New owner-first requests use the October 13 whole-dollar price contract."""
+    """October 13 restored requests keep their whole-dollar price contract."""
     return valid_owner_price_cents(value) and value >= 100 and value % 100 == 0
+
+
+def valid_request_price_cents(private: Mapping[str, Any], value: object) -> bool:
+    """The price rule sealed into this request: whole dollars, or cents from $0.50."""
+    if whole_dollar_request(private):
+        return valid_legacy_request_price_cents(value)
+    return valid_owner_price_cents(value)
 
 
 def owner_allowed_record(*, amount_cents: int | None, allowed_at: str) -> dict[str, Any]:
@@ -173,6 +210,24 @@ def package_allow_marker(private: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
     marker = owner_allowed_marker(private)
     return _complete_selection(marker) if marker is not None else trusted_selection_marker(private)
+
+
+def autoshare_owner_allow_authority(private: Mapping[str, Any]) -> bool:
+    """The owner's sealed Allow is the whole payment authority for this request.
+
+    The autoshare flow prices a requested period, never a file list, so the
+    requester may be asked to pay as soon as the owner allows: no frozen batch
+    and no owner file review stand between Allow and the payment ask. Package
+    and V1 requests bind an exact digest instead and keep their own lane.
+    Callers must still recheck the live pair with automatic_recipient_current.
+    """
+    return (
+        autoshare_request(private)
+        and private.get("agent_package_required") is not True
+        and private.get("v1_live_request") is not True
+        and private.get("trusted_auto") is True
+        and owner_allowed_marker(private) is not None
+    )
 
 
 def owner_allowed_price_cents(private: Mapping[str, Any]) -> int | None:

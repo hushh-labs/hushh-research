@@ -107,6 +107,17 @@ def test_owner_scoped_bounded_consistent_read_and_allowlisted_output(offset_minu
     assert item["counterpartRef"] != other["items"][0]["counterpartRef"]
 
 
+def test_instants_are_utc_whatever_the_database_session_time_zone():
+    # A database session in another zone (a developer machine's local zone)
+    # returns the same instants with its own offset. The snapshot is the same.
+    india = timezone(timedelta(hours=5, minutes=30))
+    local = datetime(2026, 10, 15, 14, 30, tzinfo=india)
+    snapshot, _ = _snapshot([_payment_row(paid_at=local, created_at=local, updated_at=local)])
+    item = snapshot["items"][0]
+    assert {item[key] for key in ("paidAt", "createdAt", "updatedAt")} == {NOW.isoformat()}
+    assert NOW.isoformat() == "2026-10-15T09:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     "invalid",
     [

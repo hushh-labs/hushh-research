@@ -6,6 +6,7 @@ final class NotificationService: UNNotificationServiceExtension {
     private var handler: ((UNNotificationContent) -> Void)?
     private var best: UNNotificationContent?
     private var expectedKey: String?
+    private var donationDeadline: DispatchWorkItem?
     private let completionLock = NSLock()
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -50,12 +51,16 @@ final class NotificationService: UNNotificationServiceExtension {
         interaction.direction = .incoming
         interaction.groupIdentifier = expectedKey
         interaction.identifier = (info["event_id"] as? String) ?? request.identifier
-        // Donation never gates rendering: the extension must finish exactly once.
+        // Preserve Apple's donate-then-update order, but never let optional
+        // Communication styling hold an already-decrypted alert until expiry.
         completionLock.lock()
         guard handler != nil, let key = expectedKey, ChatPreviewKeys.matches(keyId: key) else {
             completionLock.unlock(); finish(); return
         }
         best = content
+        let deadline = DispatchWorkItem { [weak self] in self?.finish() }
+        donationDeadline = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: deadline)
         // Expiry cannot consume the completion handler while donation starts.
         interaction.donate { [weak self] _ in
             if !ChatPreviewKeys.matches(keyId: key) { ChatPreviewKeys.clearDelivered(keyId: key) }
@@ -101,6 +106,8 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         handler = nil
         best = nil
+        donationDeadline?.cancel()
+        donationDeadline = nil
         completionLock.unlock()
         callback(content)
     }

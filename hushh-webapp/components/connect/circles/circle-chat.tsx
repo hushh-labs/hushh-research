@@ -162,7 +162,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, revision]);
 
-  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
+  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
     ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
     : "overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card"}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
@@ -187,7 +187,6 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
-    {open && paneActive && !chatLane ? <div aria-hidden="true" className="h-[var(--kb-height,0px)]" /> : null}
   </>;
 }
 
@@ -699,7 +698,6 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
       leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
-    <p className="text-center text-[11px] leading-4 text-muted-foreground">Only circle members can read these messages.</p>
     </div>
     </AgentDockPortal>
     {actionRequest && visible && !readingBlocked ? <CircleChatMessageActionDialog key={`${actionRequest.message.id}:${actionRequest.action}`} session={session} {...actionRequest}

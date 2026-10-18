@@ -91,7 +91,7 @@ async def test_user_a_discovery_then_user_b_content_decision(
         plan.model_dump(mode="json"), REQUEST, "Asia/Kolkata", v1_live_request=True
     )
     assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
-    assert "standup" in queries[1]["arguments"]["query"]
+    assert "standup" in queries[2]["arguments"]["query"]
     assert all(
         "modifiedTime >=" not in item["arguments"]["query"]
         and "createdTime >=" not in item["arguments"]["query"]
@@ -193,13 +193,17 @@ async def test_user_b_batch_continuation_and_decline_stay_with_exact_owner_revie
     assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == list(
         range(26, 51)
     )
-    with pytest.raises(DriveSharingError, match="payment_required"):
+    # Unpaid, the approved grant is not offered and a direct claim defers.
+    assert first["shareId"] not in {str(row["share_id"]) for row in await request_bulk.due()}
+    assert (
         await request_bulk.claim(
             user_id="owner",
             share_id=first["shareId"],
             position=1,
             recipient_user_id="recipient",
         )
+        is None
+    )
     with pytest.raises(DriveSharingError, match="request_changed"):
         await request_bulk.create_review(
             user_id="owner",

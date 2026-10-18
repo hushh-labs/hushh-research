@@ -26,6 +26,7 @@ test.beforeAll(async () => {
     "lib/feed/use-feed-briefing.ts": "useFeedBriefing",
     "lib/calendar/use-calendar-connection-status.ts":
       "useCalendarConnectionStatus",
+    "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
       "PersonalKnowledgeModelService",
@@ -128,6 +129,12 @@ for (const [width, dark] of [
       name: "Your tasks",
       exact: true,
     });
+    try {
+      await expect(heading).toBeVisible();
+    } catch (error) {
+      expect(errors, "To-do fixture initialization errors").toEqual([]);
+      throw error;
+    }
     const headingStyle = await heading.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
@@ -174,8 +181,8 @@ for (const [width, dark] of [
       .getByRole("button", { name: "Simulate refresh failure" })
       .click();
     await expect(checkbox).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveText(
-      "Some tasks couldn’t refresh. Try again.",
+    await expect(page.getByRole("status")).toHaveText(
+      "Some agent tasks couldn’t refresh. Your other items are still here.",
     );
     expect(
       await page.evaluate(

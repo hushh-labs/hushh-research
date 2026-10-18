@@ -106,6 +106,12 @@ test.beforeAll(async () => {
             "e2e/fixtures/connections-boundaries.tsx",
           ),
         })),
+        // PKM imports these same providers as siblings. Keep their boundary
+        // synthetic for both import spellings instead of loading Firebase.
+        {
+          find: /^\.\/(?:api-service|auth-service)$/,
+          replacement: path.join(root, "e2e/fixtures/connections-boundaries.tsx"),
+        },
         { find: "@", replacement: root },
       ],
     },
@@ -276,7 +282,12 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
-  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  try {
+    await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  } catch (error) {
+    expect(fixtureErrors, "Connections fixture initialization errors").toEqual([]);
+    throw error;
+  }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
@@ -1386,6 +1397,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
         connected: calendar.connected,
         status: calendar.connected ? "connected" : "disconnected",
         access_level: calendar.connected ? "read" : null,
+        google_email: calendar.connected ? "calendar-owner@synthetic.invalid" : null,
       }),
     });
   });
@@ -1481,8 +1493,12 @@ test("Calendar connects in a popup and the drawer updates in place", async ({ pa
     page.getByRole("region", { name: "Calendar details" }).getByText("Connected", { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Disconnect Calendar" }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calendar details" }).getByText("Connected as calendar-owner@synthetic.invalid", { exact: true })).toBeVisible();
   expect(calendar.starts).toBe(1);
   await expectChatStateIntact(page, navigations);
+  await page.getByRole("button", { name: "Back to connectors", exact: true }).click();
+  await expect(page.getByText("Connected as calendar-owner@synthetic.invalid", { exact: true })).toBeVisible();
+  await expect(page.getByText("Connected as mail-owner@synthetic.invalid", { exact: true })).toBeVisible();
 });
 
 test("Calendar falls back to a new tab and settles through storage when the opener is severed", async ({ page }) => {
@@ -2482,7 +2498,9 @@ test.describe("One profile artwork and animated presence", () => {
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-        await expect(panel.getByRole("heading", { name: "Live memory" })).toBeVisible();
+        const memory = panel.getByRole("link", { name: "Open memory.md in Memory", exact: true });
+        await expect(memory).toBeVisible();
+        await expect(memory).toHaveAttribute("href", "/one/pkm");
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();

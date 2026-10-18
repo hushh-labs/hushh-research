@@ -124,6 +124,46 @@ def transport_bytes(payload: dict[str, str]) -> int:
     return len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
+def retry_registered_chat_pushes(user: str, db=None) -> int:
+    """Bring forward a bounded set of pending retries after preview-key repair.
+
+    The delivery worker still rechecks read, mute, expiry and source authority.
+    Do not reset attempts (also the lease fence), touch a lease or revive failures.
+    """
+    if db is None:
+        from db.db_client import get_db
+
+        db = get_db()
+    with db.engine.begin() as conn:
+        direct = conn.execute(
+            text("""
+            WITH pending AS (
+              SELECT message_id FROM direct_message_push_outbox
+              WHERE recipient_user_id=:user AND status='pending'
+                AND attempts BETWEEN 1 AND 4 AND due_at>now()
+              ORDER BY due_at LIMIT 100 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE direct_message_push_outbox o SET due_at=now()
+            FROM pending p WHERE o.message_id=p.message_id
+            """),
+            {"user": user},
+        ).rowcount
+        circle = conn.execute(
+            text("""
+            WITH pending AS (
+              SELECT message_id,recipient_user_id FROM circle_chat_recipients
+              WHERE recipient_user_id=:user AND push_status='pending'
+                AND push_attempts BETWEEN 1 AND 4 AND push_due_at>now()
+              ORDER BY push_due_at LIMIT 100 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE circle_chat_recipients r SET push_due_at=now()
+            FROM pending p WHERE r.message_id=p.message_id AND r.recipient_user_id=p.recipient_user_id
+            """),
+            {"user": user},
+        ).rowcount
+    return direct + circle
+
+
 def deliver_chat_push(
     db,
     user: str,
@@ -137,6 +177,7 @@ def deliver_chat_push(
     preview_for: Callable[[dict], str | None],
     eligible: Callable[..., bool] | None = None,
 ) -> bool:
+    started = time.monotonic()
     from api.utils.firebase_admin import ensure_firebase_admin
 
     configured, _ = ensure_firebase_admin()
@@ -323,4 +364,23 @@ def deliver_chat_push(
                 remove_stale_push_token(db, user, stale_token)
             except Exception:
                 complete = False
-    return complete
+    # Registration is recoverable: no installation (or only retired tokens)
+    # does not mean the provider accepted an alert. Keep the durable intent
+    # pending, retaining accepted-device receipts across partial retries.
+    with db.engine.begin() as conn:
+        accepted = conn.execute(
+            text(
+                "SELECT 1 FROM chat_push_device_deliveries "
+                "WHERE event_id=:event AND recipient_user_id=:user LIMIT 1"
+            ),
+            {"event": event_id, "user": user},
+        ).scalar()
+    logger.info(
+        "chat_push.delivery kind=%s registrations=%s accepted=%s complete=%s duration_ms=%s",
+        kind,
+        len(ids),
+        bool(accepted),
+        complete,
+        round((time.monotonic() - started) * 1000),
+    )
+    return complete and bool(accepted)

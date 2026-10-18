@@ -19,10 +19,15 @@ from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
+from hushh_mcp.services.drive_owner_index_port import MAX_LOCAL_CANDIDATES, default_owner_index
 from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
     _legacy_single_query,
     validate_reusable_packet,
+)
+from hushh_mcp.services.drive_request_review_policy import (
+    AUTOSHARE_SELECTION_POLICY,
+    autoshare_selection,
 )
 from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
@@ -45,6 +50,10 @@ FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
 V1_FILE_LIST_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
+# A slice starts another page only with this much of its budget left, so it
+# ends as a clean hand-off rather than a timed-out (retried, backed-off) page.
+PAGE_RESERVE_SECONDS = 15
+_clock = time.monotonic
 MAX_REQUEST_FILE_PAGES = 1000
 MAX_REQUEST_FOLDERS = 1000
 MAX_CHECKPOINT_BYTES = 96 * 1024
@@ -89,6 +98,12 @@ _MONTH_WORDS = {
         1,
     )
 }
+_MONTH_NUMBERS = {
+    name: index
+    for index, name in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+    )
+}
 # Title checks see through "_" and camelCase (_title_words), so title dates
 # must too: "2025_08_14", "2025.08.14" and compact "20250814" are dates. An
 # unread title date falls back to file activity, which would let an
@@ -96,6 +111,22 @@ _MONTH_WORDS = {
 _TITLE_DATE = re.compile(
     r"(?<!\d)(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})(?!\d)"
     r"|(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)"
+)
+# Autoshare also reads day-first and month-name title dates ("16-06-2026",
+# "16/06/2026", "Jun 16, 2026", "16 June 2026"). A day-first date that could
+# also be month-first counts as both, so either reading outside the period
+# keeps the file out of an automatic grant.
+_DAY_FIRST_TITLE_DATE = re.compile(
+    r"(?<!\d)(?<!\d[-/.])(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?!\d)(?![-/.]\d)"
+)
+_MONTH_NAME = (
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+_MONTH_NAME_TITLE_DATE = re.compile(
+    rf"(?<![a-z]){_MONTH_NAME}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})(?!\d)"
+    rf"|(?<!\d)(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MONTH_NAME}\.?,?\s+(\d{{4}})(?!\d)",
+    re.I,
 )
 _TITLE_TIME = re.compile(
     r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
@@ -117,6 +148,146 @@ _MEETING_NOTE_DISCOVERY = (
     "minutes",
     "huddle",
 )
+# The words a Gemini note title can stand in for in an autoshare
+# meeting-notes request. Any other request term must be in the title.
+_MEETING_NOTE_WORDS = frozenset(
+    {
+        "meeting",
+        "meetings",
+        "note",
+        "notes",
+        "minutes",
+        "standup",
+        "standups",
+        "stand up",
+        "stand-up",
+        "sync",
+        "syncs",
+        "huddle",
+        "huddles",
+    }
+)
+# A Gemini note title stands in for the generic ask only, as the request brain
+# rules: "standup notes" or "sync notes" need that kind in the title, so they
+# never share every in-period Gemini note.
+_SPECIFIC_MEETING_KIND = re.compile(r"\b(?:stand[\s-]?ups?|syncs?|huddles?)\b", re.I)
+# A deterministic plan that replaced a failed planner searches only its own
+# words. A request with any other word beyond period and filler words names a
+# subject or issuer that plan dropped, so its search keeps the owner's review.
+_FALLBACK_PLAN_WORDS = {
+    "meeting_notes": _MEETING_NOTE_WORDS | {"stand", "up"},
+    "statements": frozenset({"brokerage", "broker", "statement", "statements"}),
+}
+_FALLBACK_FILLER_WORDS = frozenset(
+    {
+        *_MONTH_WORDS,
+        "a",
+        "all",
+        "an",
+        "and",
+        "any",
+        "between",
+        "copies",
+        "current",
+        "daily",
+        "date",
+        "dates",
+        "day",
+        "days",
+        "doc",
+        "docs",
+        "document",
+        "documents",
+        "during",
+        "every",
+        "file",
+        "files",
+        "for",
+        "from",
+        "in",
+        "last",
+        "latest",
+        "me",
+        "monthly",
+        "month",
+        "months",
+        "my",
+        "of",
+        "on",
+        "or",
+        "our",
+        "over",
+        "past",
+        "pdf",
+        "pdfs",
+        "please",
+        "previous",
+        "prior",
+        "quarter",
+        "quarterly",
+        "quarters",
+        "recent",
+        "s",
+        "since",
+        "the",
+        "this",
+        "through",
+        "till",
+        "to",
+        "until",
+        "week",
+        "weekly",
+        "weeks",
+        "year",
+        "years",
+        "yesterday",
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+    }
+)
+_FALLBACK_NUMBER = re.compile(r"\d{1,2}(?:st|nd|rd|th)?|(?:19|20)\d{2}")
+_SCHWAB_NAME = re.compile(r"\b(?:charles\s+)?schwab\b", re.I)
+
+
+def _fallback_plan_covers_request(text: str, planner_fallback: dict | None) -> bool:
+    """A failed planner's stand-in plan keeps every word the request used."""
+    if planner_fallback is None:
+        return True
+    vocabulary = _FALLBACK_PLAN_WORDS.get(planner_fallback.get("plan"))
+    if vocabulary is None or not isinstance(text, str):
+        return False
+    if planner_fallback.get("plan") == "statements":
+        # The statement plan binds Schwab as a required entity.
+        text = _SCHWAB_NAME.sub(" ", text)
+    words = re.findall(r"[^\W_]+", text.casefold())
+    return all(
+        word in vocabulary or word in _FALLBACK_FILLER_WORDS or _FALLBACK_NUMBER.fullmatch(word)
+        for word in words
+    )
+
+
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
 # Compound filenames hide their words from whole-word title checks:
 # "MeetingNotes.pdf" and "2026_09_MeetingNotes" contain no standalone "notes".
@@ -131,6 +302,105 @@ def _title_words(title: str) -> str:
 def _title_search(pattern: re.Pattern[str], title: str) -> bool:
     """A title check that also sees the words inside a compound filename."""
     return bool(pattern.search(title) or pattern.search(_title_words(title)))
+
+
+_GENERIC_SUBJECT = frozenset({"note", "notes", "document", "documents", "file", "files"})
+
+
+def _request_brain(checkpoint: dict):
+    from hushh_mcp.services.drive_request_brain import brain_from_checkpoint
+
+    return brain_from_checkpoint(checkpoint.get("request_brain"))
+
+
+def _variant_pattern(variant: str) -> re.Pattern[str]:
+    words = [word for word in re.split(r"[\s\-]+", variant.casefold()) if word]
+    if len(words) == 1 and words[0].isalpha():
+        return _term_pattern(words[0])
+    # "pay slip" also names "Pay slips Sep.pdf".
+    suffix = "(?:e?s)?" if words[-1].isalpha() else ""
+    return re.compile(
+        r"(?<!\w)" + r"[\s_\-]*".join(re.escape(word) for word in words) + suffix + r"(?!\w)",
+        re.I,
+    )
+
+
+def _brain_title_has(variant: str, title: str) -> bool:
+    if variant != variant.casefold():
+        # A cased abbreviation ("MoM") is an ordinary word in lowercase
+        # ("Mom passport.pdf"), so only its own case is title evidence.
+        cased = re.compile(r"(?<![A-Za-z0-9])" + re.escape(variant) + r"s?(?![A-Za-z0-9'’])")
+        return any(cased.search(form) for form in (title, title.replace("_", " ")))
+    pattern = _variant_pattern(variant)
+    return any(
+        pattern.search(form) for form in (title, title.replace("_", " "), _title_words(title))
+    )
+
+
+def _concept_named(concept, title: str) -> bool:
+    """Only evidence spellings count: what was typed and its exact synonyms."""
+    return any(_brain_title_has(spelling, title) for spelling in concept.title_evidence)
+
+
+def _brain_title_evidence(brain, title: str) -> bool:
+    """Every topic, and one listed part, named in the title by an evidence spelling.
+
+    Loose discovery clues ("salary" for payslips, "call" for meetings) and
+    spelling fixes from the owner's Drive never count. A brain with no
+    subject is evidence only for an explicit listing ("all files").
+    """
+    if not brain.topics and not brain.parts:
+        return brain.listing is True
+    if not all(_concept_named(concept, title) for concept in brain.topics):
+        return False
+    if not brain.parts:
+        return True
+    return any(
+        part.concepts
+        and all(_concept_named(concept, title) for concept in part.concepts)
+        or any(_brain_title_has(item.phrase, title) for item in part.standalone)
+        for part in brain.parts
+    )
+
+
+def _brain_cased_evidence(brain, title: str) -> bool:
+    """A cased abbreviation the requester typed ("MoM") in its own case."""
+    return any(
+        _brain_title_has(spelling, title)
+        for concept in brain.concepts
+        for spelling in concept.title_evidence
+        if spelling != spelling.casefold()
+    )
+
+
+def _brain_topic_evidence(brain, title: str) -> bool:
+    """Folder discovery keeps the request's own words, as plan terms did."""
+    words = [
+        spelling
+        for concept in brain.concepts
+        for spelling in concept.title_evidence
+        if spelling.casefold() not in _GENERIC_SUBJECT
+    ] + [item.phrase for part in brain.parts for item in part.standalone]
+    return any(_brain_title_has(word, title) for word in words)
+
+
+def _other_title_days(title: str) -> list[date]:
+    """Day-first and month-name title dates, read only for autoshare."""
+    days = []
+    for found in _DAY_FIRST_TITLE_DATE.finditer(title):
+        first, second, year = (int(part) for part in found.groups())
+        for day, month in {(first, second), (second, first)}:
+            try:
+                days.append(date(year, month, day))
+            except ValueError:
+                continue
+    for found in _MONTH_NAME_TITLE_DATE.finditer(title):
+        month_name, day, year = found.group(1, 2, 3) if found.group(1) else found.group(5, 4, 6)
+        try:
+            days.append(date(int(year), _MONTH_NUMBERS[month_name[:3].casefold()], int(day)))
+        except ValueError:
+            continue
+    return days
 
 
 _SPAN_PHRASE = re.compile(
@@ -212,6 +482,9 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
     exact = checkpoint.get("request_exact_title")
     if exact:
         return title == exact
+    brain = _request_brain(checkpoint)
+    if brain is not None:
+        return _brain_topic_evidence(brain, title)
     # A generic "notes" folder is not evidence of the requested meeting topic.
     terms = [
         term
@@ -255,6 +528,10 @@ def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
     exact = checkpoint.get("request_exact_title")
     if exact:
         return exact == title
+    brain = _request_brain(checkpoint)
+    if brain is not None:
+        # Each typed word, or an exact synonym of it, in the title.
+        return _brain_title_evidence(brain, title)
     terms = [
         term
         for term in checkpoint.get("request_subject_terms", [])
@@ -299,7 +576,11 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
         # Google Drive fullText may match an incidental mention inside a
         # generic document. Automatic grants need positive title evidence;
         # an owner-reviewed search can still show the broader candidates.
-        return not excluded and _title_search(_NOTE_TITLE, name)
+        # "MoM" abbreviates "minutes of meeting", but only when the requester
+        # typed it, and only cased: "Mom passport.pdf" is never a note.
+        brain = _request_brain(checkpoint)
+        mom = brain is not None and _brain_cased_evidence(brain, name)
+        return not excluded and (_title_search(_NOTE_TITLE, name) or mom)
     return not excluded and (
         not folder_scoped
         or _title_search(_GEMINI_NOTE_TITLE, name)
@@ -313,9 +594,34 @@ def _filename_candidate(checkpoint: dict, match: dict) -> bool:
     if checkpoint.get("request_owner_review_required") is True:
         exact = checkpoint.get("request_exact_title")
         return not exact or exact in {match["name"], match.get("shortcut_name")}
-    return checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
+    if checkpoint.get("authority_mode") != "trusted_auto" or _trusted_subject_matches(
         checkpoint, match
-    )
+    ):
+        return True
+    # A Gemini meeting note names its event, not the word "meeting". For a
+    # meeting-notes request its title stands in for the meeting words only:
+    # every other request term (a client, a topic) must still be in it.
+    from hushh_mcp.services.drive_content_compilation import _GEMINI_NOTE_TITLE
+
+    if _request_brain(checkpoint) is not None:
+        # The brain already carries "Notes by Gemini" for the generic ask
+        # only; "standup notes" must not share every Gemini note.
+        return False
+    query = checkpoint.get("request", {}).get("query", "")
+    if not (
+        autoshare_selection(checkpoint)
+        and not checkpoint.get("request_exact_title")
+        and _is_meeting_note_request(query)
+        and not _SPECIFIC_MEETING_KIND.search(query)
+        and _title_search(_GEMINI_NOTE_TITLE, match["name"])
+    ):
+        return False
+    subject = [
+        term
+        for term in checkpoint.get("request_subject_terms", [])
+        if term.casefold() not in _MEETING_NOTE_WORDS
+    ]
+    return _trusted_subject_matches({**checkpoint, "request_subject_terms": subject}, match)
 
 
 def _shareability(source: dict) -> dict:
@@ -427,6 +733,120 @@ def compile_plan(plan: dict, timezone: str) -> dict:
     return compile_queries(plan, timezone)[0]["arguments"]
 
 
+MAX_QUERY_CHARS = 1800
+# Newest-first title pages listed before the full-text pass takes over.
+HEAD_START_PAGES = 10
+
+
+def _brain_variant_clauses(variants, keys, *, title_only, dropped) -> list[str]:
+    from hushh_mcp.services.drive_request_brain import full_text_safe
+    from hushh_mcp.services.google_drive_rest_transport import full_text_literal, quote_literal
+
+    clauses = []
+    for key, variant in zip(keys, variants, strict=True):
+        if key in dropped:
+            continue
+        clauses.append(f"name contains {quote_literal(variant)}")
+        # Drive fullText matches whole tokens only; "1:1" stays a title clue.
+        if not title_only and full_text_safe(variant):
+            clauses.append(f"fullText contains {full_text_literal(variant)}")
+    return clauses
+
+
+def _brain_subject(brain, *, title_only: bool, dropped: set) -> str | None:
+    """Topics AND every part; a part is its concepts ANDed, or a standalone phrase."""
+
+    def concept_clause(concept, prefix):
+        keys = [(*prefix, index) for index in range(len(concept.variants))]
+        clauses = _brain_variant_clauses(
+            concept.variants, keys, title_only=title_only, dropped=dropped
+        )
+        return "(" + " or ".join(clauses) + ")"
+
+    topics = [concept_clause(concept, ("t", index)) for index, concept in enumerate(brain.topics)]
+    alternatives = []
+    for number, part in enumerate(brain.parts):
+        options = []
+        if part.concepts:
+            options.append(
+                "("
+                + " and ".join(
+                    concept_clause(concept, ("p", number, index))
+                    for index, concept in enumerate(part.concepts)
+                )
+                + ")"
+            )
+        for index, item in enumerate(part.standalone):
+            options.extend(
+                _brain_variant_clauses(
+                    [item.phrase],
+                    [("s", number, index)],
+                    title_only=title_only or item.title_only,
+                    dropped=dropped,
+                )
+            )
+        if options:
+            alternatives.append("(" + " or ".join(options) + ")")
+    if alternatives:
+        topics.append("(" + " or ".join(alternatives) + ")")
+    return "(" + " and ".join(topics) + ")" if topics else None
+
+
+def _brain_queries(brain, base: list[str], order: str) -> list[dict] | None:
+    """Title pass first (newest first), then the full-text pass Drive cannot sort.
+
+    Never fail a search for length: optional spellings and standalone phrases
+    are dropped, least important first, until the query fits Drive's budget.
+    Each concept's own word is never dropped.
+    """
+    droppable = sorted(
+        [
+            (index, ("t", number, index))
+            for number, concept in enumerate(brain.topics)
+            for index in range(1, len(concept.variants))
+        ]
+        + [
+            (index, ("p", part_number, number, index))
+            for part_number, part in enumerate(brain.parts)
+            for number, concept in enumerate(part.concepts)
+            for index in range(1, len(concept.variants))
+        ]
+        + [
+            (2.5, ("s", part_number, index))
+            for part_number, part in enumerate(brain.parts)
+            for index in range(len(part.standalone))
+        ],
+        key=lambda item: -item[0],
+    )
+
+    def fitted(title_only: bool) -> tuple[str | None, frozenset]:
+        dropped: set = set()
+        for index in range(len(droppable) + 1):
+            subject = _brain_subject(brain, title_only=title_only, dropped=dropped)
+            if subject is None:
+                return None, frozenset()
+            query = " and ".join([subject, *base])
+            if len(query) <= MAX_QUERY_CHARS:
+                return query, frozenset(dropped)
+            if index < len(droppable):
+                dropped.add(droppable[index][1])
+        raise DriveReadError("invalid_argument")
+
+    title, title_dropped = fitted(True)
+    if title is None:
+        return None
+    content, content_dropped = fitted(False)
+    queries = [{"arguments": {"query": title, "orderBy": f"{order} desc"}}]
+    if content != title:
+        if content_dropped <= title_dropped:
+            # The content pass lists every title match again, so the title
+            # pass is only a newest-first head start, never a second scan.
+            queries[0]["head_start_pages"] = HEAD_START_PAGES
+        # Drive refuses orderBy with fullText; this pass keeps relevance order.
+        queries.append({"arguments": {"query": content}})
+    return queries
+
+
 def compile_request_queries(
     plan: dict,
     purpose: dict,
@@ -434,12 +854,16 @@ def compile_request_queries(
     *,
     requested_at: datetime | None = None,
     v1_live_request: bool = False,
+    brain=None,
 ) -> tuple[list[dict], dict | None]:
     """Broaden a requested file set before the owner reviews it.
 
     Search the subject without a modified-time cut. File-activity requests
     check their period against metadata; document coverage remains unverified
     until the owner reviews the exact candidates.
+
+    brain: a deterministic RequestBrain (or its checkpoint JSON). When present,
+    its concepts compile the subject: a title pass, then a content pass.
     """
     from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
     from hushh_mcp.services.google_drive_rest_transport import compile_search_terms, quote_literal
@@ -522,6 +946,44 @@ def compile_request_queries(
         base.extend([f"mimeType != '{FOLDER_MIME}'", f"mimeType != '{SHORTCUT_MIME}'"])
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
+    if brain is not None and not parsed.exact_title and not v1_live_request:
+        from hushh_mcp.services.drive_request_brain import RequestBrain, brain_from_checkpoint
+
+        parsed_brain = brain if isinstance(brain, RequestBrain) else brain_from_checkpoint(brain)
+        if parsed_brain is None:
+            raise DriveReadError("invalid_argument")
+        brain_order = (
+            parsed.file_time_field
+            if parsed.result_limit is not None or parsed.time_intent == "file_activity"
+            else "modifiedTime"
+        )
+        brain_queries = _brain_queries(parsed_brain, base, brain_order)
+        if brain_queries is not None:
+            generic_meeting_notes = (
+                not parsed_brain.topics
+                and not parsed_brain.corrected
+                and len(parsed_brain.parts) == 1
+                and parsed_brain.parts[0].key == "meeting_notes"
+                and any(
+                    item.phrase == "notes by gemini" for item in parsed_brain.parts[0].standalone
+                )
+                and _is_meeting_note_request(purpose.get("purpose", ""))
+            )
+            if generic_meeting_notes:
+                # Drive's name operator matches prefixes. A Gemini file named
+                # "Meeting started ... - Notes by Gemini" need not match the
+                # brain's trailing "notes by gemini" name clause, and a body
+                # index hit is not guaranteed. Exhaust this narrow title pass;
+                # a one-page head start would leave the same recall gap.
+                title = " and ".join([f"name contains {quote_literal('Meeting started')}", *base])
+                if len(title) > MAX_QUERY_CHARS:
+                    raise DriveReadError("invalid_argument")
+                # Preserve the existing title head start on the create-time
+                # page; the prefix pass follows before the content scan.
+                brain_queries.insert(
+                    1, {"arguments": {"query": title, "orderBy": f"{brain_order} desc"}}
+                )
+            return brain_queries, period
     broader_subject = None
     compound_free_subject = None
     entity_subject = (
@@ -574,7 +1036,8 @@ def compile_request_queries(
             # A Drive full-text index can omit one of several request words
             # even when the original document is relevant. Exhaust a second,
             # broader provider query after the precise one. These rows remain
-            # unverified candidates and cannot authorize automatic sharing.
+            # unverified candidates: an owner reviews them, and an autoshare
+            # search grants one only when its title passes _filename_candidate.
             broader_subject = "(" + " or ".join(groups) + ")"
     else:
         subject = None
@@ -628,8 +1091,21 @@ def compile_request_queries(
         if candidate_query not in queries:
             queries.append(candidate_query)
 
+    if meeting_notes_v1 and not parsed.exact_title and not entity_subject:
+        # Gemini-generated notes have a distinctive title prefix. A single
+        # newest-first page gives these likely records the first evaluation
+        # cohort. The later exhaustive alias pass still covers every title,
+        # including older Gemini notes and other meeting-note spellings.
+        gemini_title = " and ".join([f"name contains {quote_literal('Meeting started')}", *base])
+        queries.insert(
+            0,
+            {
+                "arguments": {"query": gemini_title, "orderBy": f"{order} desc"},
+                "head_start_pages": 1,
+            },
+        )
     # Put the common title aliases before broad clue pages so a sync or
-    # standup file enters the first evaluation cohort as soon as possible.
+    # standup file enters an early evaluation cohort.
     append_v1_meeting_note_sweep()
 
     def append_v1_structural_sweep() -> None:
@@ -700,7 +1176,14 @@ def compile_request_queries(
     return queries, period
 
 
-def _in_requested_period(match: dict, period: dict | None) -> bool:
+def _in_requested_period(match: dict, period: dict | None, *, precedence: bool = False) -> bool:
+    """Title dates decide when present; otherwise the file's own timestamps.
+
+    precedence: the autoshare rule. Only the first present date decides: the
+    title dates (every one inside the period, including day-first and
+    month-name dates), else created time, else modified time. Without it, any
+    title date or either timestamp inside the period matches (file activity).
+    """
     if period is None:
         return True
     start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
@@ -747,8 +1230,12 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
             title_days.append(title_day)
         except ValueError:
             continue
+    if precedence:
+        title_days.extend(_other_title_days(match["name"]))
     if title_days:
-        return any(start <= day <= end for day in title_days)
+        inside = [start <= day <= end for day in title_days]
+        # Autoshare never grants a file with any title date outside the period.
+        return all(inside) if precedence else any(inside)
     for key in ("created_time", "modified_time"):
         value = match.get(key)
         if isinstance(value, str):
@@ -761,6 +1248,9 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
                 continue
             if start <= day <= end:
                 return True
+            if precedence:
+                # The created time is present and outside: modified never decides.
+                return False
     return False
 
 
@@ -937,6 +1427,7 @@ class DriveOwnerSearchService:
         packets=None,
         packet_matcher=None,
         packet_checker=None,
+        owner_index=None,
     ):
         self.store = store or DriveOwnerSearchStore()
         self.transport = transport or GoogleDriveRestTransport()
@@ -945,6 +1436,8 @@ class DriveOwnerSearchService:
         self.packets = packets
         self.packet_matcher = packet_matcher
         self.packet_checker = packet_checker
+        # Gear 1: the owner's local metadata index. The default is a no-op.
+        self.owner_index = owner_index or default_owner_index()
 
     def _facts_store(self):
         if self.facts is None:
@@ -1256,11 +1749,33 @@ class DriveOwnerSearchService:
         evidence_route=None,
         v1_live_request=False,
         planner_fallback=None,
+        autoshare=False,
+        brain=None,
+        plan_source=None,
     ):
-        """Start or resume the owner-approved request's durable metadata search."""
+        """Start or resume the owner-approved request's durable metadata search.
+
+        autoshare: the request's sealed automatic flow. Its trusted search
+        selects every in-period match by title, created, then modified date,
+        so no owner file review is required.
+
+        brain: the deterministic request brain's checkpoint JSON. It compiles
+        the Drive subject and title evidence; plan_source records which stage
+        produced the plan, so a skipped model stage is always visible.
+        """
+        from hushh_mcp.services.drive_request_brain import brain_from_checkpoint
+
+        parsed_brain = brain_from_checkpoint(brain) if brain is not None else None
+        if (
+            brain is not None
+            and (parsed_brain is None or v1_live_request)
+            or plan_source not in {None, "deterministic_brain", "model"}
+        ):
+            raise DriveReadError("invalid_argument")
         if (
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
+            or type(autoshare) is not bool
             or planner_fallback is not None
             and (
                 not isinstance(planner_fallback, dict)
@@ -1295,11 +1810,37 @@ class DriveOwnerSearchService:
                 timezone,
                 requested_at=requested_at,
                 v1_live_request=v1_live_request,
+                brain=parsed_brain,
             )
         v1_statement_search = v1_live_request
+        # Gear 1 runs when an owner index is wired and the brain has a subject.
+        # The create-time page stays a 25-row Drive page; Gear 1 (which may
+        # list the index from Drive) runs in the next worker slice, before
+        # any further Drive page.
+        local_first = bool(
+            not indexed
+            and parsed_brain is not None
+            and parsed_brain.concepts
+            and getattr(self.owner_index, "enabled", False) is True
+        )
         time_intent = plan.get("time_intent", "document_coverage")
-        owner_review_required = (
-            time_intent == "document_coverage" or authority_mode == "agent_package"
+        # The brain left out a word that may name the subject or issuer
+        # ("Google One receipts"). Its title evidence is broader than the
+        # request, so the owner reviews, whatever the time intent.
+        brain_dropped = bool(parsed_brain is not None and parsed_brain.dropped)
+        # The picked dates bound an autoshare search; no period, no selection.
+        autoshare_dates = bool(
+            autoshare
+            and authority_mode == "trusted_auto"
+            and not indexed
+            and period is not None
+            # A stand-in for a failed planner may have dropped the request's
+            # subject or issuer. Only a request it fully covers shares itself.
+            and _fallback_plan_covers_request(query, planner_fallback)
+            and not brain_dropped
+        )
+        owner_review_required = not autoshare_dates and (
+            time_intent == "document_coverage" or authority_mode == "agent_package" or brain_dropped
         )
         result_limit = None if indexed else plan.get("result_limit")
         direct_originals = (
@@ -1344,8 +1885,16 @@ class DriveOwnerSearchService:
                 **({"authored_plan": plan} if v1_live_request else {}),
                 # A deterministic plan that replaced a failed planner call.
                 **({"planner_fallback": planner_fallback} if planner_fallback else {}),
+                **({"request_plan_source": plan_source} if plan_source else {}),
+                **({"request_brain": parsed_brain.as_checkpoint()} if parsed_brain else {}),
+                **({"local_offset": 0} if local_first else {}),
                 "request_shareability_version": 1,
                 "request_selection_version": 2,
+                **(
+                    {"request_selection_policy": AUTOSHARE_SELECTION_POLICY}
+                    if autoshare_dates
+                    else {}
+                ),
                 "request_coverage_query_version": 1
                 if len(queries) >= 2 and time_intent == "document_coverage"
                 else None,
@@ -1386,6 +1935,8 @@ class DriveOwnerSearchService:
                     "ownerReviewRequired": owner_review_required,
                     "dateBasis": "content_period_unverified"
                     if owner_review_required
+                    else "title_date_then_created_then_modified"
+                    if autoshare_dates
                     else "title_date_then_created_or_modified",
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
@@ -1394,6 +1945,8 @@ class DriveOwnerSearchService:
                     "shortcutDiscovery": "excluded" if direct_originals else "resolve_targets",
                     "resultLimit": result_limit,
                     "orderBy": f"{order_field} desc",
+                    **({"planSource": plan_source} if plan_source else {}),
+                    **({"localIndexFirst": True} if local_first else {}),
                 },
                 "coverage_counts": {},
                 "folder_queue": [],
@@ -1627,6 +2180,8 @@ class DriveOwnerSearchService:
                 # Creation, modification and title dates do not establish the
                 # period covered by a document's contents.
                 return True
+            if autoshare_selection(checkpoint):
+                return _in_requested_period(match, period, precedence=True)
             if checkpoint.get("authority_mode") == "trusted_auto":
                 return _in_requested_period(match, period)
             return _in_requested_period(match, period) or (
@@ -1778,6 +2333,91 @@ class DriveOwnerSearchService:
             )
         return files, incomplete
 
+    async def _local_index_rows(self, job, checkpoint, *, allow_listing=False) -> list[dict]:
+        brain = _request_brain(checkpoint)
+        if brain is None:
+            return []
+        # One lookup per AND group, as the Drive pass compiles them: topics
+        # with each document part, and topics with each standalone phrase.
+        topics = [list(concept.variants) for concept in brain.topics]
+        groups = []
+        for part in brain.parts or (None,):
+            groups.append(
+                topics + [list(concept.variants) for concept in (part.concepts if part else ())]
+            )
+            groups.extend(topics + [[item.phrase]] for item in (part.standalone if part else ()))
+        # File dates do not decide an owner-review request; the period rule
+        # is the one _request_candidates applies to Drive's rows.
+        owner_review = checkpoint.get("request_owner_review_required") is True
+        rows: dict[str, dict] = {}
+        for position, concepts in enumerate(groups):
+            try:
+                found = await self.owner_index.match_owner_files(
+                    owner_id=job["user_id"],
+                    concepts=concepts,
+                    period=None if owner_review else checkpoint.get("requested_period"),
+                    file_kind=checkpoint.get("request_file_kind", "any"),
+                    limit=MAX_LOCAL_CANDIDATES,
+                    connection_generation=job.get("generation"),
+                    precedence=autoshare_selection(checkpoint),
+                    require_current=lambda: self.store.require_current(job),
+                    # Only the first lookup may list index pages from Drive.
+                    allow_listing=allow_listing and position == 0,
+                )
+            except Exception:  # noqa: BLE001 - an accelerator never fails the search
+                logger.info("drive_search.local_index status=unavailable")
+                return []
+            for row in found if isinstance(found, list) else []:
+                capabilities = row.get("capabilities") if isinstance(row, dict) else None
+                # A row without Drive's own canShare answer would be frozen as
+                # unverified and then dedupe away the verified Drive row.
+                if (
+                    isinstance(capabilities, dict)
+                    and type(capabilities.get("canShare")) is bool
+                    and isinstance(row.get("id"), str)
+                ):
+                    rows.setdefault(row["id"], row)
+        return list(rows.values())[:MAX_LOCAL_CANDIDATES]
+
+    async def _local_index_page(self, job, checkpoint):
+        """Gear 1: commit indexed matches first; Drive (Gear 2) still runs in full.
+
+        Every row passes the same candidate checks as a Drive page, and the
+        store dedupes by file ID, so Gear 2 never adds a second copy.
+        """
+        from hushh_mcp.services.external_mcp_client import ExternalMcpError
+        from hushh_mcp.services.google_drive_rest_transport import _project_page
+
+        offset = checkpoint.get("local_offset", 0)
+        rows = (
+            await self._local_index_rows(job, checkpoint, allow_listing=offset == 0)
+            if type(offset) is int
+            else []
+        )
+        chunk = rows[offset : offset + FILE_LIST_PAGE_SIZE] if type(offset) is int else []
+        try:
+            # The exact projection and fence a Drive REST page goes through.
+            candidates = _project_page({"files": chunk}, chunk)["files"]
+        except (DriveReadError, ExternalMcpError, KeyError, TypeError, ValueError):
+            # The shared projection rejects a malformed row with ExternalMcpError;
+            # Gear 1 is dropped for this job and Drive still runs in full.
+            logger.info("drive_search.local_index status=invalid_rows")
+            candidates, rows = [], []
+        files, _ = await self._request_candidates(
+            job, checkpoint, candidates, folder_scoped=False, drive_id=None
+        )
+        _counter(checkpoint, "localIndexCandidates", len(files))
+        next_offset = (offset if type(offset) is int else 0) + len(chunk)
+        if chunk and next_offset < len(rows):
+            checkpoint["local_offset"] = next_offset
+        else:
+            checkpoint.pop("local_offset", None)
+            # Gear 1 is a head start, not coverage: Drive is listed in full,
+            # continuing from wherever its own phase and page token stand.
+            if checkpoint.get("phase") == "local_index":
+                _phase(checkpoint, "user")
+        return checkpoint, files, False, False
+
     async def _indexed_page(self, job):
         checkpoint = copy.deepcopy(job["checkpoint"])
         if checkpoint["evidence_route"] == "packet":
@@ -1907,6 +2547,12 @@ class DriveOwnerSearchService:
             # Persist the proof with the next page so legacy dated jobs can
             # continue without repeating this encrypted request read.
             checkpoint["request_explicit_dates"] = True
+        if checkpoint.get("phase") == "local_index" or (
+            type(checkpoint.get("local_offset")) is int and page_size_override is None
+        ):
+            # Never in the create-time page: a cold index would spend that one
+            # 15-second page listing Drive instead of returning its first rows.
+            return await self._local_index_page(job, checkpoint)
         listing_read = getattr(self.transport, "read_owner_search_page", None)
         if listing_read is None:
             # Older injected transports implement the same listing call shape
@@ -2088,7 +2734,19 @@ class DriveOwnerSearchService:
             next_token = None
         checkpoint["page_token"] = next_token
         done = False
-        if not next_token:
+        query = (checkpoint.get("queries") or [{}])[checkpoint.get("query_index", 0)]
+        head_start = query.get("head_start_pages") if phase != "folder_files" else None
+        if type(head_start) is int and head_start > 0:
+            used = checkpoint.get("head_start_used", 0) + 1
+            checkpoint["head_start_used"] = used
+            if used >= head_start:
+                # The following full-text pass covers every remaining title
+                # match in every corpus; stop the head start here.
+                checkpoint.pop("head_start_used", None)
+                checkpoint["page_token"] = next_token = None
+                done = _advance_query(checkpoint)
+                phase = "head_start_done"
+        if not next_token and phase != "head_start_done":
             if phase == "user":
                 _phase(checkpoint, "drives")
             elif phase == "folder_files":
@@ -2113,6 +2771,9 @@ class DriveOwnerSearchService:
         ):
             checkpoint["coverage_counts"]["workLimitReached"] = True
             incomplete, done = True, True
+        if done:
+            # Drive, the completeness authority, has finished: no head start.
+            checkpoint.pop("local_offset", None)
         return checkpoint, files, incomplete, done
 
     @drive_operation(job_key="job_id")
@@ -2196,17 +2857,36 @@ class DriveOwnerSearchService:
                     await wake_drive_work(worker_stage)
                     return finish("queued")
             session = getattr(self.transport, "owner_search_session", nullcontext)
+            reserve = min(PAGE_RESERVE_SECONDS, deadline_seconds / 3)
+            slice_started = _clock()
             async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):
+                    if pages and _clock() - slice_started > deadline_seconds - reserve:
+                        # Hand off with the checkpoint committed; the worker
+                        # chains the next slice without a retry backoff.
+                        break
                     with drive_stage(logger, "search_authority"):
                         if require_current:
                             await require_current()
                         await self.store.require_current(job)
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
+                    if type(job["checkpoint"].get("local_offset")) is int and not (
+                        pages == 0 and initial_page_size is not None
+                    ):
+                        phase = "local_index"
                     phase = (
                         phase
-                        if phase in {"user", "drives", "files", "folder_files", "index", "packet"}
+                        if phase
+                        in {
+                            "local_index",
+                            "user",
+                            "drives",
+                            "files",
+                            "folder_files",
+                            "index",
+                            "packet",
+                        }
                         else "unknown"
                     )
                     page_outcome = "failed"

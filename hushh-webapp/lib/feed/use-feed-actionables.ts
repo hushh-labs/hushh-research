@@ -71,6 +71,7 @@ import { feedDeviceOnlySosClearStorageKey } from "@/lib/feed/feed-clear-watermar
 import { FeedService } from "@/lib/services/feed-service";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { periodConflictNote } from "@/lib/consent/document-request-flow";
 import {
   projectFeedDriveProgress,
   type FeedDriveProgress,
@@ -271,6 +272,8 @@ export interface DocumentPricePrompt {
   recipientEmail: string | null;
   periodStart: string | null;
   periodEnd: string | null;
+  /** One short line when the note names a longer span than the picked dates. */
+  periodNote?: string | null;
   /** The terms have not loaded; Allow stays off until the owner can read them. */
   detailsPending: boolean;
   busy: boolean;
@@ -298,6 +301,7 @@ type DocumentPriceTerms = {
   recipientEmail: string;
   periodStart: string | null;
   periodEnd: string | null;
+  periodNote: string | null;
 };
 
 const WHOLE_DOLLAR_PRICE_RULE = "Choose a whole-dollar price from $1 to $500.";
@@ -1125,6 +1129,11 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
         recipientEmail: review.recipientEmail,
         periodStart: review.purpose.periodStart,
         periodEnd: review.purpose.periodEnd,
+        // The picked dates win; the owner reads why, where Allow is confirmed.
+        periodNote: review.periodConflict === "request_mentions_longer_span"
+          ? periodConflictNote(review.purpose.purpose, review.purpose.periodStart,
+            review.purpose.periodEnd, "owner")
+          : null,
       });
     },
     [
@@ -1233,6 +1242,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       recipientEmail: priceTerms?.recipientEmail ?? null,
       periodStart: priceTerms?.periodStart ?? null,
       periodEnd: priceTerms?.periodEnd ?? null,
+      periodNote: priceTerms?.periodNote ?? null,
       detailsPending: priceTerms === null,
       busy: priceBusy,
       error: priceError,

@@ -886,9 +886,36 @@ _FUTURE = datetime.now(UTC) + timedelta(days=1)
         pytest.param(
             {"status": "cancelled"}, "refunded", "refunded", "void", id="withdrawn-refunded"
         ),
-        # Negative controls: money still held, or the request is still open.
+        pytest.param(
+            {"status": "pending", "expires_at": _FUTURE, "access_stop_requested_at": _PAST},
+            "checkout_open",
+            "checkout_open",
+            "void",
+            id="stopped-unpaid",
+        ),
+        # A finished request can deliver nothing more either. Pay-at-Allow
+        # creates the order and earning before the search, so a search that
+        # finds nothing leaves an unpaid earning on a no_match request.
+        pytest.param(
+            {"status": "no_match"}, "checkout_open", "checkout_open", "void", id="no-match-unpaid"
+        ),
+        pytest.param(
+            {"status": "partial"}, "expired", "expired", "void", id="finished-link-expired"
+        ),
+        # Negative controls: money still held, or the request is still open. A
+        # finished request records its delivery counts before a full refund
+        # voids it (this mock leaves one approved batch unresolved).
+        pytest.param({"status": "partial"}, "refunded", "refunded", "held", id="finished-refunded"),
+        pytest.param({"status": "no_match"}, "paid", "paid", "held", id="no-match-paid"),
         pytest.param({"status": "cancelled"}, "paid", "paid", "held", id="paid-awaiting-refund"),
         pytest.param({"status": "cancelled"}, "expired", "paid", "held", id="paid-obligation"),
+        pytest.param(
+            {"status": "pending", "expires_at": _FUTURE, "access_stop_requested_at": _PAST},
+            "paid",
+            "paid",
+            "held",
+            id="stopped-paid",
+        ),
         pytest.param(
             {"status": "pending", "expires_at": _FUTURE},
             "awaiting_payment",
@@ -933,11 +960,87 @@ def test_closed_request_earning_is_void_only_when_unpaid_or_fully_refunded(
 
     assert service._advance_delivery(connection, REQUEST) == expected
     if expected == "held":
-        connection.execute.assert_called_once()  # Only the share lock; no state change.
+        # Paid money is never voided: it settles on its delivered files once
+        # every approved batch has finished (this mock leaves one unresolved).
+        assert not any(
+            "UPDATE drive_request_owner_payouts" in str(call.args[0])
+            for call in connection.execute.call_args_list
+        )
     else:
         statement, parameters = connection.execute.call_args.args
         assert "status='void'" in str(statement) and "status='awaiting_delivery'" in str(statement)
         assert parameters == {"request": REQUEST}
+
+
+@pytest.mark.parametrize(
+    ("order_status", "expected_files", "expected"),
+    [
+        # Every match was one A could not share: no approved file. Once B's
+        # charge is back in full nothing is left to settle; before, the
+        # earning stayed awaiting_delivery forever on a finished request.
+        pytest.param("refunded", 0, "void", id="no-approved-file-refunded"),
+        # Negative controls: the refund has not happened yet, or files were
+        # approved and their counts are recorded before the refund voids it.
+        pytest.param("paid", 0, "held", id="no-approved-file-paid"),
+        pytest.param("refunded", 3, "awaiting_refund", id="approved-files-refunded"),
+    ],
+)
+def test_finished_request_without_approved_files_voids_after_a_full_refund(
+    order_status, expected_files, expected
+):
+    paid_at = datetime.now(UTC)
+
+    def money(status):
+        return {
+            "status": status,
+            "paid_at": paid_at,
+            "reconciliation_required": status == "refunded",
+            "stripe_payment_intent_id": "pi_123",
+            "stripe_mode": "test",
+            "amount_cents": 1000,
+        }
+
+    refund = (
+        {"status": "succeeded", "amount_cents": 1000, "stripe_refund_id": "re_123"}
+        if order_status == "refunded"
+        else None
+    )
+    payout = {
+        "status": "awaiting_delivery",
+        "erased_at": None,
+        "gross_amount_cents": 1000,
+        "commission_bps": 300,
+        "stripe_payment_intent_id": None,
+        "stripe_mode": "test",
+    }
+    request_row = {
+        "status": "partial",
+        "request_id": REQUEST,
+        "recipient_user_id": "recipient",
+        "request_envelope": None,
+    }
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._row = Mock(
+        side_effect=[request_row, money(order_status), money(order_status), refund, payout]
+    )
+    service._delivery_summary = Mock(
+        return_value={"expected": expected_files, "confirmed": 0, "unsettled": 0}
+    )
+    connection = Mock()
+    connection.execute.return_value.scalar_one.return_value = False  # No batch still sharing.
+
+    assert service._advance_delivery(connection, REQUEST) == expected
+    writes = [
+        str(call.args[0])
+        for call in connection.execute.call_args_list
+        if "UPDATE drive_request_owner_payouts" in str(call.args[0])
+    ]
+    if expected == "void":
+        assert len(writes) == 1 and "status='void'" in writes[0]
+    elif expected == "held":
+        assert writes == []
+    else:
+        assert len(writes) == 1 and "expected_files=:expected" in writes[0]
 
 
 def test_erased_delivery_waits_for_exact_refund_then_advances_to_fee():

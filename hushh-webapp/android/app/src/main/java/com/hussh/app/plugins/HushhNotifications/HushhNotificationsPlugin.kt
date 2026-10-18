@@ -47,6 +47,7 @@ class HushhNotificationsPlugin : Plugin() {
     private val TAG = "HushhNotifications"
     @PluginMethod
     fun getNotificationSettings(call: PluginCall) {
+        ChatMessagingService.ensureChannel(context)
         val allowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         fun audible(channelId: String): Boolean {
@@ -59,6 +60,9 @@ class HushhNotificationsPlugin : Plugin() {
             (manager?.getNotificationChannel(ACTIVITY_CHANNEL_ID)?.importance ?: 0) > NotificationManager.IMPORTANCE_NONE)
         call.resolve(JSObject().put("alertsEnabled", alerts)
             .put("soundsEnabled", audible(ACTIVITY_CHANNEL_ID))
+            .put("chatAlertsEnabled", allowed && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                (manager?.getNotificationChannel(ChatMessagingService.CHANNEL)?.importance ?: 0) > NotificationManager.IMPORTANCE_NONE))
+            .put("chatSoundsEnabled", audible(ChatMessagingService.CHANNEL))
             .put("emergencySoundEnabled", audible(EMERGENCY_SMS_CHANNEL_ID)))
     }
     private val emergencyHandler = Handler(Looper.getMainLooper())
@@ -142,6 +146,7 @@ class HushhNotificationsPlugin : Plugin() {
         super.load()
         ensureActivityChannel(context)
         ensureEmergencySmsChannel(context)
+        ChatMessagingService.ensureChannel(context)
     }
 
     private fun ensureActivityChannel(context: Context) {
@@ -285,15 +290,19 @@ class HushhNotificationsPlugin : Plugin() {
                 val responseBody = response.body?.string() ?: "{}"
 
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "registerPushToken non-OK: ${response.code} body=$responseBody")
+                    Log.w(TAG, "registerPushToken non-OK: ${response.code}")
                     activity.runOnUiThread {
                         call.resolve(JSObject().put("success", false))
                     }
                     return@Thread
                 }
 
+                val payload = JSONObject(responseBody)
+                val registered = payload.optBoolean("registered", true)
+                val degraded = payload.optBoolean("degraded", false)
                 activity.runOnUiThread {
-                    call.resolve(JSObject().put("success", true))
+                    call.resolve(JSObject().put("success", registered && !degraded)
+                        .put("registered", registered).put("degraded", degraded))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "registerPushToken error", e)

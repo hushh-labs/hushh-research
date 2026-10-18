@@ -1210,3 +1210,49 @@ def test_review_ask_is_vault_bound_and_maps_only_its_own_codes(requester_setup):
         assert (response.status_code, response.json()["detail"]["code"]) == (status, code)
         assert "secret-provider-body" not in response.text
         assert "no-store" in response.headers["Cache-Control"]
+
+
+def test_shared_files_routes_are_owner_only_private_and_queue_only(setup, monkeypatch):
+    from api.routes import drive_shared_files as shared_routes
+
+    client, app, _, _ = setup
+    app.include_router(shared_routes.router)
+    store = SimpleNamespace(
+        shared_files=AsyncMock(return_value={"requestId": REQUEST_ID, "files": []}),
+        remove_file=AsyncMock(return_value={"status": "removing", "undoable": True}),
+        restore_file=AsyncMock(side_effect=DriveSharingError("revocation_pending")),
+    )
+    monkeypatch.setattr(
+        shared_routes, "_service", lambda: SimpleNamespace(store=SimpleNamespace(db=None))
+    )
+    monkeypatch.setattr(shared_routes, "DriveOwnerSharedFilesStore", lambda db: store)
+    base = f"{BASE}/{REQUEST_ID}/shared-files"
+    ref = f"{REQUEST_ID}:3"
+
+    # A locked vault reaches nothing.
+    assert client.get(base).status_code == 401
+    assert client.post(base + "/remove", json={"fileRef": ref}).status_code == 401
+    assert not store.shared_files.called and not store.remove_file.called
+
+    unlock(app)
+    response = client.get(base)
+    assert response.status_code == 200 and "no-store" in response.headers["Cache-Control"]
+    store.shared_files.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, cursor=None
+    )
+    # Remove only queues durable work: 202, bound to the authenticated owner.
+    assert client.post(base + "/remove", json={"fileRef": ref}).status_code == 202
+    store.remove_file.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, file_ref=ref
+    )
+    for body in ({"fileRef": "../other"}, {"fileRef": ref, "userId": "owner"}, {}):
+        assert client.post(base + "/remove", json=body).status_code == 422
+    assert store.remove_file.await_count == 1
+
+    response = client.post(base + "/restore", json={"fileRef": ref})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "revocation_pending"
+    # The requester or anyone else gets the same answer as a missing request.
+    store.shared_files.side_effect = DriveSharingError("request_unavailable")
+    response = client.get(base)
+    assert response.status_code == 404 and "no-store" in response.headers["Cache-Control"]

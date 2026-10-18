@@ -94,7 +94,7 @@ def _service(cipher=None, feed_notifier=None):
         cipher=cipher or _Cipher(),
         event_notifier=lambda *_args, **_kwargs: None,
         push_notifier=lambda *_args, **_kwargs: None,
-        feed_notifier=feed_notifier or (lambda *_args, **_kwargs: None),
+        feed_notifier=feed_notifier,
     )
 
 
@@ -280,12 +280,24 @@ def test_send_requires_current_accepted_connection_and_never_reaches_insert(monk
     assert inserted == []
 
 
-def test_send_encrypts_content_and_returns_a_participant_safe_projection(monkeypatch):
+@pytest.mark.parametrize("use_default_feed", [False, True])
+def test_send_encrypts_content_and_returns_a_participant_safe_projection(
+    monkeypatch, use_default_feed
+):
     cipher = _Cipher()
     feed_events = []
+    duplicate_feed_writes = []
+    monkeypatch.setattr(
+        "hushh_mcp.services.feed_service.FeedService.record_event",
+        lambda *_args, **kwargs: duplicate_feed_writes.append(kwargs),
+    )
     service = _service(
         cipher,
-        feed_notifier=lambda recipient, **event: feed_events.append((recipient, event)),
+        feed_notifier=(
+            None
+            if use_default_feed
+            else lambda recipient, **event: feed_events.append((recipient, event))
+        ),
     )
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(service, "_require_active_connection", lambda *_args: "connection-id")
@@ -311,16 +323,21 @@ def test_send_encrypts_content_and_returns_a_participant_safe_projection(monkeyp
     assert result["message"]["senderIsViewer"] is True
     assert "senderUserId" not in result["message"]
     assert "_peerUserId" not in result["conversation"]
-    assert feed_events == [
-        (
-            "bob",
-            {
-                "actor_label": "Alice",
-                "conversation_id": _CONVERSATION_ID,
-                "message_id": _MESSAGE_ID,
-            },
-        )
-    ]
+    assert duplicate_feed_writes == []
+    assert feed_events == (
+        []
+        if use_default_feed
+        else [
+            (
+                "bob",
+                {
+                    "actor_label": "Alice",
+                    "conversation_id": _CONVERSATION_ID,
+                    "message_id": _MESSAGE_ID,
+                },
+            )
+        ]
+    )
 
 
 def test_send_persists_a_reply_only_after_the_target_is_checked_in_the_same_conversation(
@@ -468,6 +485,127 @@ def test_active_connection_query_also_requires_no_direct_message_block(monkeypat
     assert service._active_connection_id("alice", "bob") == "connection-id"
     assert "direct_message_blocks" in captured["sql"]
     assert captured["params"] == {"sender_user_id": "alice", "recipient_user_id": "bob"}
+
+
+@pytest.mark.parametrize(
+    "display_name, photo_url, expected_name, expected_photo",
+    [
+        ("  Bob  ", " https://example.com/bob.jpg ", "Bob", "https://example.com/bob.jpg"),
+        (None, " https://example.com/bob.jpg ", "Hussh member", "https://example.com/bob.jpg"),
+        (None, None, "Hussh member", None),
+    ],
+)
+def test_connected_person_draft_includes_safe_identity_before_first_message(
+    monkeypatch, display_name, photo_url, expected_name, expected_photo
+):
+    service = _service()
+    person_ref = _conversation()["peer_person_ref"]
+    connection_id = "44444444-4444-4444-8444-444444444444"
+    monkeypatch.setattr(service, "_resolve_recipient", lambda **_kwargs: ("bob", person_ref))
+    monkeypatch.setattr(service, "_conversation_by_pair", lambda *_args: None)
+    monkeypatch.setattr(service, "_active_connection_id", lambda *_args: connection_id)
+    queries = []
+
+    def execute_one(sql, params=None):
+        queries.append((sql, params))
+        return {
+            "peer_person_ref": person_ref,
+            "peer_display_name": display_name,
+            "peer_photo_url": photo_url,
+        }
+
+    monkeypatch.setattr(service, "_execute_one", execute_one)
+    result = service.open_with_person("alice", recipient_person_ref=person_ref)
+
+    assert result == {
+        "conversation": None,
+        "peerPersonRef": person_ref,
+        "peerDisplayName": expected_name,
+        "peerPhotoUrl": expected_photo,
+        "canSend": True,
+        "disconnectedNotice": False,
+    }
+    assert len(queries) == 1
+    sql, params = queries[0]
+    assert params == {
+        "viewer_user_id": "alice",
+        "peer_user_id": "bob",
+        "connection_id": connection_id,
+    }
+    assert "connection.status = 'active'" in sql
+    assert "direct_message_blocks" in sql
+    assert "block.blocker_user_id = :viewer_user_id" in sql
+    assert "block.blocker_user_id = :peer_user_id" in sql
+    assert "NULLIF(BTRIM(peer_identity.custom_photo_url), '')" in sql
+    assert "NULLIF(BTRIM(peer_identity.photo_url), '')" in sql
+    assert "public_profile_status" not in sql
+    assert not any(command in sql.upper() for command in ("INSERT ", "UPDATE ", "DELETE "))
+
+
+def test_unavailable_person_draft_does_not_read_identity(monkeypatch):
+    service = _service()
+    person_ref = _conversation()["peer_person_ref"]
+    monkeypatch.setattr(service, "_resolve_recipient", lambda **_kwargs: ("bob", person_ref))
+    monkeypatch.setattr(service, "_conversation_by_pair", lambda *_args: None)
+    monkeypatch.setattr(service, "_active_connection_id", lambda *_args: None)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda *_args: pytest.fail("Identity read without an accepted, unblocked connection"),
+    )
+
+    assert service.open_with_person("alice", recipient_person_ref=person_ref) == {
+        "conversation": None,
+        "peerPersonRef": person_ref,
+        "canSend": False,
+        "disconnectedNotice": True,
+    }
+
+
+def test_person_draft_fails_closed_when_connection_changes_before_identity_read(monkeypatch):
+    service = _service()
+    person_ref = _conversation()["peer_person_ref"]
+    monkeypatch.setattr(service, "_resolve_recipient", lambda **_kwargs: ("bob", person_ref))
+    monkeypatch.setattr(service, "_conversation_by_pair", lambda *_args: None)
+    monkeypatch.setattr(service, "_active_connection_id", lambda *_args: "connection-id")
+    monkeypatch.setattr(service, "_execute_one", lambda *_args: None)
+
+    assert service.open_with_person("alice", recipient_person_ref=person_ref) == {
+        "conversation": None,
+        "peerPersonRef": person_ref,
+        "canSend": False,
+        "disconnectedNotice": True,
+    }
+
+
+@pytest.mark.parametrize("viewer, peer_name", [("alice", "Bob"), ("bob", "Alice")])
+@pytest.mark.parametrize("can_send", [True, False])
+def test_open_person_keeps_existing_participant_conversation(
+    monkeypatch, viewer, peer_name, can_send
+):
+    service = _service()
+    peer = "bob" if viewer == "alice" else "alice"
+    row = {**_conversation(can_send), "peer_display_name": peer_name}
+    person_ref = row["peer_person_ref"]
+    monkeypatch.setattr(service, "_resolve_recipient", lambda **_kwargs: (peer, person_ref))
+    monkeypatch.setattr(service, "_conversation_by_pair", lambda *_args: row)
+    monkeypatch.setattr(
+        service, "_active_connection_id", lambda *_args: "connection-id" if can_send else None
+    )
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda *_args: pytest.fail("Existing history must not use the draft identity lookup"),
+    )
+
+    result = service.open_with_person(viewer, recipient_person_ref=person_ref)
+
+    assert result["conversation"]["id"] == _CONVERSATION_ID
+    assert result["conversation"]["peerDisplayName"] == result["peerDisplayName"] == peer_name
+    assert result["peerPhotoUrl"] is None
+    assert result["canSend"] is can_send
+    assert result["disconnectedNotice"] is not can_send
+    assert "_peerUserId" not in result["conversation"]
 
 
 def _action_message(*, sender_user_id="alice", deleted_for_everyone_at=None):

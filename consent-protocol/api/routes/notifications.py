@@ -11,6 +11,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.push_tokens_service import PushTokensService
@@ -63,7 +64,7 @@ async def register_push_token(request: Request):
     One token per installation. Requires Firebase ID token.
     """
     auth_header = request.headers.get("Authorization")
-    firebase_uid = verify_firebase_bearer(auth_header)
+    firebase_uid = await run_in_threadpool(verify_firebase_bearer, auth_header)
 
     try:
         body = await request.json()
@@ -100,14 +101,38 @@ async def register_push_token(request: Request):
     device_fields = _device_fields(body)
     try:
         service = PushTokensService()
-        token_id = service.upsert_user_push_token(
-            user_id=user_id, token=token.strip(), platform=platform, **device_fields
+        token_id = await run_in_threadpool(
+            service.upsert_user_push_token,
+            user_id=user_id,
+            token=token.strip(),
+            platform=platform,
+            **device_fields,
         )
+        if token_id is None:
+            raise RuntimeError("Push registration was not persisted")
     except Exception as e:
         logger.error("Push token registration failed type=%s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Failed to register token")
 
-    logger.info("Push token registered for user=%s platform=%s", user_id, platform)
+    if device_fields.get("preview_key_id"):
+        # Registration has committed. Repair only pending retries; a new key
+        # never resurrects terminal work or invalidates an active lease.
+        try:
+            from hushh_mcp.services.chat_push_delivery import retry_registered_chat_pushes
+            from hushh_mcp.services.circle_chat_notifications import wake_circle_chat_push_worker
+            from hushh_mcp.services.direct_message_notifications import (
+                wake_direct_message_push_worker,
+            )
+
+            if await run_in_threadpool(retry_registered_chat_pushes, user_id):
+                wake_circle_chat_push_worker()
+                wake_direct_message_push_worker()
+        except Exception as exc:
+            logger.warning(
+                "chat_push.registration_recovery_failed error_type=%s", type(exc).__name__
+            )
+
+    logger.info("Push token registered platform=%s", platform)
     return {"ok": True, "user_id": user_id, "platform": platform, "id": token_id}
 
 
@@ -120,7 +145,7 @@ async def unregister_push_token(request: Request):
     Otherwise all tokens for the user are removed.
     """
     auth_header = request.headers.get("Authorization")
-    firebase_uid = verify_firebase_bearer(auth_header)
+    firebase_uid = await run_in_threadpool(verify_firebase_bearer, auth_header)
 
     try:
         body = await request.json()
@@ -143,8 +168,8 @@ async def unregister_push_token(request: Request):
     device_fields = _device_fields({"device_id": body.get("device_id")})
     try:
         service = PushTokensService()
-        deleted = service.delete_user_push_tokens(
-            user_id=user_id, platform=platform, **device_fields
+        deleted = await run_in_threadpool(
+            service.delete_user_push_tokens, user_id=user_id, platform=platform, **device_fields
         )
     except Exception as e:
         logger.error("Push token unregister failed type=%s", type(e).__name__)

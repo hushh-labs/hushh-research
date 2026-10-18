@@ -420,6 +420,22 @@ class _ReadOnlyCalendar:
         )
 
 
+def test_calendar_all_day_confirmation_preserves_exclusive_end_date() -> None:
+    assert tools._display_all_day("2026-10-02", "2026-10-03") == "Fri, Oct 2 (all day)"
+    assert tools._display_all_day("2026-10-02", "2026-10-05") == (
+        "Fri, Oct 2 to Sun, Oct 4 (all day)"
+    )
+
+
+def test_calendar_confirmation_formats_midnight_and_noon_in_local_timezone() -> None:
+    assert tools._display_time("2026-10-01T18:30:00Z", "Asia/Kolkata") == (
+        "Fri, Oct 2 at 12:00 AM IST"
+    )
+    assert tools._display_time("2026-10-02T06:30:00Z", "Asia/Kolkata") == (
+        "Fri, Oct 2 at 12:00 PM IST"
+    )
+
+
 def test_timezone_falls_back_to_utc_on_a_path_shaped_value() -> None:
     # ZoneInfo raises ValueError (not ZoneInfoNotFoundError) for a key shaped
     # like an absolute or relative path -- "../etc", "/UTC" -- which the

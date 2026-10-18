@@ -26,24 +26,29 @@ from hushh_mcp.services.drive_document_store import (
 )
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
+    AUTOSHARE_REQUEST_FLOW,
     DEFAULT_PRICE_CENTS,
     LEGACY_DEFAULT_PRICE_CENTS,
     LEGACY_REQUEST_POLICY,
     OWNER_ALLOWED_KEY,
     automatic_recipient_current,
+    autoshare_enabled,
+    autoshare_request,
     owner_allowed_marker,
     owner_allowed_price_cents,
     owner_allowed_record,
     package_allow_marker,
     request_has_document_scope,
-    valid_legacy_request_price_cents,
     valid_owner_price_cents,
+    valid_request_price_cents,
+    whole_dollar_request,
 )
 from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
 )
 from hushh_mcp.services.drive_request_queue import (
+    AUTOMATIC_START_CODES,
     STARTED_WORK_SQL,
     queue_view,
     request_queued_since,
@@ -83,6 +88,31 @@ OWNER_SETUP_CODES = frozenset(
 
 def _new_requests_use_legacy_flow() -> bool:
     return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+
+
+def _period_conflict_view(private) -> dict:
+    """Both participants: the request text names a longer span than its picked dates.
+
+    The picked dates always bound the search. The requester wrote both, so
+    either side may read this one-word reason.
+    """
+    purpose = private.get("purpose")
+    if (
+        not isinstance(purpose, dict)
+        or not purpose.get("periodStart")
+        or not purpose.get("periodEnd")
+    ):
+        return {}
+    from hushh_mcp.services.drive_owner_search_service import _period_conflict
+
+    try:
+        conflict = _period_conflict(
+            str(purpose.get("purpose", "")),
+            {"start": purpose["periodStart"], "end": purpose["periodEnd"]},
+        )
+    except ValueError:
+        return {}
+    return {"periodConflict": conflict} if conflict else {}
 
 
 class DriveSharingStore(DriveDocumentStore):
@@ -364,19 +394,44 @@ class DriveSharingStore(DriveDocumentStore):
         ).scalar_one()
         return {} if ready else {"ownerDriveReady": False}
 
-    @staticmethod
-    def _started_work(connection, row, now) -> dict:
-        """Both participants: started work that no worker has moved for a while.
+    def _started_work(self, connection, row, now, private=None) -> dict:
+        """Both participants: automatic work that no worker has moved for a while.
 
         Read from durable search and grant rows only; never "paused", and a
-        read never dispatches work. Absent while the work moves.
+        read never dispatches work. Absent while the work moves, and absent
+        while a person must act: the owner's file review or manual search,
+        owner setup, or the requester's payment. Those are not delays.
         """
         if (
             row["status"] != "pending"
             or row["bulk_search_started_at"] is None
             or row["access_stop_requested_at"] is not None
             or row["expires_at"] <= now
+            or row.get("preparation_error_code") != "trusted_auto_active"
         ):
+            return {}
+        private = private if private is not None else self._open_request(row)
+        if private.get("trusted_auto") is not True:
+            return {}
+        unpaid = self._row(
+            connection,
+            """SELECT 1 FROM drive_request_payment_orders WHERE request_id=:request
+              AND status<>'paid'""",
+            {"request": row["request_id"]},
+        )
+        if unpaid is not None:
+            return {}
+        try:
+            if request_requires_owner_review(
+                connection,
+                user_id=row["user_id"],
+                request_id=row["request_id"],
+                revision=row["revision"],
+                cipher=self.sharing_cipher,
+            ):
+                return {}
+        except DriveSharingError:
+            # An unreadable selection proves no automatic work; never claim a delay.
             return {}
         clocks = (
             connection.execute(text(STARTED_WORK_SQL), {"request": row["request_id"]})
@@ -438,10 +493,7 @@ class DriveSharingStore(DriveDocumentStore):
                 amount is None
                 and automatic
                 and pricing["enabled"]
-                and (
-                    private.get("legacy_request_policy") != LEGACY_REQUEST_POLICY
-                    or valid_legacy_request_price_cents(pricing["amount_cents"])
-                )
+                and valid_request_price_cents(private, pricing["amount_cents"])
             ):
                 amount, version = pricing["amount_cents"], pricing["version"]
             setup = self._owner_setup(
@@ -573,14 +625,8 @@ class DriveSharingStore(DriveDocumentStore):
             version = current["version"] if current else 0
             if version != expected_version:
                 raise DriveSharingError("price_changed")
-            if (
-                _new_requests_use_legacy_flow()
-                and not valid_legacy_request_price_cents(amount_cents)
-                and (enabled or current is None or current["amount_cents"] != amount_cents)
-            ):
-                # Retire an existing cent-priced default without requiring a
-                # new whole-dollar amount; new enabled prices remain whole.
-                raise DriveSharingError("invalid_payment_amount")
+            # New requests take cents from $0.50. An older whole-dollar request
+            # keeps its sealed rule: _resume_owner_setup skips a cents default.
             row = self._row(
                 connection,
                 """INSERT INTO drive_request_owner_pricing
@@ -613,13 +659,10 @@ class DriveSharingStore(DriveDocumentStore):
             lock_connection_graph_users(connection, user_ids=[user_id, owner_user_id])
             self._relationship(connection, owner_user_id, user_id)
             pricing = self._owner_pricing(connection, owner_user_id)
+            # New requests seal the cents rule, so any valid default is a quote.
             amount = (
                 pricing["amount_cents"]
-                if pricing["enabled"]
-                and (
-                    not _new_requests_use_legacy_flow()
-                    or valid_legacy_request_price_cents(pricing["amount_cents"])
-                )
+                if pricing["enabled"] and valid_owner_price_cents(pricing["amount_cents"])
                 else None
             )
             setup = self._owner_setup(
@@ -913,9 +956,7 @@ class DriveSharingStore(DriveDocumentStore):
                     AND c.verified_policy_hash=:policy
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NULL
                     AND (:v1_only=FALSE OR r.v1_live_request=TRUE)
-                    AND r.preparation_error_code IN
-                      ('trusted_auto_queued','background_preparation_required',
-                       'owner_price_required','owner_payout_required','payout_unavailable')
+                    AND r.preparation_error_code=ANY(CAST(:start_codes AS text[]))
                     AND r.expires_at>clock_timestamp()
                     AND r.preparation_next_at<=clock_timestamp()
                   ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
@@ -924,7 +965,12 @@ class DriveSharingStore(DriveDocumentStore):
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
                 FROM due WHERE r.request_id=due.request_id RETURNING r.*
                 """),
-                    {"policy": LIVE_POLICY_HASH, "limit": limit, "v1_only": v1_only},
+                    {
+                        "policy": LIVE_POLICY_HASH,
+                        "limit": limit,
+                        "v1_only": v1_only,
+                        "start_codes": sorted(AUTOMATIC_START_CODES),
+                    },
                 )
                 .mappings()
                 .all()
@@ -970,10 +1016,15 @@ class DriveSharingStore(DriveDocumentStore):
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND (:v1_only=FALSE OR (r.v1_live_request=TRUE
                       AND j.v1_statement_search=TRUE))
-                    AND r.preparation_error_code IN
+                    AND (r.preparation_error_code IN
                       ('trusted_auto_active','background_preparation_required',
                        'owner_price_required','owner_payout_required','payout_unavailable')
-                    AND r.preparation_next_at<=clock_timestamp()
+                      OR (r.preparation_error_code='payment_not_ready'
+                        AND o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
+                    AND (r.preparation_next_at<=clock_timestamp()
+                      OR (o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
                     AND r.expires_at>clock_timestamp()
                     AND j.status IN ('queued','running','completed')
                     AND (NOT r.payment_required OR o.request_id IS NULL
@@ -1044,6 +1095,10 @@ class DriveSharingStore(DriveDocumentStore):
                 "package_existing_access_requires_review",
                 "payment_not_ready",
                 "trusted_relationship_changed",
+                # Another request's batch is sharing from this Drive. The
+                # request keeps its automatic state and tries again later;
+                # waiting never counts toward the three failed attempts.
+                "share_in_progress",
             }
             | OWNER_SETUP_CODES
         ):
@@ -1401,6 +1456,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "packageAllowed": package_allow_marker(private) is not None,
                 "v1LiveRequest": private.get("v1_live_request") is True,
                 "trustedAuto": private.get("trusted_auto") is True,
+                "autoshare": autoshare_request(private),
                 "reusablePacket": private.get("reusable_packet"),
             }
 
@@ -1658,11 +1714,7 @@ class DriveSharingStore(DriveDocumentStore):
             quoted_amount_cents = (
                 (
                     pricing["amount_cents"]
-                    if pricing["enabled"]
-                    and (
-                        not _new_requests_use_legacy_flow()
-                        or valid_legacy_request_price_cents(pricing["amount_cents"])
-                    )
+                    if pricing["enabled"] and valid_owner_price_cents(pricing["amount_cents"])
                     else None
                 )
                 if pricing
@@ -1695,6 +1747,13 @@ class DriveSharingStore(DriveDocumentStore):
                     **(
                         {"legacy_request_policy": LEGACY_REQUEST_POLICY}
                         if _new_requests_use_legacy_flow() and not owner_initiated
+                        else {}
+                    ),
+                    # Trusted or allowed: every in-period match after payment,
+                    # priced in cents from $0.50. A package keeps its own lane.
+                    **(
+                        {"request_flow": AUTOSHARE_REQUEST_FLOW}
+                        if not owner_initiated and not agent_package and autoshare_enabled()
                         else {}
                     ),
                     **(
@@ -2654,7 +2713,7 @@ class DriveSharingStore(DriveDocumentStore):
                 """
                 SELECT r.*,p.status AS owner_payout_status,
                        account.account_ready AS payout_account_ready,
-                       o.amount_cents AS order_amount_cents
+                       o.amount_cents AS order_amount_cents,o.status AS order_status
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
@@ -2691,7 +2750,8 @@ class DriveSharingStore(DriveDocumentStore):
                     "direction": "incoming",
                 }
             recipient = row["recipient_user_id"] == user_id
-            setup = self._request_setup(connection, row, self._open_request(row))
+            private = self._open_request(row)
+            setup = self._request_setup(connection, row, private)
             payout_setup_relevant = bool(
                 row["payment_required"] is True
                 and row.get("settlement_method", "stripe_transfer") != "hashcoins"
@@ -2717,7 +2777,33 @@ class DriveSharingStore(DriveDocumentStore):
                 "direction": "outgoing" if recipient else "incoming",
                 # Waiting in the durable queue with no search yet; never "paused".
                 **queue_view(request_queued_since(row, now), now),
-                **self._started_work(connection, row, now),
+                **self._started_work(connection, row, now, private),
+                **_period_conflict_view(private),
+                # Both sides: an automatic request (Trusted or allowed) whose
+                # work is queued or running: it shares every in-period match
+                # after payment. Absent while payment is due or its link has
+                # expired, and once the work stopped or failed, so no one is
+                # told files are being found while nothing runs.
+                # Presentation only, never authority.
+                **(
+                    {"autoshare": True}
+                    if autoshare_request(private)
+                    and private.get("trusted_auto") is True
+                    and row["status"] == "pending"
+                    and row["access_stop_requested_at"] is None
+                    and row["expires_at"] > now
+                    and row.get("preparation_error_code")
+                    in {"trusted_auto_queued", "trusted_auto_active"}
+                    and row.get("order_status") in {None, "paid"}
+                    else {}
+                ),
+                **(
+                    {"awaitingOwnerAllow": True}
+                    if self._awaiting_owner_decision(row, private, now)
+                    and private.get("agent_package_required") is not True
+                    and row.get("owner_allowed_at") is None
+                    else {}
+                ),
                 **(
                     {"ownerPayoutStatus": row["owner_payout_status"]}
                     if not recipient and row["owner_payout_status"] is not None
@@ -2843,13 +2929,12 @@ class DriveSharingStore(DriveDocumentStore):
                 "estimateCents": row.get("initial_quote_cents"),
                 # This request's sealed price contract. Allow and Set price
                 # refuse anything else, so every price step offers only it.
-                **(
-                    {"wholeDollarPrice": True}
-                    if private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY
-                    else {}
-                ),
+                **({"wholeDollarPrice": True} if whole_dollar_request(private) else {}),
+                # Shares every in-period match after payment; no file selection.
+                **({"autoshare": True} if autoshare_request(private) else {}),
+                **_period_conflict_view(private),
                 **queue_view(request_queued_since(row, now), now),
-                **self._started_work(connection, row, now),
+                **self._started_work(connection, row, now, private),
             }
             if (
                 private.get("v1_live_request") is True
@@ -3063,9 +3148,7 @@ class DriveSharingStore(DriveDocumentStore):
             if row["revision"] != revision:
                 raise DriveSharingError("review_changed")
             private = self._open_request(row)
-            if private.get(
-                "legacy_request_policy"
-            ) == LEGACY_REQUEST_POLICY and not valid_legacy_request_price_cents(amount_cents):
+            if not valid_request_price_cents(private, amount_cents):
                 raise DriveSharingError("invalid_payment_amount")
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if not self._trusted_price_target(connection, row, private, now):
@@ -3178,11 +3261,7 @@ class DriveSharingStore(DriveDocumentStore):
                 }
             if row["revision"] != revision:
                 raise DriveSharingError("review_changed")
-            if (
-                amount_cents is not None
-                and private.get("legacy_request_policy") == LEGACY_REQUEST_POLICY
-                and not valid_legacy_request_price_cents(amount_cents)
-            ):
+            if amount_cents is not None and not valid_request_price_cents(private, amount_cents):
                 raise DriveSharingError("invalid_payment_amount")
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if not self._owner_may_decide(connection, row, private, now):
@@ -3247,12 +3326,13 @@ class DriveSharingStore(DriveDocumentStore):
                         "buyer_disclosure": package["buyer_disclosure"],
                     }
                 )
+            allowed_private = {
+                **private,
+                "trusted_auto": True,
+                OWNER_ALLOWED_KEY: allowed_record,
+            }
             envelope = self.sharing_cipher.seal(
-                {
-                    **private,
-                    "trusted_auto": True,
-                    OWNER_ALLOWED_KEY: allowed_record,
-                },
+                allowed_private,
                 user_id=user_id,
                 resource_id=identity,
                 purpose="request",
@@ -3273,6 +3353,18 @@ class DriveSharingStore(DriveDocumentStore):
                     "amount": quoted_amount,
                 },
             )
+            if setup_code is None:
+                # The requester pays against this decision, not against the
+                # search: the order is final here and the sharing lane binds
+                # its Checkout on the next drain. An incomplete owner setup
+                # keeps the request parked until _resume_owner_setup runs.
+                from hushh_mcp.services.drive_request_payment_store import (
+                    DriveRequestPaymentStore,
+                )
+
+                DriveRequestPaymentStore.ensure_order_for_owner_allow(
+                    connection, updated, allowed_private
+                )
             self._notify_setup_changed(connection, updated)
             return {
                 **self._summary(updated),

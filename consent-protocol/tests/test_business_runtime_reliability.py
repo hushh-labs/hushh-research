@@ -89,22 +89,20 @@ async def test_idle_push_sweeps_back_off_reset_and_propagate_cancellation(monkey
 
     name = "dispatch_circle_chat_pushes" if module is circle else "dispatch_direct_message_pushes"
     monkeypatch.setattr(module, name, dispatch)
+
+    async def wait_for(waiter, timeout):
+        waiter.close()
+        await sleep(timeout)
+        raise TimeoutError
+
+    monkeypatch.setattr(module.asyncio, "wait_for", wait_for)
     if module is circle:
-
-        async def wait_for(waiter, timeout):
-            waiter.close()
-            await sleep(timeout)
-            raise TimeoutError
-
-        monkeypatch.setattr(module.asyncio, "wait_for", wait_for)
         monkeypatch.setattr(circle, "_wakeup", None)
         monkeypatch.setattr(
             circle,
             "get_db",
             lambda: SimpleNamespace(engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))),
         )
-    else:
-        monkeypatch.setattr(module.asyncio, "sleep", sleep)
     worker = (
         module.run_circle_chat_push_worker
         if module is circle
@@ -118,7 +116,8 @@ async def test_idle_push_sweeps_back_off_reset_and_propagate_cancellation(monkey
 
 
 @pytest.mark.asyncio
-async def test_circle_wakeup_drains_full_batches_before_waiting_again(monkeypatch):
+@pytest.mark.parametrize("module", [circle, direct])
+async def test_chat_wakeup_drains_full_batches_before_waiting_again(monkeypatch, module):
     wait_for = asyncio.wait_for
     waiting = asyncio.Queue()
     waits = []
@@ -129,21 +128,51 @@ async def test_circle_wakeup_drains_full_batches_before_waiting_again(monkeypatc
         waiting.put_nowait(dispatch.call_count)
         return await wait_for(waiter, timeout=60)
 
-    monkeypatch.setattr(circle.asyncio, "wait_for", wait_for_wakeup)
-    monkeypatch.setattr(circle, "_wakeup", None)
-    monkeypatch.setattr(circle, "dispatch_circle_chat_pushes", dispatch)
+    monkeypatch.setattr(module.asyncio, "wait_for", wait_for_wakeup)
+    monkeypatch.setattr(module, "_wakeup", None)
+    name = "dispatch_circle_chat_pushes" if module is circle else "dispatch_direct_message_pushes"
+    monkeypatch.setattr(module, name, dispatch)
     monkeypatch.setattr(
         circle,
         "get_db",
         lambda: SimpleNamespace(engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))),
     )
-    task = asyncio.create_task(circle.run_circle_chat_push_worker())
+    worker = (
+        module.run_circle_chat_push_worker
+        if module is circle
+        else module.run_direct_message_push_worker
+    )
+    task = asyncio.create_task(worker())
     try:
         assert await wait_for(waiting.get(), timeout=2) == 1
-        circle.wake_circle_chat_push_worker()
+        wake = (
+            module.wake_circle_chat_push_worker
+            if module is circle
+            else module.wake_direct_message_push_worker
+        )
+        wake()
         assert await wait_for(waiting.get(), timeout=2) == 4
         assert waits == [(1, 1), (4, 2)]
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_direct_push_commit_coalesces_one_grace_wakeup(monkeypatch):
+    monkeypatch.setattr(direct, "_wakeup", asyncio.Event())
+    monkeypatch.setattr(direct, "_grace_wakeup", None)
+    callbacks = []
+    handle = Mock()
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(
+        loop, "call_later", lambda delay, callback: callbacks.append((delay, callback)) or handle
+    )
+    for _ in range(100):
+        direct.wake_direct_message_push_worker()
+    assert direct._wakeup.is_set()
+    assert len(callbacks) == 1 and callbacks[0][0] == 2
+    direct._wakeup.clear()
+    callbacks[0][1]()
+    assert direct._wakeup.is_set() and direct._grace_wakeup is None

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   Popover,
@@ -116,6 +116,8 @@ type DirectMessageEmojiPickerProps = {
   compact?: boolean;
   dismissSignal?: number;
   triggerIcon?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function DirectMessageEmojiPicker({
@@ -126,9 +128,16 @@ export function DirectMessageEmojiPicker({
   compact = false,
   dismissSignal,
   triggerIcon,
+  open: controlledOpen,
+  onOpenChange,
 }: DirectMessageEmojiPickerProps) {
   const searchId = useId();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = useCallback((next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  }, [onOpenChange]);
   const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY.id);
   const [recent, setRecent] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -140,7 +149,7 @@ export function DirectMessageEmojiPicker({
     grid.current?.scrollTo?.(0, 0);
   }, [activeCategory, query, open]);
 
-  useEffect(() => { setOpen(false); }, [dismissSignal]);
+  useEffect(() => { setOpen(false); }, [dismissSignal, setOpen]);
 
   useEffect(() => {
     setRecent(readRecentEmojis());

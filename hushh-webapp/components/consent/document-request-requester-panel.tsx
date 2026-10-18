@@ -7,6 +7,7 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { RequesterPaymentSection } from "@/components/consent/requester-payment-section";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { periodConflictNote } from "@/lib/consent/document-request-flow";
 import type { RequesterPriceView } from "@/lib/consent/document-request-payment-view";
 import { presentRequesterRecovery } from "@/lib/consent/document-request-requester-view";
 import { Button } from "@/lib/morphy-ux/button";
@@ -53,6 +54,12 @@ function requesterIssueText(reason: DriveBulkReasonCode | string): string {
     return "Google Drive denied sharing. The owner can check the file's sharing permissions.";
   if (reason === "permission_outcome_unknown" || reason === "permission_catalog_incomplete")
     return "The result has not been confirmed. The owner can check access in Google Drive.";
+  // Google shares silently only with Google accounts; nothing the owner can fix.
+  if (reason === "recipient_needs_google_account") return "Link a Google account to receive files.";
+  if (reason === "drive_policy_blocked")
+    return "The owner's Google Workspace settings don't allow sharing these files with you.";
+  if (reason === "sharing_rate_limited")
+    return "Google Drive limited how many files the owner could share at once.";
   if (reason === "stopped") return "The owner stopped sharing these files.";
   // A retry is never promised here: it may already be closed.
   if (reason === "provider_unavailable") return "Google Drive could not finish sharing these files.";
@@ -341,6 +348,11 @@ export function DocumentRequestRequesterPanel({
     context?.purpose.periodStart && context.purpose.periodEnd
       ? `${context.purpose.periodStart} – ${context.purpose.periodEnd}`
       : null;
+  // The picked dates always win over a longer span in the note.
+  const periodNote = context && status.periodConflict === "request_mentions_longer_span"
+    ? periodConflictNote(context.purpose.purpose, context.purpose.periodStart,
+      context.purpose.periodEnd, "requester")
+    : null;
   const requestedOn = formatRequestedOn(context?.requestedAt);
   const access = accessTerm(status);
   const prices = priceFacts(price).filter(Boolean);
@@ -367,6 +379,7 @@ export function DocumentRequestRequesterPanel({
             {googleEmail ? <Fact label="Files shared with" value={googleEmail} /> : null}
             {prices}
           </dl>
+          {periodNote ? <HelperText>{periodNote}</HelperText> : null}
         </div>
       ) : null}
 

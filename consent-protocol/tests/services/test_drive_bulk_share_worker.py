@@ -107,6 +107,45 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        (RuntimeError("PRIVATE recipient@example.com"), "reason=exception error=RuntimeError"),
+        ("not_an_outcome", "reason=unclassified outcome=not_an_outcome"),
+    ],
+)
+async def test_an_unavailable_share_effect_is_never_silent(caplog, failure, expected):
+    """A stuck backlog must be readable from logs, with no owner data in them."""
+    worker, store, _ = _worker()
+    row = {
+        "share_id": _job()["share_id"],
+        "user_id": "owner",
+        "position": 1,
+        "recipient_user_id": "recipient",
+    }
+    store.due.side_effect = [[row], [row]]
+    worker._pace = AsyncMock()
+    worker._effect = AsyncMock(
+        **(
+            {"side_effect": failure}
+            if isinstance(failure, Exception)
+            else {"return_value": failure}
+        )
+    )
+    caplog.set_level("WARNING", logger="drive_bulk_share")
+
+    result = await worker.run(max_jobs=1, deadline_seconds=80)
+
+    assert result["outcomes"]["unavailable"] == 1
+    assert expected in caplog.text
+    # Ids are redacted from these lines; the logger's drive_op and request_tag
+    # are what correlate them, so the reason and the type are the whole payload.
+    assert "PRIVATE" not in caplog.text
+    assert "recipient@example.com" not in caplog.text
+    assert str(row["share_id"]) not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_v1_worker_filters_due_claims_notices_and_wake_to_v1_only():
     worker, store, _ = _worker()
     row = {

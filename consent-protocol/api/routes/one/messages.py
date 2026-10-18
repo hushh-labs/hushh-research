@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from contextlib import aclosing
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
@@ -464,10 +464,21 @@ async def _message_event_stream(
         if current_owner != user_id:
             raise HTTPException(403, "Stream owner changed.")
 
+    from api.consent_listener import LOCAL_RESYNC_EVENT_TYPE
+
+    async def initial_resync() -> list[dict[str, Any]]:
+        return [{"type": LOCAL_RESYNC_EVENT_TYPE}]
+
     seen: set[str] = set()
     async with aclosing(
         notification_events(
-            user_id, request, lease=lease, authorize=authorize, heartbeat_seconds=25
+            user_id,
+            request,
+            lease=lease,
+            authorize=authorize,
+            heartbeat_seconds=25,
+            snapshot_resets=True,
+            backfill=initial_resync,
         )
     ) as events:
         async for payload in events:
@@ -476,6 +487,10 @@ async def _message_event_stream(
                     "event": "heartbeat",
                     "data": json.dumps({"timestamp": int(time.time() * 1000)}),
                 }
+                continue
+            if isinstance(payload, dict) and payload.get("type") == LOCAL_RESYNC_EVENT_TYPE:
+                seen.clear()
+                yield {"event": "resync", "data": "{}"}
                 continue
             event = _direct_message_event(payload)
             if event is None:

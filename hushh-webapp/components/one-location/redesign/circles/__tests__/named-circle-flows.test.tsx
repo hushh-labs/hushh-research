@@ -1740,6 +1740,44 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
   });
 
+  it("shows SMS Circle capacity below Add people and keeps selection within that limit", async () => {
+    const smsCircle = {
+      ...circle("sms-circle", "Emergency Circle"),
+      memberCount: 9,
+      memberLimit: 10,
+      isSystem: true,
+      systemKind: "sms" as const,
+    };
+    render(
+      <CircleDetailFlow
+        circleId="sms-circle"
+        {...detailProps(async () => smsCircle)}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            { connectionId: "connection-1", userId: "asha", displayName: "Asha Meena" },
+            { connectionId: "connection-2", userId: "neel", displayName: "Neel Shah" },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 1,
+        }))}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+    expect(
+      await within(sheet).findByText(
+        "SMS Circle limit: 10 people total. 9 members are in this Circle; you can add 1 more person.",
+      ),
+    ).toBeInTheDocument();
+
+    const asha = within(sheet).getByRole("button", { name: /Asha Meena/i });
+    const neel = within(sheet).getByRole("button", { name: /Neel Shah/i });
+    fireEvent.click(asha);
+    expect(neel).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+  });
+
   it("renders Circle full even if a stale eligible row is returned", async () => {
     render(
       <CircleDetailFlow
@@ -1847,6 +1885,17 @@ describe("named Circle flows", () => {
     const input = (await screen.findByLabelText(
       "Circle name",
     )) as HTMLInputElement;
+    const saveButton = screen.getByTestId("one-location-circle-name-save");
+    expect(input).toHaveClass("rounded-[14px]");
+    expect(saveButton).toHaveClass("rounded-[14px]");
+    expect(input).toHaveClass(
+      "focus-visible:border-border",
+      "focus-visible:ring-0",
+    );
+    expect(input.className).not.toContain(
+      "focus-visible:border-[color:var(--app-accent)]",
+    );
+    expect(input.className).not.toContain("focus-visible:ring-[3px]");
 
     // Only an empty name blocks the write; one character is a name.
     fireEvent.change(input, { target: { value: "   " } });
@@ -2338,6 +2387,7 @@ describe("named Circle flows", () => {
     // it, and stops adding 16px under a description the gap already spaced.
     const header = sheet.querySelector('[data-slot="sheet-header"]');
     expect(header?.className).toContain("p-0");
+    expect(header?.className).toContain("pt-5");
     expect(header?.className).not.toContain("p-4");
 
     const group = await screen.findByTestId(

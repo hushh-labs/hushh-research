@@ -26,8 +26,9 @@ export function visibleFollowUps(
 }
 
 /**
- * Tapping a follow-up fills the composer: the
- * person can read, edit, or discard it before anything is sent.
+ * Tapping a follow-up invokes the caller-owned next turn. The workspace sends
+ * a guarded turn immediately; other consumers can keep their own selection
+ * behaviour.
  *
  * Each suggestion is a semantic button with a quiet text-row presentation and
  * a 44-point target. It carries the shared ripple itself and
@@ -35,14 +36,17 @@ export function visibleFollowUps(
  */
 export function AgentFollowUpSuggestions({
   suggestions,
+  disabled = false,
   onSelect,
 }: {
   suggestions: readonly string[];
+  disabled?: boolean;
   onSelect: (suggestion: string) => void;
 }) {
   return (
     <AgentSuggestionList
       suggestions={suggestions}
+      disabled={disabled}
       label="Suggested follow-ups"
       testId="agent-follow-up-suggestions"
       onSelect={onSelect}

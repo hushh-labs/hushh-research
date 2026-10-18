@@ -25,9 +25,9 @@ from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
     LIVE_SUPPORTED_TYPES,
     RESOURCE_KEY,
+    RETRYABLE_403_REASONS,
     SUPPORTED_TYPES,
     DriveReadError,
-    retryable_403_response,
 )
 from hushh_mcp.services.google_drive_adapter import (
     ERROR_RESPONSE_LIMIT as ERROR_RESPONSE_LIMIT,
@@ -55,11 +55,194 @@ ROLES = frozenset({"owner", "organizer", "fileOrganizer", "writer", "commenter",
 KINDS = frozenset({"user", "group", "domain", "anyone"})
 Fence = Callable[[], Awaitable[object]]
 
+# Drive answers a create with these documented reasons. Google's own guide:
+# invalidSharingRequest can follow a successful share whose email failed, and
+# sharingRateLimitExceeded means "could not be shared because a rate limit was
+# exceeded". Only these fixed names and the hints below leave this module.
+INVALID_SHARING_REASON = "invalidSharingRequest"
+SHARING_RATE_LIMIT_REASON = "sharingRateLimitExceeded"
+# Workspace domain and shared-drive sharing rules refuse the recipient (403).
+POLICY_403_REASONS = frozenset(
+    {
+        "shareInNotPermitted",
+        "shareOutNotPermitted",
+        "shareOutNotPermittedToUser",
+        "teamDriveDomainUsersOnlyRestriction",
+        "teamDriveTeamMembersOnlyRestriction",
+    }
+)
+NO_GOOGLE_ACCOUNT_403_REASONS = frozenset({"cannotShareTeamDriveWithNonGoogleAccounts"})
+# What an invalidSharingRequest message says, decided here and never stored or
+# logged as text. A reconciled grant always wins over any hint.
+SHARE_HINTS = frozenset(
+    {
+        "shared_without_email",
+        "recipient_needs_google_account",
+        "drive_policy_blocked",
+        "invalid_sharing_request",
+    }
+)
+REASON_CLASSES = frozenset(
+    {
+        "rate_limit",
+        "sharing_rate_limit",
+        "invalid_sharing",
+        "policy",
+        "no_google_account",
+        "bad_request",
+        "unreadable",
+        "other",
+    }
+)
+_HINT_TEXT_LIMIT = 2048
+_EMAIL_LIKE = re.compile(r"\S+@\S+")
+_HINT_PHRASES = (
+    # Checked in order; the first match wins.
+    ("shared_without_email", ("successfully shared", "emails could not be sent")),
+    ("recipient_needs_google_account", ("no google account", "notify people")),
+    (
+        "drive_policy_blocked",
+        (
+            "acl change not allowed",
+            "not allowed to share",
+            "outside of your organization",
+            "outside your organization",
+            "outside of the domain",
+            "outside the domain",
+            "sharing policy",
+            "domain policy",
+        ),
+    ),
+)
+
 
 class DrivePermissionError(DriveReadError):
-    def __init__(self, code: str, *, outcome_unknown: bool = False, retryable: bool = False):
+    def __init__(
+        self,
+        code: str,
+        *,
+        outcome_unknown: bool = False,
+        retryable: bool = False,
+        share_hint: str | None = None,
+        reason_class: str | None = None,
+    ):
         super().__init__(code, retryable=retryable)
         self.outcome_unknown = outcome_unknown
+        # Fixed classifications only; never provider text, file or account data.
+        self.share_hint = share_hint if share_hint in SHARE_HINTS else None
+        self.reason_class = reason_class if reason_class in REASON_CLASSES else None
+
+
+@dataclass(frozen=True)
+class _ProviderError:
+    """One bounded read of a Drive error body: reason names and a hint text."""
+
+    code: int
+    reasons: tuple[str | None, ...]
+    text: str = field(repr=False)
+
+    def only(self, *names: str) -> bool:
+        return bool(self.reasons) and all(reason in names for reason in self.reasons)
+
+    def rate_limited(self) -> bool:
+        # Exactly the former retryable_403_response rule for reads and writes.
+        return self.code == 403 and self.only(*RETRYABLE_403_REASONS)
+
+
+async def _provider_error(response: httpx.Response) -> _ProviderError | None:
+    """Size-limited parse. Messages are matched to fixed hints, then discarded."""
+    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+        return None
+    data = bytearray()
+    async for chunk in response.aiter_raw():
+        if len(data) + len(chunk) > ERROR_RESPONSE_LIMIT:
+            return None
+        data.extend(chunk)
+    try:
+        result = json.loads(data)
+    except (ValueError, UnicodeError, RecursionError):
+        return None
+    error = result.get("error") if isinstance(result, dict) else None
+    items = error.get("errors") if isinstance(error, dict) else None
+    if (
+        not isinstance(error, dict)
+        or type(error.get("code")) is not int
+        or not isinstance(items, list)
+        or not 1 <= len(items) <= 16
+    ):
+        return None
+    reasons: list[str | None] = []
+    texts = [error.get("message")]
+    for item in items:
+        reason = item.get("reason") if isinstance(item, dict) else None
+        reasons.append(reason if isinstance(reason, str) and 1 <= len(reason) <= 64 else None)
+        texts.append(item.get("message") if isinstance(item, dict) else None)
+    text = " ".join(item[:512] for item in texts if isinstance(item, str))[:_HINT_TEXT_LIMIT]
+    return _ProviderError(error["code"], tuple(reasons), _EMAIL_LIKE.sub(" ", text).casefold())
+
+
+def _share_hint(failure: _ProviderError) -> str:
+    for hint, phrases in _HINT_PHRASES:
+        if any(phrase in failure.text for phrase in phrases):
+            return hint
+    return "invalid_sharing_request"
+
+
+def _refused_403(failure: _ProviderError | None, *, create: bool, mutation: bool) -> None:
+    """Every 403 raises. Only a create gets the sharing-specific outcomes."""
+    if failure is not None and failure.rate_limited():
+        # Reads can back off safely. A dispatched write still requires
+        # reconciliation, never a blind POST retry.
+        if mutation:
+            raise DrivePermissionError(
+                "permission_outcome_unknown", outcome_unknown=True, reason_class="rate_limit"
+            )
+        raise DrivePermissionError(
+            "permission_provider_unavailable", retryable=True, reason_class="rate_limit"
+        )
+    if create and failure is not None and SHARING_RATE_LIMIT_REASON in failure.reasons:
+        if failure.only(SHARING_RATE_LIMIT_REASON):
+            # Google refused the share itself. The worker waits minutes and
+            # repeats its complete absence check before any later POST.
+            raise DrivePermissionError(
+                "sharing_rate_limited", retryable=True, reason_class="sharing_rate_limit"
+            )
+        # Mixed with another quota reason: reconcile instead of guessing.
+        raise DrivePermissionError(
+            "permission_outcome_unknown", outcome_unknown=True, reason_class="rate_limit"
+        )
+    if create and failure is not None:
+        if any(reason in NO_GOOGLE_ACCOUNT_403_REASONS for reason in failure.reasons):
+            raise DrivePermissionError(
+                "recipient_needs_google_account", reason_class="no_google_account"
+            )
+        if any(reason in POLICY_403_REASONS for reason in failure.reasons):
+            raise DrivePermissionError("drive_policy_blocked", reason_class="policy")
+    # A hidden file is not verified permission absence.
+    raise DrivePermissionError(
+        "permission_target_unavailable",
+        reason_class="other" if failure is not None else "unreadable",
+    )
+
+
+def _refused_create_400(failure: _ProviderError | None) -> None:
+    """A create refused with 400. invalidSharingRequest may follow a real share."""
+    if failure is None:
+        # An unreadable answer cannot rule out invalidSharingRequest.
+        raise DrivePermissionError(
+            "permission_outcome_unknown", outcome_unknown=True, reason_class="unreadable"
+        )
+    if INVALID_SHARING_REASON in failure.reasons:
+        raise DrivePermissionError(
+            "permission_outcome_unknown",
+            outcome_unknown=True,
+            share_hint=_share_hint(failure),
+            reason_class="invalid_sharing",
+        )
+    raise DrivePermissionError(
+        "permission_rejected",
+        reason_class="bad_request" if failure.only("badRequest", "invalid") else "other",
+    )
 
 
 @dataclass(frozen=True)
@@ -193,6 +376,7 @@ class GoogleDrivePermissionAdapter:
     ) -> dict:
         started = time.perf_counter()
         outcome = "error"
+        reason_class = "none"
         safe_operation = (
             operation if operation in {"inspect", "list", "create", "remove"} else "invalid"
         )
@@ -224,20 +408,31 @@ class GoogleDrivePermissionAdapter:
                     "permission_response_invalid",
                     "operation_not_allowed",
                     "recipient_not_verified",
+                    "sharing_rate_limited",
+                    "recipient_needs_google_account",
+                    "drive_policy_blocked",
                 }
                 else "error"
             )
+            # Unrecognized provider reasons are counted by class ("other"),
+            # never by their own text.
+            reason_class = error.reason_class or "none"
             raise
         except asyncio.CancelledError:
             outcome = "cancelled"
             raise
         finally:
             # No file/permission ID, email, URL, token, or provider body in telemetry.
+            # The outcome is dotted on purpose: the log redactor masks any 24-128
+            # character token of letters, digits, `_` and `-` as a possible
+            # identifier, which would hide permission_target_unavailable and the
+            # other long outcome codes in the very line meant to count them.
             logger.info(
-                "drive_permission_rest.timing operation=%s outcome=%s duration_ms=%.2f",
+                "drive_permission_rest.timing operation=%s outcome=%s duration_ms=%.2f reason=%s",
                 safe_operation,
-                outcome,
+                outcome.replace("_", "."),
                 (time.perf_counter() - started) * 1000,
+                reason_class,
             )
 
     async def _exchange_private(
@@ -326,15 +521,13 @@ class GoogleDrivePermissionAdapter:
                             status = response.status_code
                             if status == 401:
                                 raise DrivePermissionError("reconnect_required")
-                            if status == 403 and await retryable_403_response(response):
-                                # Reads can back off safely. A dispatched write
-                                # still requires reconciliation, never a blind POST retry.
-                                if mutation:
-                                    raise _unknown()
-                                raise DrivePermissionError(
-                                    "permission_provider_unavailable", retryable=True
+                            if status == 403:
+                                _refused_403(
+                                    await _provider_error(response),
+                                    create=operation == "create",
+                                    mutation=mutation,
                                 )
-                            if status in (403, 404, 410):
+                            if status in (404, 410):
                                 # A hidden file is not verified permission absence.
                                 raise DrivePermissionError("permission_target_unavailable")
                             if mutation and (
@@ -347,6 +540,8 @@ class GoogleDrivePermissionAdapter:
                                 )
                             expected = (200, 204) if operation == "remove" else (200,)
                             if status not in expected:
+                                if operation == "create" and status == 400:
+                                    _refused_create_400(await _provider_error(response))
                                 if mutation and 400 <= status < 500:
                                     raise DrivePermissionError("permission_rejected")
                                 raise _invalid(mutation)

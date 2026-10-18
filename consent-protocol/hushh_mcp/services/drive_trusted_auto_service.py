@@ -34,6 +34,14 @@ def _defer_code(error: BaseException) -> str:
         return "background_preparation_required"
     if str(error) == "trusted_request_unavailable":
         return "trusted_relationship_changed"
+    if str(error) == "drive_share_in_progress":
+        # Another request's batch holds the owner's Drive. Wait; not a failure.
+        return "share_in_progress"
+    if str(error) == "search_in_progress":
+        # Another of the owner's searches is running (one at a time), or this
+        # search's results are not final yet. Wait; not a failed start, so it
+        # never counts toward the three attempts that park a request for good.
+        return "share_in_progress"
     return "preparation_unavailable"
 
 
@@ -112,10 +120,18 @@ class DriveTrustedAutoService:
         )
         if state["status"] == "paid":
             return True
-        # The order is committed. The sharing drain binds a Stripe deadline
-        # before it writes and dispatches the payment-ready notification.
-        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
-        await self.wake("v1" if context.get("v1LiveRequest") else "sharing")
+        if state.get("orderCreated") is True:
+            # This call committed the order. The sharing drain binds a Stripe
+            # deadline before it writes and dispatches the payment-ready
+            # notification. An order that already existed was woken when it
+            # was created (here or at the owner's Allow); every later status
+            # change wakes its own lane (Checkout bind, Stripe webhook). Waking
+            # again on each page handoff of an unpaid order only floods the
+            # sharing drain; the scheduled drain stays the recovery path.
+            context = await self.sharing.request_bulk_context(
+                user_id=user_id, request_id=request_id
+            )
+            await self.wake("v1" if context.get("v1LiveRequest") else "sharing")
         return False
 
     def _authority(self, user_id: str, request_id: str):
@@ -244,9 +260,16 @@ class DriveTrustedAutoService:
         purpose = context["purpose"]
         if not (purpose.get("periodStart") and purpose.get("periodEnd")):
             await self._undated_packet_current(user_id=user_id, context=context)
-        if not context.get("agentPackageRequired") and _deterministic_statement_plan(purpose):
+        if (
+            not context.get("agentPackageRequired")
+            and not context.get("autoshare")
+            and _deterministic_statement_plan(purpose)
+        ):
             # A saved one-query job may still carry the older file-activity
             # marker until its lease is replanned. It cannot auto-select files.
+            # An autoshare request passes only with its own date selection:
+            # any other search needs owner review below, and approve refuses
+            # a statement grant without that selection.
             return 0
         if await self.sharing.request_owner_review_required(user_id=user_id, request_id=request_id):
             # Discovery still runs under current background authority. Its

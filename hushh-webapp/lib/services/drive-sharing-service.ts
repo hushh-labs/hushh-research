@@ -56,6 +56,12 @@ export type DocumentRequestQueue = {
    * server's threshold, since this time. Absent while it moves. Never "paused".
    */
   workDelayedSince?: string;
+  /** The request text names a longer span than its picked dates; the dates win. */
+  periodConflict?: "request_mentions_longer_span";
+  /** Trusted or allowed: every in-period match is sent after payment, no file picking. */
+  autoshare?: boolean;
+  /** Requester view: the owner has not allowed this request yet. */
+  awaitingOwnerAllow?: boolean;
 };
 /** A decision's acknowledgement; a withdrawal also carries the payment view. */
 export type SharingDecision = Record<string, unknown> & {
@@ -836,7 +842,8 @@ export type DriveBulkShareCounts = {
 const BULK_REASON_CODES = [
   "source_changed", "source_not_shareable", "recipient_changed", "connection_changed", "stopped",
   "sharing_unavailable", "date_range_required", "retry_limit", "provider_unavailable", "permission_rejected",
-  "permission_outcome_unknown", "permission_catalog_incomplete", "unavailable",
+  "permission_outcome_unknown", "permission_catalog_incomplete", "sharing_rate_limited",
+  "recipient_needs_google_account", "drive_policy_blocked", "unavailable",
 ] as const;
 export type DriveBulkReasonCode = (typeof BULK_REASON_CODES)[number];
 export type DriveBulkShareIssue = { reasonCode: DriveBulkReasonCode; count: number };
@@ -965,6 +972,10 @@ function parseRequestQueue(result: Record<string, unknown>): DocumentRequestQueu
       typeof queueDelayed === "boolean" ? { queuedAt, queueDelayed } : {}),
     ...(typeof workDelayedSince === "string" && !Number.isNaN(Date.parse(workDelayedSince))
       ? { workDelayedSince } : {}),
+    ...(result.periodConflict === "request_mentions_longer_span"
+      ? { periodConflict: "request_mentions_longer_span" as const } : {}),
+    ...(result.autoshare === true ? { autoshare: true } : {}),
+    ...(result.awaitingOwnerAllow === true ? { awaitingOwnerAllow: true } : {}),
   };
 }
 
@@ -1022,6 +1033,31 @@ function parseBulkIssues(value: unknown, total: number): DriveBulkShareIssue[] {
   return issues;
 }
 
+/**
+ * `issues` holds only codes every released client knows; a newer code arrives
+ * there as its nearest known one. The exact codes come in the additive
+ * `issueDetails`, used only when this client knows every one of them.
+ */
+function exactIssues(value: RecordValue, total: number): DriveBulkShareIssue[] {
+  const known = parseBulkIssues(value.issues, total);
+  if (value.issueDetails === undefined) return known;
+  const sum = (issues: DriveBulkShareIssue[]) => issues.reduce((count, item) => count + item.count, 0);
+  try {
+    const exact = parseBulkIssues(value.issueDetails, total);
+    return sum(exact) === sum(known) ? exact : known;
+  } catch {
+    return known;
+  }
+}
+
+/** A file's exact additive code when this client knows it; else its known code. */
+function exactReason(outcome: RecordValue): DriveBulkReasonCode | null {
+  if (outcome.reasonCode == null) return null;
+  const known = bulkReason(outcome.reasonCode);
+  return (BULK_REASON_CODES as readonly unknown[]).includes(outcome.reasonDetail)
+    ? outcome.reasonDetail as DriveBulkReasonCode : known;
+}
+
 function parseBulkShareView(value: RecordValue): DriveBulkShareView {
   const status = bulkStatus(value.status);
   if (typeof value.canApprove !== "boolean" || typeof value.canStop !== "boolean" ||
@@ -1062,7 +1098,7 @@ function parseBulkShareView(value: RecordValue): DriveBulkShareView {
     ...(positions === undefined ? {} : { positions }),
     recipients, excluded,
     counts: parseBulkCounts(value.counts, total),
-    ...(value.issues === undefined ? {} : { issues: parseBulkIssues(value.issues, total) }),
+    ...(value.issues === undefined ? {} : { issues: exactIssues(value, total) }),
     notifications: { settled: bulkCount(notifications.settled, 10), pending: bulkCount(notifications.pending, 10),
       unavailable: bulkCount(notifications.unavailable, 10) },
     canApprove: value.canApprove, canStop: value.canStop,
@@ -1096,8 +1132,7 @@ function parseBulkFilePage(value: RecordValue): DriveBulkShareFilePage {
       const outcome = record(item);
       if (!(BULK_OUTCOME_STATES as readonly unknown[]).includes(outcome.status))
         throw new DriveSharingError("invalid_response");
-      return { status: outcome.status as DriveBulkFileOutcome["status"],
-        reasonCode: outcome.reasonCode == null ? null : bulkReason(outcome.reasonCode) };
+      return { status: outcome.status as DriveBulkFileOutcome["status"], reasonCode: exactReason(outcome) };
     });
     return { position, name: bulkText(row.name, 1000), mimeType: bulkText(row.mimeType, 256),
       modifiedTime: row.modifiedTime == null ? null : date(row.modifiedTime), openUrl,
@@ -1679,7 +1714,7 @@ export class DriveSharingService {
         fileCount: fileCount!, sharedCount: sharedCount!,
         ...((result.bulkStatus ?? result.sharingStatus) == null ? {} : { bulkStatus: bulkStatus(result.bulkStatus ?? result.sharingStatus) }),
         ...(counts === undefined ? {} : { counts }),
-        ...(result.issues === undefined ? {} : { issues: parseBulkIssues(result.issues, fileCount!) }),
+        ...(result.issues === undefined ? {} : { issues: exactIssues(result, fileCount!) }),
       }),
       // Additive views. A malformed one is dropped (no action, no refund claim)
       // instead of hiding the delivery itself.

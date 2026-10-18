@@ -2,10 +2,8 @@
 
 import { FormEvent, useMemo, useState, type ReactNode } from "react";
 import { useShortcutIconMotion } from "@/lib/morphy-ux/hooks/use-shortcut-icon-motion";
-import shortcutMotion from "@/components/icons/ui/shortcut-icon-motion.module.css";
 import {
   ConnectorsShortcutIcon,
-  TodoListIcon,
   CheckIcon as Check,
   DownloadAppIcon,
   MessageSquareIcon as MessageSquare,
@@ -75,8 +73,6 @@ type AgentHistorySidebarProps = {
   onClose?: () => void;
   onToggleCollapsed?: () => void;
   onOpenConnectors?: (trigger: HTMLButtonElement) => void;
-  /** Opens the owner's daily agenda and to-do items. */
-  onOpenTodoList?: () => void;
   /** Opens the Get the app prompt. Omitted inside the installed app. */
   onGetApp?: (trigger: HTMLButtonElement) => void;
   /** Whether the Get the app prompt is showing, for its control's state. */
@@ -193,7 +189,6 @@ export function AgentHistorySidebar({
   onClose,
   onToggleCollapsed,
   onOpenConnectors,
-  onOpenTodoList,
   onGetApp,
   getAppOpen = false,
   driveActivity,
@@ -712,30 +707,12 @@ export function AgentHistorySidebar({
             </div>
           )}
         </div>
-        {onOpenTodoList || onGetApp || onOpenConnectors ? (
+        {onGetApp || onOpenConnectors ? (
           // Pinned below the list: it scrolls, these never do.
           <div
             data-agent-history-footer
             className={cn("shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] py-2", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}
           >
-            {onOpenTodoList ? (
-              <ShellActionSurface
-                variant="pill"
-                type="button"
-                wrapperClassName="w-full"
-                className={footerButtonClassName}
-                contentClassName={isMobileMode ? "gap-[var(--app-side-pane-row-gap)] sm:gap-[var(--app-side-pane-row-gap)]" : undefined}
-                onClick={onOpenTodoList}
-                aria-label="Open To-do List"
-                title={railMode ? "To-do List" : undefined}
-                {...shortcutInteraction}
-              >
-                <span className={shortcutMotion.paperStage}>
-                  <TodoListIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
-                </span>
-                {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
-              </ShellActionSurface>
-            ) : null}
             {onGetApp ? (
               <ShellActionSurface
                 variant="pill"
@@ -765,7 +742,6 @@ export function AgentHistorySidebar({
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
-                {...shortcutInteraction}
               >
                 <ConnectorsShortcutIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}

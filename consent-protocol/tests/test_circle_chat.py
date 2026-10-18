@@ -921,8 +921,9 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
     queue = asyncio.Queue()
     subscribed, removed, subscriptions = asyncio.Event(), [], []
 
-    async def subscribe(user):
+    async def subscribe(user, *, snapshot_resets=False):
         nonlocal queue
+        assert snapshot_resets
         queue = asyncio.Queue()
         subscriptions.append(queue)
         subscribed.set()
@@ -950,7 +951,7 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
         conn.execute(
             text("UPDATE one_location_circle_memberships SET status='left' WHERE user_id='bob'")
         )
-    await queue.put({"circle_id": circle})
+    await queue.put({"type": chat_routes.LOCAL_RESYNC_EVENT_TYPE})
     with pytest.raises(HTTPException) as lost:
         await task
     assert lost.value.status_code == 404
@@ -988,6 +989,26 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
         "reactionsChanged": False,
     }
     assert removed == subscriptions and len(removed) == 3 and "bob" not in chat_routes._waiting
+
+    subscribed.clear()
+    task = asyncio.create_task(
+        wait(request, Response(), uuid.UUID(circle), after=0, owner={"user_id": "bob"})
+    )
+    await subscribed.wait()
+    await queue.put({"type": chat_routes.LOCAL_RESYNC_EVENT_TYPE})
+    result = await asyncio.wait_for(task, timeout=2)
+    assert result["latestSequence"] == 0
+    assert all(
+        result[field]
+        for field in (
+            "changed",
+            "readChanged",
+            "receiptsChanged",
+            "reactionsChanged",
+            "membershipChanged",
+            "photoChanged",
+        )
+    )
 
 
 def test_receipts_are_sender_only_and_keep_original_audience_after_erasure(chat_db, monkeypatch):
@@ -1181,15 +1202,6 @@ def test_chat_push_device_ownership_retry_and_wire_budget(chat_db, monkeypatch):
     )
     devices = [str(uuid.uuid4()), str(uuid.uuid4())]
     tokens = tokens_module.PushTokensService()
-    for index, device in enumerate(devices):
-        tokens.upsert_user_push_token(
-            "bob",
-            f"device-{index}",
-            "ios",
-            device_id=device,
-            preview_key_id=str(uuid.uuid4()),
-            preview_public_key=public,
-        )
     attempts = []
     fail = True
     encoded = []
@@ -1226,6 +1238,18 @@ def test_chat_push_device_ownership_retry_and_wire_budget(chat_db, monkeypatch):
             eligible=lambda renew, connection=None: True,
         )
 
+    # Missing registration must retain the intent, never acknowledge a send.
+    assert not deliver()
+    assert attempts == []
+    for index, device in enumerate(devices):
+        tokens.upsert_user_push_token(
+            "bob",
+            f"device-{index}",
+            "ios",
+            device_id=device,
+            preview_key_id=str(uuid.uuid4()),
+            preview_public_key=public,
+        )
     assert not deliver()
     fail = False
     assert deliver()
@@ -1252,6 +1276,60 @@ def test_chat_push_device_ownership_retry_and_wire_budget(chat_db, monkeypatch):
         )
     assert deliver()
     assert "rotated-token" not in attempts
+
+
+def test_registration_recovery_preserves_initial_grace_leases_and_retry_budget(chat_db):
+    from hushh_mcp.services.chat_push_delivery import retry_registered_chat_pushes
+
+    service = CircleChatService(db=chat_db)
+    circle = _seed(chat_db)
+    conversation = str(uuid.uuid4())
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO conversations VALUES (:id,'alice','bob')"), {"id": conversation}
+        )
+    states = [("pending", 0), ("pending", 1), ("leased", 2), ("failed", 5), ("sent", 1)]
+    ids = []
+    for status, attempts in states:
+        message = service.send("alice", circle, _payload(service, circle))
+        ids.append(message["id"])
+        with chat_db.engine.begin() as conn:
+            conn.execute(
+                text("""UPDATE circle_chat_recipients SET push_status=:status,
+              push_attempts=:attempts, push_due_at=now()+interval '1 hour' WHERE message_id=:id"""),
+                {"status": status, "attempts": attempts, "id": message["id"]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO messages(id,conversation_id,sender_user_id) VALUES(:id,:conversation,'alice')"
+                ),
+                {"id": message["id"], "conversation": conversation},
+            )
+            conn.execute(
+                text(
+                    "UPDATE direct_message_push_outbox SET status=:status,attempts=:attempts,due_at=now()+interval '1 hour' WHERE message_id=:id"
+                ),
+                {"status": status, "attempts": attempts, "id": message["id"]},
+            )
+    assert retry_registered_chat_pushes("outsider", chat_db) == 0
+    assert retry_registered_chat_pushes("bob", chat_db) == 2
+    with chat_db.engine.connect() as conn:
+        rows = {
+            (row["family"], str(row["message_id"])): row
+            for row in conn.execute(
+                text("""
+            SELECT 'circle' AS family,message_id,push_status,push_attempts,push_due_at<=now() AS due
+            FROM circle_chat_recipients WHERE recipient_user_id='bob'
+            UNION ALL
+            SELECT 'direct',message_id,status,attempts,due_at<=now()
+            FROM direct_message_push_outbox WHERE recipient_user_id='bob'""")
+            ).mappings()
+        }
+    for index, (status, attempts) in enumerate(states):
+        for family in ("direct", "circle"):
+            assert rows[(family, ids[index])]["push_status"] == status
+            assert rows[(family, ids[index])]["push_attempts"] == attempts
+            assert rows[(family, ids[index])]["due"] == (index == 1)
 
 
 def test_push_registry_preserves_old_handlers_devices_and_rollback(chat_db, monkeypatch):
@@ -1579,7 +1657,7 @@ def test_old_registration_during_stale_provider_call_does_not_deadlock(chat_db, 
         old_registration = pool.submit(transfer)
         assert transferred.wait(5)
         release.set()
-        assert delivery.result(timeout=10)
+        assert not delivery.result(timeout=10)  # Every token was stale; no device accepted.
         old_registration.result(timeout=10)
     assert chat_db.execute_raw(registry.PUSH_TOKENS_FOR_USER_SQL, {"user_id": "carol"}).data == [
         {"token": "concurrent-device", "platform": "ios"}

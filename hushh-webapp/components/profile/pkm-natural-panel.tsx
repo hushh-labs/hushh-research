@@ -1557,7 +1557,7 @@ export function PkmNaturalPanel({
   return (
     <>
       {nativeBeacon}
-      <div className="space-y-4">
+      <div className="space-y-[var(--page-header-section-gap)]">
         <SegmentedTabs
           tabSetId="memory"
           ariaLabel="Memory"

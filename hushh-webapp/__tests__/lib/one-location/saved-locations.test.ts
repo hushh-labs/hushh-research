@@ -31,6 +31,7 @@ import {
   SAVED_LOCATION_DUPLICATE_RADIUS_METERS,
   sortSavedLocationsForDisplay,
   updateSavedLocationAddress,
+  updateSavedLocation,
 } from "@/lib/one-location/saved-locations";
 
 const CONTEXT = {
@@ -72,6 +73,35 @@ beforeEach(() => {
 });
 
 describe("encrypted saved-locations PKM store", () => {
+  it("keeps a checked-in place in its collection through reload and edit", async () => {
+    const [saved] = await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "other",
+        savedFrom: "check_in",
+        label: "Coffee shop",
+        latitude: 28.6139,
+        longitude: 77.209,
+      },
+    });
+    expect((await loadSavedLocations(CONTEXT))[0]?.savedFrom).toBe("check_in");
+    await updateSavedLocation({
+      context: CONTEXT,
+      id: saved.id,
+      input: {
+        category: "other",
+        label: "Favorite coffee shop",
+        latitude: 28.6139,
+        longitude: 77.209,
+      },
+    });
+    expect((await loadSavedLocations(CONTEXT))[0]).toMatchObject({
+      id: saved.id,
+      savedFrom: "check_in",
+      label: "Favorite coffee shop",
+    });
+  });
+
   it("reads an empty encrypted Location domain", async () => {
     expect(await loadSavedLocations(CONTEXT)).toEqual([]);
     expect(pkm.getStaleFirst).toHaveBeenCalledWith(

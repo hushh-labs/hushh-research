@@ -20,6 +20,8 @@ import {
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { RiaService } from "@/lib/services/ria-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
@@ -105,6 +107,7 @@ export function useCapabilitySetupStates(
   const [locationRecipientKeyReady, setLocationRecipientKeyReady] = useState<
     boolean | undefined
   >(undefined);
+  const [locationReadinessOwner, setLocationReadinessOwner] = useState<string | null>(null);
   // RIA onboarded: undefined until we've fetched (or when not opted in).
   const [riaOnboarded, setRiaOnboarded] = useState<boolean | undefined>(
     undefined
@@ -290,8 +293,8 @@ export function useCapabilitySetupStates(
   }, [enrichOauth, userId]);
 
   // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
-  // One lightweight `getState` once the vault is unlocked, so the Location tile
-  // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
+  // Join the same post-unlock key provisioning as the global warm path. A
+  // state read racing that write must not permanently report missing setup.
   // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
   useEffect(() => {
     if (!userId || !isVaultUnlocked) {
@@ -299,31 +302,57 @@ export function useCapabilitySetupStates(
       setEnrichingLocation(false);
       return;
     }
-    const token = getVaultOwnerToken();
-    if (!token) {
+    if (!getVaultOwnerToken() || !getVaultKey()) {
       setLocationRecipientKeyReady(undefined);
       setEnrichingLocation(false);
       return;
     }
     let cancelled = false;
-    setEnrichingLocation(true);
-    OneLocationService.getState(token)
-      .then((state) => {
-        if (!cancelled) {
-          setLocationRecipientKeyReady(Boolean(state.myRecipientKey?.keyId));
+    let pending = false;
+    let complete = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    setLocationReadinessOwner(userId);
+    setLocationRecipientKeyReady(undefined);
+    const delays = [1_000, 3_000, 10_000];
+    const check = async () => {
+      if (cancelled || pending || complete) return;
+      const token = getVaultOwnerToken();
+      const vaultKey = getVaultKey();
+      if (!token || !vaultKey) return;
+      pending = true;
+      setEnrichingLocation(true);
+      try {
+        if (shouldSkipReviewerBackgroundWritesForAutomation()) {
+          const state = await OneLocationService.getState(token);
+          if (!cancelled) setLocationRecipientKeyReady(Boolean(state.myRecipientKey?.keyId));
+        } else {
+          const key = await bootstrapCurrentUserLocationRecipientKey({ userId, vaultOwnerToken: token, vaultKey, strictRecovery: true });
+          if (!cancelled) setLocationRecipientKeyReady(Boolean(key.keyId && key.publicKeyJwk));
         }
-      })
-      .catch(() => {
-        // Leave undefined → resolver yields "Checking…", never a fabricated state.
-        if (!cancelled) setLocationRecipientKeyReady(undefined);
-      })
-      .finally(() => {
+        complete = true;
+      } catch {
+        if (!cancelled) {
+          // A failed recovery is unknown, never proof that onboarding is absent.
+          setLocationRecipientKeyReady(undefined);
+          if (attempt < delays.length) retryTimer = setTimeout(check, delays[attempt++]);
+        }
+      } finally {
+        pending = false;
         if (!cancelled) setEnrichingLocation(false);
-      });
+      }
+    };
+    const resume = () => { if (document.visibilityState === "visible") void check(); };
+    void check();
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
-  }, [userId, isVaultUnlocked, getVaultOwnerToken]);
+  }, [userId, isVaultUnlocked, getVaultOwnerToken, getVaultKey]);
 
   // ---- OPT-IN: RIA onboarded status ---------------------------------------
   // One lightweight, cached `getOnboardingStatus` so the RIA tile reads "Ready"
@@ -401,7 +430,7 @@ export function useCapabilitySetupStates(
       pendingConsents: pendingConsents ?? 0,
       oauthConnections,
       exploredCapabilityIds: exploredIds,
-      locationRecipientKeyReady,
+      locationRecipientKeyReady: locationReadinessOwner === userId ? locationRecipientKeyReady : undefined,
       riaOnboarded,
     }),
     [
@@ -414,6 +443,7 @@ export function useCapabilitySetupStates(
       oauthConnections,
       exploredIds,
       locationRecipientKeyReady,
+      locationReadinessOwner,
       riaOnboarded,
     ]
   );

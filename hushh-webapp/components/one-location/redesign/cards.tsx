@@ -722,16 +722,18 @@ export function SharedWithMeCard({
         >
           {children}
           {isPreviewExpanded && onRecenter ? (
-            <ShellActionSurface
-              variant="icon"
-              className="absolute right-2.5 top-2.5 z-10 h-11 w-11 border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/92 text-[color:var(--app-accent)] shadow-[var(--app-card-shadow-standard)] backdrop-blur"
-              aria-label={`Recenter map on ${name}'s location`}
-              aria-controls={previewRegionId}
-              title="Reset map view"
-              onClick={onRecenter}
-            >
-              <LocateFixed className="h-[18px] w-[18px]" aria-hidden="true" />
-            </ShellActionSurface>
+            <div className="absolute right-2.5 top-2.5 z-10">
+              <ShellActionSurface
+                variant="icon"
+                className="h-11 w-11 border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/92 text-[color:var(--app-accent)] shadow-[var(--app-card-shadow-standard)] backdrop-blur"
+                aria-label={`Recenter map on ${name}'s location`}
+                aria-controls={previewRegionId}
+                title="Reset map view"
+                onClick={onRecenter}
+              >
+                <LocateFixed className="h-[18px] w-[18px]" aria-hidden="true" />
+              </ShellActionSurface>
+            </div>
           ) : null}
         </div>
       </div>
@@ -753,7 +755,7 @@ export function SharedWithMeCard({
       {canOpenMap || onRemove ? (
         <div
           data-testid="shared-location-card-actions"
-          className="mt-2 flex min-w-0 flex-row flex-wrap items-center gap-1 border-t border-[color:var(--app-separator)] px-3 py-1.5 sm:px-3.5"
+          className="mt-1 flex min-w-0 flex-row flex-wrap items-center gap-1 border-t border-[color:var(--app-separator)] px-3 py-1 sm:mt-1.5 sm:px-3.5"
         >
           {canOpenMap ? (
             <Button

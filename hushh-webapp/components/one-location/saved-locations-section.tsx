@@ -678,182 +678,205 @@ export function SavedLocationsSection() {
 
   if (!userId || loadedUserId !== userId) return null;
 
+  const placeGroups = [
+    {
+      key: "favorite",
+      title: "Favorite Places",
+      locations: locations.filter((location) => location.savedFrom !== "check_in"),
+    },
+    {
+      key: "checked-in",
+      title: "Checked In Places",
+      locations: locations.filter((location) => location.savedFrom === "check_in"),
+    },
+  ].filter(
+    (group) => group.key === "favorite" || (hasVaultAccess && !loading && !loadError),
+  );
+
   return (
     <>
       <section
         aria-label="Saved Locations"
-        className="w-full min-w-0"
+        className="w-full min-w-0 space-y-6"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
-          {/* Same SectionLabel as the Automatic approval / Safety sections
-              above: one hierarchy, one size. items-center keeps the action
-              vertically centered with the label at every width. */}
-          <SectionLabel as="p" compact>
-            Places
-          </SectionLabel>
-          <button
-            type="button"
-            onClick={() => void handleAdd()}
-            disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {capturing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : null}
-            Add place
-          </button>
-        </div>
-
-        <div className="overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-none">
-          {!hasVaultAccess ? (
-            <div className="flex min-h-[72px] items-center gap-3 px-4 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white">
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  Unlock your vault to view saved places
-                </p>
-                <p className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                  Exact locations stay encrypted and are available only while
-                  your vault is unlocked.
-                </p>
-              </div>
-            </div>
-          ) : loading ? (
-            <div
-              className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
-              role="status"
-            >
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Loading saved places…
-            </div>
-          ) : loadError ? (
-            <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
-              <p className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
-                {loadError}
-              </p>
-              <button
-                type="button"
-                onClick={() => void reload()}
-                className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
-              >
-                Retry
-              </button>
-            </div>
-          ) : locations.length === 0 ? (
-            <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
-              <div>
-                <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
-                  No places yet
-                </p>
-                <p className="sr-only">
-                  Add Home, Work, or another place to see it here.
-                </p>
-              </div>
-            </div>
-          ) : (
-            locations.map((location, index) => {
-              const expanded = expandedId === location.id;
-              return (
-                <div
-                  key={location.id}
-                  className={cn(
-                    index > 0 && "border-t border-[color:var(--app-separator)]",
-                  )}
+        {placeGroups.map((group) => (
+          <section key={group.key} aria-label={group.title} className="min-w-0">
+            <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
+              {/* Same SectionLabel as the Automatic approval / Safety sections
+                  above: one hierarchy, one size. items-center keeps the action
+                  vertically centered with the label at every width. */}
+              <SectionLabel as="p" compact>
+                {group.title}
+              </SectionLabel>
+              {group.key === "favorite" ? (
+                <button
+                  type="button"
+                  onClick={() => void handleAdd()}
+                  disabled={!hasVaultAccess || locationControl.paused || capturing}
+                  className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
                 >
+                  {capturing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : null}
+                  Add place
+                </button>
+              ) : null}
+            </div>
+
+            <div className="overflow-hidden rounded-[16px] bg-[color:var(--app-primary-surface)] shadow-none">
+              {!hasVaultAccess ? (
+                <div className="flex min-h-[72px] items-center gap-3 px-4 py-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white">
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[17px] font-normal leading-[22px] text-foreground">
+                      Unlock your vault to view saved places
+                    </p>
+                    <p className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                      Exact locations stay encrypted and are available only while
+                      your vault is unlocked.
+                    </p>
+                  </div>
+                </div>
+              ) : loading ? (
+                <div
+                  className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
+                  role="status"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Loading saved places…
+                </div>
+              ) : loadError ? (
+                <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
+                  <p className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
+                    {loadError}
+                  </p>
                   <button
                     type="button"
-                    onClick={() =>
-                      setExpandedId((current) =>
-                        current === location.id ? null : location.id,
-                      )
-                    }
-                    aria-expanded={expanded}
-                    className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
+                    onClick={() => void reload()}
+                    className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
                   >
-                    <CategoryIcon category={location.category} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
-                        {location.label}
-                      </p>
-                      <p className="mt-0.5 truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                        {location.address || "Address unavailable"}
-                      </p>
-                    </div>
-                    <ChevronRight
-                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
-                      strokeWidth={1.9}
-                      aria-hidden
-                    />
+                    Retry
                   </button>
-
-                  {expanded ? (
-                    <div className="flex items-center gap-2 px-4 pb-3 pl-[60px]">
-                      {!location.address ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleRepairAddress(location)}
-                          disabled={repairingId !== null}
-                          className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
-                        >
-                          <RefreshCw
-                            className={cn(
-                              "h-[15px] w-[15px]",
-                              repairingId === location.id && "animate-spin",
-                            )}
-                            strokeWidth={2}
-                            aria-hidden
-                          />
-                          Find address
-                        </button>
-                      ) : null}
+                </div>
+              ) : group.locations.length === 0 ? (
+                <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
+                  <div>
+                    <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
+                      {group.key === "favorite" ? "No places yet" : "No checked-in places yet"}
+                    </p>
+                    <p className={group.key === "favorite" ? "sr-only" : "mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]"}>
+                      {group.key === "favorite"
+                        ? "Add Home, Work, or another place to see it here."
+                        : "Save a place after checking out to find it here."}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                group.locations.map((location, index) => {
+                  const expanded = expandedId === location.id;
+                  return (
+                    <div
+                      key={location.id}
+                      className={cn(
+                        index > 0 && "border-t border-[color:var(--app-separator)]",
+                      )}
+                    >
                       <button
                         type="button"
-                        onClick={() => handleEditSavedLocation(location)}
-                        disabled={
-                          removingId !== null ||
-                          repairingId !== null ||
-                          capturing ||
-                          locationControl.paused
+                        onClick={() =>
+                          setExpandedId((current) =>
+                            current === location.id ? null : location.id,
+                          )
                         }
-                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                        aria-expanded={expanded}
+                        className="press-scale flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
                       >
-                        <Pencil
-                          className="h-[15px] w-[15px]"
-                          strokeWidth={2}
+                        <CategoryIcon category={location.category} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+                            {location.label}
+                          </p>
+                          <p className="mt-0.5 truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                            {location.address || "Address unavailable"}
+                          </p>
+                        </div>
+                        <ChevronRight
+                          className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
+                          strokeWidth={1.9}
                           aria-hidden
                         />
-                        Edit
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleRemove(location.id)}
-                        disabled={removingId !== null}
-                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
-                      >
-                        {removingId === location.id ? (
-                          <Loader2
-                            className="h-[15px] w-[15px] animate-spin"
-                            aria-hidden
-                          />
-                        ) : (
-                          <Trash2
-                            className="h-[15px] w-[15px]"
-                            strokeWidth={2}
-                            aria-hidden
-                          />
-                        )}
-                        Remove
-                      </button>
+
+                      {expanded ? (
+                        <div className="flex items-center gap-2 px-4 pb-3 pl-[60px]">
+                          {!location.address ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleRepairAddress(location)}
+                              disabled={repairingId !== null}
+                              className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                            >
+                              <RefreshCw
+                                className={cn(
+                                  "h-[15px] w-[15px]",
+                                  repairingId === location.id && "animate-spin",
+                                )}
+                                strokeWidth={2}
+                                aria-hidden
+                              />
+                              Find address
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleEditSavedLocation(location)}
+                            disabled={
+                              removingId !== null ||
+                              repairingId !== null ||
+                              capturing ||
+                              locationControl.paused
+                            }
+                            className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                          >
+                            <Pencil
+                              className="h-[15px] w-[15px]"
+                              strokeWidth={2}
+                              aria-hidden
+                            />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRemove(location.id)}
+                            disabled={removingId !== null}
+                            className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
+                          >
+                            {removingId === location.id ? (
+                              <Loader2
+                                className="h-[15px] w-[15px] animate-spin"
+                                aria-hidden
+                              />
+                            ) : (
+                              <Trash2
+                                className="h-[15px] w-[15px]"
+                                strokeWidth={2}
+                                aria-hidden
+                              />
+                            )}
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ))}
       </section>
 
       <SaveLocationModal

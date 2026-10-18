@@ -2043,6 +2043,15 @@ connection ended.
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
 
+Opening a person returns their participant-safe `peerDisplayName` and
+`peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
+connection's draft before its first message. Draft identity is checked against
+the current connection and block state in the same read. An unavailable draft
+returns no name or photo; existing participant history remains readable and
+keeps its peer identity. Opening never creates a conversation: first send owns
+that write. Anonymous public-profile visibility is a separate discovery policy
+and does not hide an already-accepted connection's identity.
+
 Message projections include nullable `deliveredAt`; `readAt` implies delivery,
 including legacy read rows. Send acceptance and push hints do not establish
 recipient delivery. Inbox body previews and authenticated history can be
@@ -2085,6 +2094,10 @@ Invalid/tampered selections return to the inbox. New Feed and push links use
 viewer-bound tokens; old notifications without a token open the inbox.
 
 Each newly received Direct Message also creates one recipient-only Feed row.
+Migration 268 projects that row in the message INSERT transaction; the send
+response does not repeat the Feed write after commit. Web subscriptions use
+the streaming response and native subscriptions reuse `HushhStream` via
+`nativeStreamFetch`, so event bytes arrive before the subscription closes.
 That row contains only the opaque source message id; it never stores a body,
 envelope, sender id, or preview. During the authenticated recipient's Feed
 read, the service verifies the recipient relationship again, decrypts the
@@ -3378,7 +3391,7 @@ only opaque job/share IDs, never a list of Drive IDs or recipient emails.
 | --- | --- |
 | `POST /` | `{searchJobId,clientRequestId,audience:"trusted_circle"}`. Idempotently freezes the completed result IDs and currently eligible, verified recipient identities under an exact review digest. No Google permission or recipient message is created. |
 | `GET /` and `GET /{id}` | Owner's recent review and durable share status: file/recipient counts, exclusions, review revision/digest, and separate queued, confirmed, already-present, skipped, failed, and uncertain effect counts. An uncertain provider write requires review; a queued approval is never called delivered. |
-| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest before and after approval. Each file includes bounded per-recipient `outcomes` with recorded status and allowlisted `reasonCode`; original links remain available. No content downloads. |
+| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest before and after approval. Each file includes bounded per-recipient `outcomes` with recorded status, an allowlisted `reasonCode` released apps parse and, for a newer code, the exact additive `reasonDetail`; original links remain available. No content downloads. |
 | `POST /{id}/approve` | `{revision,reviewDigest,confirmed:true}` from the current exact-set review. HTTP 202 queues file-by-recipient Viewer grants; it does not mean Google access or notification has succeeded. |
 | `POST /{id}/retry` | `{revision,reviewDigest,confirmed:true}` explicitly requeues only a pre-POST `skipped/provider_unavailable` effect with no receipt or lease, in the same frozen manifest. Requires a current owner, exact revision/digest, live connection generation, current recipient relationship and unexpired originating request. Confirmed, stopped, and uncertain effects are never replayed. Returns HTTP 202. |
 | `POST /{id}/stop` | Empty body; fences remaining grants. Already confirmed Google permissions remain and are reported honestly. |
@@ -3398,6 +3411,33 @@ from PKM and is not a strict client-key zero-knowledge store.
 Only one bulk share can be prepared for a saved search, including across chats or
 repeated requests with different client IDs; reopening recovers the same review
 or progress rather than queueing duplicate grants.
+
+Google's answers to a grant are classified, never echoed. `invalidSharingRequest`,
+which Google also returns after a successful share whose email could not be sent,
+is uncertain: read-only reconciliation records the exact requested Viewer grant as
+a confirmed grant that Stop and expiry can remove. Without that grant the effect
+fails as `recipient_needs_google_account` (the address is not a Google account;
+per-file email stays off), `drive_policy_blocked` (Workspace or shared-drive
+sharing rules) or `permission_rejected`. `sharingRateLimitExceeded` returns the
+effect, and the rest of its batch, to the queue. The wait follows the effect's
+attempt number (5, 10, 20, then 40 minutes), and each retry repeats the absence
+check before any POST. Refusals share the effect's five attempts with its other
+retryable failures and reconciliation reads, so a refusal on the fifth attempt
+fails as `sharing_rate_limited`. A reconciliation read that fails for a passing
+reason (quota, 5xx, timeout) never settles an uncertain effect: it stays `unknown`
+and is read again, with longer waits up to an hour, until a read settles it. The
+exact-file lane counts its own refusals instead (a fifth refusal settles), and a
+grant waiting out the limit releases its file claim, so a confirmed Stop's removal
+or another grant of that file never waits on the timer.
+
+`issues[].reasonCode` and a file outcome's `reasonCode` use only the codes every
+released app parses, because native apps bundle their web assets and refuse any
+other code. A newer code arrives there as its nearest known one
+(`recipient_needs_google_account` and `drive_policy_blocked` as
+`permission_rejected`, `sharing_rate_limited` as `provider_unavailable`). The exact
+code is additive: `issueDetails: [{reasonCode,count}]` beside `issues`, and
+`reasonDetail` on a file outcome, present only when they differ. Clients use them
+only when they know every code, and otherwise keep the known codes.
 
 Owner status includes `issues: [{reasonCode,count}]`, `retryableCount` and `canRetry`.
 The displayed partition is `shared + alreadyShared + skipped + failed + needsReview
@@ -3790,6 +3830,21 @@ token retrieval waits for an already-started deletion so a rapid account switch
 cannot register an installation token that logout later invalidates. Preview key
 removal remains immediate and independent of network completion.
 
+Native registration also reports optional `registered`/`degraded` provider
+results and chat-preview custody readiness. Generic registration can survive
+preview preparation failure, but the client must retry rather than advertise
+working chat push. Android exposes optional `chatAlertsEnabled` and
+`chatSoundsEnabled` independently of ordinary activity/emergency channels.
+
+Direct-message SSE emits a metadata-only `resync` frame (`{}`) immediately after
+subscribing and after listener recovery/overflow. Consumers reload their current
+authorized inbox/thread; no queued content or actor identity travels in a reset.
+Circle long polling likewise treats a reset as invalidation of all chat snapshots,
+and rechecks current membership before responding. The direct push worker reuses
+its committed doorbell, respects the existing two-second read grace, and drains
+full batches without an idle poll. A chat intent is sent only when an owner/event
+acceptance receipt exists; no-device/all-stale attempts retain bounded retry.
+
 Images are passive JPEG/PNG/WebP files up to 5 MiB and messages contain at most
 4,000 characters. Both API layers bound chat requests to 7,250,000 bytes.
 Validation and database errors never echo rejected payloads. Responses are
@@ -4002,6 +4057,9 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `POST /api/connectors/google_drive/sharing/requests/{id}/cancel` | The requester withdraws a pending, preparing, review-ready or approved request that is not paid. A paid or refunded order, or any file share already sent to Google, returns 409 `request_paid` on every attempt; the owner's `/decline` uses the same check. Repeating a completed withdrawal returns the cancelled request. In one transaction, queued shares stop, queued grants are retired, the unpaid order expires (its session kept) and an unpaid owner earning becomes void. The response carries `payment` when the request requires payment. After commit, an open Checkout is expired at Stripe, best effort; it never fails the withdrawal. If Stripe reports the session already paid, `payment.state` is `refund_pending`. A payment that completes after withdrawal settles as `request_closed` and is refunded in full. |
 | `POST /api/connectors/google_drive/sharing/requests/{id}/review-request` | The requester asks the owner to review files that were not shared, at most three times per request; queues the owner's notification. |
 | `GET /api/connectors/google_drive/sharing/recipient-identity` | The Google account a new request's files would be shared with: `{email, provider}`. |
+| `GET /api/connectors/google_drive/sharing/requests/{id}/shared-files?cursor=` | Owner only; anyone else gets 404 `request_unavailable`. The files One shared for the request, 50 per page: `{requestId, recipientLabel, sharedCount, files: [{fileRef, name, modifiedTime, status, removable, undoable}], nextCursor, undoSeconds}`. `status` is `shared`, `had_access`, `removing`, `removed` or `needs_attention`. Names are the owner's own files. |
+| `POST /api/connectors/google_drive/sharing/requests/{id}/shared-files/remove` | Owner only. Body `{fileRef}`. Queues removal of the requester's access to that one file in the existing bulk-removal queue, due after `undoSeconds`; the scheduled Drive drain deletes the permission. Idempotent. A permission One did not create returns 409 `no_revocable_permissions`. No Drive call or wake runs in the request. The file leaves the requester's list at once. |
+| `POST /api/connectors/google_drive/sharing/requests/{id}/shared-files/restore` | Owner only. Body `{fileRef}`. Undo: cancels a removal no worker has claimed; once claimed it returns 409 `revocation_pending`. |
 
 New paid requests carry a sealed owner-settlement requirement. Missing payout
 readiness, missing price or paused enrollment leaves them waiting without

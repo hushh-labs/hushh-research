@@ -35,6 +35,7 @@ class RequesterDocumentPaymentSourceCapacity(RequesterDocumentPaymentSourceUnava
 
 
 def _instant(value: Any) -> str:
+    """One canonical UTC instant, whatever time zone the database session uses."""
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise RequesterDocumentPaymentSourceUnavailable("payment timestamp unavailable")
     return value.astimezone(UTC).isoformat()

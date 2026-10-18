@@ -108,9 +108,13 @@ async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
     )
     with sharing.db.engine.begin() as connection:
         connection.execute(
+            # The owner's Allow already created this order, so mark that one
+            # paid instead of asserting that none exists yet.
             text("""INSERT INTO drive_request_payment_orders(
               request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
-              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())"""),
+              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE
+                SET status='paid',paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     return review
@@ -415,6 +419,47 @@ async def test_missing_dates_are_visible_and_park_trusted_search(request_bulk, s
             ),
             {"request": request_id},
         ).scalar_one()
+
+
+def test_another_requests_batch_maps_to_a_wait_not_a_failure():
+    from hushh_mcp.services.drive_trusted_auto_service import _defer_code
+
+    assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    # Another of the owner's searches is running: one search at a time. Waiting
+    # for it never counts toward the three failed starts that park a request.
+    assert _defer_code(DriveReadError("search_in_progress")) == "share_in_progress"
+    assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_another_requests_batch_is_a_wait_never_a_failed_attempt(request_bulk, sharing):
+    _membership(sharing, "active")
+    request_id = (await _request(sharing))["requestId"]
+
+    def preparation():
+        with sharing.db.engine.connect() as connection:
+            return connection.execute(
+                text("""SELECT preparation_attempts,preparation_error_code
+                  FROM drive_share_requests WHERE request_id=:request"""),
+                {"request": request_id},
+            ).one()
+
+    # A paid sibling request queued its batches first: each approve for this
+    # request collides. Waiting never uses up its three attempts.
+    for _ in range(4):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="share_in_progress"
+        )
+    assert tuple(preparation()) == (0, "trusted_auto_queued")
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "preparationError"
+    ] is None
+    # Three real failures still end automatic preparation.
+    for _ in range(3):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="preparation_unavailable"
+        )
+    assert tuple(preparation()) == (3, "preparation_unavailable")
 
 
 @pytest.mark.asyncio
@@ -898,17 +943,28 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("v1,stage", [(True, "v1"), (False, "sharing")])
-async def test_unpaid_frozen_review_wakes_its_own_checkout_lane(v1, stage):
+async def test_unpaid_frozen_review_wakes_its_own_checkout_lane_only_when_ordered(v1, stage):
     sharing = SimpleNamespace(request_bulk_context=AsyncMock(return_value={"v1LiveRequest": v1}))
     payment = SimpleNamespace(
-        ensure_payment_for_frozen_batch=AsyncMock(return_value={"status": "awaiting_payment"})
+        ensure_payment_for_frozen_batch=AsyncMock(
+            side_effect=[
+                {"status": "awaiting_payment", "orderCreated": True},
+                *[{"status": "awaiting_payment", "orderCreated": False}] * 3,
+            ]
+        )
     )
     wake = AsyncMock()
     service = DriveTrustedAutoService(
         sharing=sharing, bulk=SimpleNamespace(), payment=payment, wake=wake
     )
-    assert not await service._payment_ready(user_id="owner", request_id="request", share_id="share")
+    # The handoff that commits the order wakes its Checkout lane once. Later
+    # handoffs of the same unpaid order are not news to that lane.
+    for _ in range(4):
+        assert not await service._payment_ready(
+            user_id="owner", request_id="request", share_id="share"
+        )
     wake.assert_awaited_once_with(stage)
+    sharing.request_bulk_context.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -960,7 +1016,7 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     )
     payment = SimpleNamespace(
         ensure_payment_for_frozen_batch=AsyncMock(
-            side_effect=[{"status": "awaiting_payment"}, {"status": "paid"}]
+            side_effect=[{"status": "awaiting_payment", "orderCreated": True}, {"status": "paid"}]
         )
     )
     monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)
@@ -1267,7 +1323,8 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     )
     service = SimpleNamespace(
         store=SimpleNamespace(
-            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}]),
+            # The in-run continuation asks the queue again and finds nothing.
+            due=AsyncMock(side_effect=[[{"user_id": "owner", "job_id": str(uuid4())}], []]),
             status=AsyncMock(return_value={"errorCode": None}),
         ),
         run_one=provider_slice,

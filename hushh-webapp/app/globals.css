@@ -127,10 +127,25 @@ textarea {
   --app-input-radius: var(--app-radius-lg);
 }
 
+/* This nested element owns page scrolling. Body/native bounce settings do not
+   suppress its local elastic edge affordance in the web view. Keep ordinary
+   scrolling and nested sheet/map gestures while bounding every route mode. */
+[data-app-scroll-root="true"] {
+  overscroll-behavior-y: none;
+}
+
+/* Inline Circle chat uses the page scroller. Native resize:none leaves the
+   layout viewport behind the keyboard: bound the actual scroll viewport rather
+   than inserting a keyboard-sized blank element between chat and members.
+   Docked Messages owns its keyboard geometry separately. */
+html.native-keyboard-inset.kb-open
+  [data-app-scroll-root="true"]:has([data-circle-chat-inline="true"]) {
+  max-height: calc(100dvh - var(--kb-height, 0px));
+}
+
 [data-app-scroll-root="true"][data-app-scroll-mode="hidden-shell"] {
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -5586,6 +5601,14 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--type-section-label-tracking) !important;
   }
 
+  /* Give Memory's longer document label room on a phone without changing
+     the shared Location tab type or reducing its font size. */
+  @media (max-width: 639px) {
+    .app-page-shell [data-top-shell-tab-set="memory"] {
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1fr) !important;
+    }
+  }
+
   [data-pkm-location-view] [data-slot="settings-row-description"] {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -5676,48 +5699,52 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--foundation-headline-tracking) !important;
   }
 
-  /* Soul.md is a reading document, not a collection of settings rows. Scoped
-     heading rules must beat the page-shell heading locks in this same layer. */
+  /* Memory documents share Location's type scale and spacing. Scoped heading
+     rules must beat the page-shell heading locks in this same layer. */
   .soul-memory-document,
   .soul-memory-editor {
     min-width: 0;
     font-family: var(--font-app-body);
-    font-size: var(--foundation-body-size);
-    line-height: 1.7;
-    color: var(--foreground);
+    font-size: var(--type-row-label-size);
+    font-weight: var(--type-row-label-weight);
+    line-height: var(--type-row-label-line);
+    letter-spacing: var(--type-row-label-tracking);
+    color: var(--app-label);
     overflow-wrap: anywhere;
   }
 
-  .soul-memory-document { max-width: 64ch; }
-  .soul-memory-editor { font-size: var(--foundation-body-size) !important; }
-  .soul-memory-document :is(p, ul, ol) { margin-block: 1rem; }
+  .soul-memory-document { width: 100%; max-width: 64ch; }
+  .soul-memory-editor { font-size: var(--type-input-value-size) !important; }
+  .soul-memory-document :is(p, ul, ol) { margin-block: 0.5rem; }
   .soul-memory-document :is(ul, ol) { padding-left: 1.5rem; }
   .soul-memory-document ul { list-style-type: disc; }
   .soul-memory-document ol { list-style-type: decimal; }
-  .soul-memory-document li { margin-block: 0.75rem; padding-left: 0.25rem; }
-  .soul-memory-document li::marker { color: var(--foreground); }
+  .soul-memory-document li { margin-block: 0.5rem; padding-left: 0.25rem; }
+  .soul-memory-document li::marker { color: var(--app-label); }
   .soul-memory-document strong { font-weight: 700; }
   .soul-memory-document :is(h1, h2, h3, h4, h5, h6),
   .app-page-shell .soul-memory-document :is(h1, h2, h3, h4, h5, h6) {
     font-family: var(--font-app-display);
-    font-weight: 600 !important;
-    line-height: 1.3 !important;
-    letter-spacing: var(--foundation-title1-tracking) !important;
-    color: var(--foreground);
-    margin-block: 2rem 0.75rem;
+    font-weight: var(--type-section-title-weight) !important;
+    line-height: var(--type-row-label-line) !important;
+    letter-spacing: var(--type-card-title-tracking) !important;
+    color: var(--app-label);
+    margin-block: 1.5rem var(--app-form-field-gap);
   }
   .soul-memory-document h1,
   .app-page-shell .soul-memory-document h1 {
-    font-size: var(--foundation-title2-size) !important;
+    font-size: var(--type-card-title-size) !important;
+    line-height: var(--type-card-title-line) !important;
     margin-top: 0;
   }
   .soul-memory-document h2,
   .app-page-shell .soul-memory-document h2 {
-    font-size: var(--type-major-section-title-size) !important;
+    font-size: var(--type-row-label-size) !important;
   }
   .soul-memory-document :is(h3, h4, h5, h6),
   .app-page-shell .soul-memory-document :is(h3, h4, h5, h6) {
-    font-size: var(--foundation-body-size) !important;
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
   }
   .soul-memory-document blockquote { border-left: 2px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
   .soul-memory-document a { color: var(--foreground); text-decoration: underline; }
@@ -8647,6 +8674,12 @@ body[data-persona-surface="ria"] {
     letter-spacing: var(--type-page-title-tracking) !important;
   }
 
+  .location-request-duration-header h1.ui-text-page-title {
+    font-size: clamp(20px, 6vw, var(--type-page-title-size)) !important;
+    line-height: 1.25 !important;
+    white-space: nowrap;
+  }
+
   .app-page-shell h3.receipt-month-heading {
     font-family: var(--font-app-mono) !important;
     font-size: var(--type-eyebrow-size) !important;
@@ -8669,10 +8702,10 @@ body[data-persona-surface="ria"] {
 
   .check-in-drawer-title.check-in-drawer-title {
     font-family: var(--font-app-display) !important;
-    font-size: var(--type-page-title-size) !important;
+    font-size: 24px !important;
     font-weight: var(--type-page-title-weight) !important;
     letter-spacing: var(--type-page-title-tracking) !important;
-    line-height: var(--type-page-title-line) !important;
+    line-height: 30px !important;
   }
 
   .check-in-section-title.check-in-section-title {

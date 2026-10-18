@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -138,12 +139,21 @@ def test_send_returns_clear_server_enforced_connection_error():
 
 def test_open_by_person_ref_is_private_no_store_and_uses_the_opaque_ref():
     service = MagicMock()
-    service.open_with_person.return_value = {"conversation": None, "canSend": True}
     person_ref = "11111111-1111-4111-8111-111111111111"
+    draft = {
+        "conversation": None,
+        "peerPersonRef": person_ref,
+        "peerDisplayName": "Connected person",
+        "peerPhotoUrl": "https://example.com/person.jpg",
+        "canSend": True,
+        "disconnectedNotice": False,
+    }
+    service.open_with_person.return_value = draft
     with patch("api.routes.one.messages._service", return_value=service):
         response = _client().get(f"/api/one/messages/with/person/{person_ref}")
 
     assert response.status_code == 200
+    assert response.json() == draft
     assert response.headers["cache-control"] == "private, no-store"
     service.open_with_person.assert_called_once_with("viewer-user", recipient_person_ref=person_ref)
 
@@ -168,6 +178,35 @@ def test_direct_message_sse_event_is_metadata_only():
         "at": "2026-01-01T00:00:00Z",
         "deepLink": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_message_stream_repairs_subscribe_gap_and_listener_reset(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from api import consent_listener
+    from api.routes.one.messages import _message_event_stream
+
+    queue = asyncio.Queue()
+    subscribe = AsyncMock(return_value=queue)
+    unsubscribe = AsyncMock()
+    monkeypatch.setattr(consent_listener, "subscribe_consent_queue", subscribe)
+    monkeypatch.setattr(consent_listener, "unsubscribe_consent_queue", unsubscribe)
+    stream = _message_event_stream(
+        "viewer-user", SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    )
+    try:
+        assert await anext(stream) == {"event": "resync", "data": "{}"}
+        subscribe.assert_awaited_once_with("viewer-user", snapshot_resets=True)
+        await queue.put(
+            {"type": consent_listener.LOCAL_RESYNC_EVENT_TYPE, "content": "never transport this"}
+        )
+        assert await asyncio.wait_for(anext(stream), timeout=1) == {"event": "resync", "data": "{}"}
+    finally:
+        await stream.aclose()
+    unsubscribe.assert_awaited_once_with("viewer-user", queue)
 
 
 def test_message_actions_keep_participant_identity_server_side():

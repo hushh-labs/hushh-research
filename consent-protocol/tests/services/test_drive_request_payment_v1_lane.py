@@ -326,6 +326,13 @@ async def test_approved_v1_share_remains_due_after_search_job_expires(sharing):
             ).scalar_one()
             is True
         )
+        # The grant queue carries only paid grants; provenance is under test.
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp()
+              WHERE request_id IN (:positive,:unmarked)"""),
+            {"positive": positive, "unmarked": unmarked},
+        )
         connection.execute(text("DELETE FROM drive_owner_search_jobs WHERE user_id='owner'"))
 
     store = DriveBulkShareStore(db=sharing.db)

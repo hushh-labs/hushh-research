@@ -82,9 +82,17 @@ elif args[:3] == ["run", "services", "describe"]:
     else:
         sys.exit(70)
 elif args[:3] == ["run", "revisions", "describe"]:
+    # A revision reports its own scale. The service-level floor stays on the
+    # service, and Cloud Run omits a zero revision floor.
+    scaling = state.get("deployed_scaling", {})
+    annotations = {"autoscaling.knative.dev/maxScale": scaling.get("--max-instances")}
+    if scaling.get("--min-instances") not in (None, "0"):
+        annotations["autoscaling.knative.dev/minScale"] = scaling["--min-instances"]
     print(json.dumps({
-        "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]}},
-        "spec": {"containers": [
+        "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]},
+                     "annotations": annotations},
+        "spec": {"containerConcurrency": int(scaling.get("--concurrency") or 0),
+                 "containers": [
             {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"],
              "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
                       "value": state.get("deployed_drain_enabled", "true")}]},
@@ -94,6 +102,10 @@ elif args[:3] == ["run", "revisions", "describe"]:
     }))
 elif args[:2] == ["run", "deploy"]:
     state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
+    state["deployed_scaling"] = {
+        name: flag(name)
+        for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")
+    }
     save()
 elif args[:3] in (
     ["run", "services", "add-iam-policy-binding"],

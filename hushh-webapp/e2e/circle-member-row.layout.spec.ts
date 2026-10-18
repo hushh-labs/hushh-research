@@ -940,7 +940,7 @@ test.describe("Circle roster row", () => {
           await expect(
             page.getByRole("menuitem", { name: "Share location" }),
           ).toBeVisible();
-          const remove = page.getByRole("menuitem", { name: "Remove from Circle" });
+          const remove = sheet.getByRole("button", { name: "Remove from Circle", exact: true });
           if (owner) {
             await expect(remove).toHaveCount(0);
           } else {
@@ -973,7 +973,9 @@ test.describe("Circle roster row", () => {
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
           await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
-            await expect(remove).toHaveCSS("justify-content", "normal");
+            await expect(remove).toHaveCSS("justify-content", "center");
+            await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+            await expect(remove).toHaveCSS("border-width", "0px");
           }
           await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
           await expect(cancel).toHaveCSS("color", defaultAccent);
@@ -985,7 +987,7 @@ test.describe("Circle roster row", () => {
           await page.evaluate(() => delete document.documentElement.dataset.accent);
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
-            const cancel = element.querySelector<HTMLButtonElement>('button:not([role="menuitem"])')!;
+            const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
             const handle = element.firstElementChild!;
             const menuBox = menu.getBoundingClientRect();
             const cancelBox = cancel.getBoundingClientRect();

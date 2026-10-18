@@ -337,17 +337,21 @@ async def test_uncertain_mutation_never_retries(monkeypatch, mode):
 @pytest.mark.parametrize(
     "status,reason,code",
     [
-        # A recipient without a Google account, with notification email off.
-        (400, "invalidSharingRequest", "permission_rejected"),
+        # Negative control for invalidSharingRequest: a plain bad request.
+        (400, "badRequest", "permission_rejected"),
         # Workspace sharing policy on the owner's domain or shared drive.
-        (403, "shareOutNotPermitted", "permission_target_unavailable"),
-        (403, "cannotShareTeamDriveWithNonGoogleAccounts", "permission_target_unavailable"),
+        (403, "shareOutNotPermitted", "drive_policy_blocked"),
+        (403, "teamDriveDomainUsersOnlyRestriction", "drive_policy_blocked"),
+        # A shared drive that refuses addresses without a Google account.
+        (403, "cannotShareTeamDriveWithNonGoogleAccounts", "recipient_needs_google_account"),
+        # Negative control: an unclassified 403 keeps its existing code.
+        (403, "insufficientFilePermissions", "permission_target_unavailable"),
         # The file was deleted or trashed after the search confirmed it.
         (404, "notFound", "permission_target_unavailable"),
     ],
 )
 async def test_definitive_grant_refusals_are_one_per_file_outcome(
-    monkeypatch, status, reason, code
+    monkeypatch, caplog, status, reason, code
 ):
     seen = []
 
@@ -356,6 +360,7 @@ async def test_definitive_grant_refusals_are_one_per_file_outcome(
         return response(status, {"error": {"code": status, "errors": [{"reason": reason}]}})
 
     install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
     with pytest.raises(acl.DrivePermissionError, match=f"^{code}$") as caught:
         await acl.GoogleDrivePermissionAdapter().create_reader(
             **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
@@ -364,7 +369,126 @@ async def test_definitive_grant_refusals_are_one_per_file_outcome(
     # neither an unknown outcome to reconcile nor a POST to repeat.
     assert not caught.value.outcome_unknown
     assert not caught.value.retryable
+    assert caught.value.share_hint is None
     assert len(seen) == 1 and seen[0].url.params["sendNotificationEmail"] == "false"
+    # Provider reasons are counted by fixed class, never logged verbatim.
+    assert reason not in caplog.text
+    # The logged label survives the production redactor, which masks long
+    # `_`-joined tokens as possible identifiers.
+    label = code.replace("_", ".")
+    assert f"outcome={label} " in caplog.text
+    assert redact_log_value(label) == label
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,hint",
+    [
+        # Google's guide: this 400 follows a share that did happen.
+        (
+            'Bad Request. User message: "Sorry, the items were successfully shared but '
+            'emails could not be sent to recipient@example.invalid."',
+            "shared_without_email",
+        ),
+        # Notification email off for an address without a Google account.
+        (
+            'Bad Request. User message: "You are trying to invite recipient@example.invalid. '
+            "Since there is no Google account associated with this email address, you must "
+            'check the "Notify people" box to invite this recipient."',
+            "recipient_needs_google_account",
+        ),
+        ('Bad Request. User message: "ACL change not allowed."', "drive_policy_blocked"),
+        # Unrecognized wording: still reconciled, with no guessed reason.
+        ("PRIVATE new wording about recipient@outside.invalid", "invalid_sharing_request"),
+    ],
+)
+async def test_invalid_sharing_request_is_reconciled_never_settled_as_rejected(
+    monkeypatch, caplog, message, hint
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(
+            400,
+            {
+                "error": {
+                    "code": 400,
+                    "message": "Bad Request",
+                    "errors": [
+                        {"domain": "global", "reason": "invalidSharingRequest", "message": message}
+                    ],
+                }
+            },
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # A grant may exist: the caller reconciles with permissions.list.
+    assert caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert caught.value.share_hint == hint
+    assert len(seen) == 1
+    assert "reason=invalid_sharing" in caplog.text
+    for private in ("recipient@example.invalid", "PRIVATE", "outside.invalid", "Notify"):
+        assert private not in caplog.text + str(caught.value) + repr(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["malformed", "oversized", "compressed"])
+async def test_unreadable_400_on_create_cannot_rule_out_a_real_share(monkeypatch, mode):
+    payload = {"error": {"code": 400, "errors": [{"reason": "invalidSharingRequest"}]}}
+    headers, content = None, None
+    if mode == "malformed":
+        content = b"PRIVATE INVALID JSON"
+    elif mode == "oversized":
+        content = json.dumps(payload).encode() + b" " * acl.ERROR_RESPONSE_LIMIT
+    else:
+        headers = {"Content-Encoding": "gzip"}
+    install(
+        monkeypatch,
+        lambda _request: response(400, payload=payload, content=content, headers=headers),
+    )
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        await acl.GoogleDrivePermissionAdapter().create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    assert caught.value.outcome_unknown
+    assert caught.value.share_hint is None
+
+
+@pytest.mark.asyncio
+async def test_sharing_rate_limit_is_a_create_refusal_retried_only_after_reconciling(
+    monkeypatch,
+):
+    reasons = [{"reason": "sharingRateLimitExceeded", "message": "PRIVATE recipient detail"}]
+    install(
+        monkeypatch,
+        lambda _request: response(403, {"error": {"code": 403, "errors": reasons}}),
+    )
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(acl.DrivePermissionError, match="^sharing_rate_limited$") as caught:
+        await adapter.create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    # Google refused the share itself: retry later, through the absence check.
+    assert caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert "PRIVATE" not in str(caught.value)
+    # Negative controls: only a create gets this outcome, and a mixed quota
+    # answer is reconciled instead of being read as a refusal.
+    with pytest.raises(acl.DrivePermissionError, match="^permission_target_unavailable$"):
+        await adapter.list_permissions(**arguments())
+    reasons.append({"reason": "rateLimitExceeded"})
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as mixed:
+        await adapter.create_reader(
+            **arguments(), verified_email="recipient@example.invalid", send_notification_email=False
+        )
+    assert mixed.value.outcome_unknown and not mixed.value.retryable
 
 
 @pytest.mark.asyncio

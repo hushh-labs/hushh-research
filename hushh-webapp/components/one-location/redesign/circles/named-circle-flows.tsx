@@ -58,7 +58,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
-  CIRCLE_NAME_INPUT_CLASSNAME,
+  CIRCLE_RENAME_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import {
@@ -80,6 +80,7 @@ import {
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
 import {
+  CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME,
   CIRCLE_SHEET_BODY_CLASSNAME,
   CIRCLE_SHEET_CTA_CLASSNAME,
   CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
@@ -107,7 +108,11 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
-import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
+import { circleTotalMemberCount } from "@/lib/one-location/circle-member-count";
+import {
+  isForeignSmsSystemCircle,
+  isSmsSystemCircle,
+} from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
@@ -229,6 +234,37 @@ function groupCirclesForPeopleTab(
 function circleDetailMemberCountLabel(count: number): string {
   if (count <= 1) return "Only you";
   return `${count} people`;
+}
+
+function smsCircleCapacityDescription(
+  circle: Pick<OneLocationCircleSummary, "memberCount">,
+  memberLimit: number,
+  remainingCapacity: number,
+  pendingInviteCount: number,
+  loading: boolean,
+  error: string | null,
+): string {
+  if (loading) {
+    return `SMS Circle limit: ${memberLimit} people total. Checking available spots…`;
+  }
+  if (error) {
+    return `SMS Circle limit: ${memberLimit} people total. Could not confirm available spots.`;
+  }
+
+  const memberCount = circleTotalMemberCount(circle.memberCount);
+  const memberCountCopy = `${memberCount} ${
+    memberCount === 1 ? "member is" : "members are"
+  } in this Circle`;
+  const capacityCopy = remainingCapacity > 0
+    ? `you can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}`
+    : "no more people can be added right now";
+  const pendingInviteCopy = pendingInviteCount
+    ? ` ${pendingInviteCount} pending ${
+        pendingInviteCount === 1 ? "invitation also counts" : "invitations also count"
+      } toward the limit.`
+    : "";
+
+  return `SMS Circle limit: ${memberLimit} people total. ${memberCountCopy}; ${capacityCopy}.${pendingInviteCopy}`;
 }
 
 function CircleSummaryRow({
@@ -1809,6 +1845,20 @@ export function CircleDetailFlow({
     circleNameDirty && trimmedCircleName.length >= 1 && trimmedCircleName.length <= 80 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
+  const smsCircleMemberLimit = circle && isSmsSystemCircle(circle)
+    ? circle.memberLimit ?? 10
+    : null;
+  const smsCircleCapacityMessage =
+    circle && smsCircleMemberLimit !== null
+      ? smsCircleCapacityDescription(
+          circle,
+          smsCircleMemberLimit,
+          remainingCapacity,
+          pendingInvites.length,
+          peopleLoading,
+          peopleLoadError,
+        )
+      : null;
   const canViewInviteCode =
     circle?.viewerCapabilities?.canViewInviteCode ?? Boolean(isOwner);
   const canRotateInviteCode =
@@ -2550,7 +2600,7 @@ export function CircleDetailFlow({
                         }}
                         maxLength={80}
                         autoComplete="off"
-                        className={CIRCLE_NAME_INPUT_CLASSNAME}
+                        className={CIRCLE_RENAME_NAME_INPUT_CLASSNAME}
                       />
                     </div>
                   </label>
@@ -2835,9 +2885,18 @@ export function CircleDetailFlow({
               // field they cannot see.
               className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
-              <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+              <SheetHeader className={CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME}>
                 <SheetTitle>Add people</SheetTitle>
                 <SheetDescription>Choose connections.</SheetDescription>
+                {smsCircleCapacityMessage ? (
+                  <p
+                    className="text-sm leading-5 text-muted-foreground"
+                    aria-live="polite"
+                    data-testid="one-location-sms-circle-capacity"
+                  >
+                    {smsCircleCapacityMessage}
+                  </p>
+                ) : null}
               </SheetHeader>
 
               <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
@@ -2885,7 +2944,9 @@ export function CircleDetailFlow({
                             CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME
                           }
                           description={
-                            remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
+                            smsCircleMemberLimit !== null
+                              ? `${peopleTotalCount} available.`
+                              : remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                               ? `Add up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${peopleTotalCount} available; ${remainingCapacity} Circle slots remain.`
                               : remainingCapacity === 1
                                 ? "You can add 1 more person right now."

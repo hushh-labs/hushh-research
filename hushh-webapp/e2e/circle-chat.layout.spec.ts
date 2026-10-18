@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,6 +58,50 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+async function touchMessageActions(page: Page) {
+  return page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
+}
+
+async function openMessageOptions(page: Page, message: Locator) {
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  if (await touchMessageActions(page)) {
+    const bubble = message.locator("[data-chat-bubble]");
+    await bubble.click({ trial: true });
+    const box = await bubble.boundingBox();
+    const pointer = { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0,
+      clientX: box!.x + box!.width / 2, clientY: box!.y + box!.height / 2 };
+    await bubble.dispatchEvent("pointerdown", pointer);
+    await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
+    await bubble.dispatchEvent("pointerup", pointer);
+  } else {
+    await message.getByRole("button", { name: "Message options" }).click();
+  }
+}
+
+test("phone Circle actions open on hold and the keyboard adds no gap before members", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await mount(page, false, true);
+  await expect(page.getByText("Only circle members can read these messages.", { exact: true })).toHaveCount(0);
+  const message = page.locator('[data-chat-message="hello"]');
+  const options = message.getByRole("button", { name: "Message options" });
+  await expect(options.locator("..")).toHaveCSS("opacity", "0");
+  await openMessageOptions(page, message);
+  await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
+  await expect(message.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await openMessageOptions(page, message);
+  await page.getByRole("menuitem", { name: "More reactions…", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Emoji picker" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Emoji picker" })).not.toBeVisible();
+  for (const inset of [0, 300]) {
+    await page.evaluate((inset) => { document.documentElement.style.setProperty("--kb-height", `${inset}px`); document.documentElement.classList.toggle("kb-open", inset > 0); }, inset);
+    const gap = await page.getByRole("button", { name: "View circle members" }).evaluate((node) => node.getBoundingClientRect().top - document.querySelector("[data-one-chat-surface]")!.getBoundingClientRect().bottom);
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(16);
+  }
+});
+
 for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   await mount(page, width === 393, true);
@@ -68,23 +112,24 @@ for (const width of [320, 393, 768, 1440]) test(`short circle messages keep time
   const geometry = await row.evaluate(element => {
     const text = [...element.querySelectorAll("p")].find(node => node.textContent === "Hi 🙂")!.getBoundingClientRect();
     const time = [...element.querySelectorAll("time")].at(-1)!.getBoundingClientRect();
-    return { textBottom: text.bottom, timeTop: time.top };
+    return { textBottom: text.bottom, timeTop: time.top, timeSize: parseFloat(getComputedStyle([...element.querySelectorAll("time")].at(-1)!).fontSize) };
   });
   expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+  expect(geometry.timeSize).toBeLessThanOrEqual(11);
   await page.screenshot({ path: test.info().outputPath(`inline-circle-time-${width}.png`), animations: "disabled" });
 });
 
 test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
   await mount(page, false, true);
   const own = page.locator('[data-chat-message="reply"]');
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   for (const name of ["Reply", "Edit", "Delete for me", "Delete for everyone"]) {
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
   }
   await page.screenshot({ path: test.info().outputPath("circle-message-options.png") });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.locator('[data-chat-message="hello"]').getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, page.locator('[data-chat-message="hello"]'));
   await expect(page.getByRole("menuitem", { name: "Reply", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Delete for me", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toHaveCount(0);
@@ -97,7 +142,7 @@ test("Circle reply, edit and both deletion scopes complete without disturbing ad
   await mount(page, false, true);
   const peer = page.locator('[data-chat-message="hello"]');
   const own = page.locator('[data-chat-message="reply"]');
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
   await expect(page.getByLabel("Replying to message")).toContainText("Kushal Trivedi");
@@ -109,24 +154,24 @@ test("Circle reply, edit and both deletion scopes complete without disturbing ad
   await expect(quote).toContainText("Hey everyone!");
   await quote.click();
   await expect(peer).toBeFocused();
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await page.getByRole("textbox", { name: "Edit message text" }).fill("Updated meetup plan");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(own).toContainText("Updated meetup plan");
   await expect(own).toContainText("Edited");
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(peer).toBeVisible();
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await page.getByRole("button", { name: "Delete message", exact: true }).click();
   await expect(peer).toHaveCount(0);
   await expect(quote).toHaveCount(0);
   await expect(page.getByText("Original message unavailable", { exact: true })).toBeVisible();
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Delete message", exact: true }).click();
   await expect(own).toContainText("This message was deleted.");
@@ -140,7 +185,7 @@ test("Circle edit failure keeps the draft and retries the identical sealed chang
   await mount(page, false, true);
   await page.evaluate(() => { (window as unknown as { chatFixture: { failNextMutation: boolean } }).chatFixture.failNextMutation = true; });
   const own = page.locator('[data-chat-message="reply"]');
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   const input = page.getByRole("textbox", { name: "Edit message text" });
   await input.fill("   ");
@@ -230,6 +275,7 @@ for (const width of [320, 393, 1440]) {
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: 844 });
     await mount(page, false, true);
+    const touchActions = await touchMessageActions(page);
     for (const id of ["hello", "reply", "photo"]) {
       const message = page.locator(`[data-chat-message="${id}"]`);
       const trigger = message.getByRole("button", { name: "React to message" });
@@ -243,18 +289,27 @@ for (const width of [320, 393, 1440]) {
         return { topGap: Math.abs(action.top - bubble.top), beside: action.right <= bubble.left || action.left >= bubble.right,
           left: action.left, right: action.right };
       });
-      expect(alignment.topGap).toBeLessThanOrEqual(1);
-      expect(alignment.beside).toBe(true);
+      if (!touchActions) {
+        expect(alignment.topGap).toBeLessThanOrEqual(1);
+        expect(alignment.beside).toBe(true);
+      } else {
+        await expect(trigger).toHaveCSS("opacity", "0");
+        await expect(trigger).toHaveCSS("pointer-events", "none");
+      }
       expect(alignment.left).toBeGreaterThanOrEqual(0);
       expect(alignment.right).toBeLessThanOrEqual(width);
       const menu = message.getByRole("button", { name: "Message options" });
+      if (touchActions) {
+        await expect(menu.locator("..")).toHaveCSS("opacity", "0");
+        await expect(menu).toHaveCSS("pointer-events", "none");
+      }
       const menuBox = await menu.boundingBox();
       expect(menuBox!.width).toBeGreaterThanOrEqual(44);
       expect(menuBox!.height).toBeGreaterThanOrEqual(44);
       expect(Math.abs(menuBox!.y - hitArea!.y)).toBeLessThanOrEqual(1);
       expect(menuBox!.x).toBeGreaterThanOrEqual(0);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       const picker = page.getByRole("dialog", { name: "Emoji picker" });
       await expect(picker).toBeVisible();
       await picker.getByRole("tab", { name: "Flags", exact: true }).click();
@@ -276,10 +331,10 @@ for (const width of [320, 393, 1440]) {
       if (id === "reply") await page.screenshot({ path: test.info().outputPath(`circle-reactions-${width}.png`) });
       await badge.click();
       await expect(badge).toHaveCount(0);
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(picker).not.toBeVisible();
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       await expect(picker).toBeVisible();
       // The picker can cover either header or composer; its collision gutter is outside it.
       await page.locator("body").click({ position: { x: 1, y: 1 } });
@@ -353,12 +408,12 @@ test("Circle smiley supports keyboard selection and reaction failure recovery", 
   const badge = message.getByRole("button", { name: "🇮🇳, 1 reactions, you reacted" });
   await expect(badge).toHaveCount(0);
   await expect(message.getByRole("alert")).toContainText("Reaction could not be saved. Try again.");
-  await trigger.click();
+  await trigger.focus(); await page.keyboard.press("Enter");
   await picker.getByPlaceholder("Search emoji").fill("🇮🇳");
   await picker.getByRole("button", { name: "Use 🇮🇳", exact: true }).click();
   await expect(badge).toBeVisible();
   await expect(message.getByRole("alert")).toHaveCount(0);
-  await trigger.click();
+  await trigger.focus(); await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   await expect(picker).not.toBeVisible();
   await expect(trigger).toBeFocused();

@@ -876,7 +876,7 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 
 export interface HushhNotificationsPlugin {
   /** OS presentation settings only; registered tokens do not prove audible alerts. */
-  getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean }>;
+  getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean; chatAlertsEnabled?: boolean; chatSoundsEnabled?: boolean }>;
   /** Foreground-only, one-shot fallback when Web Audio cannot start. Deadline is in epoch ms. */
   playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number }): Promise<{ played: boolean }>;
   stopEmergencySmsCue(options: { grantId?: string }): Promise<void>;
@@ -899,7 +899,7 @@ export interface HushhNotificationsPlugin {
     deviceId?: string;
     previewKeyId?: string;
     previewPublicKey?: string;
-  }): Promise<{ success: boolean }>;
+  }): Promise<{ success: boolean; registered?: boolean; degraded?: boolean }>;
 
   /**
    * Unregister push notification token(s).

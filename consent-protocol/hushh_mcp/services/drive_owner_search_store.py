@@ -24,7 +24,10 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     automatic_recipient_current,
 )
-from hushh_mcp.services.drive_request_review_policy import checkpoint_requires_owner_review
+from hushh_mcp.services.drive_request_review_policy import (
+    autoshare_selection,
+    checkpoint_requires_owner_review,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -785,9 +788,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         if row["connection_generation"] != current["connection_generation"]:
             raise DriveReadError("connection_changed")
         checkpoint = self._checkpoint(row)
-        current_selection = (
-            checkpoint.get("request_selection_version") == 2
-            and checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
+        current_selection = checkpoint.get("request_selection_version") == 2 and (
+            autoshare_selection(checkpoint)
+            or checkpoint.get("request_time_intent") in {"file_activity", "document_coverage"}
             and checkpoint.get("request_owner_review_required")
             is (checkpoint.get("request_time_intent") == "document_coverage")
         )
