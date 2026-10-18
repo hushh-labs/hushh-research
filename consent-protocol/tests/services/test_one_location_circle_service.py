@@ -41,6 +41,30 @@ def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None
         assert excinfo.value.code == "LOCATION_CIRCLE_NAME_INVALID"
 
 
+def test_command_additions_share_one_event_batch_across_requests() -> None:
+    batch_id = circle_service_module._member_add_event_batch_id
+    command = dict(
+        actor_user_id="owner-user",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        operation_id="a" * 64,
+        explicit_batch_id=None,
+    )
+    first_chunk = batch_id(**command)
+    assert UUID(first_chunk).version == 5
+    assert batch_id(**command) == first_chunk
+    assert batch_id(**{**command, "operation_id": "b" * 64}) != first_chunk
+    assert batch_id(**{**command, "actor_user_id": "other-user"}) != first_chunk
+    assert (
+        batch_id(**{**command, "circle_id": "550e8400-e29b-41d4-a716-446655440001"}) != first_chunk
+    )
+    assert batch_id(**{**command, "explicit_batch_id": "550e8400-e29b-41d4-a716-446655440002"}) == (
+        "550e8400-e29b-41d4-a716-446655440002"
+    )
+    assert batch_id(**{**command, "operation_id": None}) != batch_id(
+        **{**command, "operation_id": None}
+    )
+
+
 def test_circle_member_payload_includes_public_recipient_key_for_group_selection() -> None:
     payload = OneLocationCircleService._member_payload(
         {

@@ -86,6 +86,30 @@ CIRCLE_MEMBER_ADD_CHUNK = 20
 # deciding how many Circles other people may put you in, which was never ours
 # to decide.
 SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 11
+
+
+def _member_add_event_batch_id(
+    *,
+    actor_user_id: str,
+    circle_id: str,
+    operation_id: str | None,
+    explicit_batch_id: str | None,
+) -> str:
+    if explicit_batch_id:
+        return explicit_batch_id
+    if operation_id:
+        # A reviewed command can send up to five separate 20-person requests.
+        # Its operation ID is stable across retries and chunks, so the chat
+        # timeline can show the whole action as one addition.
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"hushh.circle-member-add:v1:{actor_user_id}:{circle_id}:{operation_id}",
+            )
+        )
+    return str(uuid.uuid4())
+
+
 # Raised from 20 in migration 158. This constant is stamped onto a Circle at
 # INSERT and never edited afterwards, so it governs new Circles only -- the
 # migration lifts the stored ceiling on Circles that already carry the old
@@ -4016,7 +4040,14 @@ class OneLocationCircleService:
                         text(
                             "SELECT set_config('hushh.circle_member_add_batch_id', :batch_id, true)"
                         ),
-                        {"batch_id": membership_batch_id or str(uuid.uuid4())},
+                        {
+                            "batch_id": _member_add_event_batch_id(
+                                actor_user_id=actor_user_id,
+                                circle_id=cleaned_circle_id,
+                                operation_id=operation_id,
+                                explicit_batch_id=membership_batch_id,
+                            )
+                        },
                     )
                 for invitee_user_id in sorted(new_user_ids):
                     # Sorted to match the order `_lock_invitees` already took
