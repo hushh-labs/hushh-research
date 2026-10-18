@@ -7467,6 +7467,12 @@ describe("OneLocationAgentPage", () => {
       ...locationState().recipients[2],
       connectedFromContacts: true,
     };
+    // Both authoritative snapshots must describe the pre-sync roster. The
+    // default state already contains Investor D and can win the initial race.
+    mockGetState.mockImplementation(async () => ({
+      ...locationState(),
+      recipients: contactSyncCompleted ? [oldRecipient, matchedRecipient] : [oldRecipient],
+    }));
     mockListRecipientsPage.mockImplementation(async () => ({
       items: contactSyncCompleted
         ? [oldRecipient, matchedRecipient]

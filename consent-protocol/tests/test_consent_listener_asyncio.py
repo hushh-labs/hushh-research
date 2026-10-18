@@ -49,6 +49,29 @@ def _clear_tasks():
 
 
 @pytest.mark.asyncio
+async def test_direct_commit_doorbell_wakes_its_durable_push_worker(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from api import consent_listener
+    from hushh_mcp.services import direct_message_notifications
+
+    wake = MagicMock()
+    offered = AsyncMock()
+    monkeypatch.setattr(consent_listener, "_serving_loop", asyncio.get_running_loop())
+    monkeypatch.setattr(consent_listener, "_push_to_consent_queue", offered)
+    monkeypatch.setattr(direct_message_notifications, "wake_direct_message_push_worker", wake)
+    payload = {
+        "type": "direct_message",
+        "user_id": "synthetic-owner",
+        "message_id": "synthetic-event",
+    }
+    _user_state_notify_callback(None, 1, USER_STATE_CHANNEL, json.dumps(payload))
+    await asyncio.sleep(0)
+    wake.assert_called_once_with()
+    offered.assert_awaited_once_with("synthetic-owner", payload)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("request_id", ["synthetic-request", ""])
 async def test_push_enrichment_reads_off_loop_with_owner_filter(monkeypatch, request_id):
     from api import consent_listener

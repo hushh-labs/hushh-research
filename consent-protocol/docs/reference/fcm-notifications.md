@@ -35,6 +35,44 @@ Platform references: [Firebase iOS receipt](https://firebase.google.com/docs/clo
 [Android message priority](https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-priority),
 [Apple APNs entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/aps-environment).
 
+### Chat recovery hardening (2026-10-18)
+
+Direct and Circle chat retain the existing encrypted-preview, per-installation
+push pipeline. A completed chat intent now requires an acceptance receipt for
+that event and recipient. Missing registrations and all-stale tokens remain
+retryable; accepted devices are not replayed for another device's failure.
+The existing five-lease budget, source expiry, read/mute/revocation checks and
+account fences still apply. Recovered preview-key registration brings forward
+up to 100 pending retries per chat family and wakes both workers. It never
+resets attempts, revives terminal work, changes an active lease or removes the
+initial read grace. Otherwise failure retries remain 60/120/240/480 seconds.
+Registration authentication/database work runs off the serving event loop.
+
+The existing transactional direct-message doorbell now wakes its push worker.
+A single coalesced timer respects the two-second read grace; full batches drain
+without a polling pause. DM SSE subscribes before emitting an empty `resync`
+frame, closing the initial-load/subscription gap. Both chat consumers understand
+the listener's reconnect/overflow reset and reload current authorized state.
+Circle recovery no longer waits out the twenty-second long poll for that reset.
+
+iOS notification intent donation has a one-second presentation fallback through
+the same owner/read/exactly-once completion checks. Android initializes its
+existing Messages channel before checking readiness and uses ordinary sound
+defaults on API 24/25. Channel settings remain user-owned. Native registration
+preserves backend degradation flags and separately reports missing chat-preview
+custody for retry; token registration alone is not chat readiness.
+
+The distribution guard also verifies the exported notification extension and
+matching effective Keychain groups. These native changes require fresh signed
+TestFlight/Android binaries; a hosted UAT web deployment cannot update them.
+Physical receipt, grouping, audible sound and latency remain separate acceptance
+checks in the [device checklist](../../../docs/reference/quality/circle-chat-notification-release-checklist.md).
+
+Design references: [Apple communication notifications](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications),
+[Android notification groups](https://developer.android.com/develop/ui/views/notifications/group),
+and [WhatsApp notification controls](https://faq.whatsapp.com/iphone/troubleshooting/how-to-manage-your-notifications).
+These sources describe public behavior and OS contracts, not WhatsApp's private implementation.
+
 ### Durable SMS, Location and relationship delivery
 
 Migration `361_system_push_outbox.sql` commits delivery intent with initial

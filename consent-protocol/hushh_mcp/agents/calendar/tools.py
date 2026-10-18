@@ -795,9 +795,9 @@ def _display_all_day(start_date: object, end_date: object) -> str:
         last = date.fromisoformat(str(end_date)) - timedelta(days=1) if end_date else first
     except ValueError:
         return f"{start_date} (all day)"
-    label = first.strftime("%a, %b %-d")
+    label = f"{first:%a, %b} {first.day}"
     if last > first:
-        label = f"{label} to {last.strftime('%a, %b %-d')}"
+        label = f"{label} to {last:%a, %b} {last.day}"
     return f"{label} (all day)"
 
 
@@ -879,7 +879,8 @@ def _display_time(value: object, time_zone: object) -> str:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             return text
-        return parsed.astimezone(ZoneInfo(zone_name)).strftime("%a, %b %-d at %-I:%M %p %Z")
+        local = parsed.astimezone(ZoneInfo(zone_name))
+        return f"{local:%a, %b} {local.day} at {local.hour % 12 or 12}:{local:%M %p %Z}"
     except (ValueError, ZoneInfoNotFoundError):
         return text
 

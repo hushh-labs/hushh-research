@@ -48,6 +48,10 @@ message cases for direct and Circle chat. Record build, OS/browser and permissio
 | Mute, leave, remove member or rejoin | No new eligible alerts to muted/revoked memberships or old membership epochs |
 | Permission denied then enabled in Settings | Explicit setup action; registration repairs on resume without repeated prompts |
 | Registration fails then Retry | Delivery is not represented as active before registration succeeds |
+| Token registers but native preview custody fails | Generic alerts remain available; chat readiness reports retryable failure and repairs without dropping owner fences |
+| No registered device, then registration recovers within retry budget | Unread eligible chat intent retries; already accepted installations are not sounded again |
+| Stream connects after a message commit; listener reconnect or queue overflow | Current authorized messages reload immediately from reset, without waiting for fallback polling |
+| iOS communication-intent donation stalls | Basic decrypted notification completes within its one-second fallback; late donation does not duplicate presentation |
 | Switch account while cleanup awaits | Old callbacks cannot clear the new key's notifications or badge |
 | One installation rejects delivery | Only unaccepted installations retry within the existing delivery limit |
 

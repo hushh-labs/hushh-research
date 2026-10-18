@@ -3665,6 +3665,21 @@ token retrieval waits for an already-started deletion so a rapid account switch
 cannot register an installation token that logout later invalidates. Preview key
 removal remains immediate and independent of network completion.
 
+Native registration also reports optional `registered`/`degraded` provider
+results and chat-preview custody readiness. Generic registration can survive
+preview preparation failure, but the client must retry rather than advertise
+working chat push. Android exposes optional `chatAlertsEnabled` and
+`chatSoundsEnabled` independently of ordinary activity/emergency channels.
+
+Direct-message SSE emits a metadata-only `resync` frame (`{}`) immediately after
+subscribing and after listener recovery/overflow. Consumers reload their current
+authorized inbox/thread; no queued content or actor identity travels in a reset.
+Circle long polling likewise treats a reset as invalidation of all chat snapshots,
+and rechecks current membership before responding. The direct push worker reuses
+its committed doorbell, respects the existing two-second read grace, and drains
+full batches without an idle poll. A chat intent is sent only when an owner/event
+acceptance receipt exists; no-device/all-stale attempts retain bounded retry.
+
 Images are passive JPEG/PNG/WebP files up to 5 MiB and messages contain at most
 4,000 characters. Both API layers bound chat requests to 7,250,000 bytes.
 Validation and database errors never echo rejected payloads. Responses are

@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
     captureStart: vi.fn(), captureFinish: vi.fn(), captureCancel: vi.fn(),
     captureInstances: [] as unknown[],
     openEvents: vi.fn(),
+    liveMessageEvents: false,
     sendMessage: vi.fn(),
     editMessage: vi.fn(),
     deleteMessage: vi.fn(),
@@ -106,10 +107,16 @@ vi.mock("@/components/agent/chat-message-styles", () => ({
   ),
 }));
 
-vi.mock("@/lib/direct-messages/direct-message-events", () => ({
-  dispatchDirectMessagesUpdated: vi.fn(),
-  subscribeToDirectMessagesUpdated: () => () => undefined,
-}));
+vi.mock("@/lib/direct-messages/direct-message-events", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/direct-messages/direct-message-events")>();
+  return {
+    dispatchDirectMessagesUpdated: (...args: Parameters<typeof actual.dispatchDirectMessagesUpdated>) => {
+      if (mocks.liveMessageEvents) actual.dispatchDirectMessagesUpdated(...args);
+    },
+    subscribeToDirectMessagesUpdated: (...args: Parameters<typeof actual.subscribeToDirectMessagesUpdated>) =>
+      mocks.liveMessageEvents ? actual.subscribeToDirectMessagesUpdated(...args) : () => undefined,
+  };
+});
 
 vi.mock("@/lib/agent/agent-voice-settings", () => ({
   requestAgentConversationAfterRoute: (...args: unknown[]) =>
@@ -220,6 +227,7 @@ describe("DirectMessagesPage", () => {
     mocks.voiceActive = false;
     mocks.router.push.mockReset();
     mocks.router.replace.mockReset();
+    mocks.liveMessageEvents = false;
     mocks.user.getIdToken.mockClear();
     mocks.listConversations.mockResolvedValue({
       items: [mocks.conversation],
@@ -321,6 +329,23 @@ describe("DirectMessagesPage", () => {
     return { create, revoke, enterViewport };
   }
 
+  it("repairs missed messages immediately on a stream resync", async () => {
+    mocks.liveMessageEvents = true;
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    mocks.openEvents.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } })));
+    const view = renderConnectionThread();
+    try {
+      await screen.findByText("Start the conversation with Ankit Kumar Singh.");
+      const received = { ...visibleMessage, id: "recovered-message", senderIsViewer: false, content: "Recovered without waiting for polling" };
+      mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [received], canSend: true, disconnectedNotice: null, nextBefore: null });
+      await act(async () => { stream.enqueue(new TextEncoder().encode("event: resync\ndata: {}\n\n")); });
+      expect(await screen.findByText(received.content)).toBeVisible();
+    } finally {
+      view.unmount();
+      stream.close();
+    }
+  });
+
   it("does not render an empty conversation before the selected person's history resolves", () => {
     mocks.getConversationWithPerson.mockReturnValueOnce(new Promise(() => {}));
     renderConnectionThread();
@@ -412,7 +437,7 @@ describe("DirectMessagesPage", () => {
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
-    mocks.query = "";
+    mocks.search = "";
     mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 1 });
     render(<DirectMessagesPage />);
     await waitFor(() => expect(mocks.acknowledgeDelivery).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conversation-1", messageIds: ["visible-message"], isEffectCurrent: expect.any(Function) })));

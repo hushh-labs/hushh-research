@@ -487,6 +487,12 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
                 )
 
                 wake_circle_chat_push_worker()
+            elif event_type == "direct_message":
+                from hushh_mcp.services.direct_message_notifications import (
+                    wake_direct_message_push_worker,
+                )
+
+                wake_direct_message_push_worker()
 
             async def dispatch_state():
                 await _push_to_consent_queue(user_id, data)

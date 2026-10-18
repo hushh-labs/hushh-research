@@ -107,6 +107,53 @@ class UatPasskeyConfigurationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 guard.verify(signed, {"Entitlements": profile})
 
+    def test_exported_chat_extension_requires_matching_signed_preview_custody(self):
+        path = ROOT / "scripts/ci/verify-ios-push-entitlements.py"
+        spec = importlib.util.spec_from_file_location("push_guard", path)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        group = "TEAM.com.hussh.app.chatnotifications"
+        app_info = {
+            "CFBundleIdentifier": "com.hushh.app",
+            "NotificationKeychainGroup": group,
+        }
+        signed = {"keychain-access-groups": [group]}
+        extension = {
+            "CFBundleIdentifier": "com.hushh.app.ChatNotificationService",
+            "NotificationKeychainGroup": group,
+            "NSExtension": {
+                "NSExtensionPointIdentifier": "com.apple.usernotifications.service",
+                "NSExtensionPrincipalClass": "ChatNotificationService.NotificationService",
+            },
+        }
+        profile = {"Entitlements": {"keychain-access-groups": ["TEAM.*"]}}
+        guard.verify_chat_extension(app_info, signed, extension, signed, profile)
+        for bad_info, bad_app, bad_ext, bad_profile in [
+            (
+                {
+                    **extension,
+                    "NotificationKeychainGroup": "OTHER.com.hussh.app.chatnotifications",
+                },
+                signed,
+                signed,
+                profile,
+            ),
+            (extension, {}, signed, profile),
+            (extension, signed, {}, profile),
+            (
+                extension,
+                signed,
+                signed,
+                {"Entitlements": {"keychain-access-groups": ["OTHER.*"]}},
+            ),
+            ({**extension, "NSExtension": {}}, signed, signed, profile),
+            (extension, signed, {**signed, "get-task-allow": True}, profile),
+        ]:
+            with self.assertRaises(ValueError):
+                guard.verify_chat_extension(
+                    app_info, bad_app, bad_info, bad_ext, bad_profile
+                )
+
     def test_ci_rp_reaches_native_preparation_and_has_an_entitlement(self):
         script = (ROOT / "scripts/ci/materialize-ios-uat-build-contract.sh").read_text()
         assignments = [

@@ -901,7 +901,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           const complete = remainder.slice(0, splitAt + 2);
           remainder = remainder.slice(splitAt + 2);
           for (const frame of parseSseFrames(complete)) {
-            if (frame.event !== "direct_message") continue;
+            if (frame.event !== "direct_message" && frame.event !== "resync") continue;
             const conversationId = String(frame.data.conversationId || "").trim() || null;
             const messageId = String(frame.data.messageId || "").trim() || null;
             dispatchDirectMessagesUpdated({
