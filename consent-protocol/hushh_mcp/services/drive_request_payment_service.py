@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     MIN_OWNER_PRICE_CENTS,
     automatic_recipient_current,
     autoshare_owner_allow_authority,
+    autoshare_trusted_authority,
     request_has_document_scope,
     valid_owner_price_cents,
 )
@@ -363,6 +364,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             # before the background search has frozen anything. The automatic
             # rechecks below still decide, and delivery still waits for both.
             autoshare_owner_allow_authority(private)
+            # A Trusted request is authorized by the owner's roster rather than
+            # an Allow, so it reaches here before any search exists too. The
+            # automatic_recipient_current recheck below is that roster check.
+            or autoshare_trusted_authority(private)
             or not request_requires_owner_review(
                 connection,
                 user_id=owner,

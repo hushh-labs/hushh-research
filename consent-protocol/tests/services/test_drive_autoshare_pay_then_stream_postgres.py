@@ -547,8 +547,8 @@ async def test_one_payment_streams_every_match_once_in_batches_of_25(flow, path,
     await flow.start_search()
 
     if trusted:
-        # The order is created with the first frozen batch: run pages until
-        # the first match, then the scheduled sharing drain opens Checkout.
+        # The order exists from creation; this path still runs pages until the
+        # first match so the scheduled sharing drain opens Checkout on a batch.
         first = next((index for index, count in enumerate(pages) if count), len(pages))
         before = pages[: first + 1]
     else:
@@ -560,8 +560,16 @@ async def test_one_payment_streams_every_match_once_in_batches_of_25(flow, path,
         await flow.page(count, unshareable=extra)
     if trusted and total == 0:
         await flow.finish()
-        # Nothing matched: no order, no checkout, no grant.
-        assert flow.order() is None
+        # Nothing matched: the ask existed from creation and is never charged -
+        # no payment, no session, no checkout, no grant.
+        order = flow.order()
+        assert order is not None
+        assert order["paid_at"] is None
+        assert order["stripe_checkout_session_id"] is None
+        # The ask is left open rather than closed out, and stays unpayable:
+        # the request is no_match, so due_checkout_orders skips it and
+        # checkout refuses below. Nobody is ever charged for zero matches.
+        assert order["status"] == "awaiting_payment"
         with pytest.raises(DriveSharingError, match="payment_not_ready"):
             await flow.checkout()
         assert flow.request_status() == "no_match"
@@ -618,11 +626,14 @@ async def test_thirty_five_page_unpaid_search_wakes_sharing_at_most_twice(flow, 
     await flow.finish()
     await flow.auto.continue_batches(max_jobs=2)
 
-    # 35 page handoffs, 8 slice ends and the final slice of an unpaid order:
-    # only the handoff that created the order (first-batch path) wakes the
-    # Checkout lane. The order from A's Allow was woken by the Allow itself.
+    # 35 page handoffs, 8 slice ends and the final slice of an unpaid order
+    # wake the Checkout lane at most twice - and now never, on either path:
+    # both orders exist before the first handoff, so no handoff reports
+    # creating one. Each lane's single creation-time wake is raised above the
+    # store this test drives (DriveSharingService.create for Trusted,
+    # allow_request for Allow), so it is neither visible nor covered here.
     assert flow.wakes.count("sharing") <= 2
-    assert flow.wakes.count("sharing") == (1 if trusted else 0)
+    assert flow.wakes.count("sharing") == 0
     assert flow.order()["status"] == "awaiting_payment"
     assert [batch["file_count"] for batch in flow.batches()] == [1]
     assert flow.effect_count() == 0
@@ -919,7 +930,16 @@ async def test_owner_review_search_keeps_the_manual_lane(flow):
         requester_user_id="recipient", request_id=flow.request_id
     )
     assert "_autoshare_owner_user_id" not in state
-    assert flow.order() is None and flow.batches() == []
+    # The ask exists from creation, but a selection awaiting A's exact review
+    # is never projected as payable and is never charged.
+    assert state["status"] == "preparing"
+    order = flow.order()
+    assert order is not None
+    assert order["status"] == "awaiting_payment"
+    assert order["paid_at"] is None
+    assert order["stripe_checkout_session_id"] is None
+    assert flow.create_session.call_count == 0
+    assert flow.batches() == []
 
 
 @pytest.mark.asyncio

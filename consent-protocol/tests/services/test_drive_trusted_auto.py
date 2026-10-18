@@ -190,10 +190,16 @@ async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
     if payment_status is not None:
         with sharing.db.engine.begin() as connection:
             connection.execute(
+                # A Trusted request already carries an awaiting_payment order
+                # from creation, so drive that one to the payment state this
+                # caller wants instead of asserting none exists yet.
                 text("""INSERT INTO drive_request_payment_orders(
                   request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
                   VALUES(:request,'owner','recipient','test',:status,
-                    CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END)"""),
+                    CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END)
+                  ON CONFLICT (request_id) DO UPDATE SET status=:status,
+                    paid_at=CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END,
+                    updated_at=clock_timestamp()"""),
                 {"request": request_id, "status": payment_status},
             )
     return request_id, review
@@ -236,36 +242,47 @@ async def test_paid_trusted_batch_bypasses_older_unpaid_reviews(request_bulk, sh
 
 
 @pytest.mark.asyncio
-async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(request_bulk, sharing):
+async def test_unpaid_auto_batches_never_advance_on_a_missing_order(request_bulk, sharing):
+    """Delivery is strictly payment-gated: no Trusted batch moves unpaid.
+
+    due_trusted_batches still has an "o.request_id IS NULL" arm, which used to
+    let this lane advance a payable request before any order existed. A Trusted
+    request now takes its order in its own create transaction, so that arm is
+    unreachable here - the third request below is left exactly as creation made
+    it and is still not due. Paid-bypasses-unpaid ordering stays covered by
+    test_paid_trusted_batch_bypasses_older_unpaid_reviews.
+    """
     _membership(sharing, "active")
     awaiting, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
     expired, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="expired")
-    without_order, _ = await _frozen_auto_batch(sharing, request_bulk)
+    untouched, _ = await _frozen_auto_batch(sharing, request_bulk)
 
     due = await sharing.due_trusted_batches(limit=3)
 
-    assert [item["request_id"] for item in due] == [without_order]
-    assert {awaiting, expired}.isdisjoint(item["request_id"] for item in due)
+    assert due == []
+    assert {awaiting, expired, untouched}.isdisjoint(item["request_id"] for item in due)
     assert (
         await DriveTrustedAutoService(
             sharing=sharing, bulk=request_bulk, wake=AsyncMock()
         ).continue_batches(max_jobs=1)
-        == 1
+        == 0
     )
     with sharing.db.engine.connect() as connection:
-        assert (
+        # Creation left an unpaid order on the untouched request, so every one
+        # of the three is held for the same reason: nobody has paid.
+        assert [
             connection.execute(
                 text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
-                {"request": without_order},
+                {"request": request_id},
             ).scalar_one()
-            == "awaiting_payment"
-        )
+            for request_id in (awaiting, expired, untouched)
+        ] == ["awaiting_payment", "expired", "awaiting_payment"]
         assert (
             connection.execute(
                 text("""SELECT count(*) FROM drive_bulk_share_effects e
               JOIN drive_bulk_shares b ON b.share_id=e.share_id
-              WHERE b.origin_request_id IN (:awaiting,:expired)"""),
-                {"awaiting": awaiting, "expired": expired},
+              WHERE b.origin_request_id IN (:awaiting,:expired,:untouched)"""),
+                {"awaiting": awaiting, "expired": expired, "untouched": untouched},
             ).scalar_one()
             == 0
         )

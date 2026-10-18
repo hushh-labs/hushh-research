@@ -18,6 +18,7 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_owner_allowed import (
     DEFAULT_PRICE_CENTS,
     autoshare_owner_allow_authority,
+    autoshare_trusted_authority,
     owner_allowed_price_cents,
     request_has_document_scope,
     valid_owner_price_cents,
@@ -238,6 +239,38 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                         AND (r.status IN ('approved','partial')
                           OR (r.owner_allowed_at IS NOT NULL
                             AND r.agent_package_required IS NOT TRUE)
+                          -- A Trusted request has no Allow to key on, so this
+                          -- prefilters on the roster that authorizes it. The
+                          -- feature-flag half of _trusted_recipient_current
+                          -- cannot be expressed here; checkout rechecks every
+                          -- authority under locks, which is what it is for.
+                          OR (r.owner_allowed_at IS NULL
+                            AND r.agent_package_required IS NOT TRUE
+                            -- v1_live_request outlives the manual takeover that
+                            -- clears agent_package_required, so the package guard
+                            -- alone would let a V1 request reach this lane. The
+                            -- Trusted authority predicate excludes V1 outright.
+                            AND r.v1_live_request IS NOT TRUE
+                            AND EXISTS (
+                              SELECT 1 FROM connections conn
+                              JOIN connection_origins origin
+                                ON origin.connection_id=conn.id
+                                AND origin.status='active'
+                                AND origin.origin_kind IN ('direct_request','legacy_invite')
+                              WHERE conn.status='active'
+                                AND ((conn.user_a_id=r.user_id
+                                    AND conn.user_b_id=r.recipient_user_id)
+                                  OR (conn.user_b_id=r.user_id
+                                    AND conn.user_a_id=r.recipient_user_id))
+                                AND EXISTS (
+                                  SELECT 1 FROM one_location_circles circle
+                                  JOIN one_location_circle_memberships member
+                                    ON member.circle_id=circle.id
+                                  WHERE circle.owner_user_id=r.user_id
+                                    AND circle.system_kind='trusted'
+                                    AND circle.status='active'
+                                    AND member.user_id=r.recipient_user_id
+                                    AND member.status='active')))
                           OR EXISTS (
                           SELECT 1 FROM drive_bulk_shares b
                           JOIN drive_bulk_share_recipients recipient
@@ -500,6 +533,37 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             return False
         if not autoshare_owner_allow_authority(private):
             return False
+        return cls._insert_autoshare_order(connection, request, private)
+
+    @classmethod
+    def ensure_order_for_trusted_request(cls, connection, request, private) -> bool:
+        """Create the order inside a Trusted peer's own request transaction.
+
+        A Trusted request never reaches Allow: the owner's standing roster is
+        the authority and their saved request price is the amount, so the ask
+        can reach the requester as soon as the request exists. Nothing here
+        grants anything, and because no plaintext column withdraws Trust, the
+        live roster is rechecked here and again by every later read.
+        """
+        if request["payment_required"] is not True:
+            return False
+        if not autoshare_trusted_authority(private):
+            return False
+        from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+        if not DriveSharingStore._trusted_recipient_current(
+            connection, request["user_id"], request["recipient_user_id"]
+        ):
+            return False
+        return cls._insert_autoshare_order(connection, request, private)
+
+    @classmethod
+    def _insert_autoshare_order(cls, connection, request, private) -> bool:
+        """The gates and the insert both autoshare authorities share.
+
+        The caller has already established which authority applies; these are
+        the conditions that hold for either one.
+        """
         if (
             request["status"] != "pending"
             or request["expires_at"] <= datetime.now(UTC)
@@ -777,6 +841,22 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                         or (
                             autoshare_owner_allow_authority(private)
                             and request.get("owner_allowed_at") is not None
+                        )
+                        # The Trusted lane has no plaintext hint to withdraw, so
+                        # the roster itself is the recheck. A member the owner
+                        # removed must stop reading as payable immediately.
+                        # Only until a search exists: once one does, the clause
+                        # below decides, so a frozen selection that needs the
+                        # owner's exact review never shows a payable price it
+                        # would then refuse. This mirrors autoshare_lane.
+                        or (
+                            autoshare_trusted_authority(private)
+                            and not _search_exists(connection, request)
+                            and DriveSharingStore._trusted_recipient_current(
+                                connection,
+                                request["user_id"],
+                                request["recipient_user_id"],
+                            )
                         )
                         or not request_requires_owner_review(
                             connection,

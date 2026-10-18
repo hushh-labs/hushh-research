@@ -1733,35 +1733,36 @@ class DriveSharingStore(DriveDocumentStore):
                 else {}
             )
             setup_code = self._setup_code(setup) if setup else None
+            sealed_private = {
+                **payload,
+                **({"trusted_auto": True} if trusted_auto else {}),
+                **({"agent_package_required": True} if agent_package else {}),
+                **({"v1_live_request": True} if v1_live_request else {}),
+                **(
+                    {"legacy_request_policy": LEGACY_REQUEST_POLICY}
+                    if _new_requests_use_legacy_flow() and not owner_initiated
+                    else {}
+                ),
+                # Trusted or allowed: every in-period match after payment,
+                # priced in cents from $0.50. A package keeps its own lane.
+                **(
+                    {"request_flow": AUTOSHARE_REQUEST_FLOW}
+                    if not owner_initiated and not agent_package and autoshare_enabled()
+                    else {}
+                ),
+                **(
+                    {"requested_access_days": access_days}
+                    if v1_live_request and access_days
+                    else {}
+                ),
+                **({"owner_settlement_required": True} if payment_required else {}),
+                # The requester wrote these terms, so they may read them back
+                # (requester_context). Owner-initiated shares never carry it.
+                **({"origin": REQUESTER_ORIGIN} if not owner_initiated else {}),
+                **({"reusable_packet": reusable_packet} if reusable_packet is not None else {}),
+            }
             envelope = self.sharing_cipher.seal(
-                {
-                    **payload,
-                    **({"trusted_auto": True} if trusted_auto else {}),
-                    **({"agent_package_required": True} if agent_package else {}),
-                    **({"v1_live_request": True} if v1_live_request else {}),
-                    **(
-                        {"legacy_request_policy": LEGACY_REQUEST_POLICY}
-                        if _new_requests_use_legacy_flow() and not owner_initiated
-                        else {}
-                    ),
-                    # Trusted or allowed: every in-period match after payment,
-                    # priced in cents from $0.50. A package keeps its own lane.
-                    **(
-                        {"request_flow": AUTOSHARE_REQUEST_FLOW}
-                        if not owner_initiated and not agent_package and autoshare_enabled()
-                        else {}
-                    ),
-                    **(
-                        {"requested_access_days": access_days}
-                        if v1_live_request and access_days
-                        else {}
-                    ),
-                    **({"owner_settlement_required": True} if payment_required else {}),
-                    # The requester wrote these terms, so they may read them back
-                    # (requester_context). Owner-initiated shares never carry it.
-                    **({"origin": REQUESTER_ORIGIN} if not owner_initiated else {}),
-                    **({"reusable_packet": reusable_packet} if reusable_packet is not None else {}),
-                },
+                sealed_private,
                 user_id=owner_user_id,
                 resource_id=request_id,
                 purpose="request",
@@ -1870,6 +1871,19 @@ class DriveSharingStore(DriveDocumentStore):
                         row["recipient_user_id"],
                         "document_share_request_sent",
                     )
+            if setup_code is None:
+                # A Trusted peer's request is already authorized by the owner's
+                # roster and priced by their saved price, so the ask goes out
+                # with the request instead of waiting for the first batch. An
+                # incomplete owner setup parks it for _resume_owner_setup, and
+                # an Allow-bound request takes its order at Allow instead.
+                from hushh_mcp.services.drive_request_payment_store import (
+                    DriveRequestPaymentStore,
+                )
+
+                DriveRequestPaymentStore.ensure_order_for_trusted_request(
+                    connection, row, sealed_private
+                )
             return {**self._summary(row, recipient=True), **setup, "recipientEmail": sealed_email}
 
         return cast(dict, await self._transaction(operation))

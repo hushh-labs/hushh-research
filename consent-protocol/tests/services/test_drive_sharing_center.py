@@ -916,6 +916,18 @@ async def test_trusted_progress_is_participant_scoped_and_tracks_durable_work(
     await preference.set_background(user_id="owner", enabled=True, confirmed=True)
     created = await request(sharing)
     request_id = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        # A Trusted request now carries its payment ask from creation, and
+        # automatic work is durable progress only once the requester has paid:
+        # before that the request waits on a person, which _started_work
+        # deliberately reports as no progress. A fixture without payments
+        # enabled has no order, and this is then a no-op.
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp(),updated_at=clock_timestamp()
+              WHERE request_id=:request AND status='awaiting_payment'"""),
+            {"request": request_id},
+        )
     projection = DriveSharingCenterContributor(db=sharing.db)
 
     states = {"preparing": "queued", "finding": "searching", "sharing": "sharing", None: None}

@@ -247,7 +247,11 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
     # else moves early: Checkout, the automatic approval and delivery all still
     # wait for the owner's exact approval of these unverified candidates.
     pay_on_allow = authority == "owner_allowed"
-    orders_before_approval = 1 if pay_on_allow else 0
+    # A Trusted request takes its order in its own create transaction, so the
+    # row exists here too. Only the Allow-priced one is projected as payable:
+    # a Trusted ask whose search still needs the owner's exact approval reads
+    # as "preparing", and the assertions below pin that nothing charges it.
+    orders_before_approval = 0 if authority == "nontrusted" else 1
     assert (await payment.payment_state(requester_user_id="recipient", request_id=request_id))[
         "status"
     ] == ("awaiting_payment" if pay_on_allow else "preparing")
@@ -271,6 +275,17 @@ async def test_unverified_candidates_payment_starts_only_after_exact_owner_appro
                 {"request": request_id},
             ).scalar_one()
             == orders_before_approval
+        )
+        # Whatever order exists is an unpaid ask, not a charge: still awaiting
+        # payment, never paid, and never handed to Stripe.
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_request_payment_orders
+              WHERE request_id=:request AND (status<>'awaiting_payment'
+                OR paid_at IS NOT NULL OR stripe_checkout_session_id IS NOT NULL)"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
         )
         assert (
             connection.execute(
@@ -1122,9 +1137,13 @@ async def _trusted_review(bulk, sharing, *, paid=True):
         assert origin["payment_required"] is True
         if paid:
             connection.execute(
+                # The Trusted request's own create transaction already made this
+                # order, so mark that one paid rather than asserting none exists.
                 text("""INSERT INTO drive_request_payment_orders
                   (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
-                  VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+                  VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())
+                  ON CONFLICT (request_id) DO UPDATE SET status='paid',
+                    paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
                 {"request": request["requestId"]},
             )
     return review
@@ -1180,9 +1199,13 @@ async def test_paid_autoshare_statement_request_is_granted_after_payment(
         private = sharing._open_request(origin)
         assert (private["trusted_auto"], private["request_flow"]) == (True, "oct17_autoshare")
         connection.execute(
+            # The Trusted request's own create transaction already made this
+            # order, so mark that one paid rather than asserting none exists.
             text("""INSERT INTO drive_request_payment_orders
               (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
-              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE SET status='paid',
+                paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     approve = request_bulk.approve(
@@ -1211,9 +1234,13 @@ async def _paid_partial_progressive_request(bulk, sharing, *, batches=1):
     )
     with bulk.db.engine.begin() as connection:
         connection.execute(
+            # The Trusted request's own create transaction already made this
+            # order, so mark that one paid rather than asserting none exists.
             text("""INSERT INTO drive_request_payment_orders
               (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
-              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE SET status='paid',
+                paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     reviews = []
@@ -1578,9 +1605,13 @@ async def test_requester_without_google_account_is_told_to_link_one(request_bulk
     )
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
+            # The Trusted request's own create transaction already made this
+            # order, so mark that one paid rather than asserting none exists.
             text("""INSERT INTO drive_request_payment_orders
               (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
-              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE SET status='paid',
+                paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     review = await request_bulk.create_review(
@@ -1845,9 +1876,14 @@ async def test_new_trusted_request_cannot_queue_or_claim_grants_until_paid(reque
             == 0
         )
         connection.execute(
+            # The order already exists, unpaid, from the request's own create
+            # transaction; this keeps it awaiting_payment rather than asserting
+            # that the owner's lane had to create it.
             text("""INSERT INTO drive_request_payment_orders
               (stripe_mode,request_id,user_id,requester_user_id,status)
-              VALUES ('test',:request,'owner','trusted-member','awaiting_payment')"""),
+              VALUES ('test',:request,'owner','trusted-member','awaiting_payment')
+              ON CONFLICT (request_id) DO UPDATE SET status='awaiting_payment',
+                paid_at=NULL,updated_at=clock_timestamp()"""),
             {"request": request_id},
         )
     assert str(request_id) in {
@@ -2507,9 +2543,13 @@ async def test_request_start_replans_only_unfrozen_pending_legacy_search(
     with request_bulk.db.engine.begin() as connection:
         if history == "paid":
             connection.execute(
+                # The Trusted request's own create transaction already made this
+                # order, so mark that one paid rather than asserting none exists.
                 text("""INSERT INTO drive_request_payment_orders
                 (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
-                VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
+                VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())
+                ON CONFLICT (request_id) DO UPDATE SET status='paid',
+                  paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
                 {"request": request_id},
             )
         if history == "completed":

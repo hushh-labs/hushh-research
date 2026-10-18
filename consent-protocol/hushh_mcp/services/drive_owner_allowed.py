@@ -230,6 +230,25 @@ def autoshare_owner_allow_authority(private: Mapping[str, Any]) -> bool:
     )
 
 
+def autoshare_trusted_authority(private: Mapping[str, Any]) -> bool:
+    """An autoshare request whose authority is current Trusted membership.
+
+    A Trusted peer's request never passes through Allow, so it carries no
+    sealed owner_allowed marker and no plaintext owner_allowed_at that a
+    disconnect could clear. The owner's standing Trusted roster is the whole
+    authority, which means every caller must recheck it live - with
+    _trusted_recipient_current or automatic_recipient_current - before any
+    money or file effect, including before projecting a payable price.
+    """
+    return (
+        autoshare_request(private)
+        and private.get("agent_package_required") is not True
+        and private.get("v1_live_request") is not True
+        and private.get("trusted_auto") is True
+        and owner_allowed_marker(private) is None
+    )
+
+
 def owner_allowed_price_cents(private: Mapping[str, Any]) -> int | None:
     """The owner's chosen price, or None for a free or non-allowed request."""
     marker = owner_allowed_marker(private)

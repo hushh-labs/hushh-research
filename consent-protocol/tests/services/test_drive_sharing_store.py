@@ -16,7 +16,10 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
-from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
+from hushh_mcp.services.drive_owner_allowed import (
+    OWNER_ALLOWED_KEY,
+    end_owner_allows_for_disconnected_pair,
+)
 from hushh_mcp.services.drive_request_requester_store import requester_price_view
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
@@ -507,6 +510,132 @@ def test_price_view_states(initial, quoted, allowed, order, expected):
     )
     assert (view["state"], view["currentCents"], view["finalCents"]) == expected
     assert view["estimateCents"] == initial
+
+
+def _trusted_pair(sharing, *, priced=2500, payout_ready=True) -> str:
+    """The owner's active Trusted roster entry for the recipient, and their setup."""
+    circle = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+            {"id": circle},
+        )
+        connection.execute(
+            text("INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"),
+            {"id": circle},
+        )
+        if payout_ready:
+            connection.execute(
+                text("""INSERT INTO stripe_owner_payout_accounts
+              (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+              VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            )
+    return circle
+
+
+def _live_payments(sharing, monkeypatch) -> None:
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_trusted_request_asks_for_payment_when_it_is_created(sharing, monkeypatch):
+    """No consent step: the roster authorizes it and the owner's saved price prices it."""
+    from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+    _live_payments(sharing, monkeypatch)
+    _trusted_pair(sharing)
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+
+    client = str(uuid4())
+    created = await request(sharing, client)
+    identity = created["requestId"]
+    row, private = stored_request(sharing, identity)
+    # Trusted, and never allowed: there is no marker and no plaintext hint.
+    assert private["trusted_auto"] is True
+    assert OWNER_ALLOWED_KEY not in private
+    assert row["owner_allowed_at"] is None
+    # The ask does not wait for the search, which has not started.
+    assert not rows(sharing, "drive_owner_search_jobs")
+    assert not rows(sharing, "drive_bulk_shares")
+    orders = rows(sharing, "drive_request_payment_orders")
+    assert len(orders) == 1
+    assert (orders[0]["status"], orders[0]["amount_cents"]) == ("awaiting_payment", 2500)
+    assert (orders[0]["requester_user_id"], orders[0]["user_id"]) == ("recipient", "owner")
+    assert len(rows(sharing, "drive_request_owner_payouts")) == 1
+    # And the Checkout lane can claim it with no Allow and no frozen batch.
+    store = DriveRequestPaymentStore(db=sharing.db)
+    assert [item["request_id"] for item in await store.due_checkout_orders(limit=4)] == [identity]
+    # A repeated client id returns the same request and never a second order.
+    again = await request(sharing, client)
+    assert again["requestId"] == identity
+    assert len(rows(sharing, "drive_request_payment_orders")) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_request_from_outside_the_circle_takes_no_order_until_allow(sharing, monkeypatch):
+    """A saved owner price is a quote, not authority. Only Trust or an Allow is."""
+    from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+    _live_payments(sharing, monkeypatch)
+    # Payout and price are ready, but the recipient is in no Trusted circle.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+
+    created = await request(sharing)
+    row, private = stored_request(sharing, created["requestId"])
+    assert "trusted_auto" not in private
+    # The quote is locked at creation for every request, trusted or not, which
+    # is exactly why it can never stand in for authority.
+    assert row["quoted_amount_cents"] == 2500
+    assert not rows(sharing, "drive_request_payment_orders")
+    assert not rows(sharing, "drive_request_owner_payouts")
+    store = DriveRequestPaymentStore(db=sharing.db)
+    assert await store.due_checkout_orders(limit=4) == []
+
+
+@pytest.mark.asyncio
+async def test_removing_a_trusted_member_stops_the_payable_price(sharing, monkeypatch):
+    """Trust has no plaintext hint to clear, so the roster itself must be read."""
+    from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
+    from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+    _live_payments(sharing, monkeypatch)
+    circle = _trusted_pair(sharing)
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    identity = (await request(sharing))["requestId"]
+    payment = DriveRequestPaymentService(db=sharing.db)
+    first = await payment.payment_state(requester_user_id="recipient", request_id=identity)
+    assert (first["status"], first["amountCents"]) == ("awaiting_payment", 2500)
+
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM one_location_circle_memberships WHERE circle_id=:id"),
+            {"id": circle},
+        )
+
+    after = await payment.payment_state(requester_user_id="recipient", request_id=identity)
+    assert after["status"] == "preparing"
+    # The order is kept for reconciliation, but nothing may be claimed or paid.
+    assert len(rows(sharing, "drive_request_payment_orders")) == 1
+    store = DriveRequestPaymentStore(db=sharing.db)
+    assert await store.due_checkout_orders(limit=4) == []
 
 
 @pytest.mark.asyncio
