@@ -120,10 +120,14 @@ function parseTsContracts() {
   const configPath = path.join(appRoot, "tsconfig.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
   if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, appRoot);
+  // This check has explicit roots below. Resolve compiler options without
+  // walking every app/component glob just to discard that file list.
+  const parsed = ts.parseJsonConfigFileContent({ ...config.config, files: tsPluginFiles, include: [] }, ts.sys, appRoot);
   if (parsed.errors.length) throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
   const program = ts.createProgram(tsPluginFiles.map((file) => path.join(appRoot, file)), {
-    ...parsed.options, noEmit: true, incremental: false,
+    // Follow the contracts' actual imports and configured standard libraries,
+    // not every unrelated ambient @types package installed by the web app.
+    ...parsed.options, types: [], noEmit: true, incremental: false,
   });
   const checker = program.getTypeChecker();
   const byPlugin = new Map();
