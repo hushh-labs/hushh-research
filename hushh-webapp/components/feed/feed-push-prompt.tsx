@@ -20,10 +20,10 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
   const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
-  const quietNative = Capacitor.isNativePlatform() && [
-    "native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled",
-    "native_chat_alerts_disabled", "native_chat_sound_disabled",
-  ].includes(deliveryDetail ?? "");
+  const quietNative = Capacitor.isNativePlatform() && (
+    ["native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled"].includes(deliveryDetail ?? "")
+    || (context === "chat" && ["native_chat_alerts_disabled", "native_chat_sound_disabled"].includes(deliveryDetail ?? ""))
+  );
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) setPermission(deliveryMode === "push_blocked" || quietNative ? "denied" : "default");
