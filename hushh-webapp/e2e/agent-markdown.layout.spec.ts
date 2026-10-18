@@ -213,8 +213,8 @@ for (const width of [375, 1440]) {
       });
       expect(metrics.font).toContain("Plus Jakarta Sans");
       expect(metrics.bodySize).toBe(17);
-      expect(metrics.lineHeight).toBeGreaterThanOrEqual(28);
-      expect(metrics.headingSize).toBe(20);
+      expect(metrics.lineHeight).toBe(22);
+      expect(metrics.headingSize).toBe(17);
       expect(metrics.headingWeight).toBe("600");
       expect(metrics.titleWeight).toBe("600");
       expect(metrics.headingInk).toBe(metrics.bodyInk);
