@@ -162,6 +162,21 @@ cannot restore actions or overwrite newer input. Explicit Cancel and successful
 Save discard that readback. These source contracts and candidate builds are not
 physical provider, real credential-save or whole-roster acceptance.
 
+Installed Gemini candidate `061048d6c8`, Agent One 1.4.1 (69), UAT Debug
+qualification, passes two native host contracts, credential-free XCTest body
+admission, configured normal passphrase unlock and the attach-only Preferences
+journey. The native credential editor, endpoint selection, Vertex fields,
+software keyboard, Cancel and nested Back pass without a credential mutation.
+The batch observes full-height Profile and one accessible WebView on return;
+this is not transition-frame, accessibility, object-identity or Release-performance
+acceptance. Strict app/runner signatures, seven UAT targets and no remote
+override pass. The executable digest is
+`617f2d6285ca84bc364e6c15d8c98835822f6ef7b01760fb96155131d7b522b3`;
+1,681 bundled/exported assets match at
+`1513560d35edcbc2da87bae6e10276ac9242685e8a3403cc479b2b186b38e43f`.
+The subsequent main integration is a different source candidate and does not
+inherit this exact-build proof.
+
 The subsequent cold export exposed an independent source-discovery problem:
 the compiler opened ignored `ios/App/build` object/dependency files and its
 worker reached approximately 20 GB. Explicit Tailwind exclusions now keep iOS,
