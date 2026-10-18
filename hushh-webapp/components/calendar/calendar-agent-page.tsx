@@ -618,7 +618,7 @@ export function CalendarAgentPage({
     return <>
       <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onChat={(prompt, slot, invitation) => openChat(slot || invitation ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation)}
+        onChat={(prompt, slot, invitation, attendance) => openChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}

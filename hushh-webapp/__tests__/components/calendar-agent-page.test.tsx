@@ -1,4 +1,6 @@
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
+import type { CalendarAttendanceHandoff, CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,12 +20,13 @@ const mocks = vi.hoisted(() => ({
   popup: null as Window | null,
   popupAttempt: "",
   vaultOwnerToken: null as string | null,
+  attendance: null as CalendarAttendanceHandoff | null,
 }));
 
 // Connection/OAuth owner tests use the workspace composition seam; its real
 // event, keyboard and attendance behavior is covered in the connected suite.
 vi.mock("@/components/calendar/calendar-connected-workspace", () => ({
-  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string, slot?: CalendarSlotHandoff) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button onClick={() => onChat(undefined, { ownerId: "calendar-user", accountEmail: "calendar-user@example.com", date: "2030-10-15", windowStart: "2030-10-15T10:00:00Z", windowEnd: "2030-10-15T12:00:00Z", durationMinutes: 60, timeZone: "Europe/London" })}>Select free window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
+  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string, slot?: CalendarSlotHandoff, invitation?: CalendarInvitationHandoff, attendance?: CalendarAttendanceHandoff) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button onClick={() => onChat(undefined, { ownerId: "calendar-user", accountEmail: "calendar-user@example.com", date: "2030-10-15", windowStart: "2030-10-15T10:00:00Z", windowEnd: "2030-10-15T12:00:00Z", durationMinutes: 60, timeZone: "Europe/London" })}>Select free window</button><button onClick={() => { if (mocks.attendance) onChat(undefined, undefined, undefined, mocks.attendance); }}>Finish invitation in One</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -75,6 +78,7 @@ describe("CalendarAgentPage", () => {
     mocks.ownerId = "calendar-user";
     mocks.popupAttempt = "";
     mocks.vaultOwnerToken = null;
+    mocks.attendance = null;
     useOneConversationSession.getState().clearSession();
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(
@@ -219,6 +223,24 @@ describe("CalendarAgentPage", () => {
     expect(useOneConversationSession.getState().pendingHandoff).toMatchObject({ reason: "user_requested", transcript: "Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes." });
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
     expect(mocks.startConnect).not.toHaveBeenCalled();
+  });
+
+  it("hands the confirmed invitation outcome to One without starting a calendar summary", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", google_email: "owner@example.com", access_level: "manage", scope_csv: "" });
+    mocks.attendance = {
+      ownerId: "calendar-user",
+      epoch: snapshotVaultSessionEpoch(),
+      title: "Client Sync",
+      recipient: "organizer@example.com",
+      outcome: Promise.resolve({ result: { calendar: "declined", email: "sent", calendar_error: null, email_error: null } }),
+    };
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish invitation in One" }));
+
+    const handoff = useOneConversationSession.getState().pendingHandoff;
+    expect(handoff?.calendarAttendance).toBe(mocks.attendance);
+    expect(handoff?.transcript).toBeUndefined();
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
   it("keeps the Calendar connection surface focused on connection", async () => {
