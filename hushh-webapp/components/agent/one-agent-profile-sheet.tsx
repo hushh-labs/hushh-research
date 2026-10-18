@@ -151,13 +151,11 @@ function OneTodoPreview({
   vaultKey,
   vaultOwnerToken,
   isVaultUnlocked,
-  onNavigate,
 }: {
   user: User;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
-  onNavigate: (href: string) => void;
 }) {
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -266,9 +264,6 @@ function OneTodoPreview({
     <div className={`${styles.todo} profile-home-content`}>
       <div className={styles.sectionHeading}>
         <h3>To-do list</h3>
-        <button type="button" onClick={() => onNavigate(ROUTES.ONE_TODOS)}>
-          Open To-do List <ArrowUpRight className="size-4" aria-hidden />
-        </button>
       </div>
 
       {!isVaultUnlocked ? (
@@ -444,7 +439,6 @@ export function OneAgentProfileSheet({
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
         isVaultUnlocked={isVaultUnlocked}
-        onNavigate={navigate}
       />
     );
   }
