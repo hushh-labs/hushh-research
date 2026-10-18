@@ -16,6 +16,31 @@ def _client():
     return TestClient(app)
 
 
+def test_unread_count_uses_authenticated_owner_and_returns_only_private_count_metadata():
+    with patch("api.routes.one.messages.unread_message_count", return_value=137) as count:
+        response = _client().get("/api/one/messages/unread-count?userId=another-user")
+    count.assert_called_once_with("viewer-user")
+    assert response.status_code == 200
+    assert response.json() == {"unreadCount": 137}
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_unread_count_rejects_unauthenticated_reads_and_does_not_claim_zero_on_failure():
+    app = FastAPI()
+    app.include_router(router)
+    with patch("api.routes.one.messages.unread_message_count") as count:
+        response = TestClient(app).get("/api/one/messages/unread-count")
+    assert response.status_code == 401
+    count.assert_not_called()
+    with patch(
+        "api.routes.one.messages.unread_message_count", side_effect=RuntimeError("private details")
+    ):
+        failed = _client().get("/api/one/messages/unread-count")
+    assert failed.status_code == 500
+    assert "unreadCount" not in failed.json()
+    assert "private details" not in failed.text
+
+
 def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_uid_response():
     service = MagicMock()
     service.send_message.return_value = {

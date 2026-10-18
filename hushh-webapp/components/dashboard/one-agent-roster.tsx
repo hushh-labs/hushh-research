@@ -666,9 +666,11 @@ const SHOW_AGENT_SEARCH = false;
 export function OneAgentRoster({
   capabilityStatusById,
   userId,
+  messagesUnreadCount = null,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
+  messagesUnreadCount?: number | null;
   displayName?: string | null;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
@@ -678,7 +680,12 @@ export function OneAgentRoster({
         PreVaultUserStateService.getCachedBootstrapState(userId)
           ?.setupCompleted === true),
   );
-  const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
+  const modes = buildModes(capabilityStatusById, {
+    ...cachedMetrics,
+    messages: messagesUnreadCount === null
+      ? { value: "—", label: "checking" }
+      : { value: String(messagesUnreadCount), label: messagesUnreadCount === 1 ? "action" : "actions" },
+  }, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");

@@ -36,17 +36,30 @@ SELECT count(*) AS badge_count,
 """
 
 
+def _read_unread_counts(user: str, thread: str = "", *, db=None) -> dict | None:
+    rows = (db or get_db()).execute_raw(_UNREAD, {"user": user, "thread": thread}).data or []
+    return rows[0] if rows else None
+
+
+def unread_message_count(user: str, *, db=None) -> int:
+    """Exact owner-scoped People and Circle count; unavailable is never zero."""
+    counts = _read_unread_counts(user, db=db)
+    if counts is None:
+        raise RuntimeError("Unread message count is unavailable")
+    return int(counts["badge_count"])
+
+
 def chat_notification_counts(user: str, thread: str = "", *, db=None) -> dict[str, str]:
     owner = {"chat_owner": sha256(user.encode()).hexdigest()}
     try:
-        rows = (db or get_db()).execute_raw(_UNREAD, {"user": user, "thread": thread}).data or []
-        if not rows:
+        counts = _read_unread_counts(user, thread, db=db)
+        if counts is None:
             return owner
         return {
             **owner,
-            "chat_badge_count": str(min(9999, int(rows[0]["badge_count"]))),
-            "chat_unread_count": str(min(9999, int(rows[0]["thread_count"]))),
-            "chat_badge_version": str(rows[0].get("snapshot_at") or int(time.time() * 1000)),
+            "chat_badge_count": str(min(9999, int(counts["badge_count"]))),
+            "chat_unread_count": str(min(9999, int(counts["thread_count"]))),
+            "chat_badge_version": str(counts.get("snapshot_at") or int(time.time() * 1000)),
         }
     except Exception as exc:
         # Notification enrichment must never roll back a committed message/read.

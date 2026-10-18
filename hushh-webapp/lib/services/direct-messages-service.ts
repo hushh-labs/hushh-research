@@ -297,6 +297,21 @@ export class DirectMessagesService {
     };
   }
 
+  /** Aggregate People and Circle metadata; never fetch message previews. */
+  static async unreadCount(input: { idToken: string }): Promise<number> {
+    const response = await ApiService.apiFetch("/api/one/messages/unread-count", {
+      method: "GET",
+      cache: "no-store",
+      headers: authHeaders(input.idToken),
+    });
+    const payload = await jsonOrThrow<{ unreadCount?: unknown }>(response);
+    const count = payload.unreadCount;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Unread message count could not be verified.");
+    }
+    return count;
+  }
+
   /** Resolve a public person reference server-side; never place a peer UID in a URL. */
   static async getConversationWithPerson(input: {
     idToken: string;

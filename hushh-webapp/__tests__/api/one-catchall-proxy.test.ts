@@ -26,6 +26,18 @@ beforeEach(async () => {
 });
 
 describe("/api/one/[...path] proxy", () => {
+  it("forwards the authenticated combined Messages count without caching it", async () => {
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ unreadCount: 137 }));
+    const request = new NextRequest("http://localhost:3000/api/one/messages/unread-count", {
+      headers: { Authorization: "Bearer owner-fixture" },
+    });
+    const response = await route.GET(request, { params: Promise.resolve({ path: ["messages", "unread-count"] }) });
+    expect(await response.json()).toEqual({ unreadCount: 137 });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(upstream.mock.calls[0][0]).toBe("http://backend.test/api/one/messages/unread-count");
+    expect(new Headers(upstream.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer owner-fixture");
+  });
+
   it("gives only semantic Location proposals the longer upstream budget", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("{}", { headers: { "Content-Type": "application/json" } }),

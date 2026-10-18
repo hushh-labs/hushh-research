@@ -1,7 +1,25 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from hushh_mcp.services import chat_notification_state as state
+
+
+def test_exact_unread_count_reuses_combined_owner_query_without_native_badge_cap():
+    from unittest.mock import Mock
+
+    db = SimpleNamespace(
+        execute_raw=Mock(return_value=SimpleNamespace(data=[{"badge_count": 12000}]))
+    )
+    assert state.unread_message_count("alice", db=db) == 12000
+    db.execute_raw.assert_called_once_with(state._UNREAD, {"user": "alice", "thread": ""})
+
+
+def test_exact_unread_count_does_not_turn_unavailable_data_into_zero():
+    db = SimpleNamespace(execute_raw=lambda *_args: SimpleNamespace(data=[]))
+    with pytest.raises(RuntimeError, match="unavailable"):
+        state.unread_message_count("alice", db=db)
 
 
 def test_unread_counts_are_bounded_and_do_not_include_message_content(monkeypatch):
