@@ -28,6 +28,7 @@ import {
 import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import {
   documentPayoutNetEarnings,
+  documentPayoutStatusLabel,
   isOwnerDocumentPayoutStatus,
 } from "@/lib/consent/document-payout-status";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -299,6 +300,10 @@ function ownerDocumentPayoutFeedLine(
   const label =
     status === "transferred"
       ? "Sent to Stripe"
+      : status === "hashcoins_credited" ||
+          status === "hashcoins_held" ||
+          status === "hashcoins_reversed"
+        ? documentPayoutStatusLabel(status)
       : status === "manual_review" ||
           status === "reversal_due" ||
           status === "reversal_unknown"

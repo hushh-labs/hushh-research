@@ -80,6 +80,21 @@ describe("notification-backed Feed projection renderers", () => {
     expect(pendingSetup.description).toContain("Payout pending setup");
   });
 
+  it.each([
+    ["hashcoins_credited", "Hussh Coins credited"],
+    ["hashcoins_held", "Hussh Coins under review"],
+    ["hashcoins_reversed", "Hussh Coins reversed"],
+  ] as const)("shows %s settlement accurately in the owner's Feed", (status, label) => {
+    const result = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: status,
+      owner_earning_cents: 16,
+    }, "consent"));
+    expect(result.description).toContain(label);
+    expect(result.description).not.toContain("Payout pending");
+  });
+
   it("opens Payouts from a history row exactly when its payout line asks for setup", () => {
     const requestId = "11111111-1111-4111-8111-111111111111";
     const row = (eventType: string, metadata: Record<string, unknown>) =>
