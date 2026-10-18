@@ -8,7 +8,6 @@ import {
   Sheet,
   SheetContent,
   SheetClose,
-  SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -178,7 +177,7 @@ function WebOneAgentProfile({
 }: OneAgentProfileProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal>
-      <SheetContent side="right" className={styles.sheet} data-app-side-pane showCloseButton={false}
+      <SheetContent side="right" aria-describedby={undefined} className={styles.sheet} data-app-side-pane showCloseButton={false}
         onCloseAutoFocus={event => {
           if (triggerRef?.current?.isConnected) { event.preventDefault(); triggerRef.current.focus(); }
         }}>
@@ -188,7 +187,6 @@ function WebOneAgentProfile({
             <X className="size-4" aria-hidden />
           </button>
         </SheetClose>
-        <SheetDescription className="sr-only">One profile and activity.</SheetDescription>
         <OneProfileContent open={open} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} sheet />
       </SheetContent>
     </Sheet>
