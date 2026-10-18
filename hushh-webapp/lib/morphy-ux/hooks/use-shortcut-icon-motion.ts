@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type AnimationEvent, type FocusEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, type AnimationEvent, type FocusEvent, type PointerEvent, type MouseEvent } from "react";
 import { prefersReducedMotion } from "../gsap";
 
 const PLAYING_ATTRIBUTE = "data-shortcut-icon-playing";
@@ -22,16 +22,21 @@ export function useShortcutIconMotion() {
     const reset = () => {
       if (reducedMotion.matches) rows.forEach((_listener, row) => finish(row));
     };
+    const visibility = () => {
+      if (document.hidden) rows.forEach((_listener, row) => finish(row));
+    };
     reducedMotion.addEventListener("change", reset);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
       reducedMotion.removeEventListener("change", reset);
+      document.removeEventListener("visibilitychange", visibility);
       rows.forEach((_listener, row) => finish(row));
     };
   }, [finish]);
 
   const start = useCallback((row: HTMLButtonElement) => {
     // A fresh entry during playback does not interrupt the current sequence.
-    if (row.disabled || activeRows.current.has(row) || prefersReducedMotion()) return;
+    if (row.disabled || activeRows.current.has(row) || prefersReducedMotion() || document.hidden) return;
     activeRows.current.forEach((_listener, activeRow) => {
       if (!activeRow.isConnected) finish(activeRow);
     });
@@ -44,6 +49,9 @@ export function useShortcutIconMotion() {
   }, [finish]);
 
   return {
+    onClickCapture: useCallback((event: MouseEvent<HTMLButtonElement>) => {
+      start(event.currentTarget);
+    }, [start]),
     onPointerEnter: useCallback((event: PointerEvent<HTMLButtonElement>) => {
       // A real mouse/pen entry is sufficient. Embedded browsers can report no
       // hover capability even when they deliver pointer hover events.

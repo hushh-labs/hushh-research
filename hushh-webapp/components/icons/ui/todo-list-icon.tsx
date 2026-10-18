@@ -12,7 +12,7 @@ export function TodoListIcon(props: SVGProps<SVGSVGElement>) {
       height="24"
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
+      stroke="var(--ios-account-label)"
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -34,8 +34,8 @@ export function TodoListIcon(props: SVGProps<SVGSVGElement>) {
         <rect x="7" y="2" width="14" height="20" rx="2.5" />
       </g>
       <rect className={motion.paperCurl} x="7" y="18" width="14" height="4" rx="2" />
-      <path className={motion.firstLine} d="M11 7h6" />
-      <path className={motion.secondLine} d="M11 11h4" />
+      <path stroke="var(--ios-account-accent)" className={motion.firstLine} d="M11 7h6" />
+      <path stroke="var(--ios-account-accent)" className={motion.secondLine} d="M11 11h4" />
     </svg>
   );
 }
