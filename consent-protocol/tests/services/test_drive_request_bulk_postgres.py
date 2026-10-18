@@ -4457,6 +4457,112 @@ async def test_unpaid_approved_batch_is_never_offered_until_paid_then_granted(
 
 
 @pytest.mark.asyncio
+async def test_dormant_unpaid_share_yields_to_newer_paid_share_without_parallel_grants(
+    request_bulk, sharing
+):
+    older_request, older_share = await _owner_approved_unpaid_batch(request_bulk, sharing)
+    assert _effect_outcomes(request_bulk.db, older_share) == {("queued", None): 25}
+    # Approval of a second request must not wait for the first buyer's payment.
+    newer_request, newer_share = await _owner_approved_unpaid_batch(request_bulk, sharing)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": newer_request},
+        )
+    assert {str(row["share_id"]) for row in await request_bulk.due()} == {newer_share}
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=(SELECT paid_at+INTERVAL '1 second'
+                FROM drive_request_payment_orders WHERE request_id=:newer)
+              WHERE request_id=:older"""),
+            {"older": older_request, "newer": newer_request},
+        )
+    assert {str(row["share_id"]) for row in await request_bulk.due()} == {newer_share}
+    assert (
+        await request_bulk.claim(
+            user_id="owner", share_id=older_share, position=1, recipient_user_id="recipient"
+        )
+        is None
+    )
+
+    worker, adapter = _grant_worker(request_bulk)
+    worker._pace = AsyncMock()
+    assert (await worker.run(max_jobs=400, deadline_seconds=80))["outcomes"] == {"succeeded": 25}
+    assert _effect_outcomes(request_bulk.db, newer_share) == {("succeeded", None): 25}
+    assert _effect_outcomes(request_bulk.db, older_share) == {("queued", None): 25}
+    assert {str(row["share_id"]) for row in await request_bulk.due()} == {older_share}
+    assert (await worker.run(max_jobs=400, deadline_seconds=80))["outcomes"] == {"succeeded": 25}
+    assert _effect_outcomes(request_bulk.db, older_share) == {("succeeded", None): 25}
+    assert await request_bulk.due() == []
+    assert adapter.create_reader.await_count == 50
+
+
+@pytest.mark.asyncio
+async def test_unresolved_post_blocks_other_paid_share_but_remains_reconcilable(
+    request_bulk, sharing
+):
+    older_request, older_share = await _owner_approved_unpaid_batch(request_bulk, sharing)
+    newer_request, newer_share = await _owner_approved_unpaid_batch(request_bulk, sharing)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": newer_request},
+        )
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=(SELECT paid_at+INTERVAL '1 second'
+                FROM drive_request_payment_orders WHERE request_id=:newer)
+              WHERE request_id=:older"""),
+            {"older": older_request, "newer": newer_request},
+        )
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects
+              SET state='dispatching',lease_id=:lease,
+                  lease_expires_at=clock_timestamp()+INTERVAL '120 seconds'
+              WHERE share_id=:share AND position=1"""),
+            {"share": older_share, "lease": str(uuid4())},
+        )
+    # The older order paid later, but a possible provider POST always wins
+    # over payment ordering until it has been reconciled.
+    assert await request_bulk.due() == []
+    assert (
+        await request_bulk.claim(
+            user_id="owner", share_id=newer_share, position=1, recipient_user_id="recipient"
+        )
+        is None
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects
+              SET state='unknown',lease_id=NULL,lease_expires_at=NULL,
+                  next_at=clock_timestamp()
+              WHERE share_id=:share AND position=1"""),
+            {"share": older_share},
+        )
+    assert {(str(row["share_id"]), row["state"]) for row in await request_bulk.due()} == {
+        (older_share, "unknown")
+    }
+    assert (
+        await request_bulk.claim(
+            user_id="owner", share_id=newer_share, position=1, recipient_user_id="recipient"
+        )
+        is None
+    )
+    # Unknown work is still claimable for read-only reconciliation.
+    assert (
+        await request_bulk.claim(
+            user_id="owner", share_id=older_share, position=1, recipient_user_id="recipient"
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("ending", ["declined", "stopped", "expired", "checkout_closed"])
 async def test_unpaid_batch_is_released_once_when_its_request_can_never_pay(
     request_bulk, sharing, monkeypatch, ending
