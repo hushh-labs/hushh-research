@@ -36,6 +36,11 @@ def _defer_code(error: BaseException) -> str:
     if str(error) == "drive_share_in_progress":
         # Another request's batch holds the owner's Drive. Wait; not a failure.
         return "share_in_progress"
+    if str(error) == "search_in_progress":
+        # Another of the owner's searches is running (one at a time), or this
+        # search's results are not final yet. Wait; not a failed start, so it
+        # never counts toward the three attempts that park a request for good.
+        return "share_in_progress"
     return "preparation_unavailable"
 
 
@@ -114,10 +119,18 @@ class DriveTrustedAutoService:
         )
         if state["status"] == "paid":
             return True
-        # The order is committed. The sharing drain binds a Stripe deadline
-        # before it writes and dispatches the payment-ready notification.
-        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
-        await self.wake("v1" if context.get("v1LiveRequest") else "sharing")
+        if state.get("orderCreated") is True:
+            # This call committed the order. The sharing drain binds a Stripe
+            # deadline before it writes and dispatches the payment-ready
+            # notification. An order that already existed was woken when it
+            # was created (here or at the owner's Allow); every later status
+            # change wakes its own lane (Checkout bind, Stripe webhook). Waking
+            # again on each page handoff of an unpaid order only floods the
+            # sharing drain; the scheduled drain stays the recovery path.
+            context = await self.sharing.request_bulk_context(
+                user_id=user_id, request_id=request_id
+            )
+            await self.wake("v1" if context.get("v1LiveRequest") else "sharing")
         return False
 
     def _authority(self, user_id: str, request_id: str):
