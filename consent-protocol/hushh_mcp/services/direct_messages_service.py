@@ -452,18 +452,12 @@ def _default_feed_notifier(
     conversation_id: str,
     message_id: str,
 ) -> None:
-    """Append a metadata-only recipient Feed item after a message commits."""
+    """Compatibility hook. Migration 268 projects Feed in the INSERT transaction.
 
-    from hushh_mcp.services.feed_service import FeedService
-
-    FeedService().record_event(
-        user_id=recipient_user_id,
-        source_domain="connections",
-        event_type="direct_message_received",
-        actor_label=actor_label,
-        metadata={"conversation_id": conversation_id},
-        source_row_id=message_id,
-    )
+    Repeating that write after commit adds a second DB round trip to every send
+    and can delay acceptance of an already durable message. The trigger owns
+    recipient fencing, deduplication and the Feed doorbell.
+    """
 
 
 class DirectMessagesService:

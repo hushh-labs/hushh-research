@@ -83,7 +83,7 @@ describe("SharedWithMeCard", () => {
       "border-[color:var(--app-card-border-strong)]",
     );
     expect(recenterButton).toHaveAttribute("title", "Reset map view");
-    expect(actions).toHaveClass("mt-2", "flex-row", "py-1.5");
+    expect(actions).toHaveClass("mt-1", "flex-row", "py-1", "sm:mt-1.5");
     expect(
       screen.getByRole("link", {
         name: "Open shared location in Google Maps",

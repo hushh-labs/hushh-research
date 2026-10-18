@@ -87,6 +87,27 @@ describe("nativeStreamFetch", () => {
     vi.restoreAllMocks();
   });
 
+  it("delivers a native GET event before the subscription ends and cancels on leaving", async () => {
+    openedWith();
+    const controller = new AbortController();
+    const response = await nativeStreamFetch("/api/one/messages/events", {
+      headers: { Authorization: "Bearer firebase-token" }, signal: controller.signal,
+    }, "caller");
+    const call = plugin.open.mock.calls[0][0] as { streamId: string; method: string; headers: Record<string, string> };
+    expect(call.method).toBe("GET");
+    expect(call.headers.Authorization).toBe("Bearer firebase-token");
+    const frame = 'event: direct_message\ndata: {"conversationId":"conversation-1","messageId":"message-1"}\n\n';
+    const reader = response.body!.getReader();
+    plugin.emit({ streamId: call.streamId, type: "chunk", base64: b64(frame) });
+    const chunk = await reader.read();
+    expect(chunk.done).toBe(false);
+    expect(new TextDecoder().decode(chunk.value)).toBe(frame);
+    controller.abort();
+    await expect(reader.read()).rejects.toMatchObject({ name: "AbortError" });
+    expect(plugin.cancel).toHaveBeenCalledWith({ streamId: call.streamId });
+    expect(plugin.listeners.size).toBe(0);
+  });
+
   it("delegates to apiFetchStream on web", async () => {
     native.isNative = false;
     const beforeDispatch = vi.fn(async () => undefined);

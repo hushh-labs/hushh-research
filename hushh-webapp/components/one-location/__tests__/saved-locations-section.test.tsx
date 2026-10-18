@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -216,6 +217,30 @@ describe("SavedLocationsSection", () => {
       vaultOwnerToken: "vault-owner-token",
     });
     expect(mocks.getMapPreferences).toHaveBeenCalledWith("vault-owner-token");
+  });
+
+  it("separates check-out saves while keeping existing custom places in favorites", async () => {
+    mocks.loadSavedLocations.mockResolvedValue([
+      HOME,
+      { ...HOME, id: "old-custom", category: "other", label: "Existing gym" },
+      { ...HOME, id: "checked-in", category: "other", label: "Coffee shop", savedFrom: "check_in" },
+    ]);
+    render(<SavedLocationsSection />);
+    await screen.findByText("Coffee shop");
+    const favorites = within(screen.getByRole("region", { name: "Favorite Places" }));
+    const checkedIn = within(screen.getByRole("region", { name: "Checked In Places" }));
+    expect(favorites.getByText("Home")).toBeInTheDocument();
+    expect(favorites.getByText("Existing gym")).toBeInTheDocument();
+    expect(favorites.queryByText("Coffee shop")).toBeNull();
+    expect(checkedIn.getByText("Coffee shop")).toBeInTheDocument();
+    expect(checkedIn.queryByText("Existing gym")).toBeNull();
+    expect(favorites.getByRole("button", { name: "Add place" })).toBeInTheDocument();
+    expect(checkedIn.queryByRole("button", { name: "Add place" })).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: /Coffee shop/ }));
+    fireEvent.click(checkedIn.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(mocks.removeSavedLocation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "checked-in" }),
+    ));
   });
 
   it("fails closed while the vault is locked", async () => {

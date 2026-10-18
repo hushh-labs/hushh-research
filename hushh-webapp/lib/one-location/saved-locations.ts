@@ -86,6 +86,8 @@ export type SavedLocation = {
    */
   addressDetails?: SavedLocationAddressDetails | null;
   savedAt: string;
+  /** Explicit saves from the check-out flow belong in Checked In Places. */
+  savedFrom?: "check_in";
 };
 
 export type SavedLocationVaultContext = {
@@ -180,6 +182,7 @@ function locationsFromDomain(
   if (!Array.isArray(locations)) return [];
   return locations.filter(isValidLocation).map((location) => ({
     ...location,
+    savedFrom: location.savedFrom === "check_in" ? "check_in" : undefined,
     addressBase:
       typeof location.addressBase === "string" ? location.addressBase : null,
     addressDetails: sanitizeAddressDetails(location.addressDetails),
@@ -467,6 +470,7 @@ export async function addSavedLocation(params: {
     /** The street address alone, so a later edit rebuilds rather than re-composes. */
     addressBase?: string | null;
     addressDetails?: SavedLocationAddressDetails | null;
+    savedFrom?: "check_in";
   };
 }): Promise<SavedLocation[]> {
   const { input } = params;
@@ -496,6 +500,7 @@ export async function addSavedLocation(params: {
       ? sanitizeAddressDetails(input.addressDetails)
       : null,
     savedAt: new Date().toISOString(),
+    ...(input.savedFrom === "check_in" ? { savedFrom: "check_in" as const } : {}),
   };
 
   let duplicateLocation: SavedLocation | null = null;
@@ -591,25 +596,30 @@ export async function updateSavedLocation(params: {
     context: params.context,
     source: "one_location_saved_place_edit_confirm",
     mutate: (existing) => {
+      const previous = existing.find((location) => location.id === id);
+      const updatedEntry = {
+        ...entry,
+        ...(previous?.savedFrom ? { savedFrom: previous.savedFrom } : {}),
+      };
       // Drop the entry being edited (by its old id and its new id) so the
       // duplicate check below never matches the place against itself.
       const withoutSelf = existing.filter(
         (location) => location.id !== id && location.id !== nextId,
       );
-      const duplicate = findDuplicateSavedLocation(withoutSelf, entry);
+      const duplicate = findDuplicateSavedLocation(withoutSelf, updatedEntry);
       duplicateLocation = duplicate;
       if (duplicate) {
         return existing;
       }
       if (input.category === "home" || input.category === "work") {
         return [
-          entry,
+          updatedEntry,
           ...withoutSelf.filter(
             (location) => location.category !== input.category,
           ),
         ];
       }
-      return [...withoutSelf, entry];
+      return [...withoutSelf, updatedEntry];
     },
   });
   if (duplicateLocation) {

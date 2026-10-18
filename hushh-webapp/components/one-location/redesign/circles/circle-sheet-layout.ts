@@ -59,6 +59,10 @@
  */
 export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-1 text-left sm:pt-4";
 
+/** Add people needs a little more top breathing room than the compact sheets. */
+export const CIRCLE_ADD_PEOPLE_HEADER_CLASSNAME =
+  "p-0 pt-5 text-left sm:pt-5";
+
 /**
  * A sheet body that is simply as tall as its content (Rename, Invite code).
  *

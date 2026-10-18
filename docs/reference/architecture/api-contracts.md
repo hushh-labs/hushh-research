@@ -1935,6 +1935,10 @@ Invalid/tampered selections return to the inbox. New Feed and push links use
 viewer-bound tokens; old notifications without a token open the inbox.
 
 Each newly received Direct Message also creates one recipient-only Feed row.
+Migration 268 projects that row in the message INSERT transaction; the send
+response does not repeat the Feed write after commit. Web subscriptions use
+the streaming response and native subscriptions reuse `HushhStream` via
+`nativeStreamFetch`, so event bytes arrive before the subscription closes.
 That row contains only the opaque source message id; it never stores a body,
 envelope, sender id, or preview. During the authenticated recipient's Feed
 read, the service verifies the recipient relationship again, decrypts the

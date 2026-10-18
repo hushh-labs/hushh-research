@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 let css: string;
 let script: string;
@@ -125,7 +125,69 @@ async function expectContainedDuringEnter(page: Page) {
   }
 }
 
+for (const width of [320, 393, 430, 768, 1440]) {
+  test(`request access duration heading fits one line at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-request-duration="true"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const title = page.getByRole("heading", { name: "Request Access Duration", exact: true });
+    await expect(title).toBeVisible();
+    await awaitProductFont(page);
+    const geometry = await title.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const text = range.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { lines: range.getClientRects().length, textLeft: text.left, textRight: text.right,
+        textWidth: text.width, width: node.clientWidth, scrollWidth: node.scrollWidth,
+        size: parseFloat(style.fontSize), height: node.getBoundingClientRect().height,
+        lineHeight: parseFloat(style.lineHeight), textOverflow: style.textOverflow };
+    });
+    expect(geometry.lines).toBe(1);
+    expect(geometry.textLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.textRight).toBeLessThanOrEqual(width);
+    expect(geometry.textWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.size).toBeGreaterThanOrEqual(20);
+    expect(geometry.height).toBeLessThanOrEqual(geometry.lineHeight + 1);
+    expect(geometry.textOverflow).not.toBe("ellipsis");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`request-duration-heading-${width}.png`), animations: "disabled" });
+  });
+}
+
 for (const width of [320, 393, 430, 1440]) {
+  test(`compact Location header and text-aligned share action at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const toggle = page.getByRole("switch");
+    await expect(toggle).toHaveCSS("width", "36px");
+    await expect(toggle).toHaveCSS("height", "20px");
+    const status = page.getByTestId("one-location-header-status");
+    const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
+    expect(geometry.size).toBeLessThanOrEqual(12);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
+    await status.click();
+    await expect(toggle).toBeChecked();
+    await toggle.press("Space");
+    await expect(toggle).not.toBeChecked();
+    const share = page.getByRole("button", { name: "Share location", exact: true });
+    const caption = page.getByText("Choose a Circle or contact.", { exact: true });
+    if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);
+    await share.click();
+    await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
+    const stop = page.getByRole("button", { name: "Stop SMS", exact: true });
+    await expect(stop).toHaveCSS("color", "rgb(255, 59, 48)");
+    await stop.hover();
+    await expect(stop).toHaveCSS("color", "rgb(255, 59, 48)");
+    await stop.click();
+    await expect(page.locator("body")).toHaveAttribute("data-stopped", "true");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`compact-location-${width}.png`), animations: "disabled" });
+  });
+
   for (const dark of [false, true]) {
     test(`Location controls at ${width}px ${dark ? "dark" : "light"}`, async ({
       page,
