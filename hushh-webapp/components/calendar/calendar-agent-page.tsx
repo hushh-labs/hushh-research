@@ -507,7 +507,9 @@ export function CalendarAgentPage({
     : !status
       ? "Checking Calendar connection…"
       : connected
-        ? `${status.google_email || "Google account"}`
+        ? status.google_email?.trim()
+          ? `Connected as ${status.google_email.trim()}`
+          : "Account details unavailable"
         : status.status === "needs_reauth"
           ? "Google authorization needs to be refreshed."
           : "One reads your schedule to help you plan.";
