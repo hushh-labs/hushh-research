@@ -5,6 +5,7 @@
 import asyncio
 import base64
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,9 +13,11 @@ from unittest.mock import Mock
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+import asyncpg
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services import drive_bulk_share_store
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
 from hushh_mcp.services.drive_request_requester_store import requester_price_view
@@ -44,6 +47,28 @@ from tests.services.test_drive_document_selection import (  # noqa: F401
 )
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+def isolated_session(engine):
+    """db.connection.dedicated_connection, opened on this isolated test server."""
+    url = engine.url
+    target = {
+        "user": url.username,
+        "password": url.password,
+        "database": url.database,
+        "host": url.query.get("host") or url.host,
+        "port": int(url.query.get("port") or url.port or 5432),
+    }
+
+    @asynccontextmanager
+    async def session():
+        connection = await asyncpg.connect(**target, timeout=10)
+        try:
+            yield connection
+        finally:
+            await connection.close()
+
+    return session
 
 
 @pytest.fixture
@@ -147,6 +172,12 @@ async def sharing(documents, monkeypatch):
             (MIGRATIONS / "321_drive_request_review_requests.sql").read_text().replace("%", "%%")
         )
         connection.commit()
+    # The batch hold (DriveBulkShareStore.request_batch_hold) takes its session
+    # lock on a dedicated session outside the SQLAlchemy pool, as in production.
+    # Here that session opens on this isolated server, never a runtime database.
+    monkeypatch.setattr(
+        drive_bulk_share_store, "dedicated_connection", isolated_session(documents.db.engine)
+    )
     return DriveSharingStore(db=documents.db, authority_key="synthetic-ledger-key")
 
 

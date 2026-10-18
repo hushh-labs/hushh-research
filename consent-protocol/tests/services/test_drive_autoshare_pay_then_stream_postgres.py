@@ -15,6 +15,7 @@ import json
 import logging
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -22,8 +23,9 @@ from uuid import uuid4
 
 import pytest
 import stripe
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
+from hushh_mcp.services import drive_bulk_share_store
 from hushh_mcp.services import drive_request_payment_service as payment_module
 from hushh_mcp.services import drive_request_payment_store as payment_store_module
 from hushh_mcp.services import drive_trusted_auto_service as trusted_module
@@ -48,6 +50,7 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from tests.services.test_drive_request_bulk_postgres import _recipient, request_bulk
 from tests.services.test_drive_sharing_store import (
     MIGRATIONS,
@@ -1396,3 +1399,98 @@ async def test_two_drains_on_one_paid_request_grant_every_file_exactly_once(flow
     assert flow.request_status() == "completed"
     code, attempts = preparation()
     assert code != "preparation_unavailable" and attempts == 0
+
+
+# -- A Drive worker's one-connection pool ---------------------------------------
+
+
+def _drive_worker_pool(engine):
+    """A Drive worker's SQLAlchemy pool on this test server: one connection and
+    no overflow (DB_SQLALCHEMY_POOL_SIZE=1, DB_SQLALCHEMY_MAX_OVERFLOW=0 in every
+    deploy/drive worker script), with a short pool timeout."""
+    with engine.connect() as connection:
+        search_path = connection.execute(text("SHOW search_path")).scalar_one()
+    return create_engine(
+        engine.url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=3,
+        connect_args={"options": "-csearch_path=" + search_path.replace(" ", "")},
+    )
+
+
+class _PooledSession:
+    """The hold's former session: a connection checked out of the worker's pool."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    async def fetchval(self, statement, key):
+        def run():
+            value = self.connection.execute(
+                text(statement.replace("$1", ":key")), {"key": key}
+            ).scalar_one()
+            self.connection.commit()
+            return value
+
+        return await asyncio.to_thread(run)
+
+
+@pytest.mark.asyncio
+async def test_batch_hold_leaves_a_drive_worker_its_one_pool_connection(flow, monkeypatch):
+    """2026-10-18 review: every Drive worker (UAT, V1, production) runs a
+    one-connection SQLAlchemy pool. The batch hold kept that connection for the
+    whole pass, so the pass's first transaction waited for it until the pool
+    timed out: connector_storage_unavailable, and no batch was ever frozen or
+    approved for a Trusted or allowed request."""
+    await flow.request(trusted=False)
+    await flow.start_search()
+    assert (await flow.checkout())["checkoutUrl"]
+    await flow.pay()
+    with monkeypatch.context() as quiet:
+        # The matches are committed before any pass hands one off.
+        quiet.setattr(flow.auto, "after_search_page", AsyncMock(return_value=0))
+        quiet.setattr(flow.auto, "after_search_slice", AsyncMock(return_value=0))
+        await flow.page(3)
+        await flow.finish()
+    shared = flow.db.engine
+
+    async def worker_pass(*, hold_in_pool):
+        pool = _drive_worker_pool(shared)
+        flow.db.engine = pool
+        try:
+            with monkeypatch.context() as patch:
+                if hold_in_pool:
+
+                    @asynccontextmanager
+                    async def pooled_session():
+                        connection = await asyncio.to_thread(pool.connect)
+                        try:
+                            yield _PooledSession(connection)
+                        finally:
+                            await asyncio.to_thread(connection.close)
+
+                    patch.setattr(drive_bulk_share_store, "dedicated_connection", pooled_session)
+                return await asyncio.wait_for(
+                    flow.auto.share_available(user_id="owner", request_id=flow.request_id),
+                    timeout=20,
+                )
+        finally:
+            flow.db.engine = shared
+            # Ends every session of this pool, with any lock still held on one.
+            pool.dispose()
+
+    # Negative control: the same pass with its hold on a connection of the pool.
+    started = time.monotonic()
+    with pytest.raises(ConnectorLifecycleError, match="connector_storage_unavailable"):
+        await worker_pass(hold_in_pool=True)
+    assert time.monotonic() - started >= 2.5
+    assert flow.batches() == []
+
+    # The hold on its own dedicated session: one pass freezes and approves.
+    assert await worker_pass(hold_in_pool=False) == 1
+    [batch] = flow.batches()
+    assert (batch["file_count"], batch["approval_source"]) == (3, "trusted_auto")
+    assert batch["approved_at"] is not None
+    assert await flow.grant_all() == 3
+    assert set(flow.shared_positions()) == set(flow.shareable)

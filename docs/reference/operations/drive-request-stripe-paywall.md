@@ -375,7 +375,9 @@ that is refunded in full. A search that waits for another of the owner's searche
 (one runs at a time) is waiting, never a failed start. Two worker instances can
 reach the same request at once (a scheduled drain and a payment wake): one holds
 its batches while it freezes and approves them, and the other skips that request,
-which is also waiting, never a failed attempt.
+which is also waiting, never a failed attempt. That hold is a session lock on a
+dedicated database session, never on the worker's one-connection SQLAlchemy pool,
+which the pass itself needs.
 
 Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
 payment processing fee** on that charge, with the deduction capped at the

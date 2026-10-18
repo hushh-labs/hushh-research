@@ -7,19 +7,18 @@ recipient email addresses are never stored in plaintext.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hmac
 import json
 from collections import Counter
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
+from db.connection import dedicated_connection
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
@@ -60,9 +59,8 @@ _ACTIVE = frozenset({"queued", "running"})
 _ROW = "SELECT * FROM drive_bulk_shares WHERE share_id=:share AND user_id=:user"
 # One worker at a time freezes and approves a request's automatic batches
 # (request_batch_hold). A session lock outlives the pass's own transactions and
-# ends with its connection, so a worker that dies never keeps it.
-_HOLD_REQUEST_BATCHES = "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"
-_RELEASE_REQUEST_BATCHES = "SELECT pg_advisory_unlock(hashtextextended(:key,0))"
+# ends with its session, so a worker that dies never keeps it.
+_HOLD_REQUEST_BATCHES = "SELECT pg_try_advisory_lock(hashtextextended($1,0))"
 _SAFE_REASONS = frozenset(
     {
         "source_changed",
@@ -261,6 +259,15 @@ def _safe_recipient(item: dict, owner: str) -> dict:
     return {"user_id": user_id, "email": email, "subject": subject, "kind": kind, "name": name}
 
 
+async def _end_hold_session(session: AsyncExitStack) -> None:
+    try:
+        await session.aclose()
+    except Exception:
+        # A session that cannot close cleanly is aborted, and PostgreSQL then
+        # ends it and frees its locks.
+        logger.warning("drive_bulk_share.request_hold_close outcome=aborted")
+
+
 class DriveBulkShareStore(DriveLivePreferences):
     def __init__(self, db=None, *, cipher=None):
         super().__init__(db)
@@ -277,45 +284,27 @@ class DriveBulkShareStore(DriveLivePreferences):
         create_review refuses the other's next freeze as bulk_conflict, which
         the drain counts as a failed attempt. This session lock spans the whole
         freeze-and-approve pass and never waits: another holder means skip.
+
+        The lock lives on a dedicated session, never on a connection of the
+        SQLAlchemy pool: a Drive worker's pool has one connection
+        (DB_SQLALCHEMY_POOL_SIZE=1, DB_SQLALCHEMY_MAX_OVERFLOW=0), and the pass
+        runs every transaction through it. Closing the session frees the lock,
+        also when the pass fails or is cancelled.
         """
         key = f"drive-request-batches:{_uuid(request_id)}"
-
-        def acquire():
-            connection = self.db.engine.connect()
-            try:
-                held = connection.execute(text(_HOLD_REQUEST_BATCHES), {"key": key}).scalar_one()
-                connection.commit()
-            except BaseException:
-                connection.invalidate()
-                connection.close()
-                raise
-            if held is not True:
-                connection.close()
-                return None
-            return connection
-
-        def release(connection):
-            try:
-                connection.execute(text(_RELEASE_REQUEST_BATCHES), {"key": key})
-                connection.commit()
-            except Exception:
-                # Ending the session is what frees a session lock.
-                connection.invalidate()
-                logger.warning("drive_bulk_share.request_hold_release outcome=session_closed")
-            finally:
-                connection.close()
-
+        session = AsyncExitStack()
         try:
-            connection = await asyncio.to_thread(acquire)
-        except SQLAlchemyError:
-            raise ConnectorLifecycleError("connector_storage_unavailable") from None
-        if connection is None:
-            yield False
-            return
+            connection = await session.enter_async_context(dedicated_connection())
+            held = await connection.fetchval(_HOLD_REQUEST_BATCHES, key) is True
+        except BaseException as error:
+            await _end_hold_session(session)
+            if isinstance(error, Exception):
+                raise ConnectorLifecycleError("connector_storage_unavailable") from None
+            raise
         try:
-            yield True
+            yield held
         finally:
-            await asyncio.to_thread(release, connection)
+            await _end_hold_session(session)
 
     def _require_paid_for_origin(self, connection, request_id):
         if request_id is None:
