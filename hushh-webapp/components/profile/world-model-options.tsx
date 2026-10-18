@@ -68,7 +68,7 @@ export function WorldModelOptions({
     setSaveFailed(false);
     return true;
   }, []);
-  useBackLayer(pathname, open ? 1 : 0, close);
+  useBackLayer(pathname, present && open ? 1 : 0, close, backQuery);
   // Show a just-claimed preview at once; a remount (token renewal) never reopens it.
   const shownSources = useRef(sourcesRequest);
   useEffect(() => {

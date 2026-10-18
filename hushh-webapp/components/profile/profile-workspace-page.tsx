@@ -84,7 +84,8 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
+import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
+import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
@@ -993,6 +994,11 @@ function ProfilePageContent({
   const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
   const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
   const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
+  const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
+  const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
+    activePanel === "world-model" && vaultAccess.canMutateSecureData;
+  const worldModel = usePersonalWorldModelModel({ embedded: true, enabled: activePanel === "world-model" &&
+    (presentation !== "native-page" || nativeMenuOpen) });
   const [nativeMemoryWebBody, setNativeMemoryWebBody] = useState(false);
   const nativeMemoryActive = presentation === "native-page" && nativeMenuOpen && nativeMemoryAvailable &&
     activePanel === "my-data" && vaultAccess.canMutateSecureData;
@@ -1234,6 +1240,11 @@ function ProfilePageContent({
     ],
   );
 
+  const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
+    onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
+    onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+  useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeMemory = useNativeMemory({
     active: nativeMemoryActive, owner: nativeDetailOwner, detail: activePanel === "my-data" ? activeDetail : null,
     loading: loadingPkmMetadata || loadingConsentCenter, metadataReady: pkmMetadataReady, sharingReady: consentCenterReady,
@@ -4160,6 +4171,7 @@ function ProfilePageContent({
         >
           <PersonalWorldModelPage
             embedded
+            model={worldModel}
             onManageDetails={() => openVaultBackedPanel("my-data")}
             onOpenAccount={openAccountPanel}
           />
@@ -4894,8 +4906,12 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable}
-    workspace={activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable}
+    workspace={activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
+      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor,
+      back: () => { if (nativeWorldModel.navigationBlocked()) return false; if (!nativeWorldModel.back()) popProfileStack(); return true; },
+      root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
+    } : activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
       pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
       back: () => { if (!nativeMemory.back()) popProfileStack(); }, root: () => updateProfileView({ panel: null, detail: null }, "replace")
     } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
@@ -4993,9 +5009,11 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+      ...(nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
-      name: user.displayName || "Your account", email: user.email, portrait: nativePortrait, onClose: closeNativeProfile,
+      name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
+      onClose: () => { if (!(nativeWorldModelActive && nativeWorldModel.navigationBlocked())) closeNativeProfile(); },
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",

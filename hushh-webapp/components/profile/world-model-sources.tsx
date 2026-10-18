@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useWorldModelOwnerState } from "./world-model-owner-state";
 import { usePathname } from "next/navigation";
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
 import { SettingsGroup } from "@/components/profile/settings-ui";
@@ -16,6 +17,57 @@ import { WorldModelSourceService } from "@/lib/services/world-model-source-servi
 import type { ProfileResearchResult } from "@/lib/services/profile-research-service";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 
+type WorldModelSourcesProps = {
+  ownerId: string; vaultKey: string; vaultOwnerToken: string; name: string;
+  embedded?: boolean; present?: boolean; backQuery?: Readonly<Record<string, string>>; onSaved?: () => void;
+};
+
+/** The same source reader/preparer backs the web form and native scene. A
+ * prepared review is not a confirmed fact or a successful memory write. */
+export function useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present = true }: WorldModelSourcesProps) {
+  const session = useMemo(() => ({ live: false, pending: false, ownerId, vaultKey, vaultOwnerToken }), [ownerId, vaultKey, vaultOwnerToken]);
+  useLayoutEffect(() => { session.live = !!ownerId && !!vaultKey && !!vaultOwnerToken; return () => { session.live = false; }; }, [session, ownerId, vaultKey, vaultOwnerToken]);
+  const [urls, setUrls] = useWorldModelOwnerState(session, ""), [permitted, setPermitted] = useWorldModelOwnerState(session, false);
+  const [result, setResult] = useWorldModelOwnerState<ProfileResearchResult | null>(session, null),
+    [busy, setBusy] = useWorldModelOwnerState(session, false), [message, setMessage] = useWorldModelOwnerState(session, "");
+  const current = useRef({ ownerId, vaultKey, vaultOwnerToken, present });
+  current.current = { ownerId, vaultKey, vaultOwnerToken, present };
+  const lifetime = useRef(new AbortController());
+  const requestGeneration = useRef(0);
+  const authority = useCallback(() => ({ vaultKey, vaultOwnerToken, signal: lifetime.current.signal,
+    ...createAgentPkmCaptureGuard({ userId: ownerId, signal: lifetime.current.signal,
+      isEnabled: () => session.live && current.current.present && current.current.ownerId === ownerId &&
+        current.current.vaultKey === vaultKey && current.current.vaultOwnerToken === vaultOwnerToken }) }),
+  [ownerId, vaultKey, vaultOwnerToken, session]);
+  useEffect(() => {
+    lifetime.current = new AbortController();
+    if (!present || !ownerId || !vaultKey || !vaultOwnerToken) return;
+    const guard = authority(), generation = ++requestGeneration.current;
+    void WorldModelSourceService.read(guard).then(next => {
+      if (guard.isCurrent() && generation === requestGeneration.current) setResult(next);
+    }).catch(() => undefined);
+    return () => lifetime.current.abort();
+  }, [authority, present, ownerId, vaultKey, vaultOwnerToken, setResult]);
+  const canPrepare = present && !busy && permitted && !!name.trim() && !!urls.trim();
+  async function prepare(snapshot = { urls, permitted }) {
+    if (session.pending || !present || !snapshot.permitted || !name.trim() || !snapshot.urls.trim()) return false;
+    const generation = ++requestGeneration.current, guard = authority();
+    if (!guard.isCurrent()) return false;
+    session.pending = true; setBusy(true); setMessage("");
+    try {
+      await guard.assertCurrent();
+      const next = await WorldModelSourceService.prepare(guard, { name,
+        urls: snapshot.urls.split("\n").map(x => x.trim()).filter(Boolean), purpose: "owner", permitted_public_sources: true });
+      if (!guard.isCurrent() || generation !== requestGeneration.current) return false;
+      setResult(next); return true;
+    } catch {
+      if (guard.isCurrent()) setMessage("Couldn’t read those pages. Add up to three public links and your name.");
+      return false;
+    } finally { session.pending = false; setBusy(false); }
+  }
+  return { urls, setUrls, permitted, setPermitted, result, setResult, busy, message, canPrepare, prepare };
+}
+
 export function WorldModelSources({
   ownerId,
   vaultKey,
@@ -25,82 +77,10 @@ export function WorldModelSources({
   present = true,
   backQuery,
   onSaved,
-}: {
-  ownerId: string;
-  vaultKey: string;
-  vaultOwnerToken: string;
-  /** The account name; shown, never retyped, and sent with the pages. */
-  name: string;
-  embedded?: boolean;
-  present?: boolean;
-  backQuery?: Readonly<Record<string, string>>;
-  onSaved?: () => void;
-}) {
-  const [urls, setUrls] = useState(""),
-    [permitted, setPermitted] = useState(false);
-  const [result, setResult] = useState<ProfileResearchResult | null>(null),
-    [busy, setBusy] = useState(false),
-    [message, setMessage] = useState("");
+}: WorldModelSourcesProps) {
+  const { urls, setUrls, permitted, setPermitted, result, setResult, busy, message, prepare } =
+    useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present });
   const pathname = usePathname();
-  const current = useRef({ ownerId, vaultKey, vaultOwnerToken });
-  current.current = { ownerId, vaultKey, vaultOwnerToken };
-  const lifetime = useRef(new AbortController());
-  const requestGeneration = useRef(0);
-  const authority = useCallback(
-    () => ({
-      vaultKey,
-      vaultOwnerToken,
-      signal: lifetime.current.signal,
-      ...createAgentPkmCaptureGuard({
-        userId: ownerId,
-        signal: lifetime.current.signal,
-        isEnabled: () =>
-          current.current.ownerId === ownerId &&
-          current.current.vaultKey === vaultKey &&
-          current.current.vaultOwnerToken === vaultOwnerToken,
-      }),
-    }),
-    [ownerId, vaultKey, vaultOwnerToken],
-  );
-  useEffect(() => {
-    lifetime.current = new AbortController();
-    const guard = authority();
-    const generation = ++requestGeneration.current;
-    void WorldModelSourceService.read(guard)
-      .then((next) => {
-        if (guard.isCurrent() && generation === requestGeneration.current)
-          setResult(next);
-      })
-      .catch(() => {});
-    return () => lifetime.current.abort();
-  }, [authority]);
-  async function prepare() {
-    if (busy) return;
-    const generation = ++requestGeneration.current;
-    const guard = authority();
-    setBusy(true);
-    setMessage("");
-    try {
-      const next = await WorldModelSourceService.prepare(guard, {
-        name,
-        urls: urls
-          .split("\n")
-          .map((x) => x.trim())
-          .filter(Boolean),
-        purpose: "owner",
-        permitted_public_sources: true,
-      });
-      if (guard.isCurrent() && generation === requestGeneration.current)
-        setResult(next);
-    } catch {
-      if (guard.isCurrent())
-        setMessage(
-          "Couldn’t read those pages. Add up to three public links and your name.",
-        );
-    } finally {
-      if (guard.isCurrent()) setBusy(false);
-    }
-  }
   return (
     <>
       <SettingsGroup title="Pages you choose">

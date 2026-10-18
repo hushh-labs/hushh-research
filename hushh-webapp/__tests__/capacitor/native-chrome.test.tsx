@@ -32,6 +32,7 @@ import { NativeProfilePresentation, projectNativeProfileMenu } from "@/component
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
+import { NativeWorldModelFence, validNativeWorldModelProjection, type NativeWorldModelProjection, type WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
 import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
@@ -51,6 +52,30 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it.each<WorldModelForm>([
+    { scene: "world-model-fact-edit", draft: { text: "Public corrected statement" } },
+    { scene: "world-model-sources", draft: { urls: "https://public.example/profile", permitted: true } },
+    { scene: "world-model-invitation", draft: { name: "Public Example", email: "public@example.com", phone: "" } },
+  ])("fences the private $scene form by visit and consumes only its final acknowledged edit", async form => {
+    const state: NativeWorldModelProjection = { ...publicNameScene(), ...form, destinationId: "world-model-first-visit" };
+    expect(validNativeWorldModelProjection(state)).toBe(true);
+    expect(validNativeWorldModelProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    const fence = new NativeWorldModelFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, ...form, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    const final = { ...action, updateSequence: 2 };
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
   it.each(["pricing", "password"])("keeps Profile-scoped Back in its mounted %s editor while admission is unavailable", kind => {
     const previous = privacy.state;
     privacy.state = { ...previous, shielded: true, appIsActive: false };
@@ -604,6 +629,11 @@ describe("private native drawer action boundary", () => {
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: "mail" }, account)).toBe(false);
     expect(validNativeDrawerProjection({ ...account, profileDestinationId: undefined })).toBe(false);
+    const locked = { ...account, navigationLocked: true };
+    expect(validNativeDrawerProjection(locked)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...event, action: "close", rowId: undefined }, locked)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...event, action: "back", rowId: undefined }, locked)).toBe(false);
+    expect(nativeDrawerChoiceAllowed(event, locked)).toBe(true);
     expect(validNativeDrawerProjection({ ...account, profileStack: [{ ...account.profileStack![0], id: "arbitrary-route" }] } as never)).toBe(false);
     const fence = new NativeDrawerChoiceFence(root);
     fence.update(account);

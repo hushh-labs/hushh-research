@@ -49,7 +49,7 @@ source coverage, not whole-program or installed-candidate acceptance:
 | Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; installed activity/filter/Back journey passes, mutation and receipt-path qualification remain separate |
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
 | Memory | Native category/section/entity browsing, search, sharing and Live Memory source mapping; shared/protected bodies and ordinary editing still require native conversion/qualification |
-| Personal World Model | Research, facts, sources, decisions and invitations still require native mapping |
+| Personal World Model | Native research/status, cited facts/decisions/corrections/removal, public-source preparation/review/sharing confirmation, invitation create/share/revoke/claim and research/email settings are source-mapped; combined candidate qualification is separate |
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor now source-mapped through its shared controller, awaiting candidate qualification; provider body remains unmapped |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
@@ -104,6 +104,35 @@ read. Async onboarding draft echoes do not reset the active question. Native
 ancestor Back returns from the anchor to Preferences through the existing
 owner. The old source-string layout test is replaced by focused behavior
 contracts; Finance is not included in the installed Memory candidate's proof.
+
+World Model continuation (source only): the retained Profile navigation stack
+now maps the complete research body and its nested fact, removal, settings,
+source-review and invitation destinations. Three closed private form variants
+own corrected wording, public-page links/acknowledgment and invitation contacts.
+Native sheets reuse the existing completed-dismissal barrier, editor ordering,
+IME and privacy fencing; they do not receive vault authority or invitation
+tokens. Native links are opaque callbacks to the existing external-link owner.
+Provider attribution is rendered as inert text and validated HTTPS citations;
+its visual fidelity has not yet been accepted on device.
+
+Both renderers consume the extracted feature controllers: the existing research
+store remains the only app-level reader; decision, source-preparation, review,
+consent-aware encrypted-save and invitation services retain their operations.
+Owner-scoped local state hides retired values before paint and preserves React's
+no-op update behavior. A sibling cannot adopt the previous provider owner's
+snapshot before that provider's layout effect runs. Source preparation does not
+confirm facts or dispatch ambient account research.
+
+Correction forms bind the exact report and fact instance, not a reusable display
+ordinal. Success retires the owned form before leaving its fact detail, so a
+later destructive confirmation cannot display the old text. An incoming source
+reply cannot overwrite a pending or uncertain save's prepared cards, committed
+set or idempotency scopes. Profile-only `navigationLocked` blocks Close, Back,
+ancestor and drawer gestures during reconciliation, while keeping the existing
+Retry action usable; it is not a global content-disable flag. These contracts
+are additive to NativeDrawers v1 and do not enable ordinary native admission.
+The installed `82f9dd038c` candidate does not contain this continuation or the
+Finance continuation; do not transfer its physical acceptance to either.
 
 The subsequent cold export exposed an independent source-discovery problem:
 the compiler opened ignored `ios/App/build` object/dependency files and its

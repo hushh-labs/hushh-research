@@ -62,8 +62,8 @@ final class NativeDrawerModel: ObservableObject {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
         let deviceAncestor = [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(navigationPath) && path == ["security"]
-        let workspaceAncestor = (NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
-        guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
+        let workspaceAncestor = (NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath) || NativeDrawerProjection.validWorldModelPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
+        guard interactionEnabled, projection.navigationLocked != true, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,
               path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor || workspaceAncestor,
@@ -216,6 +216,7 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
     private var retired = false
     private weak var lastVisiblePage: UIViewController?
     private var outgoingUserPop: NativeDrawerProjection?
+    private var popEnabledBeforeNavigationLock: Bool?
 
     init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
         self.model = model
@@ -342,8 +343,15 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
     }
     private func reconcileInteraction() {
         let admitted = model.interactionEnabled && model.allowsPageInteraction
-        navigationBar.isUserInteractionEnabled = admitted && !model.choicePending
-        navigationBar.accessibilityElementsHidden = !admitted || model.choicePending
+        if model.projection.navigationLocked == true {
+            if popEnabledBeforeNavigationLock == nil { popEnabledBeforeNavigationLock = interactivePopGestureRecognizer?.isEnabled }
+            interactivePopGestureRecognizer?.isEnabled = false
+        } else if let previous = popEnabledBeforeNavigationLock {
+            interactivePopGestureRecognizer?.isEnabled = previous
+            popEnabledBeforeNavigationLock = nil
+        }
+        navigationBar.isUserInteractionEnabled = admitted && !model.choicePending && model.projection.navigationLocked != true
+        navigationBar.accessibilityElementsHidden = !admitted || model.choicePending || model.projection.navigationLocked == true
         for page in [rootPage] + Array(pages.values) {
             page.viewIfLoaded?.isUserInteractionEnabled = admitted
             page.viewIfLoaded?.accessibilityElementsHidden = !admitted
@@ -620,7 +628,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pose(current)
     }
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.allowsPageInteraction, covered,
+        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.projection.navigationLocked != true, model.allowsPageInteraction, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
         // A nested native page owns its system edge-pop. The outer drawer's

@@ -4671,6 +4671,44 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
                 continue
             }
+            if id == "world-model", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_NOT_ADMITTED"); return }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_WORLD_MODEL_DUPLICATE_WEB_BODY")
+                let scroll = app.scrollViews["native-profile-menu-scroll"].firstMatch
+                func row(_ label: String) -> XCUIElement {
+                    app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+                }
+                func find(_ label: String) -> Bool {
+                    for _ in 0..<16 {
+                        if row(label).exists && row(label).isHittable { return true }
+                        if row("More details").exists && row("More details").isHittable { row("More details").tap() }
+                        else if scroll.exists { scroll.swipeUp() }
+                    }
+                    return false
+                }
+                guard find("Research and email") else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_RESEARCH_UNAVAILABLE"); return }
+                row("Research and email").tap()
+                let worldBack = app.navigationBars.buttons["Personal World Model"].firstMatch
+                guard waitForAdmittedControl(worldBack), app.switches.count >= 2 else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_RESEARCH_NOT_NATIVE"); return }
+                worldBack.tap()
+                guard find("Add a public source") else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_SOURCES_UNAVAILABLE"); return }
+                row("Add a public source").tap()
+                guard waitForAdmittedControl(row("Add public pages")) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_SOURCE_PARENT_UNAVAILABLE"); return }
+                row("Add public pages").tap()
+                let urls = app.textViews["native-world-model-urls"].firstMatch
+                let cancel = app.buttons["native-world-model-form-cancel"].firstMatch
+                guard waitForAdmittedControl(urls), waitForAdmittedControl(cancel) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_EDITOR_UNAVAILABLE"); return }
+                urls.tap()
+                guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_KEYBOARD_UNAVAILABLE"); return }
+                cancel.tap()
+                guard waitForAdmittedControl(worldBack), waitForAdmittedControl(row("Add public pages")) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_EDITOR_RETURN_FAILED"); return }
+                worldBack.tap()
+                guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_PARENT_NOT_RESTORED"); return }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_ROOT_RETURN_FAILED"); return }
+                print("PROFILE_NATIVE_WORLD_MODEL research=true sources=true editor=true returned=true mutated=false")
+                continue
+            }
             if id == "my-data", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let live = app.buttons.matching(NSPredicate(format: "label == %@", "Live memory")).firstMatch
                 let sharing = app.buttons.matching(NSPredicate(format: "label == %@", "Manage sharing")).firstMatch

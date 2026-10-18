@@ -80,6 +80,7 @@ struct NativeDrawerProjection: Codable {
     let open: Bool
     let enabled: Bool
     let backEnabled: Bool
+    var navigationLocked: Bool? = nil
     var searchable: Bool? = nil
     var loading: Bool? = nil
     /// Profile menu visibility is distinct from its enclosing drawer lifetime.
@@ -93,7 +94,7 @@ struct NativeDrawerProjection: Codable {
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
         guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
         var allSections = sections
         if let stack = options["profileStack"] {
@@ -126,17 +127,20 @@ struct NativeDrawerProjection: Codable {
               privacyGeneration >= 0, privacyGeneration <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil,
               Self.text(title, 256), sections.count <= 32,
+              navigationLocked == nil || family == "profile",
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
         if let stack = profileStack {
-            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : stack.first?.id == "memory" ? 5 : 3), Set(stack.map(\.id)).count == stack.count,
+            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : stack.first?.id == "memory" ? 5 : stack.first?.id == "world-model" ? 4 : 3), Set(stack.map(\.id)).count == stack.count,
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),
                   stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
+                  stack.first?.id != "world-model" || Self.validWorldModelPath(stack.map(\.id)),
                   !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["world-model", "memory", "payouts", "request-pricing", "account", "preferences", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
                         Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
+                        stack.first?.id == "world-model" && Self.validWorldModelPath(stack.map(\.id)) ||
                         stack.first?.id == "payouts" && Self.validPayoutPath(stack.map(\.id)) ||
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
                         page.id == "voice" && index == 1 && stack.first?.id == "preferences" ||
@@ -223,6 +227,15 @@ struct NativeDrawerProjection: Codable {
         guard path.count > start, path[start] == "finance-preferences", path.count <= start + 2 else { return false }
         return path.count == start + 1 || path[start + 1] == "finance-anchor"
     }
+    static func validWorldModelPath(_ path: [String]) -> Bool {
+        guard path.first == "world-model", path.count <= 4 else { return false }
+        let children: [String: Set<String>] = [
+            "world-model": ["world-model-fact", "world-model-research", "world-model-sources", "world-model-invitations"],
+            "world-model-fact": ["world-model-remove"], "world-model-sources": ["world-model-review"],
+            "world-model-review": ["world-model-review-fact"]
+        ]
+        return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
+    }
     private static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
     var cleared: NativeDrawerProjection {
         NativeDrawerProjection(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family,
@@ -231,6 +244,7 @@ struct NativeDrawerProjection: Codable {
     }
     func allows(action: String, row: String?, text: String? = nil) -> Bool {
         guard enabled else { return false }
+        if navigationLocked == true && ["back", "root", "ancestor", "close"].contains(action) { return false }
         guard action == "row" || text == nil else { return false }
         if action == "open" { return !open && row == nil }
         guard open else { return false }
@@ -241,7 +255,7 @@ struct NativeDrawerProjection: Codable {
             let path = profileStack?.map(\.id) ?? []
             return family == "profile" && backEnabled &&
                 (row == "security" && [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(path) ||
-                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path)) && path.dropLast(2).contains(where: { $0 == row }))
+                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path) || Self.validWorldModelPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
         }
         guard action == "row", let row else { return false }
         if profileStack?.last?.memorySearch?.id == row { return text.map { $0.utf16.count <= 256 } == true }

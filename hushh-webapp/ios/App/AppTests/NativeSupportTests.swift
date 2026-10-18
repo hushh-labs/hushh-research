@@ -278,6 +278,30 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testWorldModelFormRetainsTheEditorAndScrubsBeforeDismissal() {
+        func state(_ update: Int, _ ack: Int, destination: String = "public-world-model-visit") -> NativeWorldModelProjection {
+            NativeWorldModelProjection(documentId: "public-world-model-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+                family: "profile", scene: "world-model-fact-edit", destinationId: destination, updateSequence: update, privacyGeneration: 0,
+                draftRevision: update, acknowledgedEditRevision: ack, draft: NativeWorldModelDraft(text: ack == 0 ? "Public example" : "Public corrected example"),
+                canSave: true, busy: false, error: "Public validation example", appearance: update == 1 ? "light" : "dark", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let model = NativeWorldModelFormModel(state(1, 0)), editor = UITextView()
+        model.register(editor); model.edit = { _, _, _ in true }; model.choose = { _ in true }
+        editor.text = "Public corrected example"; model.capture(editor, field: "text")
+        XCTAssertFalse(model.canSave, "No Save until the final edit is acknowledged")
+        XCTAssertFalse(model.update(state(2, 1, destination: "another-visit")))
+        XCTAssertTrue(model.update(state(2, 1)))
+        XCTAssertTrue(model.canSave)
+        model.action("save")
+        let action = model.pending!
+        XCTAssertTrue(model.confirm(action)); XCTAssertFalse(model.confirm(action))
+        model.clear()
+        XCTAssertEqual(editor.text, ""); XCTAssertNil(model.draft.text); XCTAssertNil(model.projection.draft.text)
+        XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose)
+        XCTAssertFalse(model.update(state(3, 1)))
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()
@@ -988,6 +1012,30 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(memory.allows(action: "ancestor", row: "account"))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-confirm"]))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "account-delete"]))
+        var worldModel = account
+        worldModel.profileStack = ["world-model", "world-model-sources", "world-model-review", "world-model-review-fact"].map {
+            NativeProfilePage(id: $0, title: "Synthetic World Model navigation", sections: [])
+        }
+        XCTAssertTrue(worldModel.valid)
+        XCTAssertTrue(worldModel.allows(action: "ancestor", row: "world-model-sources"))
+        let worldModelNavigation = NativeDrawerModel(worldModel)
+        worldModelNavigation.interactionEnabled = true
+        var worldModelAncestor: String?
+        worldModelNavigation.choose = { action, row, _ in worldModelAncestor = row; return action == "ancestor" }
+        worldModelNavigation.requestPath(["world-model"], from: worldModel)
+        XCTAssertEqual(worldModelAncestor, "world-model")
+        XCTAssertEqual(worldModelNavigation.navigationPath, ["world-model"])
+        XCTAssertFalse(NativeDrawerProjection.validWorldModelPath(["world-model", "world-model-remove"]))
+        XCTAssertFalse(NativeDrawerProjection.validWorldModelPath(["world-model", "account-delete"]))
+        worldModel.navigationLocked = true
+        worldModel.profileStack![3] = NativeProfilePage(id: "world-model-review-fact", title: "Recovery", sections: [NativeDrawerSection(id: "recovery", title: nil, rows: [
+            NativeDrawerRow(id: "retry-save", label: "Retry save", detail: nil, symbol: nil, enabled: true, destructive: nil, selected: nil, pending: nil)
+        ])])
+        XCTAssertTrue(worldModel.valid)
+        XCTAssertFalse(worldModel.allows(action: "close", row: nil))
+        XCTAssertFalse(worldModel.allows(action: "back", row: nil))
+        XCTAssertFalse(worldModel.allows(action: "ancestor", row: "world-model"))
+        XCTAssertTrue(worldModel.allows(action: "row", row: "retry-save"), "Recovery remains interactive while navigation is fenced")
         var finance = account
         finance.profileStack = ["preferences", "finance-preferences", "finance-anchor"].map {
             NativeProfilePage(id: $0, title: "Synthetic Finance preference navigation", sections: [])

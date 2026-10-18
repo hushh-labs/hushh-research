@@ -28,10 +28,11 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, name, email, portrait, groups, actions, onClose, onPresented, onHidden, fallbackOwned, stack }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, navigationLocked, name, email, portrait, groups, actions, onClose, onPresented, onHidden, fallbackOwned, stack }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   enabled?: boolean;
+  navigationLocked?: boolean;
   portrait?: string;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
@@ -70,7 +71,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
           return { ...photo, label: "Profile photo", artworkId: "account", chevron: true };
         }),
       })) }));
-      return { ...projected, sections, profileStack: pages, profileDestinationId: stack.destinationId,
+      return { ...projected, sections, ...(navigationLocked === undefined ? {} : { navigationLocked }), profileStack: pages, profileDestinationId: stack.destinationId,
         profileSupportDestinationId: stack.supportDestinationId, actions: { ...projected.actions,
         rows: new Map([...projected.actions.rows, ...stack.rows]), ...(stack.pages.length ? { back: stack.back } : {}), ...(stack.root ? { root: stack.root } : {}), ...(stack.ancestor ? { ancestor: stack.ancestor } : {}) } };
     } });
@@ -86,7 +87,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -106,7 +107,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onPayoutCapability?: (supported: boolean) => void;
   onMemoryCapability?: (supported: boolean) => void;
   onFinanceCapability?: (supported: boolean) => void;
-  workspace?: { kind: "request-pricing" | "payouts" | "memory"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
+  onWorldModelCapability?: (supported: boolean) => void;
+  workspace?: { kind: "request-pricing" | "payouts" | "memory" | "world-model"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
     editor?: (destinationId: string) => ReactNode; onPresented?: () => void };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
@@ -124,6 +126,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [payoutSupported, setPayoutSupported] = useState(false);
   const [memorySupported, setMemorySupported] = useState(false);
   const [financeSupported, setFinanceSupported] = useState(false);
+  const [worldModelSupported, setWorldModelSupported] = useState(false);
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
@@ -163,10 +166,12 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setMemorySupported(memory); onMemoryCapability?.(memory);
         const finance = settings && capability.profileFinancePreferences === true;
         setFinanceSupported(finance); onFinanceCapability?.(finance);
+        const worldModel = stack && capability.profileWorldModelPages === true && hasNativeProfileScene(nativeDrawers, "world-model");
+        setWorldModelSupported(worldModel); onWorldModelCapability?.(worldModel);
       }
-    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); } });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability]);
+  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability]);
   useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
   const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
   const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);
@@ -174,7 +179,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&
-    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : workspace.kind === "payouts" ? payoutSupported && workspace.pages[0]?.id === "payouts" : memorySupported && workspace.pages[0]?.id === "memory");
+    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : workspace.kind === "payouts" ? payoutSupported && workspace.pages[0]?.id === "payouts" : workspace.kind === "world-model" ? worldModelSupported && workspace.pages[0]?.id === "world-model" : memorySupported && workspace.pages[0]?.id === "memory");
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeWorkspace ? workspace!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
     nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null, nativeWorkspace ? workspace?.visitKey : null]) : "";

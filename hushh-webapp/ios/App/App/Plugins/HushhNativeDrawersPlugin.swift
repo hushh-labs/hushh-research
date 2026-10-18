@@ -77,6 +77,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmProfilePricingAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfilePricingAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfilePricingScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfileWorldModelScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfileWorldModelAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfileWorldModelAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfileWorldModelScene", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -90,6 +94,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var supportScene: NativeProfileSupportScene? { form as? NativeProfileSupportScene }
     private var phoneScene: NativeProfilePhoneScene? { form as? NativeProfilePhoneScene }
     private var passwordScene: NativeProfilePasswordScene? { form as? NativeProfilePasswordScene }
+    private var worldModelScene: NativeProfileWorldModelScene? { form as? NativeProfileWorldModelScene }
     private var pricingScene: NativeProfilePricingScene? {
         get { form as? NativeProfilePricingScene }
         set { form = newValue }
@@ -151,6 +156,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profilePricingScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profilePayoutPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileMemoryPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileWorldModelPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
@@ -456,9 +462,91 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativePricing = scene == "request-price" && profile.open && profile.profileStack?.last?.id == "request-pricing" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let worldModelDestinations: [String: Set<String>] = ["world-model-fact-edit": ["world-model-fact", "world-model-review-fact"], "world-model-sources": ["world-model-sources"], "world-model-invitation": ["world-model-invitations"]]
+        let nativeWorldModel = worldModelDestinations[scene]?.contains(profile.profileStack?.last?.id ?? "") == true && profile.open &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing) && profile.enabled
+            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel) && profile.enabled
+    }
+    @objc func applyProfileWorldModelScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeWorldModelProjection.keys),
+                  let sceneName = options["scene"] as? String, let draft = options["draft"] as? [String: Any],
+                  Set(draft.keys) == NativeWorldModelDraft.keys(sceneName),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
+                  let next = try? JSONDecoder().decode(NativeWorldModelProjection.self, from: bytes), next.valid,
+                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_WORLD_MODEL_UNAVAILABLE"); return }
+            if let scene = self.worldModelScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_WORLD_MODEL_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return }
+            let scene = NativeProfileWorldModelScene(next)
+            self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.worldModelScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profileWorldModelEdit", data: event, retainUntilConsumed: false); return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.worldModelScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profileWorldModelAction", data: event, retainUntilConsumed: false); return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return }
+                guard presented, self.worldModelScene === scene,
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                    if self.worldModelScene === scene { self.retireProfileForm() }
+                    call.reject("NATIVE_PROFILE_WORLD_MODEL_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_WORLD_MODEL_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfileWorldModelAction(_ call: CAPPluginCall) { worldModelAction(call, settlement: false) }
+    @objc func settleProfileWorldModelAction(_ call: CAPPluginCall) { worldModelAction(call, settlement: true) }
+    private func worldModelAction(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"), let name = call.getString("scene"),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: name, destinationId: call.getString("destinationId")),
+                  let scene = self.worldModelScene, scene.identity == identity, scene.sceneName == name,
+                  scene.model.projection.destinationId == call.getString("destinationId"), let action = self.nameAction(call, scene: name) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfileWorldModelScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
+                  let identity = self.identity(call), identity.family == "profile", let name = call.getString("scene"),
+                  !NativeWorldModelDraft.keys(name).isEmpty, let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_WORLD_MODEL_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == name && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.worldModelScene {
+                guard scene.identity == identity, scene.sceneName == name, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_WORLD_MODEL_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_WORLD_MODEL_STALE_RETIREMENT"); return }
+            let owner = self.profileFormOwnerKey(identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            self.formRevision = max(self.formRevision, identity.revision)
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = name; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
     }
     private func profileFormOwnerKey(_ identity: NativeDrawerIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"

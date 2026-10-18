@@ -17,7 +17,7 @@ export type NativeDrawerPort = {
   onPresented?: (state: NativeDrawerProjection) => void;
   onHidden?: (state: NativeDrawerProjection) => void;
   onAbsenceConfirmed?: (privacyGeneration: number) => void;
-  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
+  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; navigationLocked?: boolean; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
 };
 
 /** Both drawer families share one owner/privacy admission path. Only authored
@@ -58,6 +58,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       title: nextPort.title, open: nextPort.open, enabled: nextPort.enabled !== false, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
+      ...(next.navigationLocked === undefined ? {} : { navigationLocked: next.navigationLocked }),
       ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId,
         profileSupportDestinationId: next.profileSupportDestinationId } : {}) };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
