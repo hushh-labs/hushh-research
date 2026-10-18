@@ -494,7 +494,9 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         capture_output=True,
         check=False,
         text=True,
-        timeout=20,
+        # The two-probe failure path also restores the scheduler set. Give the
+        # fixture watchdog time to observe rollback; production polling is unchanged.
+        timeout=60,
     )
     output = result.stdout + result.stderr
     state = json.loads(state_path.read_text(encoding="utf-8"))

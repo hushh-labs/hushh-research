@@ -22327,7 +22327,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1623
+      "value": 1626
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29129,7 +29129,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_one_time_uat_vertex_skip_is_bound_to_the_approved_release",
-      "value": 145
+      "value": 148
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29165,7 +29165,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_drive_worker_release_rollback.py",
       "symbol": "test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs",
-      "value": 104
+      "value": 106
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29228,7 +29228,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_worker_release_rollback.py",
       "symbol": null,
-      "value": 542
+      "value": 544
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -71605,6 +71605,42 @@
         "source_sha256": "e995b5f2c005889f0c040d13b809a9e067d94a24496167bf1e0ccf90deb82fe7",
         "review": "Extend the existing read-receipt regression through UUID-typed canonical row normalization and actual encrypted export projection, preserving exact authenticated AAD spelling; different UUID negative uses the same projection and records no read. Existing test functions remain 47/28 lines. Pure production helper remains within budget, with no import cycle or new authority. No scanner, budget, other ceiling or historical review change.",
         "verification": "59 nearest tests pass; original projection fails the regression. Read-only actual Dev UUID row satisfies all current binding predicates only with corrected local projection. Deployment/browser decryption remain unverified."
+      }
+    ]
+  },
+  "puppy_release_fixture_qualification_20261018": {
+    "reviewer": "adk_authority_review",
+    "parent_revision": "b9b2283f7c0d5eabc85ccd004d0e93a30bb7d760",
+    "boundary": "Only four existing size observations for two existing core test files. Freeze historical UAT fixture clock and assert actual expiry; extend only synthetic Drive rollback watchdog, retaining exact recipient/fresh-response/restoration assertions. No production code, scanner, budgets, exclusions, other observations or historical reviews change.",
+    "verification": "75 owning checks pass; deleting the expiry predicate makes the owning refusal assertion fail. Original full-core fixture failures retained.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 145,
+        "after": 148,
+        "source_sha256": "ed95fc8d6d2e97088c3a04687a70dd336bc7a29e69e1eea71527b6f69dde20dc"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_drive_worker_release_rollback.py|test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 104,
+        "after": 106,
+        "source_sha256": "9b7789537f19fa95830b379350c60adce76b5a8763b00a73b648900536adfb8a"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1623,
+        "after": 1626,
+        "source_sha256": "ed95fc8d6d2e97088c3a04687a70dd336bc7a29e69e1eea71527b6f69dde20dc"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_worker_release_rollback.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 542,
+        "after": 544,
+        "source_sha256": "9b7789537f19fa95830b379350c60adce76b5a8763b00a73b648900536adfb8a"
       }
     ]
   }
