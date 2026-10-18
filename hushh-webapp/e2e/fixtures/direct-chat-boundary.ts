@@ -19,6 +19,21 @@ for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.f
   content: index === 79 ? "Let’s meet tomorrow. I’ll share the details here 😊" : index === 78 ? "https://example.com/" + "long-path".repeat(50) : `Message ${index + 1} — a friendly conversation.`,
   createdAt: new Date(Date.UTC(2026, 9, 9, 9, index)).toISOString(), readAt: index % 3 === 1 ? "2026-10-09T12:00:00Z" : null,
 })));
+if (new URLSearchParams(window.location.search).has("preview")) {
+  const conversation = [
+    [false, "Hey! Are we still meeting tomorrow?"],
+    [true, "Yes, absolutely. Does 10:30 work for you?"],
+    [false, "Perfect. Let's meet at the cafe near the office."],
+    [true, "Sounds good! I'll bring the notes from our last discussion."],
+    [false, "Great, thank you. We can go through the next steps together."],
+    [true, "See you tomorrow 😊"],
+  ] as const;
+  rows.set("maya", conversation.map(([senderIsViewer, content], index) => ({
+    id: `preview-${index}`, conversationId: "maya", senderIsViewer, content,
+    createdAt: new Date(Date.UTC(2026, 9, 19, 9, 30 + index)).toISOString(),
+    readAt: senderIsViewer ? "2026-10-19T10:00:00Z" : null,
+  })));
+}
 function conversation(id: string): DirectMessageConversation {
   return { id, peerPersonRef: id === "maya" ? "person-maya" : id, peerDisplayName: id === "maya" ? "Maya Rao" : id === "leah" ? "Leah Roy" : "Arjun Mehta with a very long display name",
     peerPhotoUrl: id === "maya" ? "/fixture-person-0.webp" : "/fixture-person-1.webp", createdAt: rows.get(id)![0]!.createdAt,

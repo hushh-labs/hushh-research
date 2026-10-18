@@ -38,17 +38,21 @@ test.beforeAll(async () => {
         { find: "@/lib/services/direct-messages-service", replacement: path.join(root, "e2e/fixtures/direct-chat-boundary.ts") },
         { find: "@/lib/services/connections-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
-        { find: "@/lib/one-location/service", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
+        ...["@/lib/one-location/service", "@/lib/vault/vault-context"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/direct-chat-circles.ts") })),
+        { find: "@/lib/services/circle-chat-service", replacement: path.join(root, "e2e/fixtures/circle-chat-boundary.ts") },
+        { find: "@/lib/services/api-service", replacement: path.join(root, "e2e/fixtures/circle-chat-http-boundary.ts") },
+        { find: "@/lib/cache/cache-sync-service", replacement: path.join(root, "e2e/fixtures/circle-chat-cache-boundary.ts") },
+        { find: "@/components/consent/notification-provider", replacement: path.join(root, "e2e/fixtures/circle-chat-notification-boundary.ts") },
         { find: "@/lib/firebase/config", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/lib/services/auth-service", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
-        { find: "@/components/connect/circles/circle-messages-pane", replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         { find: "next/link", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
-        ...["@/lib/vault/vault-context", "@/lib/consent/use-consent-pending-summary-count", "@/lib/feed/use-feed-unread-count", "@/lib/one-voice/readiness", "@/components/one-voice/voice-session-provider", "@/components/one-voice/tool-result-card", "@/components/one-location/onboarding/location-onboarding-interaction-surface"].map((find) => ({ find, replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") })),
+        ...["@/lib/consent/use-consent-pending-summary-count", "@/lib/feed/use-feed-unread-count", "@/lib/one-voice/readiness", "@/components/one-voice/voice-session-provider", "@/components/one-voice/tool-result-card", "@/components/one-location/onboarding/location-onboarding-interaction-surface"].map((find) => ({ find, replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") })),
         { find: /^(\.\/|@\/components\/agent\/)location-command-provider$/, replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: /^(\.\/|@\/components\/one-voice\/)tool-result-card$/, replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "@", replacement: root },
-      ] }, define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+      ] }, define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}",
+        __CIRCLE_CHAT_FIXTURE_MEDIA__: JSON.stringify(fs.readFileSync(path.join(root, "public/one-location/onboarding/orbit-office.webp")).toString("base64")) },
       build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/direct-chat.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" } },
     });
     script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
@@ -63,12 +67,12 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean } = {}) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/fixture-person-*.webp", (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
   await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}`}`);
+  await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -79,6 +83,57 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 }
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
+
+for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1920, 1080]]) {
+  test(`responsive Messages approval preview at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width: width!, height: height! });
+    const errors = await mount(page, false, false, false, "idle", { preview: true });
+    await expect(transcript(page).getByText("See you tomorrow 😊", { exact: true })).toBeVisible();
+    await page.locator('[data-direct-message-composer-input]').blur();
+    await page.mouse.move(0, height!);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
+    await page.screenshot({ path: test.info().outputPath(`messages-preview-${width}.png`), animations: "disabled" });
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [393, 960, 1920]) {
+  test(`Circles shares the complete Messages workspace geometry at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const errors = await mount(page, false, false, true);
+    await page.getByRole("tab", { name: "Circles 3" }).click();
+    await page.getByRole("button", { name: /Weekend friends/ }).click();
+    const input = page.getByRole("textbox", { name: "Message", exact: true });
+    await expect(input).toBeVisible();
+    const pane = page.locator('[data-circle-messages-pane][data-active="true"]');
+    const thread = pane.getByRole("region", { name: "Weekend friends messages" });
+    const dock = page.locator('[data-bottom-shell-motion-stack]');
+    if (width >= 960) {
+      const listBox = (await pane.getByRole("complementary", { name: "Circles" }).boundingBox())!;
+      const threadBox = (await thread.boundingBox())!;
+      const dockBox = (await dock.boundingBox())!;
+      expect(Math.abs(listBox.y + listBox.height - 1000)).toBeLessThanOrEqual(1);
+      expect(Math.abs(threadBox.x - listBox.x - listBox.width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(dockBox.x - threadBox.x - 16)).toBeLessThanOrEqual(1);
+      expect(Math.abs(dockBox.x + dockBox.width - threadBox.x - threadBox.width + 16)).toBeLessThanOrEqual(1);
+      expect(await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight)).toBeLessThanOrEqual(1);
+    }
+    await input.fill("A Circle draft above the keyboard");
+    await page.evaluate(() => {
+      document.documentElement.classList.add("kb-open", "native-keyboard-inset");
+      document.documentElement.style.setProperty("--kb-height", "300px");
+    });
+    await expect.poll(async () => {
+      const field = (await input.boundingBox())!;
+      return field.y + field.height;
+    }).toBeLessThanOrEqual(700);
+    await expect.poll(async () => {
+      const conversation = (await thread.boundingBox())!;
+      return conversation.y + conversation.height - (await page.locator('[data-agent-bar-shell]').boundingBox())!.y;
+    }).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
 
 test("native session opens a conversation without a browser Firebase user", async ({ page }) => {
   await mount(page, false, false, true);
@@ -291,7 +346,7 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
   await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeVisible();
   expect(errors).toEqual([]);
 });
-for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [1440, 1000], [844, 390]]) {
+for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [959, 852], [960, 852], [1024, 768], [1440, 1000], [1920, 1080], [2560, 1440], [844, 390]]) {
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
@@ -343,7 +398,27 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     if (width! >= 960) {
       expect(layout.aside).not.toBeNull();
       expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(layout.aside!.width - 370)).toBeLessThanOrEqual(2);
+      expect(Math.abs(layout.aside!.width - Math.min(370, Math.max(328, width! * 0.26)))).toBeLessThanOrEqual(2);
+      const inboxHeader = page.getByRole("complementary", { name: "Conversations" }).locator("header");
+      const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
+      const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
+      expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
+      expect(Math.abs(layout.aside!.y + layout.aside!.height - height!)).toBeLessThanOrEqual(1);
+      const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
+      expect(overflow, "The desktop workspace must not scroll beneath the fixed dock").toBeLessThanOrEqual(1);
+      const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
+      const header = (await page.locator('[class*="threadHeaderContent"]').boundingBox())!;
+      const row = (await page.locator('[data-chat-message]').last().boundingBox())!;
+      const dock = (await page.locator('[data-bottom-shell-motion-stack]').boundingBox())!;
+      expect(Math.abs(thread.x - layout.aside!.x - layout.aside!.width)).toBeLessThanOrEqual(1);
+      expect(header.x).toBe(thread.x);
+      expect(header.width).toBe(thread.width);
+      expect(Math.abs(row.x - thread.x - 16)).toBeLessThanOrEqual(1);
+      expect(Math.abs(dock.x - thread.x - 16)).toBeLessThanOrEqual(1);
+      expect(Math.abs(dock.x + dock.width - thread.x - thread.width + 16)).toBeLessThanOrEqual(1);
+      const navigation = (await page.locator('[data-bottom-shell-navigation-slot]').boundingBox())!;
+      expect(navigation.x).toBe(dock.x);
+      expect(navigation.width).toBe(dock.width);
     }
     if (width! < 768) {
       await fixture(page, "fixture.remoteChange('maya-79', 'A long outgoing message with details. '.repeat(5)); fixture.remoteChange('maya-78', 'A long incoming message with details. '.repeat(5))");
@@ -494,7 +569,8 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
   expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
   const dock = await page.locator('[data-bottom-shell-motion-stack]').boundingBox();
-  expect(Math.abs(dock!.x + dock!.width / 2 - 720)).toBeLessThanOrEqual(1);
+  const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
+  expect(Math.abs(dock!.x + dock!.width / 2 - thread.x - thread.width / 2)).toBeLessThanOrEqual(1);
   for (const role of ["user", "peer"]) {
     const row = page.locator(`[data-message-role="${role}"]`).last();
     await row.hover();
