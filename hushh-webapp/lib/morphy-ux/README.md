@@ -37,7 +37,7 @@ surrounding section instead.
 ## Accent system (single switchable identity)
 
 All accent color flows through the `--app-accent-*` CSS family declared in
-`app/globals.css`: iOS Blue by default, Molten Gold under
+`app/globals.css`: Blue by default, Molten Gold under
 `html[data-accent="gold"]` (user preference in Profile → Preferences → Accent,
 managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
 `app/layout.tsx`). Rules:
@@ -94,7 +94,7 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Tokens
 
-- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (120 → 600ms).
+- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (75 → 150ms).
 - Easings: `--motion-ease-standard|accelerate|decelerate|emphasized`.
 - Overlay set (dialog/popover/sheet/menu/tooltip):
   - `--motion-overlay-enter-duration` / `--motion-overlay-enter-ease`
@@ -123,7 +123,7 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Route transitions
 
-The shared route envelope uses opacity-only exit (120ms) and enter (160ms),
+The shared route envelope uses opacity-only exit (60ms) and enter (90ms),
 with no additional transition delay. Keep the hook timers and CSS route tokens
 aligned. Public Explore tabs belong only to the top-level workspace, not its
 detail routes; exiting the public workspace returns to `/`.

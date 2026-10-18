@@ -84,6 +84,7 @@ test.beforeAll(async () => {
           "@/lib/services/auth-service",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
+          "@/lib/services/todo-list-pkm-service",
           "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
@@ -278,7 +279,13 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
-  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  try {
+    await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
+  } catch (error) {
+    // Distinguish a synthetic startup failure from product geometry failures.
+    expect(fixtureErrors, "Connections fixture startup").toEqual([]);
+    throw error;
+  }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });

@@ -77,6 +77,13 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+// Pure task models and rows stay real. This public fixture does not admit
+// encrypted task reads or writes through the private service port.
+export const TodoListPkmService = {
+  load: async () => { throw new Error("No task reads in the public layout fixture"); },
+  setStatus: async () => { throw new Error("No task writes in the public layout fixture"); },
+  remove: async () => { throw new Error("No task writes in the public layout fixture"); },
+};
 export const ApiService = {
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.

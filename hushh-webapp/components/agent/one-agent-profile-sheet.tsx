@@ -48,17 +48,14 @@ import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { OnePresenceAvatar, type OnePresenceState } from "@/components/agent/one-presence-avatar";
-import {
-  TodoListPkmService,
-  openTodoItems,
-  type TodoItem,
-} from "@/lib/services/todo-list-pkm-service";
+import { TodoListPkmService } from "@/lib/services/todo-list-pkm-service";
+import { openTodoItems, type TodoItem } from "@/lib/todos/todo-list-model";
 import {
   TodoRow,
   DueReceiptRow,
   extractDueReceipts,
   groupByDate,
-} from "@/components/todos/todo-list-page";
+} from "@/components/todos/todo-list-presentation";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   getCachedGmailReceipts,

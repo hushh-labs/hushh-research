@@ -16,6 +16,33 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Latest-main integration and preview boundary — 2026-10-17
+
+Merge `5f70c584e9` incorporates main through `a01b055edd`. The installed iPhone
+remains the photo-qualified `a00d04764c` below; source integration does not transfer
+that physical acceptance to the merged candidate. Main's version increment to
+1.4.1 is preserved. Ordinary custom-native admission remains disabled.
+
+The shared One pane keeps the existing name/owner model, live Memory preview and
+retained native content plane, and incorporates main's Feed / To-do / Profile
+tabs. Task rows, date grouping and pure task types now have feature-owned leaf
+modules; the preview no longer imports the whole To-do workspace. Existing Page
+and service exports remain compatibility facades; persistence and mutation
+authority are unchanged. The public browser fixture substitutes only its private
+task-service port, rather than importing Firebase or inventing native SDK exports.
+
+The nearest 45 unit cases, 16 existing stationary-header/tab browser cases across
+320/390/768/1440px, 469 Back cases, all UI-contract generation/checks, typecheck,
+lint, static parity and design/render checks pass. The source-only independent
+review found matching extracted behavior and retained exports. These are not
+native material, iPad or integrated physical acceptance.
+
+Review also identified incoming To-do-preview stale read/write settlement and
+shared-files owner/epoch/Undo fencing gaps. They remain unresolved implementation
+work, not waived acceptance. Preserve same-owner, same-epoch Undo after closing
+the files sheet when repairing it. Full staged privacy/resume composition and
+the remaining native scene conversions remain separately tracked below.
+
 ### Profile height, photo header and current physical checks — 2026-10-17
 
 Current installed candidate: UAT-backed `a00d04764c`, Agent One 1.4.0 (69),
@@ -111,7 +138,7 @@ checks, typecheck, static parity and native build pass. Older wrappers keep the
 ordinary photo row without the hero's email subtitle; the existing capability
 test fails on that actual regression and passes with the bounded correction.
 These receipts do not establish actual-provider pixel quality or full visual,
-accessibility, staged-resume or Release-performance acceptance is inferred.
+accessibility, staged-resume or Release-performance acceptance.
 
 Vault methods now have one extracted React feature model for reads, enrollment,
 default/removal and password changes. Existing services and owner authorization
