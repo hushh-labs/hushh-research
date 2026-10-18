@@ -160,9 +160,9 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
 
-    const openTodoButton = screen.getByRole("button", { name: /Open To-do List/i });
-    fireEvent.click(openTodoButton);
-    expect(mocks.close).toHaveBeenCalledWith(false);
-    expect(mocks.push).toHaveBeenCalledWith("/one/todos");
+    expect(screen.queryByRole("button", { name: /Open To-do List/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open To-do List/i })).not.toBeInTheDocument();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 });
