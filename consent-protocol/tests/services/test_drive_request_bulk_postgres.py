@@ -1975,8 +1975,16 @@ async def test_owner_can_stop_paid_frozen_request_before_any_grant(request_bulk,
         )
         refunds = _claim_refunds(DriveRequestPaymentService(db=sharing.db), connection, limit=1)
         assert [item["request_id"] for item in refunds] == [request_id]
+        # An autoshare Stop also stops the frozen batch in the same transaction.
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": review["shareId"]},
+            ).scalar_one()
+            == "stopped"
+        )
 
-    with pytest.raises(DriveSharingError, match="request_changed"):
+    with pytest.raises(DriveSharingError, match="bulk_changed"):
         await request_bulk.approve(
             user_id="owner",
             share_id=review["shareId"],

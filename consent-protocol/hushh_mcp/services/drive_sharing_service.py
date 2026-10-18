@@ -237,15 +237,28 @@ class DriveSharingService:
         await wake_drive_work_stages(*QUEUED_REQUEST_STAGES)
         return result
 
+    async def _stop_generation(self, user_id, request_id):
+        """Stop is the request owner's alone; anyone else learns it is unavailable.
+
+        The store refuses a non-owner with request_unavailable. Someone with no
+        Drive connection would otherwise hear reconnect_required first.
+        """
+        try:
+            return await self._management_generation(user_id)
+        except DriveSharingError:
+            if not await self.store.manages_request(user_id=user_id, request_id=request_id):
+                raise DriveSharingError("request_unavailable") from None
+            raise
+
     async def prepare_revocation(self, *, user_id, request_id):
-        generation = await self._management_generation(user_id)
+        generation = await self._stop_generation(user_id, request_id)
         await self._require_owner()
         return await self.store.prepare_revocation(
             user_id=user_id, generation=generation, request_id=request_id
         )
 
     async def revoke(self, *, user_id, **kwargs):
-        generation = await self._management_generation(user_id)
+        generation = await self._stop_generation(user_id, kwargs["request_id"])
         await self._require_owner()
         result = await self.store.confirm_revocation(
             user_id=user_id, generation=generation, **kwargs

@@ -35,8 +35,9 @@ WITHDRAWABLE_STATUSES = frozenset({"pending", "preparing", "review_ready", "appr
 UNPAID_ORDER_STATUSES = frozenset({"awaiting_payment", "checkout_open", "expired"})
 
 # Any effect or grant past "queued" may already be visible in Google, and an
-# outcome Google never confirmed counts as dispatched, never as undone.
-_DISPATCHED_SQL = """SELECT EXISTS (
+# outcome Google never confirmed counts as dispatched, never as undone. The
+# owner's Stop reads the same test to say whether anything was shared.
+DISPATCHED_SQL = """SELECT EXISTS (
     SELECT 1 FROM drive_bulk_share_effects e
     JOIN drive_bulk_shares b ON b.share_id=e.share_id
     WHERE b.origin_request_id=:request
@@ -110,7 +111,7 @@ def require_unpaid_and_undispatched(connection, locked: dict[str, Any]) -> None:
     if _paid(locked["order"]) or _paid(locked["obligation"]):
         raise DriveSharingError("request_paid")
     request_id = str(locked["request"]["request_id"])
-    if connection.execute(text(_DISPATCHED_SQL), {"request": request_id}).scalar_one():
+    if connection.execute(text(DISPATCHED_SQL), {"request": request_id}).scalar_one():
         raise DriveSharingError("request_paid")
 
 

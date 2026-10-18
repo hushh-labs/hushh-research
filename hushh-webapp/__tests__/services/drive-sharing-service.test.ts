@@ -176,6 +176,20 @@ describe("requester document payment boundary", () => {
     expect(await DriveSharingService.status("vault", requestId, guard)).not.toHaveProperty("workDelayedSince");
   });
 
+  it("reads the owner's request Stop state and drops one it does not know", async () => {
+    for (const requestStop of ["available", "before_sharing", "after_sharing"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...rawReview(), autoshare: true, requestStop }));
+      expect((await DriveSharingService.review("vault", requestId, guard)).requestStop).toBe(requestStop);
+    }
+    // A newer or malformed state never offers Stop and never fails the review.
+    for (const requestStop of ["stopped", true, 1, null]) {
+      fetcher.mockResolvedValueOnce(reply({ ...rawReview(), autoshare: true, requestStop }));
+      expect(await DriveSharingService.review("vault", requestId, guard)).not.toHaveProperty("requestStop");
+    }
+    fetcher.mockResolvedValueOnce(reply(rawReview()));
+    expect(await DriveSharingService.review("vault", requestId, guard)).not.toHaveProperty("requestStop");
+  });
+
   it("returns a withdrawal's payment view and surfaces a paid refusal", async () => {
     const payment = {
       state: "refund_pending", amountCents: 2500, currency: "usd",

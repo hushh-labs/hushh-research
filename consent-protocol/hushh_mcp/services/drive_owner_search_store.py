@@ -623,7 +623,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                   AND user_id=:user FOR UPDATE""",
                 {"request": request_id, "user": user_id},
             )
-            if request is None or request["status"] != "pending":
+            if (
+                request is None
+                or request["status"] != "pending"
+                # The owner's Stop ended this search for good; nothing resumes it.
+                or request["access_stop_requested_at"] is not None
+            ):
                 return None
             private = self.search_cipher.open(
                 request["request_envelope"],
