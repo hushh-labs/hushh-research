@@ -6,7 +6,8 @@ import { productFontStyle, stripAppFontFaces, awaitProductFont } from "./fixture
 
 let script: string;
 let css: string;
-const shortcuts = ["Open To-do List", "Get the app", "Open Connectors"];
+const shortcuts = ["Open To-do List", "Get the app"];
+const allShortcuts = [...shortcuts, "Open Connectors"];
 test.setTimeout(120_000);
 // Reuse the production bundle within each browser project, including in CI.
 test.describe.configure({ mode: "default" });
@@ -186,7 +187,7 @@ test("mouse entry works when an embedded browser reports no hover capability", a
 test("reduced motion stays static, including preference changes mid-cycle", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openFixture(page);
-  for (const label of shortcuts) {
+  for (const label of allShortcuts) {
     const row = page.getByRole("button", { name: label, exact: true });
     await row.hover(); expect(await running(row.locator("svg"))).toBe(0);
     expect(await row.getAttribute("data-shortcut-icon-playing")).toBeNull();
@@ -201,22 +202,25 @@ test("reduced motion stays static, including preference changes mid-cycle", asyn
   expect(await running(row.locator("svg"))).toBe(0);
 });
 
-test("touch triggers the existing action immediately with static icons", async ({ browser }) => {
+test("touch starts playback and triggers the existing action immediately", async ({ browser }) => {
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 393, height: 844 } });
   const page = await context.newPage();
   await openFixture(page, "?mobile");
-  for (const [index, label] of shortcuts.entries()) {
+  for (const [index, label] of allShortcuts.entries()) {
     const row = page.getByRole("button", { name: label, exact: true });
     await row.tap();
     await expect(page.getByTestId("shortcut-result")).toHaveText(["todo", "app", "connectors"][index]);
-    expect(await running(row.locator("svg"))).toBe(0);
+    await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+    await expect.poll(() => row.getAttribute("data-shortcut-icon-playing")).toBeNull();
     expect((await row.locator("svg").boundingBox())!.width).toBe(22);
   }
   await context.close();
 });
 
-test("all shortcuts preserve their original artwork at 18, 22 and 24 px", async ({ page }, testInfo) => {
+test("To-do and Download preserve their original geometry at 18, 22 and 24 px", async ({ page }, testInfo) => {
   await openFixture(page, "?geometry");
+  // Neutralise only colour to compare the preserved artwork geometry.
+  await page.addStyleTag({ content: "main svg, main svg * { stroke: currentColor !important; } main svg[viewBox=\"0 0 256 256\"] * { stroke: none !important; fill: currentColor !important; }" });
   // Both versions must be rasterized at the same viewport coordinates. Even
   // integer translations can change diagonal-edge rounding by one colour step.
   await page.locator("main svg").evaluateAll(elements => elements.forEach(element => {
@@ -225,7 +229,7 @@ test("all shortcuts preserve their original artwork at 18, 22 and 24 px", async 
   }));
   const differences: string[] = [];
   for (const size of [18, 22, 24]) {
-    for (const name of ["todo", "download", "connectors"]) {
+    for (const name of ["todo", "download"]) {
       const actualIcon = page.locator(`[data-${name}="${size}"]`);
       const originalIcon = page.locator(`[data-original-${name}="${size}"]`);
       await originalIcon.evaluate(element => { (element as SVGSVGElement).style.visibility = "visible"; });
@@ -234,12 +238,135 @@ test("all shortcuts preserve their original artwork at 18, 22 and 24 px", async 
       await actualIcon.evaluate(element => { (element as SVGSVGElement).style.visibility = "visible"; });
       const actual = await actualIcon.screenshot();
       await actualIcon.evaluate(element => { (element as SVGSVGElement).style.visibility = "hidden"; });
-      if (!actual.equals(original)) {
+      // Separate colour regions retain geometry but can change fractional-edge
+      // rasterisation by a few channel levels when a compound fill is split.
+      const pixelDifference = await page.evaluate(async ({ actual, original }) => {
+        const pixels = async (data: string) => {
+          const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+          const canvas = document.createElement("canvas");
+          canvas.width = image.width; canvas.height = image.height;
+          const ctx = canvas.getContext("2d")!;
+          ctx.drawImage(image, 0, 0);
+          return ctx.getImageData(0, 0, image.width, image.height).data;
+        };
+        const [a, b] = await Promise.all([pixels(actual), pixels(original)]);
+        let max = 0, changed = 0;
+        for (let index = 0; index < a.length; index += 4) {
+          const delta = Math.max(...[0, 1, 2].map(channel => Math.abs(a[index + channel]! - b[index + channel]!)));
+          max = Math.max(max, delta);
+          if (delta) changed++;
+        }
+        return { max, changed };
+      }, { actual: actual.toString("base64"), original: original.toString("base64") });
+      if (pixelDifference.max > 4 || pixelDifference.changed > size * size * .05) {
         differences.push(`${name} at ${size}px`);
+        fs.writeFileSync(testInfo.outputPath(`${name}-${size}-actual.png`), actual);
+        fs.writeFileSync(testInfo.outputPath(`${name}-${size}-original.png`), original);
         await testInfo.attach(`${name}-${size}-actual`, { body: actual, contentType: "image/png" });
         await testInfo.attach(`${name}-${size}-original`, { body: original, contentType: "image/png" });
       }
     }
   }
   expect(differences).toEqual([]);
+});
+
+
+test("Weave keeps the approved quarter-turn and alternating colours across replay", async ({ page, browserName }, testInfo) => {
+  await openFixture(page, "?mobile");
+  const frozen = new Date("2026-01-01T00:00:00Z");
+  await page.clock.install({ time: frozen });
+  await page.clock.pauseAt(new Date(frozen.getTime() + 1000));
+  const row = page.getByRole("button", { name: "Open Connectors", exact: true });
+  const svg = row.locator("svg");
+  const title = row.locator("[data-agent-history-row-title]");
+  const bounds = { svg: await svg.boundingBox(), title: await title.boundingBox() };
+  const colours = () => svg.evaluate(element => [...element.querySelectorAll("[data-weave-loop]")].sort((a, b) => Number(a.getAttribute("data-weave-loop")) - Number(b.getAttribute("data-weave-loop"))).map(group => getComputedStyle(group.querySelector("path")!).stroke));
+  const originalColours = await colours();
+  expect(originalColours[0]).toBe(originalColours[2]);
+  expect(originalColours[1]).toBe(originalColours[3]);
+  expect(originalColours[0]).not.toBe(originalColours[1]);
+  for (let cycle = 0; cycle < 3; cycle++) {
+    const resting = await svg.innerHTML();
+    const before = await colours();
+    await title.hover();
+    await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+    await page.clock.runFor(300);
+    expect(await svg.innerHTML()).not.toBe(resting);
+    expect(await colours()).toEqual(before);
+    const movingFrame = await svg.innerHTML();
+    await row.click(); // The action rerenders its parent while playback is active.
+    await expect(page.getByTestId("shortcut-result")).toHaveText("connectors");
+    expect(await svg.innerHTML()).toBe(movingFrame);
+    await page.mouse.move(700, 50);
+    await title.hover(); // Re-entry cannot restart the cycle.
+    await page.clock.runFor(700);
+    await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+    expect(await colours()).toEqual(before);
+    await page.clock.runFor(100);
+    await expect(row).not.toHaveAttribute("data-shortcut-icon-playing");
+    expect(await colours()).toEqual([before[1], before[0], before[3], before[2]]);
+    expect({ svg: await svg.boundingBox(), title: await title.boundingBox() }).toEqual(bounds);
+    const settled = await svg.innerHTML();
+    await page.clock.runFor(250);
+    expect(await svg.innerHTML()).toBe(settled);
+    await page.mouse.move(700, 50);
+  }
+  await page.locator("[data-agent-history-footer]").screenshot({ path: testInfo.outputPath("three-shortcuts-mobile.png") });
+  await page.getByRole("button", { name: "Get the app", exact: true }).focus();
+  // Safari uses Option-Tab for full keyboard navigation when its default
+  // tab preference skips buttons. Exercise that real browser input path.
+  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  await expect(row).toBeFocused();
+  await expect(row).toHaveAttribute("data-shortcut-icon-playing", "true");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(row).not.toHaveAttribute("data-shortcut-icon-playing");
+  const reducedFrame = await svg.innerHTML();
+  await row.click();
+  await page.clock.runFor(1200);
+  expect(await svg.innerHTML()).toBe(reducedFrame);
+});
+
+test("all shortcut details use the actual Profile accent and ink tokens", async ({ page }) => {
+  await openFixture(page);
+  for (const dark of [false, true]) {
+    await page.locator("html").evaluate((element, enabled) => element.classList.toggle("dark", enabled), dark);
+    const tokens = await page.locator("body").evaluate(element => {
+      const probe = document.createElement("span");
+      element.append(probe);
+      probe.style.color = "var(--ios-account-accent)";
+      const accent = getComputedStyle(probe).color;
+      probe.style.color = "var(--ios-account-label)";
+      const ink = getComputedStyle(probe).color;
+      probe.remove();
+      return { accent, ink };
+    });
+    const todo = page.getByRole("button", { name: "Open To-do List", exact: true }).locator("svg");
+    expect(await todo.locator("path[d='M11 7h6']").evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.accent);
+    expect(await todo.locator("rect[x='7'][y='2']").last().evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.ink);
+    const app = page.getByRole("button", { name: "Get the app", exact: true }).locator("svg");
+    expect(await app.locator("g").filter({ has: page.locator("path") }).first().locator(":scope > path").nth(1).evaluate(element => getComputedStyle(element).fill)).toBe(tokens.accent);
+    const weave = page.getByRole("button", { name: "Open Connectors", exact: true }).locator("svg");
+    expect(await weave.locator("[data-weave-loop='0'] path").first().evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.accent);
+    expect(await weave.locator("[data-weave-loop='1'] path").first().evaluate(element => getComputedStyle(element).stroke)).toBe(tokens.ink);
+  }
+});
+
+
+test("Weave settling and reset render identical pixels at sidebar sizes", async ({ page }, testInfo) => {
+  await openFixture(page, "?geometry");
+  await page.locator("main svg").evaluateAll(elements => elements.forEach(element => {
+    Object.assign((element as SVGSVGElement).style, { position: "fixed", left: "32px", top: "32px", visibility: "hidden" });
+  }));
+  for (const size of [18, 22, 24]) {
+    const end = page.locator(`[data-weave-end="${size}"]`);
+    const reset = page.locator(`[data-weave-reset="${size}"]`);
+    await end.evaluate(element => { (element as SVGSVGElement).style.visibility = "visible"; });
+    const expected = await end.screenshot();
+    await end.evaluate(element => { (element as SVGSVGElement).style.visibility = "hidden"; });
+    await reset.evaluate(element => { (element as SVGSVGElement).style.visibility = "visible"; });
+    expect(await reset.screenshot()).toEqual(expected);
+    await reset.evaluate(element => { (element as SVGSVGElement).style.visibility = "hidden"; });
+  }
+  await openFixture(page, "?frames");
+  await page.locator("main").screenshot({ path: testInfo.outputPath("weave-motion-frames.png") });
 });
