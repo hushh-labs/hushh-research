@@ -76,6 +76,20 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+// Profile settings import these cold native service paths into the bundle.
+// This browser fixture admits no native calls; fail if one is actually used.
+function unavailableNativeBridge(name: string) {
+  return new Proxy({}, {
+    get(_target, method) {
+      throw new Error(`${name}.${String(method)} is not admitted in the Connections layout fixture`);
+    },
+  });
+}
+export const HushhPersonalKnowledgeModel = unavailableNativeBridge("HushhPersonalKnowledgeModel");
+export const HushhVault = unavailableNativeBridge("HushhVault");
+export const HushhConsent = unavailableNativeBridge("HushhConsent");
+export const HushhNotifications = unavailableNativeBridge("HushhNotifications");
+export const HushhLocation = unavailableNativeBridge("HushhLocation");
 export const ApiService = {
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.
