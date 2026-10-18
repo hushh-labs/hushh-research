@@ -34,10 +34,18 @@ The shared operation owner now rejects superseded/dismissed preview loads and
 old-owner refreshes, serializes whole-domain sharing/context writes and keeps
 confirmed mutations distinct from a later refresh failure. Native revocation
 retains the existing scope-wide effect, explicitly explained in confirmation.
-Shared records, protected details, financial-context forms and the full Memory
+Shared records, protected details and the full Memory
 workspace retain an explicit complete-body handoff; they are reachable, **not
 counted as converted**. Search, native row presence and a successful build do
 not establish visual, accessibility, device-performance or whole-roster parity.
+
+Financial-context creation/editing now uses a closed NativeDrawers v1 private
+scene, the existing retained encrypted writer and the same revisioned draft as
+web. Native multiline text, category, Save/Cancel and final-input reconciliation
+reuse the shared private-form lifecycle used by Connector editors. Record targets
+stay in React; the writer rejects an entry removed after the editor opened. A
+confirmed save closes the form; an error retains its text. This source mapping
+does not qualify a real save, IME or device transition. Ordinary builds stay OFF.
 
 Native menu presence is not feature conversion. The authored normal roster has
 13 destinations; Developer tools is an additional guarded destination. Current
@@ -103,7 +111,7 @@ not integrated Connector presentation or physical-device qualification.
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
 | Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; installed activity/filter/Back journey passes, mutation and receipt-path qualification remain separate |
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
-| Memory | Native category/section/entity browsing, search, sharing and Live Memory source mapping; shared/protected bodies and ordinary editing still require native conversion/qualification |
+| Memory | Native category/section/entity browsing, search, sharing, Live Memory and financial-context editing; shared/protected bodies and the route-bound full workspace retain their explicit handoff. Integrated qualification is separate |
 | Personal World Model | Native research/status, cited facts/decisions/corrections/removal, public-source preparation/review/sharing confirmation, invitation create/share/revoke/claim and research/email settings are source-mapped; combined candidate qualification is separate |
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor and Gemini configuration now source-mapped through shared controllers; their candidate qualification remains separate |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |

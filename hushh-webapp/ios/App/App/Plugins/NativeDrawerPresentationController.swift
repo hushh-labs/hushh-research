@@ -1116,6 +1116,8 @@ struct NativeDrawerContent: View {
         } else {
             Button { model.choice("row", row: row.id) } label: { profileRowLabel(row) }
                 .buttonStyle(.plain)
+                .accessibilityLabel(row.label)
+                .accessibilityValue([row.detail, row.trailing].compactMap { $0 }.joined(separator: ", "))
                 .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
                 .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
                 .modifier(NativeDrawerPendingChoice(pending: model.choicePending))

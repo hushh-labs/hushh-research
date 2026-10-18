@@ -66,16 +66,19 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     private var sequence = 0; private var confirmed = 0; private var lastComposing = false
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
+    private var textViews = [String: WeakTextView]()
+    private final class WeakTextView { weak var value: UITextView?; init(_ value: UITextView) { self.value = value } }
     var edit: ((Projection.Draft, Bool, Int) -> Bool)?
     var choose: ((NativeProfileNameAction) -> Bool)?
     var finalEdit: ((Projection.Draft, Int) -> Void)?
-    var composing: Bool { fields.values.contains { $0.value?.markedTextRange != nil } }
+    var composing: Bool { fields.values.contains { $0.value?.markedTextRange != nil } || textViews.values.contains { $0.value?.markedTextRange != nil } }
     var canEdit: Bool { !retired && !projection.busy && pending == nil }
     var canCancel: Bool { !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
     var canSave: Bool { canEdit && !projection.checking && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: Projection) { self.projection = projection; draft = projection.draft }
     func register(_ field: UITextField, name: String) { fields[name] = WeakField(field) }
+    func register(_ field: UITextView, name: String) { textViews[name] = WeakTextView(field) }
     func update(_ next: Projection) -> Bool {
         guard !retired, next.valid, next.identity == projection.identity, next.scene == projection.scene, next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration, next.updateSequence > projection.updateSequence,
@@ -94,6 +97,7 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     func capture() {
         var value = draft
         for (name, field) in fields { if let text = field.value?.text { value[name] = text } }
+        for (name, field) in textViews { if let text = field.value?.text { value[name] = text } }
         emit(value)
     }
     func change(_ mutation: (inout Projection.Draft) -> Void) {
@@ -102,6 +106,9 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
         var value = draft; mutation(&value)
         guard value.valid else { return }
         for (name, field) in fields where value[name] != draft[name] {
+            field.value?.text = value[name]; field.value?.undoManager?.removeAllActions()
+        }
+        for (name, field) in textViews where value[name] != draft[name] {
             field.value?.text = value[name]; field.value?.undoManager?.removeAllActions()
         }
         emit(value)
@@ -125,8 +132,10 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
         retired = true; edit = nil; choose = nil
         let editors = fields.values.compactMap(\.value)
         for field in editors { field.unmarkText(); field.resignFirstResponder() }
+        for field in textViews.values.compactMap({ $0.value }) { field.unmarkText(); field.resignFirstResponder() }
         var last = draft
         for (name, field) in fields { if let text = field.value?.text { last[name] = text } }
+        for (name, field) in textViews { if let text = field.value?.text { last[name] = text } }
         // A committed edit is still unacknowledged even if the bridge callback
         // accepted dispatch. This also covers callback rejection after emit()
         // updated the local draft; equality alone cannot prove React received it.
@@ -135,7 +144,10 @@ struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
         }
         finalEdit = nil
         for field in editors { field.text = ""; field.undoManager?.removeAllActions() }
-        fields.removeAll(); draft = .empty; projection.draft = .empty; projection.error = nil; pending = nil
+        for field in textViews.values.compactMap({ $0.value }) {
+            field.delegate = nil; field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
+        }
+        fields.removeAll(); textViews.removeAll(); draft = .empty; projection.draft = .empty; projection.error = nil; pending = nil
     }
 }
 typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>

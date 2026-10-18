@@ -86,6 +86,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "settleProfileRuntimeAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileRuntimeScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyProfileConnectorScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfileMemoryScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfileMemoryAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfileMemoryAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfileMemoryScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmProfileConnectorAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfileConnectorAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileConnectorScene", returnType: CAPPluginReturnPromise),
@@ -105,6 +109,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var worldModelScene: NativeProfileWorldModelScene? { form as? NativeProfileWorldModelScene }
     private var runtimeScene: NativeProfileRuntimeScene? { form as? NativeProfileRuntimeScene }
     private var connectorScene: NativeProfileConnectorScene? { form as? NativeProfileConnectorScene }
+    private var memoryScene: NativeProfileMemoryScene? { form as? NativeProfileMemoryScene }
     private var pricingScene: NativeProfilePricingScene? {
         get { form as? NativeProfilePricingScene }
         set { form = newValue }
@@ -169,6 +174,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileWorldModelPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileRuntimeScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileConnectorScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileMemoryScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 // Qualification-only candidate. Ordinary builds keep the
                 // established renderer through the single shell policy.
                 "profileConnectorPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
@@ -483,11 +489,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let nativeRuntime = scene == "runtime-provider" && profile.open && profile.profileStack?.last?.id == "gemini" &&
             destinationId != nil && destinationId == profile.profileDestinationId
         let connectorDestinations = ["connector-custom-server": "connector-custom", "connector-profile-link": "connector-detail", "connector-packet-price": "connector-packet"]
+        let nativeMemory = scene == "memory-financial-context" && profile.open && profile.profileStack?.last?.id == "memory-domain" &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         let nativeConnector = connectorDestinations[scene] == profile.profileStack?.last?.id && connectorDestinations[scene] != nil && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector) && profile.enabled
+            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory) && profile.enabled
     }
     @objc func applyProfileRuntimeScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -650,6 +658,93 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 scene.retire { call.resolve(scene.receipt("retired")) }; return
             }
             if let scene = self.connectorScene {
+                guard scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+            // Main-actor admission creates the form before presentation starts.
+            // With neither an active nor retiring instance there is nothing to
+            // withdraw; an unadmitted revision cannot poison other form leases.
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = sceneName; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
+    }
+    @objc func applyProfileMemoryScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeMemoryProjection.keys),
+                  let sceneName = call.getString("scene"), sceneName == "memory-financial-context",
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["category", "text"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 1_048_576,
+                  let next = try? JSONDecoder().decode(NativeMemoryProjection.self, from: bytes), next.valid,
+                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_CONNECTOR_UNAVAILABLE"); return }
+            if let scene = self.memoryScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
+            let scene = NativeProfileMemoryScene(next); self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.finalEdit = { [weak self, weak scene] draft, revision in
+                guard let self, let scene, self.sessionFence.contains(scene.identity),
+                      self.memoryScene === scene || self.retiringForms[ObjectIdentifier(scene)] === scene else { return }
+                let state = scene.model.projection
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = false; event["editRevision"] = revision
+                event["baseDraftRevision"] = state.draftRevision; event["acknowledgedEditRevision"] = state.acknowledgedEditRevision
+                self.notifyListeners("profileMemoryFinalEdit", data: event, retainUntilConsumed: false)
+            }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.memoryScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profileMemoryEdit", data: event, retainUntilConsumed: false); return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.memoryScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profileMemoryAction", data: event, retainUntilConsumed: false); return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return }
+                guard presented, self.memoryScene === scene,
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                    if self.memoryScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_CONNECTOR_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_CONNECTOR_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfileMemoryAction(_ call: CAPPluginCall) { memoryAction(call, settlement: false) }
+    @objc func settleProfileMemoryAction(_ call: CAPPluginCall) { memoryAction(call, settlement: true) }
+    private func memoryAction(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  let sceneName = call.getString("scene"), sceneName == "memory-financial-context",
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: sceneName, destinationId: call.getString("destinationId")),
+                  let scene = self.memoryScene, scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: sceneName) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfileMemoryScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
+                  let identity = self.identity(call), identity.family == "profile", let sceneName = call.getString("scene"), sceneName == "memory-financial-context",
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == sceneName && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.memoryScene {
                 guard scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
                 self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
             }

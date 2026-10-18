@@ -392,6 +392,25 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testMemoryMultilineEditorReconcilesFinalInputAndScrubsItsReplica() throws {
+        let state = NativeMemoryProjection(documentId: "public-memory-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+            family: "profile", scene: "memory-financial-context", destinationId: "public-memory-visit", updateSequence: 1, privacyGeneration: 0,
+            acknowledgedEditRevision: 0, draftRevision: 0, draft: .init(category: "risk", text: "Synthetic"), canSave: true, busy: false, error: nil,
+            appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        XCTAssertTrue(state.valid)
+        let model = NativeMemoryEditorModel(state), editor = UITextView()
+        editor.text = "Synthetic multiline\n漢字 😀"; model.register(editor, name: "text")
+        var final: NativeMemoryDraft?
+        model.edit = { _, _, _ in true }; model.finalEdit = { value, _ in final = value }
+        model.capture(); XCTAssertFalse(model.canSave)
+        model.clear()
+        XCTAssertEqual(final?.text, "Synthetic multiline\n漢字 😀")
+        XCTAssertEqual(editor.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.finalEdit); XCTAssertNil(model.choose); XCTAssertTrue(model.retired)
+        XCTAssertFalse(model.update(state))
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()

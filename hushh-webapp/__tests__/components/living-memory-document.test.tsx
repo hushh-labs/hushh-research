@@ -157,7 +157,7 @@ describe("native Memory operation boundary", () => {
       metadataFailed: false, sharingFailed: false, domains: [], connections: [], selectedDomain: null, selectedConnection: null,
       permissions: [], upgrade: null, manifestLoading: false, manifestFailed: false, pendingPermissions: {},
       preview: { open: false, title: "", presentation: null, loading: false, error: null, deletingEntityKey: null },
-      openDomain: vi.fn(), openConnection: vi.fn(), openSharing: vi.fn(), openRoot: vi.fn(), refresh: vi.fn(), navigate: vi.fn(), closePreview: vi.fn(), openRetainedDetails: vi.fn(),
+      openDomain: vi.fn(), openConnection: vi.fn(), openSharing: vi.fn(), openRoot: vi.fn(), refresh: vi.fn(), navigate: vi.fn(), closePreview: vi.fn(), openRetainedDetails: vi.fn(), openFinancialContext: vi.fn(),
       previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
       removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
   }

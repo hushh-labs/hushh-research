@@ -59,6 +59,8 @@ import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./nativ
 import { useNativePayouts } from "./use-native-payouts";
 import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
+import { NativeMemoryEditor } from "./native-memory-editor";
+import { validNativeMemoryDraft, type NativeMemoryDraft } from "@/lib/capacitor/native-profile-memory-scene";
 import { useProfileFinancePreferences } from "./use-profile-finance-preferences";
 import { projectNativeFinancePreferences } from "./native-finance-preferences";
 import { pkmPreviewEntityTarget, validPkmPreviewPath } from "@/lib/profile/pkm-section-preview";
@@ -716,12 +718,25 @@ function ProfilePageContent({
     "connect" | "disconnect" | "sync" | null
   >(null);
   const [savingFinancialContext, setSavingFinancialContext] = useState(false);
-  const [financialContextText, setFinancialContextText] = useState("");
-  const [financialContextCategory, setFinancialContextCategory] =
+  const financialDraft = useRef({ text: "", category: "general" as FinancialContextCategory, target: null as string | null, revision: 0 });
+  const [financialContextText, renderFinancialContextText] = useState("");
+  const [financialContextCategory, renderFinancialContextCategory] =
     useState<FinancialContextCategory>("general");
-  const [editingFinancialContextId, setEditingFinancialContextId] = useState<
+  const [editingFinancialContextId, renderEditingFinancialContextId] = useState<
     string | null
   >(null);
+  const setFinancialContextText = useCallback((text: string) => {
+    financialDraft.current = { ...financialDraft.current, text, revision: financialDraft.current.revision + 1 }; renderFinancialContextText(text);
+  }, []);
+  const setFinancialContextCategory = useCallback((category: FinancialContextCategory) => {
+    financialDraft.current = { ...financialDraft.current, category, revision: financialDraft.current.revision + 1 }; renderFinancialContextCategory(category);
+  }, []);
+  const setEditingFinancialContextId = useCallback((target: string | null) => {
+    financialDraft.current = { ...financialDraft.current, target, revision: financialDraft.current.revision + 1 }; renderEditingFinancialContextId(target);
+  }, []);
+  const [nativeContextOpen, setNativeContextOpen] = useState(false);
+  const [nativeContextFailed, setNativeContextFailed] = useState(false);
+  const [nativeContextError, setNativeContextError] = useState<string | null>(null);
   const vaultUnlockCompletingRef = useRef(false);
   const vaultCreationCompletingRef = useRef(false);
   const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
@@ -812,11 +827,12 @@ function ProfilePageContent({
     setPkmMetadata(null); setConsentCenter(null); setDomainManifests({});
     setPkmError(null); setConsentCenterError(null);
     setDomainManifestErrors({}); setLoadingDomainManifests({});
-    setSavingFinancialContext(false); setFinancialContextText(""); setEditingFinancialContextId(null);
+    setSavingFinancialContext(false); setFinancialContextText(""); setEditingFinancialContextId(null); setFinancialContextCategory("general");
+    setNativeContextOpen(false); setNativeContextError(null);
     setDomainPreview({ open: false, permissionKey: null, domainKey: null, topLevelScopePath: null,
       title: "", description: "", presentation: null, loading: false, error: null, deletingEntityKey: null });
     return () => memoryOperations.retire();
-  }, [memoryOperations]);
+  }, [memoryOperations, setFinancialContextText, setEditingFinancialContextId, setFinancialContextCategory]);
   useLayoutEffect(() => {
     memoryOperations.cancelPreview();
     return () => memoryOperations.cancelPreview();
@@ -1013,6 +1029,16 @@ function ProfilePageContent({
   const [nativeMemoryWebBody, setNativeMemoryWebBody] = useState(false);
   const nativeMemoryActive = presentation === "native-page" && nativeMenuOpen && nativeMemoryAvailable &&
     activePanel === "my-data" && vaultAccess.canMutateSecureData;
+  const contextVisit = useMemo(() => {
+    const visit = { active: false, panel: activePanel, detail: activeDetail, open: nativeMenuOpen,
+      current: () => visit.active && visit.panel === "my-data" && (presentation !== "native-page" || visit.open) && memoryOperations.current() };
+    return visit;
+  }, [memoryOperations, activePanel, activeDetail, nativeMenuOpen, presentation]);
+  useLayoutEffect(() => {
+    contextVisit.active = true;
+    setNativeContextOpen(false); setNativeContextFailed(false); setNativeContextError(null);
+    return () => { contextVisit.active = false; };
+  }, [contextVisit]);
   useLayoutEffect(() => { setNativeMemoryWebBody(false); }, [activeDetail, nativeMenuOpen, nativeDetailOwner]);
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
@@ -1272,10 +1298,18 @@ function ProfilePageContent({
     navigate: href => router.push(href),
     closePreview: closeDomainPreview,
     openRetainedDetails: () => setNativeMemoryWebBody(true),
+    openFinancialContext: () => {
+      if (!memoryOperations.current() || memoryOperations.writing("financial")) return;
+      setEditingFinancialContextId(null); setFinancialContextText(""); setFinancialContextCategory("general");
+      setNativeContextError(null); setNativeContextOpen(true);
+    },
     previewPermission: permission => selectedDomain ? handlePreviewDomainPermission(selectedDomain.key, permission) : Promise.resolve(),
     setPosture: (permission, posture) => selectedDomain ? handleToggleDomainPermission(selectedDomain.key, permission, posture) : Promise.resolve(),
     removeEntity: entity => handleDeletePkmPreviewEntity(entity),
-    editEntity: entity => { handleEditFinancialContextEntry(entity); setNativeMemoryWebBody(true); },
+    editEntity: entity => {
+      if (!handleEditFinancialContextEntry(entity)) return;
+      setNativeContextError(null); setNativeContextOpen(true);
+    },
     revoke: scope => handleRevoke(scope, undefined, { quiet: true }),
   });
   useBackLayer(pathname, nativeMemoryActive && !nativeMemoryWebBody && nativeMemory.nested ? 3 : 0, nativeMemory.back,
@@ -3170,24 +3204,26 @@ function ProfilePageContent({
     }
   };
 
-  const handleSaveFinancialContext = async () => {
+  const handleSaveFinancialContext = async (): Promise<boolean> => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
-      return;
+      return false;
     }
 
-    const contextText = financialContextText.trim();
+    const submitted = { ...financialDraft.current };
+    const contextText = submitted.text.trim();
 
     if (!contextText) {
       toast.error("Add financial context before saving.");
-      return;
+      return false;
     }
     const operation = memoryOperations.beginWrite("financial");
-    if (!operation) return;
+    if (!operation) return false;
 
     const updatedAt = new Date().toISOString();
     setSavingFinancialContext(true);
     setPkmError(null);
+    setNativeContextError(null);
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -3218,16 +3254,17 @@ function ProfilePageContent({
               )
             : [];
           const nextEntry = {
-            id: editingFinancialContextId || `ctx_${Date.parse(updatedAt)}`,
-            category: financialContextCategory,
+            id: submitted.target || `ctx_${Date.parse(updatedAt)}`,
+            category: submitted.category,
             text: contextText,
             status: "active",
             source: "profile_my_data",
             updated_at: updatedAt,
           };
-          const nextEntries = editingFinancialContextId
+          if (submitted.target && !existingEntries.some(entry => entry.id === submitted.target)) throw new Error("This saved entry is no longer available. Go back and refresh.");
+          const nextEntries = submitted.target
             ? existingEntries.map((entry) =>
-                entry.id === editingFinancialContextId
+                entry.id === submitted.target
                   ? { ...entry, ...nextEntry }
                   : entry,
               )
@@ -3262,25 +3299,29 @@ function ProfilePageContent({
       if (!result.success) {
         throw new Error(result.message || "Financial context save failed.");
       }
-      if (!operation.current()) return;
+      if (!operation.current()) return false;
 
       toast.success(
-        editingFinancialContextId
+        submitted.target
           ? "Financial context updated."
           : "Financial context saved.",
       );
-      setFinancialContextText("");
-      setEditingFinancialContextId(null);
+      if (financialDraft.current.revision === submitted.revision) {
+        setFinancialContextText(""); setEditingFinancialContextId(null);
+      }
       void refreshPkmMetadata(true);
       void refreshDomainManifest("financial", true);
+      return true;
     } catch (error) {
-      if (!operation.current()) return;
+      if (!operation.current()) return false;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't save financial context.";
       setPkmError(message);
+      setNativeContextError("Couldn't save financial context. Your text is still here. Try again when ready.");
       toast.error(message);
+      return false;
     } finally {
       if (operation.current()) setSavingFinancialContext(false);
       operation.finish();
@@ -3288,10 +3329,10 @@ function ProfilePageContent({
   };
 
   const handleEditFinancialContextEntry = (entity: PkmSectionPreviewEntity) => {
-    if (!memoryOperations.current() || memoryOperations.writing("financial")) return;
+    if (!memoryOperations.current() || memoryOperations.writing("financial")) return false;
     const target = pkmPreviewEntityTarget(entity);
     if (target?.kind !== "financial-context" || !domainPreview.open ||
-        !domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity))) return;
+        !domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity))) return false;
     const payload = entity.editPayload || {};
     const category =
       typeof payload.category === "string" && payload.category.trim()
@@ -3306,6 +3347,7 @@ function ProfilePageContent({
     setFinancialContextCategory(category as FinancialContextCategory);
     setFinancialContextText(text);
     closeDomainPreview();
+    return true;
   };
 
   const handleDeleteFinancialContextEntry = async (entryId: string) => {
@@ -4936,6 +4978,17 @@ function ProfilePageContent({
       root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
     } : activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
       pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
+      editor: destinationId => nativeContextOpen && !nativeContextFailed ? <NativeMemoryEditor owner={nativeDetailOwner} destinationId={destinationId}
+        model={{ current: contextVisit.current, draft: { category: financialContextCategory, text: financialContextText },
+          inputRevision: () => financialDraft.current.revision, mutationPending: () => memoryOperations.writing("financial"),
+          busy: savingFinancialContext, error: nativeContextError, canSave: !!financialContextText.trim(),
+          changeDraft: (draft: NativeMemoryDraft, expected) => {
+            if (!contextVisit.current() || memoryOperations.writing("financial") || !validNativeMemoryDraft(draft) || expected !== undefined && expected !== financialDraft.current.revision) return false;
+            financialDraft.current = { ...financialDraft.current, ...draft, revision: financialDraft.current.revision + 1 };
+            renderFinancialContextText(draft.text); renderFinancialContextCategory(draft.category); setNativeContextError(null); return true;
+          }, save: handleSaveFinancialContext }}
+        onClose={() => { setNativeContextOpen(false); setEditingFinancialContextId(null); setFinancialContextText(""); setFinancialContextCategory("general"); }}
+        onSaved={() => setNativeContextOpen(false)} onFallback={() => { setNativeContextFailed(true); setNativeMemoryWebBody(true); }} /> : null,
       back: () => { if (!nativeMemory.back()) popProfileStack(); }, root: () => updateProfileView({ panel: null, detail: null }, "replace")
     } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
       onPresented: nativePayout.onPresented,

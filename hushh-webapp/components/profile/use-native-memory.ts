@@ -25,6 +25,7 @@ export type NativeMemoryModel = {
   openDomain: (key: string) => void; openConnection: (id: string) => void; openSharing: () => void; openRoot: () => void;
   refresh: () => void; navigate: (href: string) => void; closePreview: () => void;
   openRetainedDetails: () => void;
+  openFinancialContext: () => void;
   previewPermission: (permission: PkmDomainPermissionPresentation) => Promise<void>;
   setPosture: (permission: PkmDomainPermissionPresentation, posture: PkmVisibilityPosture) => Promise<void>;
   removeEntity: (entity: PkmSectionPreviewEntity) => Promise<boolean>;
@@ -140,7 +141,7 @@ export function useNativeMemory(model: NativeMemoryModel) {
       ...domain.sourceLabels.flatMap((source, index) => read(`domain-source-${index}`, source)),
       ...domain.highlights.flatMap((item, index) => read(`domain-highlight-${index}`, item)),
     ] : read("domain-missing", model.loading ? "Loading…" : "These details are no longer available.");
-    if (domain?.key === "financial") content.push(action("financial-context-create", "Add financial context", model.openRetainedDetails, { chevron: true }));
+    if (domain?.key === "financial") content.push(action("financial-context-create", "Add financial context", model.openFinancialContext, { chevron: true }));
     if (model.manifestLoading) content.push(...read("domain-loading", "Preparing sharing controls…"));
     if (model.manifestFailed) content.push(...read("domain-error", "Sharing controls are unavailable. Go back and refresh."));
     for (const permission of model.permissions) {

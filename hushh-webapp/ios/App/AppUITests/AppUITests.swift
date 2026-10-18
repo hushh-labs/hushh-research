@@ -4804,6 +4804,27 @@ final class AppUITests: XCTestCase {
                 guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_SHARING_RETURN_FAILED"); return
                 }
+                // A disposable financial record is not invented on the shared
+                // reviewer. Exercise the real editor only when its category
+                // exists, and record absence separately from editor acceptance.
+                let financial = app.buttons.matching(NSPredicate(format: "label IN %@", ["Finance", "Financial"])).firstMatch
+                if financial.exists && financial.isHittable {
+                    financial.tap()
+                    let add = app.buttons.matching(NSPredicate(format: "label == %@", "Add financial context")).firstMatch
+                    guard waitForAdmittedControl(add) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_ENTRY_UNAVAILABLE"); return }
+                    add.tap()
+                    let text = app.textViews["native-memory-text"].firstMatch
+                    let cancel = app.buttons["native-memory-cancel"].firstMatch
+                    guard waitForAdmittedControl(text), waitForAdmittedControl(cancel) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_EDITOR_UNAVAILABLE"); return }
+                    text.tap()
+                    guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_KEYBOARD_UNAVAILABLE"); return }
+                    text.typeText("Synthetic context\nNo record is saved.")
+                    cancel.tap()
+                    guard waitForAdmittedControl(add), waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_RETURN_FAILED"); return }
+                    memoryBack.tap()
+                    guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_ROOT_RETURN_FAILED"); return }
+                    print("PROFILE_NATIVE_MEMORY_EDITOR available=true keyboard=true cancelled=true mutated=false")
+                } else { print("PROFILE_NATIVE_MEMORY_EDITOR available=false keyboard=false cancelled=false mutated=false") }
                 nativeAccountBack.tap()
                 guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_PROFILE_RETURN_FAILED"); return

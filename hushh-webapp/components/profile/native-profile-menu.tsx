@@ -166,7 +166,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setPricingSupported(pricing); onPricingCapability?.(pricing);
         const payout = stack && capability.profilePayoutPages === true;
         setPayoutSupported(payout); onPayoutCapability?.(payout);
-        const memory = stack && capability.profileMemoryPages === true;
+        const memory = stack && capability.profileMemoryPages === true && capability.profileMemoryScene === true && hasNativeProfileScene(nativeDrawers, "memory-financial-context");
         setMemorySupported(memory); onMemoryCapability?.(memory);
         const finance = settings && capability.profileFinancePreferences === true;
         setFinanceSupported(finance); onFinanceCapability?.(finance);

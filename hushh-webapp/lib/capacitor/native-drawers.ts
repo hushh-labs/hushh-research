@@ -9,6 +9,7 @@ import type { NativePhoneScenePort } from "./native-profile-phone-scene";
 import type { NativeWorldModelScenePort } from "./native-profile-world-model-scene";
 import type { NativeRuntimeScenePort } from "./native-profile-runtime-scene";
 import type { NativeConnectorScenePort } from "./native-profile-connector-scene";
+import type { NativeMemoryScenePort } from "./native-profile-memory-scene";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -96,6 +97,10 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
+  applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];
+  confirmProfileMemoryAction?: NativeMemoryScenePort["confirmProfileMemoryAction"];
+  settleProfileMemoryAction?: NativeMemoryScenePort["settleProfileMemoryAction"];
+  retireProfileMemoryScene?: NativeMemoryScenePort["retireProfileMemoryScene"];
   applyProfileConnectorScene?: NativeConnectorScenePort["applyProfileConnectorScene"];
   confirmProfileConnectorAction?: NativeConnectorScenePort["confirmProfileConnectorAction"];
   settleProfileConnectorAction?: NativeConnectorScenePort["settleProfileConnectorAction"];
@@ -104,7 +109,7 @@ export interface HushhNativeDrawersPlugin {
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
   settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
@@ -134,7 +139,7 @@ export interface HushhNativeDrawersPlugin {
   confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
   settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
+  addListener: NativeMemoryScenePort["addListener"] & NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
@@ -150,8 +155,9 @@ export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNati
 /** Admission needs the whole scene handshake, including confirmed withdrawal.
  * A flag alone cannot safely transfer an editor to a partially capable wrapper.
  * Keep this mapping shared by the destination and its editor adapters. */
-export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price" | "world-model" | "runtime-provider" | "connector-custom-server"): boolean {
-  const methods = scene === "account-name"
+export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price" | "world-model" | "runtime-provider" | "connector-custom-server" | "memory-financial-context"): boolean {
+  const methods = scene === "memory-financial-context" ? [plugin.applyProfileMemoryScene, plugin.confirmProfileMemoryAction, plugin.settleProfileMemoryAction, plugin.retireProfileMemoryScene]
+    : scene === "account-name"
     ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
     : scene === "writing-style"
       ? [plugin.applyProfileStyleScene, plugin.confirmProfileStyleAction, plugin.settleProfileStyleAction, plugin.retireProfileStyleScene]

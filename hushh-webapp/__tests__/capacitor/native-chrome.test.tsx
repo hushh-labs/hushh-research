@@ -35,6 +35,7 @@ import { NativeProfileNameFence, validNativeProfileNameProjection, type NativePr
 import { NativeWorldModelFence, validNativeWorldModelProjection, type NativeWorldModelProjection, type WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
 import { NativeRuntimeFence, validNativeRuntimeProjection, validNativeRuntimeFinalEdit, type NativeRuntimeProjection } from "@/lib/capacitor/native-profile-runtime-scene";
 import { NativeConnectorFence, validNativeConnectorProjection, validNativeConnectorFinalEdit, type NativeConnectorProjection } from "@/lib/capacitor/native-profile-connector-scene";
+import { NativeMemoryFence, validNativeMemoryProjection, validNativeMemoryFinalEdit, type NativeMemoryProjection } from "@/lib/capacitor/native-profile-memory-scene";
 import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
@@ -87,6 +88,33 @@ describe("ordinary private Profile form contract", () => {
     expect(fence.consumeEdit(edit)).toBe(true);
     const action = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, updateSequence: 1,
       privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
+  it("fences private Memory text by its destination, committed edit and single save", async () => {
+    const state: NativeMemoryProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+      family: "profile", scene: "memory-financial-context", destinationId: "public-memory-visit", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, draftRevision: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", error: null,
+      draft: { category: "risk", text: "Synthetic multiline\n漢字 😀" }, canSave: true, busy: false };
+    expect(validNativeMemoryProjection(state)).toBe(true);
+    expect(validNativeMemoryProjection({ ...state, draft: { ...state.draft, recordId: "forbidden-authority" } } as never)).toBe(false);
+    expect(validNativeMemoryProjection({ ...state, draft: { ...state.draft, category: "unknown" } } as never)).toBe(false);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, draft: state.draft, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const final = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeMemoryFinalEdit(final, state)).toBe(true);
+    expect(validNativeMemoryFinalEdit({ ...final, destinationId: "reopened-visit" }, state)).toBe(false);
+    expect(validNativeMemoryFinalEdit({ ...final, composing: true }, state)).toBe(false);
+    const fence = new NativeMemoryFence(state);
+    expect(fence.update(state)).toBe(true);
+    expect(fence.consumeEdit({ ...edit, ownerEpoch: "retired-owner" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
     expect(fence.allows(action)).toBe(false);
     expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
     expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(true);
