@@ -139,14 +139,11 @@ class ByocSetupJobRepo:
         return bool(response.data)
 
     async def touch(self, *, user_id: str, job_id: str) -> bool:
-        response = await asyncio.to_thread(
-            self._db().execute_raw,
-            """UPDATE byoc_setup_jobs SET updated_at = now()
-               WHERE user_id = :owner AND job_id = :job AND status = 'running'
-               RETURNING job_id""",
-            {"owner": user_id, "job": job_id},
+        from hushh_mcp.services.byoc_cloud_publication import update_job_progress
+
+        return await update_job_progress(
+            self, user_id=user_id, job_id=job_id, data={}, running_only=True
         )
-        return bool(response.data)
 
     async def retain_azure_setup_intent(self, *, user_id: str, job_id: str, intent: dict) -> bool:
         """Freeze the non-secret setup binding before its first cloud mutation."""
@@ -286,29 +283,18 @@ class ByocSetupJobRepo:
         response = self._db().table(_JOBS).select("*").eq("project_id", normalized).execute()
         return [dict(r) for r in (response.data or [])]
 
-    async def _guarded_update(self, *, user_id: str, job_id: str, data: dict) -> None:
-        # Ownership must hold in the UPDATE itself: a replacement can commit
-        # after a pre-read. RETURNING distinguishes a refusal from publication.
-        response = (
-            self._db()
-            .table(_JOBS)
-            .update({**data, "updated_at": _now()})
-            .eq("user_id", user_id)
-            .eq("job_id", job_id)
-            .execute()
-        )
-        if not response.data:
+    async def _guarded_update(
+        self, *, user_id: str, job_id: str, data: dict, expected_stages: list | None = None
+    ) -> None:
+        from hushh_mcp.services.byoc_cloud_publication import update_job_progress
+
+        if not await update_job_progress(
+            self, user_id=user_id, job_id=job_id, data=data, expected_stages=expected_stages
+        ):
             raise JobSuperseded(f"job {job_id} no longer owns the row")
 
     async def advance(self, *, user_id: str, job_id: str, stage: str) -> None:
-        current = await self._current(user_id)
-        if not current or current.get("job_id") != job_id:
-            raise JobSuperseded(f"job {job_id} no longer owns the row")
-        stages = list(current.get("stages") or [])
-        stages.append({"stage": stage, "at": _now()})
-        await self._guarded_update(
-            user_id=user_id, job_id=job_id, data={"stage": stage, "stages": stages}
-        )
+        await self._guarded_update(user_id=user_id, job_id=job_id, data={"stage": stage})
         logger.info("byoc_setup_job.stage user=%s job=%s stage=%s", user_id, job_id, stage)
 
     async def finish(

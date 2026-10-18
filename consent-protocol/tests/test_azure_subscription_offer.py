@@ -79,8 +79,10 @@ class _Jobs:
     async def get(self, user_id):
         return copy.deepcopy(self.row)
 
-    async def _guarded_update(self, *, user_id, job_id, data):
+    async def _guarded_update(self, *, user_id, job_id, data, expected_stages=None):
         if self.row["job_id"] != job_id:
+            raise JobSuperseded(job_id)
+        if expected_stages is not None and self.row["stages"] != expected_stages:
             raise JobSuperseded(job_id)
         self.row.update(copy.deepcopy(data))
 

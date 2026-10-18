@@ -12,6 +12,58 @@ from hushh_mcp.services.byoc_setup_job_service import (
 )
 
 
+async def update_job_progress(
+    repo,
+    *,
+    user_id: str,
+    job_id: str,
+    data: dict,
+    running_only: bool = False,
+    expected_stages: list | None = None,
+) -> bool:
+    """Publish under owner-first locks; never replace a concurrently extended journal."""
+    if set(data) - {"stage", "stages", "status", "error_code", "error_message"}:
+        raise ValueError("Unsupported setup progress fields")
+    if "stages" in data and expected_stages is None:
+        raise ValueError("Replacing setup stages requires an observed journal")
+    event = [{"stage": data["stage"], "at": _now()}] if "stage" in data else []
+    result = await asyncio.to_thread(
+        repo._db().execute_raw,
+        """WITH owner_lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(hashtextextended(:owner,171))
+        ), erasure_lock AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(hashtextextended(:owner,198)) FROM owner_lock
+        ), job AS MATERIALIZED (
+            SELECT j.user_id FROM byoc_setup_jobs j CROSS JOIN erasure_lock
+            WHERE j.user_id=:owner AND j.job_id=:job
+              AND (NOT CAST(:running_only AS boolean) OR j.status='running')
+              AND (CAST(:expected AS jsonb) IS NULL OR j.stages=CAST(:expected AS jsonb))
+            FOR UPDATE OF j
+        ) UPDATE byoc_setup_jobs j SET
+            stage=CASE WHEN p.value ? 'stage' THEN p.value->>'stage' ELSE j.stage END,
+            stages=CASE WHEN p.value ? 'stages' THEN p.value->'stages'
+                WHEN p.value ? 'stage' THEN j.stages || CAST(:event AS jsonb)
+                ELSE j.stages END,
+            status=CASE WHEN p.value ? 'status' THEN p.value->>'status' ELSE j.status END,
+            error_code=CASE WHEN p.value ? 'error_code' THEN p.value->>'error_code'
+                ELSE j.error_code END,
+            error_message=CASE WHEN p.value ? 'error_message' THEN p.value->>'error_message'
+                ELSE j.error_message END,
+            updated_at=now()
+        FROM job selected, (SELECT CAST(:patch AS jsonb) AS value) p
+        WHERE j.user_id=selected.user_id AND j.job_id=:job RETURNING j.job_id""",
+        {
+            "owner": user_id,
+            "job": job_id,
+            "running_only": running_only,
+            "expected": json.dumps(expected_stages) if expected_stages is not None else None,
+            "event": json.dumps(event),
+            "patch": json.dumps(data),
+        },
+    )
+    return bool(result.data)
+
+
 async def park_cloud(
     repo,
     *,

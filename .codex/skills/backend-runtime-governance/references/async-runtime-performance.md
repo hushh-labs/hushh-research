@@ -101,6 +101,17 @@ Rules:
    and async contexts; convert async callers to `await` the wrapper.
 3. Prefer the async asyncpg pool for new async code paths over the sync client.
 
+## Setup progress must acquire owner locks before job rows
+
+BYOC progress, heartbeat and terminal writes use the existing publication owner:
+`byoc_cloud_publication.update_job_progress`. Acquire owner lock (171), erasure lock (198) and
+then the exact owner/job row in one transaction; run blocking SQL off the event
+loop. Append to the locked current journal. Whole-journal replacements require
+an explicit observed-value comparison, including an empty journal. Preserve the
+Azure erasure trigger's refusal; never retry generic privilege failures or clear
+its history. The actual repository contention/erasure regression lives in
+`test_byoc_setup_job_azure_admission_postgres.py`.
+
 ## Caching Strategy: Cut Repeat Cost After The Loop Is Unblocked
 
 Offloading removes the freeze; caching removes repeat work. Layer caches from

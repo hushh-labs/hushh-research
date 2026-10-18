@@ -12,6 +12,7 @@ be refused, so the test fails if the admission widening is ever lost.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,6 +61,11 @@ class _Client:
             result = conn.execute(text(sql), params or {})
             rows = [dict(row._mapping) for row in result] if result.returns_rows else []
         return SimpleNamespace(data=rows)
+
+    def table(self, name):
+        from db.db_client import TableQuery
+
+        return TableQuery(name, self._engine)
 
 
 def _server(monkeypatch, *, last: int) -> TempPostgres:
@@ -114,12 +120,14 @@ def test_an_azure_setup_job_runs_from_start_to_recorded(pg, files_enabled):
     assert asyncio.run(
         repo.start(user_id=OWNER, job_id="job-1", project_id=group_ref, files_enabled=files_enabled)
     )
-    # advance()/finish() use the query-builder client; the same UPDATEs, raw.
-    for stage in ("creating_resource_group", "deploying_agent", "proving"):
-        pg.execute(
-            "UPDATE byoc_setup_jobs SET stage=%s, updated_at=now() WHERE user_id=%s AND job_id='job-1'",
-            (stage, OWNER),
+    if not files_enabled:
+        asyncio.run(
+            repo._guarded_update(
+                user_id=OWNER, job_id="job-1", data={"stages": []}, expected_stages=[]
+            )
         )
+    for stage in ("creating_resource_group", "deploying_agent", "proving"):
+        asyncio.run(repo.advance(user_id=OWNER, job_id="job-1", stage=stage))
     asyncio.run(
         record_proven_azure_cloud(
             repo, user_id=OWNER, job_id="job-1", tenant_id=TENANT, subscription_id=SUB,
@@ -127,10 +135,7 @@ def test_an_azure_setup_job_runs_from_start_to_recorded(pg, files_enabled):
             files_enabled=files_enabled,
         )
     )  # fmt: skip
-    pg.execute(
-        "UPDATE byoc_setup_jobs SET status='recorded', updated_at=now() WHERE user_id=%s AND job_id='job-1'",
-        (OWNER,),
-    )
+    asyncio.run(repo.finish(user_id=OWNER, job_id="job-1", status="recorded"))
 
     [job] = pg.execute("SELECT status, project_id FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))
     assert job == ("recorded", group_ref)
@@ -240,6 +245,92 @@ def test_raw_job_replacement_cannot_race_an_erasure_owner_lock(pg):
     finally:
         blocker.rollback()
         blocker.close()
+
+
+@pytest.mark.parametrize("method", ["advance", "touch", "finish"])
+async def test_progress_waits_for_owner_lock_and_preserves_concurrent_worker_receipt(pg, method):
+    from tests.fixtures.azure_hosted_worker import _prepared_worker
+
+    repo, _ = await _prepared_worker(pg)
+    blocker = psycopg2.connect(host=str(pg.dir), port=pg.port, user="hushh", dbname="postgres")
+    task = None
+    try:
+        with blocker.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,171))", (OWNER,))
+        options = {"stage": "importing_image"} if method == "advance" else {}
+        if method == "finish":
+            options = {"status": "recorded"}
+        task = asyncio.create_task(getattr(repo, method)(user_id=OWNER, job_id="job-1", **options))
+        deadline = time.monotonic() + 5
+        while True:
+            if task.done():
+                await task  # the original row-first implementation is refused here
+                pytest.fail("progress did not wait for its owner lock")
+            waiting = pg.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE wait_event='advisory' "
+                "AND query LIKE '%%byoc_setup_jobs%%'"
+            )[0][0]
+            if waiting:
+                break
+            assert time.monotonic() < deadline, "progress never reached its lock"
+            await asyncio.sleep(0.01)
+        with blocker.cursor() as cursor:
+            cursor.execute(
+                "SELECT begin_byoc_azure_worker(%s,%s,%s)",
+                (OWNER, "job-1", "11111111-1111-4111-8111-111111111111"),
+            )
+            assert cursor.fetchone()[0] is True
+        blocker.commit()
+        result = await asyncio.wait_for(task, 5)
+        if method == "touch":
+            assert result is True
+        journal = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+        assert journal[0]["stage"] == "azure_setup_intent"
+        assert journal[1]["stage"] == "azure_worker_started"
+        assert journal[1]["executionId"] == "11111111-1111-4111-8111-111111111111"
+        assert [event["stage"] for event in journal[2:]] == (
+            ["importing_image"] if method == "advance" else []
+        )
+        with pytest.raises(JobSuperseded):
+            await repo.advance(user_id=OWNER, job_id="wrong-job", stage="proving")
+        assert await repo.touch(user_id="other-owner", job_id="job-1") is False
+    finally:
+        blocker.rollback()
+        blocker.close()
+        if task is not None and not task.done():
+            await asyncio.wait_for(task, 5)
+        repo._db()._engine.dispose()
+
+
+async def test_progress_keeps_erasure_refusal_and_stage_replacement_cas(pg):
+    from sqlalchemy.exc import ProgrammingError
+
+    from tests.fixtures.azure_hosted_worker import _prepared_worker
+
+    repo, _ = await _prepared_worker(pg)
+    old = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+    await repo.advance(user_id=OWNER, job_id="job-1", stage="importing_image")
+    with pytest.raises(JobSuperseded):
+        await repo._guarded_update(
+            user_id=OWNER, job_id="job-1", data={"stages": old}, expected_stages=old
+        )
+    with pytest.raises(ValueError, match="observed journal"):
+        await repo._guarded_update(user_id=OWNER, job_id="job-1", data={"stages": []})
+    retained = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+    assert len(retained) == 2 and retained[0] == old[0]
+    pg.execute("SELECT reserve_personal_agent_erasure(%s,%s)", (OWNER, "attempt-progress"))
+    with pytest.raises(ProgrammingError, match="fenced for erasure") as refusal:
+        await repo.advance(user_id=OWNER, job_id="job-1", stage="proving")
+    assert isinstance(refusal.value.orig, psycopg2.errors.InsufficientPrivilege)
+    with pytest.raises(ProgrammingError, match="fenced for erasure") as refusal:
+        await repo.finish(user_id=OWNER, job_id="job-1", status="recorded")
+    assert isinstance(refusal.value.orig, psycopg2.errors.InsufficientPrivilege)
+    await repo.finish(user_id=OWNER, job_id="job-1", status="failed")
+    assert (
+        pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+        == retained
+    )
+    repo._db()._engine.dispose()
 
 
 @pytest.mark.parametrize(

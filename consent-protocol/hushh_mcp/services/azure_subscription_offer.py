@@ -98,7 +98,12 @@ async def record_subscription_offer(
         raise JobSuperseded(f"job {job_id} no longer owns the row")
     kept = [s for s in current.get("stages") or [] if s.get("stage") != OFFER_STAGE]
     record = offer.stage_record(datetime.now(timezone.utc).isoformat())
-    await jobs._guarded_update(user_id=user_id, job_id=job_id, data={"stages": [*kept, record]})
+    await jobs._guarded_update(
+        user_id=user_id,
+        job_id=job_id,
+        data={"stages": [*kept, record]},
+        expected_stages=list(current.get("stages") or []),
+    )
 
 
 async def note_subscription_offer(
