@@ -126,8 +126,16 @@ original source fails the contention negative control. The guard and migration
 are unchanged. The full local mirror's parallel leg records 21,249 passes and
 one race-hook mismatch: its old SQL-prefix check missed the new CTE. The corrected
 hook covers quoted and unquoted writes; all 27 owning cases and an unfenced-writer
-negative control pass. Production code is unchanged by that fixture repair;
-the unrun mirror stages remain pending. This hub correction is not yet deployed.
+negative control pass. Production code is unchanged by that fixture repair.
+The canonical remainder passes: 1,470 serial checks, all imports, web-core,
+packed MCP and integration. Exact-source hosted CI is blocked by unrelated Wallet
+WebKit checks: the original Add-height failure passes on the sole job rerun,
+which instead exhausts the Sharing test's 30-second clock. Both cases pass
+unchanged locally. The reviewed split separates dismissal from confirmed
+revocation while retaining every assertion and timeout. All 12 affected
+Chromium/WebKit cases pass at 320, 390 and 1440 px without retries; the longest
+takes 2.795 seconds locally after extraction. This qualifies the test split, not hosted reliability.
+There is no third blind rerun or deployment.
 
 Hermes' queued validation exposed inherited runner labels unavailable to this
 organization. The companion uses standard hosted runners with bounded workers;

@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import { measureTabSelection } from "./fixtures/tab-motion";
+import { openWalletSharingReview } from "./fixtures/wallet-sharing-review";
 import os from "node:os";
 import path from "node:path";
 import type { WalletCardPayload } from "../lib/services/wallet-card-service";
@@ -944,18 +945,9 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]);
   });
 
-  // Keep the confirmation flow separate from typography and geometry so each
-  // contract fits the default timeout on the shared WebKit runner.
-  test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
-    await mount(page);
-    await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    const sharing = page.getByTestId("wallet-sharing-content");
-    const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
-    await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();
-    const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
-    const revoke = detail.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
-    const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
+  // Dismissal and confirmed revocation retain all assertions with separate clocks.
+  test(`Wallet Sharing dismissal keeps access and restores focus at ${width}px`, async ({ page }) => {
+    const { errors, revoke, revocations } = await openWalletSharingReview(page, width, { open, mount });
     await revoke.click();
     const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?", exact: true });
     await expect(confirmation).toBeVisible();
@@ -971,8 +963,16 @@ for (const width of [320, 390, 1440]) {
     await expect(confirmation).toBeHidden();
     await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
+    const { errors, sharing, history, detail, revoke, revocations } = await openWalletSharingReview(page, width, { open, mount });
     await revoke.click();
+    const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?", exact: true });
     await expect(confirmation).toBeVisible();
+    await expect(confirmation.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
+    expect(await revocations()).toEqual([]);
     await confirmation.getByRole("button", { name: "Revoke access", exact: true }).click();
     await expect.poll(revocations).toEqual(["sharing-revoke:fixture-history-grant"]);
     await expect(confirmation).toBeHidden();
