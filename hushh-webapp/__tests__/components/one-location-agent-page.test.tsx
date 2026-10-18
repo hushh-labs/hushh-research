@@ -601,6 +601,7 @@ vi.mock("sonner", () => {
       success: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
+      message: vi.fn(),
       dismiss: vi.fn(),
     }),
   };
@@ -5472,6 +5473,11 @@ describe("OneLocationAgentPage", () => {
 
       expect(mockDecryptLocationEnvelope).not.toHaveBeenCalled();
       expect(toast.error).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "View shared location from Trusted A", exact: true }));
+      await waitFor(() => expect(toast.message).toHaveBeenCalledWith(
+        "Waiting for a live location update.",
+        { classNames: { title: "!line-clamp-1" } },
+      ));
     });
 
     it("paces a legacy 404 as waiting, not as a failure", async () => {

@@ -1393,10 +1393,8 @@ function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
  * render byte-identical text — the state setters below compare by value to
  * avoid re-rendering the map on every poll.
  */
-function awaitingFirstPublishMessage(grant: OneLocationGrant): string {
-  return `${receivedGrantOwnerLabel(
-    grant,
-  )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+function awaitingFirstPublishMessage(): string {
+  return "Waiting for a live location update.";
 }
 
 /** Outcome of one recipient-side envelope read, used to pace the next poll. */
@@ -6433,7 +6431,7 @@ export function OneLocationAgentPageContent({
           // failure: hold the calm waiting copy and let the caller drop this
           // grant to the slow cadence until the owner actually publishes.
           setGrantViewErrors((current) => {
-            const waiting = awaitingFirstPublishMessage(grant);
+            const waiting = awaitingFirstPublishMessage();
             return current[grant.id]?.message === waiting
               ? current
               : {
@@ -6441,7 +6439,9 @@ export function OneLocationAgentPageContent({
                   [grant.id]: { message: waiting, tone: "waiting" },
                 };
           });
-          if (!silent) toast.message(awaitingFirstPublishMessage(grant));
+          if (!silent) toast.message(awaitingFirstPublishMessage(), {
+            classNames: { title: "!line-clamp-1" },
+          });
           return "awaiting";
         }
         // A stationary owner republishes the same point every heartbeat, so most
@@ -6513,7 +6513,7 @@ export function OneLocationAgentPageContent({
           // Calm, reassuring "waiting for their first update" state. The share
           // is genuinely active; the point simply hasn't arrived yet and will
           // appear automatically on the next poll once the owner publishes.
-          const waitingMessage = awaitingFirstPublishMessage(grant);
+          const waitingMessage = awaitingFirstPublishMessage();
           setGrantViewErrors((current) =>
             current[grant.id]?.message === waitingMessage
               ? current
@@ -6525,7 +6525,9 @@ export function OneLocationAgentPageContent({
           // Only nudge with a gentle (non-error) toast on an explicit tap, and
           // never on the background poll, so the page stays quiet while waiting.
           if (!silent) {
-            toast.message(waitingMessage);
+            toast.message(waitingMessage, {
+              classNames: { title: "!line-clamp-1" },
+            });
           }
           return "awaiting";
         }

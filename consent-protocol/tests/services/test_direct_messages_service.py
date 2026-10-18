@@ -94,7 +94,7 @@ def _service(cipher=None, feed_notifier=None):
         cipher=cipher or _Cipher(),
         event_notifier=lambda *_args, **_kwargs: None,
         push_notifier=lambda *_args, **_kwargs: None,
-        feed_notifier=feed_notifier or (lambda *_args, **_kwargs: None),
+        feed_notifier=feed_notifier,
     )
 
 
@@ -280,12 +280,24 @@ def test_send_requires_current_accepted_connection_and_never_reaches_insert(monk
     assert inserted == []
 
 
-def test_send_encrypts_content_and_returns_a_participant_safe_projection(monkeypatch):
+@pytest.mark.parametrize("use_default_feed", [False, True])
+def test_send_encrypts_content_and_returns_a_participant_safe_projection(
+    monkeypatch, use_default_feed
+):
     cipher = _Cipher()
     feed_events = []
+    duplicate_feed_writes = []
+    monkeypatch.setattr(
+        "hushh_mcp.services.feed_service.FeedService.record_event",
+        lambda *_args, **kwargs: duplicate_feed_writes.append(kwargs),
+    )
     service = _service(
         cipher,
-        feed_notifier=lambda recipient, **event: feed_events.append((recipient, event)),
+        feed_notifier=(
+            None
+            if use_default_feed
+            else lambda recipient, **event: feed_events.append((recipient, event))
+        ),
     )
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(service, "_require_active_connection", lambda *_args: "connection-id")
@@ -311,7 +323,8 @@ def test_send_encrypts_content_and_returns_a_participant_safe_projection(monkeyp
     assert result["message"]["senderIsViewer"] is True
     assert "senderUserId" not in result["message"]
     assert "_peerUserId" not in result["conversation"]
-    assert feed_events == [
+    assert duplicate_feed_writes == []
+    assert feed_events == ([] if use_default_feed else [
         (
             "bob",
             {
@@ -320,7 +333,7 @@ def test_send_encrypts_content_and_returns_a_participant_safe_projection(monkeyp
                 "message_id": _MESSAGE_ID,
             },
         )
-    ]
+    ])
 
 
 def test_send_persists_a_reply_only_after_the_target_is_checked_in_the_same_conversation(
