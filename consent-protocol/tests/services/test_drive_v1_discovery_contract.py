@@ -3,6 +3,7 @@
 # ruff: noqa: F811 -- shared disposable PostgreSQL fixtures
 
 import hashlib
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -15,6 +16,7 @@ from hushh_mcp.services.drive_owner_search_service import (
     compile_request_queries,
 )
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_request_brain import interpret_request, suggested_plan
 from hushh_mcp.services.drive_request_bulk_service import (
     DriveRequestBulkService,
     _deterministic_meeting_note_plan,
@@ -131,14 +133,72 @@ def test_meeting_notes_expand_to_sync_and_standup_without_using_file_dates():
     queries, period = compile_request_queries(plan, purpose, "Asia/Kolkata", v1_live_request=True)
     assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
     compiled = [query["arguments"]["query"] for query in queries]
-    assert "standup" in compiled[1] and "sync" in compiled[1]
+    assert queries[0]["head_start_pages"] == 1
+    assert "name contains 'Meeting started'" in compiled[0]
+    assert queries[0]["arguments"]["orderBy"] == "modifiedTime desc"
+    assert "standup" in compiled[2] and "sync" in compiled[2]
     assert all(
         "modifiedTime >=" not in query and "createdTime >=" not in query for query in compiled
     )
-    assert len(queries) == 2
-    assert "fullText" in compiled[0]
-    assert "fullText" not in compiled[1]
-    assert "name contains 'meeting'" in compiled[1]
+    assert len(queries) == 3
+    assert "fullText" in compiled[1]
+    assert "fullText" not in compiled[0] and "fullText" not in compiled[2]
+    assert "name contains 'meeting'" in compiled[2]
+
+
+def test_non_v1_generic_meeting_notes_exhausts_gemini_title_prefix():
+    requested_at = datetime(2026, 10, 3, tzinfo=UTC)
+    purpose = {
+        "purpose": "3 months meeting notes",
+        "periodStart": "2026-09-02",
+        "periodEnd": "2026-10-02",
+    }
+    brain = interpret_request(
+        purpose["purpose"],
+        now=requested_at,
+        timezone="Asia/Kolkata",
+        picked_period=(date(2026, 9, 2), date(2026, 10, 2)),
+    )
+    queries, period = compile_request_queries(
+        suggested_plan(brain, purpose["purpose"]),
+        purpose,
+        "Asia/Kolkata",
+        requested_at=requested_at,
+        brain=brain,
+    )
+    assert period == {
+        "start": "2026-09-02",
+        "end": "2026-10-02",
+        "timezone": "Asia/Kolkata",
+    }
+    assert len(queries) == 3
+    assert queries[0]["head_start_pages"] == 10
+    title = queries[1]
+    assert "name contains 'Meeting started'" in title["arguments"]["query"]
+    assert title["arguments"]["orderBy"] == "modifiedTime desc"
+    assert "head_start_pages" not in title  # Exhaust every page of this prefix.
+    assert all(
+        "modifiedTime >=" not in item["arguments"]["query"]
+        and "createdTime >=" not in item["arguments"]["query"]
+        for item in queries
+    )
+    assert "fullText" in queries[2]["arguments"]["query"]
+
+    # A named topic must not collect every unrelated Gemini note.
+    specific = {**purpose, "purpose": "Falcon meeting notes September"}
+    specific_brain = interpret_request(
+        specific["purpose"], now=requested_at, timezone="Asia/Kolkata"
+    )
+    specific_queries, _ = compile_request_queries(
+        suggested_plan(specific_brain, specific["purpose"]),
+        specific,
+        "Asia/Kolkata",
+        requested_at=requested_at,
+        brain=specific_brain,
+    )
+    assert not any(
+        "name contains 'Meeting started'" in item["arguments"]["query"] for item in specific_queries
+    )
 
 
 def test_v1_meeting_note_plan_is_stable_and_document_scoped():
@@ -156,11 +216,12 @@ def test_v1_meeting_note_plan_is_stable_and_document_scoped():
         plan.model_dump(mode="json"), purpose, "Asia/Kolkata", v1_live_request=True
     )
     assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
-    assert len(queries) == 2
-    assert all("mimeType = 'application/pdf'" in item["arguments"]["query"] for item in queries[:2])
-    assert "standup" in queries[1]["arguments"]["query"]
-    assert "fullText" in queries[0]["arguments"]["query"]
-    assert "fullText" not in queries[1]["arguments"]["query"]
+    assert len(queries) == 3
+    assert all("mimeType = 'application/pdf'" in item["arguments"]["query"] for item in queries)
+    assert "standup" in queries[2]["arguments"]["query"]
+    assert "fullText" in queries[1]["arguments"]["query"]
+    assert "fullText" not in queries[0]["arguments"]["query"]
+    assert "fullText" not in queries[2]["arguments"]["query"]
 
 
 @pytest.mark.asyncio
@@ -219,8 +280,10 @@ async def test_meeting_note_search_uses_aliases_and_keeps_generic_folder_childre
         "time_intent": "document_coverage",
     }
     queries, _ = compile_request_queries(plan, purpose, "Asia/Kolkata", v1_live_request=True)
-    assert "fullText" in queries[0]["arguments"]["query"]
-    assert "fullText" not in queries[1]["arguments"]["query"]
+    assert queries[0]["head_start_pages"] == 1
+    assert "fullText" not in queries[0]["arguments"]["query"]
+    assert "fullText" in queries[1]["arguments"]["query"]
+    assert "fullText" not in queries[2]["arguments"]["query"]
     checkpoint = _v1_structural_checkpoint(plan, queries)
     checkpoint["request"] = {"query": purpose["purpose"]}
     service = DriveOwnerSearchService(transport=SimpleNamespace())
