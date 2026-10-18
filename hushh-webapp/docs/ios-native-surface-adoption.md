@@ -16,6 +16,45 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Complete Profile roster and Payouts integration — 2026-10-17
+
+Native menu presence is not feature conversion. The authored normal roster has
+13 destinations; Developer tools is an additional guarded destination. Current
+source coverage, not whole-program or installed-candidate acceptance:
+
+| Destination | Native source coverage / remaining body mapping |
+|---|---|
+| Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
+| Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; current batch awaiting installed qualification |
+| Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
+| Memory | Rich root, domains, sections, editing, sharing and secrets still require native mapping |
+| Personal World Model | Research, facts, sources, decisions and invitations still require native mapping |
+| Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance/provider nested bodies still require native mapping |
+| Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
+| Trusted devices | Native list/details/unlink confirmation; existing session authority |
+| Connectors | Catalog, details, configuration and authorization-return bodies still require native mapping |
+| Invite friends | Existing route-bound referrals workspace still requires native mapping |
+| Help & feedback | Native form, message types, draft and delivery outcomes |
+| Privacy | Native authored-document reader and links |
+| Terms | Native authored-document reader and links |
+
+The Payouts adapter uses the existing wallet/live store, bank, redemption,
+activity and receipt models; there is no second financial writer or poller.
+Receipt rows contain private display fields and opaque action handles, never
+provider IDs, token authority or Stripe URLs. Related receipts retain local
+Back ancestry, reject cycles and have six bounded receipt levels. Only Payouts
+can admit that longer stack; other Profile ancestry limits are unchanged.
+Receipt bank steps wait for the acknowledged native return to Payouts and are
+consumed once; their originating privacy generation must still be current.
+Activity uses 20-row presentation windows over the existing paged history;
+receipt details use 40-row windows, preserving access without overflowing the
+unchanged 500-row bridge budget. Payout-specific ancestor Back choices remain
+owner-acknowledged and cannot reach unrelated Profile operations.
+Shared web/native bank guards preserve informational `in_review`
+states. Vault mutation outcomes now also project into the native page instead
+of relying only on a covered web toast. Ordinary custom-native admission stays
+off. This entry does not establish device, mutation or release acceptance.
+
 ### Profile Vault and Request pricing conversion — 2026-10-17
 
 The qualification source now maps Security → Vault methods into the retained
@@ -548,7 +587,7 @@ and its unrelated edits were not changed.
 | Memory and sharing | React `LivingMemoryDocument`, `pkm-data-manager`, `SharedWithYouGroup`, `SecretsListGroup`; existing encrypted PKM/consent operations | Native living document, section editing, search, sharing and secret controls remain to map |
 | Personal World Model | React `PersonalWorldModelPage`; existing research/review services | Native research, facts, sources, review, invitations and preferences remain to map |
 | Connectors/systems | React Profile connectors and `ConnectedSystemsPanel`; existing catalog, provider authorization and CRM owners | Native catalog/detail/configuration and authorization-return states remain to map |
-| Payouts/pricing | React Payouts; negotiated native Request pricing rows/amount editor and one shared pricing model | Native payout history, bank entry, redemption and receipts remain to map; physical pricing and sandbox mutation outcomes remain unverified |
+| Payouts/pricing | Negotiated native Payouts balances/history/receipts and Request pricing; shared existing financial models | Payouts current batch awaits installed qualification; physical Pricing edit/cancel passes; sandbox mutation outcomes remain unverified |
 | Help/Legal | Owned native Help sheet and complete native Legal reader; existing support composer/service and authored Legal documents | Installed Legal has bounded contents/switch/return proof; full visual, accessibility, external-link and Release acceptance remain separate |
 | Wallet Profile/cards | React `wallet-card-workspace`, `wallet-card-setup`, `wallet-card-manage`, payment-card owners under `components/wallet` | Complete native workspace/editor/reveal/sharing scenes remain to map; system camera/Share/Apple Wallet owners stay unchanged |
 | Portfolio import | React `portfolio-import-view`; existing import and explicit encrypted-commit owners | Native selection/progress/cancellation/review remain to map; no competing import store |

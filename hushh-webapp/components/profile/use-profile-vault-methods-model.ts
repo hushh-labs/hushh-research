@@ -56,6 +56,7 @@ export function useProfileVaultMethodsModel(ports: Ports) {
   const pending = useRef<{ controller: AbortController; toastId: string | number | undefined; committed: boolean } | null>(null);
   const latestAttempt = useRef<symbol | null>(null);
   const surfaceVisit = useMemo(() => ({ active: false, userId: ports.userId, enabled: ports.active }), [ports.userId, ports.active]);
+  const [outcome, setOutcome] = useState<{ visit: typeof surfaceVisit; text: string } | null>(null);
   const vaultEpoch = snapshotVaultSessionEpoch();
   const visit = useMemo(() => ({ active: false, owner: snapshotValidatedAuthSessionOwner(),
     userId: ports.userId, key: ports.vaultKey, epoch: vaultEpoch, enabled: ports.active && !ports.authLoading }),
@@ -134,6 +135,7 @@ export function useProfileVaultMethodsModel(ports: Ports) {
   }
   async function run(operation: (valid: () => boolean, signal: AbortSignal, committed: () => void) => Promise<boolean>, success: string, failure: string) {
     if (!mutable()) return;
+    setOutcome(null);
     const intent = Symbol("vault-method-change"); latestAttempt.current = intent;
     const attempt = { controller: new AbortController(), toastId: undefined as string | number | undefined, committed: false };
     pending.current = attempt; request.current++; setBusy(true);
@@ -160,6 +162,7 @@ export function useProfileVaultMethodsModel(ports: Ports) {
       if (attempt.committed) return;
       commitWasCurrent = valid();
       attempt.committed = true;
+      if (commitWasCurrent) setOutcome({ visit: surfaceVisit, text: success });
       resolveFeedback(true);
     };
     try {
@@ -175,7 +178,10 @@ export function useProfileVaultMethodsModel(ports: Ports) {
       // before another change; never repeat an uncertain mutation automatically.
       requireReconciliation();
       if (attempt.committed) resolveFeedback(true);
-      else rejectFeedback(new Error("VAULT_METHOD_CHANGE_FAILED"));
+      else {
+        if (valid()) setOutcome({ visit: surfaceVisit, text: "We couldn't confirm the change. Refresh your methods before trying again." });
+        rejectFeedback(new Error("VAULT_METHOD_CHANGE_FAILED"));
+      }
       console.warn(attempt.committed ? "VAULT_METHOD_POST_COMMIT_FAILED" : "VAULT_METHOD_CHANGE_FAILED");
     } finally {
       if (pending.current === attempt) {
@@ -259,6 +265,7 @@ export function useProfileVaultMethodsModel(ports: Ports) {
     }, "Passphrase updated.", "We couldn't change your passphrase.");
   }
   return { ...(state.owner === ports.userId ? state : emptyState()), busy, refresh, add, select, removal, requestRemove, remove,
+    notice: outcome?.visit === surfaceVisit && ports.active && !privacy?.shielded && privacy?.appIsActive !== false ? outcome.text : null,
     cancelRemove: () => { if (!pending.current) changeRemoval(null); },
     passphraseOpen, password, confirmation, openPassword, closePassword,
     editPassword, savePassword };

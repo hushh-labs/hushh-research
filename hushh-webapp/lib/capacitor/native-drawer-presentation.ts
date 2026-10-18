@@ -121,7 +121,8 @@ export class NativeDrawerPresentation {
           .some(id => id !== undefined && !actions.rows.has(id)))) ||
         state.profileStack?.some(page => page.legalDocument && nativeLegalActionIds(page.legalDocument).some(id => !actions.rows.has(id))) ||
         state.backEnabled && !actions.back || (state.profileStack?.length ?? 0) > 1 && !actions.root ||
-        state.profileStack?.length === 3 && !actions.ancestor) { this.quarantine(); return false; }
+        (state.profileStack?.length === 3 && state.profileStack[0]?.id === "security" ||
+          (state.profileStack?.length ?? 0) >= 3 && state.profileStack?.[0]?.id === "payouts") && !actions.ancestor) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,

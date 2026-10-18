@@ -62,13 +62,14 @@ final class NativeDrawerModel: ObservableObject {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
         let deviceAncestor = [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(navigationPath) && path == ["security"]
+        let payoutAncestor = NativeDrawerProjection.validPayoutPath(navigationPath) && !path.isEmpty && path.count + 1 < navigationPath.count
         guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,
-              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor,
+              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor || payoutAncestor,
               Array(navigationPath.prefix(path.count)) == path else { return }
-        guard choice(deviceAncestor ? "ancestor" : path.isEmpty && navigationPath.count > 1 ? "root" : "back",
-                     row: deviceAncestor ? "security" : nil) else { return }
+        guard choice(deviceAncestor || payoutAncestor ? "ancestor" : path.isEmpty && navigationPath.count > 1 ? "root" : "back",
+                     row: deviceAncestor ? "security" : payoutAncestor ? path.last : nil) else { return }
         backPending = true
         // The native pop has committed. React still owns the route and
         // confirms the existing Back event; never replay UIKit's transition.
@@ -1031,7 +1032,7 @@ struct NativeDrawerContent: View {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
-                                        Divider().padding(.leading, 60).padding(.trailing, 16)
+                                        Divider().padding(.leading, NativeProfileArtwork.resolve(row.artworkId ?? row.id) != nil || row.symbol != nil ? 60 : 16).padding(.trailing, 16)
                                     }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))

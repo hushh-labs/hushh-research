@@ -56,6 +56,7 @@ import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
 import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
+import { useNativePayouts } from "./use-native-payouts";
 import { useDocumentRequestPricingModel } from "@/components/consent/use-document-request-pricing-model";
 import { useNativeProfilePortrait } from "./use-native-profile-portrait";
 
@@ -959,6 +960,12 @@ function ProfilePageContent({
     password: newPassphrase, confirmation: confirmPassphrase } = vaultMethods;
   const [nativeVaultAvailable, setNativeVaultAvailable] = useState(false);
   const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
+  const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
+  const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
+    activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
+  const nativePayout = useNativePayouts(nativePayoutActive);
+  useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
   const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
   const [nativePricingFailed, setNativePricingFailed] = useState(false);
   const nativePricingActive = presentation === "native-page" && nativeMenuOpen && nativePricingAvailable &&
@@ -4749,8 +4756,12 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable}
-    workspace={{ kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable}
+    workspace={activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
+      onPresented: nativePayout.onPresented,
+      ancestor: nativePayout.ancestor,
+      back: () => { if (!nativePayout.back()) popProfileStack(); },
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
       root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
@@ -4831,7 +4842,7 @@ function ProfilePageContent({
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) &&
-        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen),
+        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

@@ -579,6 +579,14 @@ describe("private native drawer action boundary", () => {
       ] }] },
     ] };
     expect(validNativeDrawerProjection(account)).toBe(true);
+    const payoutPage = (id: import("@/lib/capacitor/native-drawers").NativeProfilePage["id"]) => ({ id, title: "Synthetic payouts", sections: [] });
+    const payout = { ...account, profileStack: [payoutPage("payouts"), payoutPage("payout-activity"), payoutPage("payout-receipt-1"), payoutPage("payout-receipt-2")] };
+    expect(validNativeDrawerProjection(payout)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "payouts" }, payout)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "account" }, payout)).toBe(false);
+    expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("account-delete")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("payout-receipt-2")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileStack: [payoutPage("account"), payoutPage("payout-receipt-1")] })).toBe(false);
     const event = { ...choice(), family: "profile" as const, rowId: "edit-name" };
     expect(nativeDrawerChoiceAllowed(event, account)).toBe(true);
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);
@@ -923,19 +931,19 @@ describe("private native drawer action boundary", () => {
     }
   });
 
-  it("rejects a busy feature's native Back instead of acknowledging a pop the route did not commit", async () => {
+  it.each(["vault", "payouts"] as const)("rejects busy %s native Back instead of acknowledging a pop the route did not commit", async family => {
     const bridge = presentationBridge();
     const capabilities = await bridge.plugin.getCapabilities();
     bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
     bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
     const projection: NativeDrawerProjection = { ...state(), family: "profile", backEnabled: true, surfaceOpen: true,
-      profileDestinationId: "vault-removal-visit", profileStack: ["security", "vault", "vault-remove"].map(id => ({
-        id: id as "security" | "vault" | "vault-remove", title: "Synthetic navigation", sections: [],
+      profileDestinationId: "busy-native-visit", profileStack: (family === "vault" ? ["security", "vault", "vault-remove"] : ["payouts", "payout-activity", "payout-receipt-1"]).map(id => ({
+        id: id as import("@/lib/capacitor/native-drawers").NativeProfilePage["id"], title: "Synthetic navigation", sections: [],
       })) };
     const phases = vi.fn(), back = vi.fn(() => false);
     const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
     await presentation.listen();
-    presentation.publish(projection, { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back, root: vi.fn(), ancestor: vi.fn() });
+    expect(presentation.publish(projection, { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back, root: vi.fn(), ancestor: vi.fn() })).toBe(true);
     await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
     const event = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
     bridge.emit(event);

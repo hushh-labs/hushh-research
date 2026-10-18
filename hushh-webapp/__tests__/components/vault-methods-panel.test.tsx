@@ -170,13 +170,14 @@ describe("Vault methods privacy and mutation authority", () => {
   });
 
   it("reconciles an uncertain write with a post-attempt fresh read without replaying the change", async () => {
-    const view = renderHook(() => useProfileVaultMethodsModel(modelPorts));
+    const view = renderHook(({ active }) => useProfileVaultMethodsModel({ ...modelPorts, active }), { initialProps: { active: true } });
     await waitFor(() => expect(view.result.current.owner).toBe(modelPorts.userId));
     let finishRead!: (value: typeof initialVault) => void;
     modelMocks.getVaultState.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
     modelMocks.select.mockRejectedValueOnce(new Error("synthetic transport uncertainty"));
     await act(async () => view.result.current.select(passkeyWrapper));
     expect(view.result.current.needsRefresh).toBe(true);
+    expect(view.result.current.notice).toContain("couldn't confirm");
     expect(modelMocks.invalidate).toHaveBeenCalledWith(modelPorts.userId);
     expect(modelMocks.getVaultState).toHaveBeenLastCalledWith(modelPorts.userId, { forceFresh: true });
     await act(async () => view.result.current.select(passkeyWrapper));
@@ -185,6 +186,8 @@ describe("Vault methods privacy and mutation authority", () => {
     expect(view.result.current.primaryMethod).toBe(passkeyWrapper.method);
     expect(view.result.current.needsRefresh).toBe(false);
     expect(modelMocks.select).toHaveBeenCalledOnce();
+    view.rerender({ active: false });
+    expect(view.result.current.notice).toBeNull();
     view.unmount();
   });
 

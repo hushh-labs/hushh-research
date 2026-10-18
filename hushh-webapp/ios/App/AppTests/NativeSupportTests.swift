@@ -962,6 +962,23 @@ final class NativeSupportTests: XCTestCase {
             ]),
         ])]
         XCTAssertTrue(account.valid)
+        var payout = account
+        payout.profileStack = ["payouts", "payout-activity", "payout-receipt-1", "payout-receipt-2"].map {
+            NativeProfilePage(id: $0, title: "Synthetic payout navigation", sections: [])
+        }
+        XCTAssertTrue(payout.valid)
+        XCTAssertTrue(payout.allows(action: "ancestor", row: "payouts"))
+        XCTAssertFalse(payout.allows(action: "ancestor", row: "account"))
+        let payoutNavigation = NativeDrawerModel(payout)
+        payoutNavigation.interactionEnabled = true
+        var payoutAncestor: String?
+        payoutNavigation.choose = { action, row, _ in payoutAncestor = row; return action == "ancestor" }
+        payoutNavigation.requestPath(["payouts"], from: payout)
+        XCTAssertEqual(payoutAncestor, "payouts")
+        XCTAssertEqual(payoutNavigation.navigationPath, ["payouts"])
+        payout.profileStack![1] = NativeProfilePage(id: "account-delete", title: "Wrong parent", sections: [])
+        XCTAssertFalse(payout.valid, "Financial pages cannot admit unrelated account operations")
+        XCTAssertFalse(NativeDrawerProjection.validPayoutPath(["payouts", "payout-receipt-2"]))
         for kind in ["account-reset", "account-delete"] {
             var confirmation = account
             confirmation.profileStack = account.profileStack! + [NativeProfilePage(id: kind, title: "Confirm account action", sections: [])]

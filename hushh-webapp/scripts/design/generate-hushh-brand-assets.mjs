@@ -465,6 +465,8 @@ try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
   const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
+  const payoutInnerIcons = await profileLoader.ssrLoadModule("/components/profile/profile-inner-icons.tsx");
+  const payoutSecondaryIcons = await profileLoader.ssrLoadModule("/components/profile/profile-secondary-icons.tsx");
   const { GeminiLogo } = await profileLoader.ssrLoadModule("/components/brand/gemini-logo.tsx");
   const formIcons = [
     { id: "style-name", icon: rows.PreferredNameRowIcon },
@@ -482,6 +484,10 @@ try {
     { id: "voice", icon: accountIcons.VoiceRowIcon },
     { id: "vault-methods", icon: accountIcons.FingerprintProfileIcon },
     { id: "vault-password", icon: accountIcons.PassphraseRowIcon },
+    { id: "payout-receipt", icon: payoutSecondaryIcons.ProfileSecondaryReceiptIcon },
+    { id: "payout-warning", icon: payoutInnerIcons.ProfileInnerWarningIcon },
+    { id: "payout-progress", icon: payoutInnerIcons.ProfileInnerProgressIcon },
+    { id: "payout-review", icon: payoutInnerIcons.ProfileInnerReviewIcon },
     { id: "gemini", icon: GeminiLogo, original: true, size: 32 },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {

@@ -29,6 +29,7 @@ export function useNativeVaultMethods(model: ReturnType<typeof useProfileVaultMe
   const recommended = model.capability?.recommendedMethod;
   const rows = new Map<string, () => void | Promise<void>>();
   const page: NativeProfilePage = { id: "vault", title: "Vault methods", sections: [{ id: "vault-method-list", rows: [
+    ...(model.notice ? [{ id: "vault-outcome", label: model.notice, enabled: true, readOnly: true }] : []),
     ...(model.loading ? [{ id: "vault-loading", label: "Loading unlock methods…", enabled: false, pending: true, readOnly: true }] : []),
     ...(model.needsRefresh ? [{ id: "vault-refresh", label: "Refresh methods", enabled: !model.busy, chevron: true }] : []),
     ...options.map(option => ({ id: option.id, label: option.label, artworkId: option.wrapper.method === "passphrase" ? "vault-password" : "vault-methods",

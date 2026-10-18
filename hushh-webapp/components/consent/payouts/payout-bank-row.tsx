@@ -55,6 +55,20 @@ export type PayoutAccountState = {
   account: DocumentPayoutAccount | null; loading: boolean; failed: boolean; stripeMode?: "test" | "live";
 };
 
+/** Shared click guards for web rows, receipts and the native Profile scene. */
+export function payoutBankActions(bank: ReturnType<typeof usePayoutBank>): PayoutBankActions {
+  const manageBank = () => {
+    if (bank.busyAction || bank.resource.loading) return;
+    if (bank.retryBankCheck) bank.resource.retry();
+    else void bank.start(bank.canManage);
+  };
+  return { manageBank, verifyDetails: () => {
+    const actionable = bank.account && verificationShown(bank.verification) && bank.verification.state !== "in_review";
+    if (actionable && !bank.busyAction && !bank.resource.failed) void bank.start(false, false, "verify");
+    else manageBank();
+  } };
+}
+
 type BankAction = "bank" | "verify";
 
 /** Stripe needs details now or soon; "none" means nothing to show. */
@@ -261,10 +275,7 @@ export function PayoutBankRows({ handleReturn = false, onAccountChange, actionsR
   const canVerify = verify !== null && verify.state !== "in_review";
   const openBank = retryBankCheck ? resource.retry : () => void bank.start(canManage);
   const openVerify = () => void bank.start(false, false, "verify");
-  useImperativeHandle(actionsRef, () => {
-    const manageBank = () => { if (!busy && !resource.loading) openBank(); };
-    return { manageBank, verifyDetails: () => (canVerify && !busy && !resource.failed ? openVerify() : manageBank()) };
-  });
+  useImperativeHandle(actionsRef, () => payoutBankActions(bank));
   if (!bank.shown) return null;
   const failure = (action: BankAction): string | null =>
     bank.actionError?.action === action ? bank.actionError.text : null;

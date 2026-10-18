@@ -4671,6 +4671,42 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
                 continue
             }
+            if id == "payouts", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let coins = app.buttons["native-profile-row-payout-coins"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(coins) else {
+                    XCTFail("PROFILE_NATIVE_PAYOUTS_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                    "PROFILE_NATIVE_PAYOUTS_DUPLICATE_WEB_BODY")
+                coins.tap()
+                let filter = app.buttons["native-profile-row-payout-filter"].firstMatch
+                let activityBack = app.navigationBars.buttons["Payouts"].firstMatch
+                guard waitForAdmittedControl(filter), waitForAdmittedControl(activityBack),
+                      waitForAdmittedControl(app.buttons["native-profile-row-payout-mode"].firstMatch) else {
+                    XCTFail("PROFILE_NATIVE_PAYOUT_ACTIVITY_NOT_ADMITTED"); return
+                }
+                filter.tap()
+                let all = app.buttons["All"].firstMatch
+                guard waitForAdmittedControl(all) else { XCTFail("PROFILE_NATIVE_PAYOUT_FILTER_MENU_UNAVAILABLE"); return }
+                all.tap()
+                let filterSelected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    (filter.value as? String) == "All"
+                }, object: app)
+                guard XCTWaiter.wait(for: [filterSelected], timeout: 5) == .completed else {
+                    XCTFail("PROFILE_NATIVE_PAYOUT_FILTER_NOT_COMMITTED"); return
+                }
+                guard waitForAdmittedControl(activityBack) else { XCTFail("PROFILE_NATIVE_PAYOUT_FILTER_NOT_SETTLED"); return }
+                activityBack.tap()
+                guard waitForAdmittedControl(coins), waitForAdmittedControl(nativeAccountBack) else {
+                    XCTFail("PROFILE_NATIVE_PAYOUT_ACTIVITY_RETURN_FAILED"); return
+                }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_PAYOUT_ROOT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_PAYOUTS activity=true native_filter=true returned=true mutated=false")
+                continue
+            }
             if id == "request-pricing", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let edit = app.buttons["native-profile-row-request-pricing-edit"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(edit) else {

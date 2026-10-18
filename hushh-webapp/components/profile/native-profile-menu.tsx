@@ -86,7 +86,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -103,8 +103,9 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onDevicesCapability?: (supported: boolean) => void;
   onVaultCapability?: (supported: boolean) => void;
   onPricingCapability?: (supported: boolean) => void;
-  workspace?: { kind: "request-pricing"; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void;
-    editor?: (destinationId: string) => ReactNode };
+  onPayoutCapability?: (supported: boolean) => void;
+  workspace?: { kind: "request-pricing" | "payouts"; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
+    editor?: (destinationId: string) => ReactNode; onPresented?: () => void };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
   legal?: { active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void };
@@ -118,6 +119,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [devicesSupported, setDevicesSupported] = useState(false);
   const [vaultSupported, setVaultSupported] = useState(false);
   const [pricingSupported, setPricingSupported] = useState(false);
+  const [payoutSupported, setPayoutSupported] = useState(false);
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
@@ -151,18 +153,20 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setVaultSupported(vault); onVaultCapability?.(vault);
         const pricing = stack && capability.profilePricingScene === true && hasNativeProfileScene(nativeDrawers, "request-price");
         setPricingSupported(pricing); onPricingCapability?.(pricing);
+        const payout = stack && capability.profilePayoutPages === true;
+        setPayoutSupported(payout); onPayoutCapability?.(payout);
       }
-    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); } });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability]);
+  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability]);
   useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
   const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
   const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);
   const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported) && (!settings.requiresDevices || devicesSupported) && (!settings.requiresVault || vaultSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
-  const nativeWorkspace = pricingSupported && workspace?.active === true && workspace.kind === "request-pricing" &&
-    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing";
+  const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&
+    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : payoutSupported && workspace.pages[0]?.id === "payouts");
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeWorkspace ? workspace!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
     nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null]) : "";
@@ -219,13 +223,15 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
     <NativeProfileMenu {...menu} open={menuPainted} fallbackOwned={active && webDetail}
       stack={stackSupported && account ? { pages: nativePath, destinationId: nativeSupport ? undefined : destinationId,
         supportDestinationId: nativeSupport ? destinationId : undefined,
-        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : []), ...(nativeWorkspace ? workspace!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : page.onBack,
-        ...(nativeSettings && settings?.ancestor ? { ancestor: settings.ancestor } : {}),
+        rows: new Map([...account.rows, ...(nativeSettings ? settings!.rows : []), ...(nativeLegal ? legal!.rows : []), ...(nativeWorkspace ? workspace!.rows : [])]), back: nativeAccount && account.back ? account.back : nativeSettings && settings?.back ? settings.back : nativeWorkspace && workspace?.back ? workspace.back : page.onBack,
+        ...(nativeSettings && settings?.ancestor ? { ancestor: settings.ancestor } : nativeWorkspace && workspace?.ancestor ? { ancestor: workspace.ancestor } : {}),
         ...(nativeAccount && account.confirmation ? { root: account.root ?? account.back ?? page.onBack } : nativeSettings ? { root: settings!.root } : nativeLegal ? { root: legal!.root } : nativeWorkspace ? { root: workspace!.root } : {}) } : undefined}
       onHidden={privacyGeneration => {
         if (active && webDetail && !menuPainted) setHiddenMenu({ lifetime, privacy: privacyGeneration });
       }} onPresented={(appliedDestination, privacyGeneration) => {
       setPresentedDestination({ id: appliedDestination, privacy: privacyGeneration });
+      if (nativeWorkspace && appliedDestination === destinationId && privacyGeneration === privacy?.generation &&
+          privacy.shielded === false && privacy.appIsActive) workspace?.onPresented?.();
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
     <NativeFeaturePage {...page} admissionKey={webVisit?.id} {...(retained ? {

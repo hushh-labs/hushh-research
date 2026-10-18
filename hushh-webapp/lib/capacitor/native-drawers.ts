@@ -37,7 +37,8 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativeProfilePage = { id: "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
+export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
+export type NativeProfilePage = { id: NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument };
 export type NativeDrawerIdentity = {
   documentId: string;
@@ -84,7 +85,7 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean }>;
   applyProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["applyProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["applyProfilePricingScene"]>;
   confirmProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["confirmProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["confirmProfilePricingAction"]>;
   settleProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["settleProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["settleProfilePricingAction"]>;
@@ -216,6 +217,13 @@ function closedShape(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).every(key => keys.includes(key));
 }
 
+/** Closed financial presentation ancestry; never admits arbitrary destinations. */
+export function validNativePayoutPath(pages: readonly NativeProfilePage[]): boolean {
+  if (pages[0]?.id !== "payouts" || pages.length > 8) return false;
+  const start = ["payout-activity", "payout-stripe"].includes(pages[1]?.id ?? "") ? 2 : 1;
+  return pages.slice(start).every((page, index) => page?.id === `payout-receipt-${index + 1}`) && pages.length - start <= 6;
+}
+
 /** Bounded authored projections only: no DOM inference, URL, token, credential,
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
@@ -234,9 +242,12 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   const ids = new Set<string>();
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
-      value.profileStack.length > 3 || new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
+      value.profileStack.length > (value.profileStack[0]?.id === "payouts" ? 8 : 3) ||
+      value.profileStack[0]?.id === "payouts" && !validNativePayoutPath(value.profileStack) ||
+      new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument"]) ||
-        !(index === 0 ? ["request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["payouts", "request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+          value.profileStack?.[0]?.id === "payouts" && validNativePayoutPath(value.profileStack) ||
           ["account-reset", "account-delete"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "account" ||
           page.id === "voice" && index === 1 && value.profileStack?.[0]?.id === "preferences" ||
           ["session", "devices"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "security" ||
@@ -314,8 +325,9 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "close") return choice.rowId === undefined;
   if (choice.action === "back") return state.backEnabled && choice.rowId === undefined;
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
-  if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled && choice.rowId === "security" &&
-    ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "");
+  if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled &&
+    (choice.rowId === "security" && ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "") ||
+      !!state.profileStack && validNativePayoutPath(state.profileStack) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
   const document = valueDocument(state);
   if (document && choice.text === undefined && nativeLegalActionIds(document).includes(choice.rowId)) return true;
