@@ -275,6 +275,10 @@ jobs:
               - 'hushh-webapp/lib/firebase/auth-context.tsx'
               - 'hushh-webapp/lib/testing/**'
               - 'hushh-webapp/app/providers.tsx'
+              # Shared private Profile controllers are part of this render graph.
+              - 'hushh-webapp/hooks/use-owner-presentation-state.ts'
+              - 'hushh-webapp/components/connections/gemini-runtime-settings-card.tsx'
+              - 'hushh-webapp/components/profile/world-model-provider.tsx'
               - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
             android:

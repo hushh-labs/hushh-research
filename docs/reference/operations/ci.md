@@ -279,9 +279,9 @@ actually run it, instead of every lane:
 The backend side includes `scripts/ci/**` and excludes the named web-only lane
 scripts, so a new script is backend by default rather than scheduling nothing. The filter
 step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
-filters without a `!` pattern behave exactly as before. The iOS filter uses
-the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,
-which nothing the CI-run XCUITest renders imports.
+filters without a `!` pattern behave exactly as before. The iOS filter includes
+the onboarding setup screens now reached through the login render graph, plus
+the shared Profile owner-state, Gemini and World Model controller inputs.
 
 Guards, both in the backend CI manifest:
 `consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
@@ -289,8 +289,9 @@ which `scripts/ci/` files each path-filtered job runs (through
 `orchestrate.sh <stage>` and everything those scripts reference, plus every
 script the lane's own code names) and fails when one of them would not
 schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
-traces the XCUITest render path's imports and fails if it ever reaches
-`components/onboarding/setup/`.
+traces the XCUITest render path's imports and requires the reached onboarding
+screens and selected shared Profile inputs to schedule the native lane. It does
+not schedule iOS for every unrelated frontend change.
 
 One gap is known: the guard runs in the backend lane, so a PR that changes
 only `web-*.sh` does not run it. If such a PR makes a web script call a
