@@ -18,6 +18,17 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Profile roster and source coverage — 2026-10-18
 
+Installed candidate `db43537926`, UAT Debug qualification, passes normal reviewer
+passphrase unlock and ordered, attach-only Connector and Memory journeys on the
+physical iPhone. Catalog search, Gmail/social detail, public-link and custom
+editors, Drive document trust, Live Memory, sharing and financial-context
+multiline editing/Cancel return through native Back without record mutations.
+Both matching app and test runner were installed and executable digests retained.
+The device run exposed and resolved a missing live-access callback in Profile's
+retained Connector path; its focused regression fails on the original wiring.
+This is functional read/Cancel evidence, not actual encrypted-save, OAuth-grant,
+file-operation, visual/accessibility or Release-performance qualification.
+
 Memory continuation (bounded physical journey verified; not whole-family qualification): the retained native
 stack now maps categories, sections, entity details, permission choices,
 connections, revocation/removal confirmations and Live Memory facts/history/preview.
