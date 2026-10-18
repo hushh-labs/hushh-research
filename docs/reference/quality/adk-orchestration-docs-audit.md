@@ -32,14 +32,20 @@ Selected external model providers retain their disclosed processing boundary.
 | Dev application | Hub source `e9482e4319ad`, revision `consent-protocol-00185-f9z`, image `73c3632206cd`; frontend source `991a06ccbc01`, revision `hushh-webapp-00153-7ck`, image `3796e3503566`; both 100% traffic | Last independent ADC readback. [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39104101777) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39105713670) succeeded. GitHub governs; Cloud Build builds |
 | Installed personal pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; image `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | Operation `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC. Only tested predecessor `250aea9e…fc69f1` admitted. Initial lock refusal retained; normal retry completed the same operation |
 | Recovery | Both native workers recovered 4,195,328 Files bytes exactly from the admitted predecessor; temporary workers removed with absence readback | Azure authenticated replacement also retained encrypted chat, settings and key identity. This is not live rollback fault-injection proof |
-| Local correction | Unpushed `db8c9bab2f01`: completed upload receipt settles before post-send refusal; uncertain cancellation needs HTTP 499, exact-object/bucket proof and CAS; safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves a confirmed-active session | 99 Python, 37 frontend, 472 Back cases, typecheck and UI-contract verification pass. The full core was interrupted before completion; it is **not** a pass. New owner-cloud voice/docs changes remain local until the combined candidate is frozen |
+| Source-qualified candidate | `21b82a583aa7`, including `db8c9bab2f01`: completed upload receipt settles before post-send refusal; uncertain cancellation needs HTTP 499, exact-object/bucket proof and CAS; safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves a confirmed-active session | All local core stages verified: secret, governance, web-core, protocol, packed MCP and integration. Exact-SHA hosted CI and governed deployment remain required; none of these corrections is installed on an owner pod |
 | Owner-cloud voice correction | Azure capture and transcription disabled; private Live model reporting and construction require the same known Vertex transport, never a shared key | 286 backend passes, 73 existing skips, 60 frontend passes; all three security regressions fail on old source. Typecheck, UI contracts, skills and isolated docs pass. These are local results, not an installed pod upgrade |
 
-The first combined governance attempt refused four new or worsened architecture
-findings. Moving the regression into the owning voice suite and extracting the
-existing deletion-result handler preserves behavior: 17 affected checks pass and
-the unchanged ratchet now reports zero new or worsened findings. The original
-failure is retained; it is not a full-core pass.
+**Verification receipt:** the broad parallel run retained 21,253 passes and one
+Live-revocation fixture failure. The fixture now explicitly selects supported native
+GCP Live; its complete 15-case suite passes with unchanged assertions. All 1,475
+serial database checks and every test import pass. Web-core inputs remained
+byte-identical and its completed result was reused. MCP and integration, including
+396 PKM checks, pass. No model evaluation was requested or run. The disposable
+database and scratch were removed.
+
+Original interrupted, missing-test-environment, strict-type and architecture refusals
+are retained. The architecture ratchet now reports zero new or worsened findings;
+no budget, assertion, security or consent gate was weakened.
 | Schema / rollback | 65 migration rows, 964 applied, no required-contract/checksum mismatch; history cleanup 249 deferred | Application rollback: hub `00184-fkl` / source `39dd047b92a0`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
 | Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
@@ -86,7 +92,7 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **Engineering:** finish the voice/owner-cloud boundary correction, freeze the combined candidate, complete one core mirror and exact-SHA hosted CI; deploy dev once and read back serving revisions.
+1. **Engineering:** source and local gates complete. Obtain exact-SHA hosted CI, deploy dev once and read back serving revisions; any pod image remains a separate exact-owner approval.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority, recorded commands/connectors and measured cold latency. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 
