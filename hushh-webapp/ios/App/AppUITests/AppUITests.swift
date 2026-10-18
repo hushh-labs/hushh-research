@@ -4726,7 +4726,9 @@ final class AppUITests: XCTestCase {
                 let driveBack = nativeProfileBack(app, parent: "Google Drive")
                 guard waitForAdmittedControl(driveBack) else { XCTFail("PROFILE_NATIVE_DRIVE_TRUST_RETURN_UNAVAILABLE"); return }
                 driveBack.tap()
-                guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return }
+                // Compact UIKit Back has the same accessibility label on
+                // both pages. Prove the destination body before another Back.
+                guard find("Trusted documents"), waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return }
                 catalogBack.tap()
                 guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
                 nativeAccountBack.tap()

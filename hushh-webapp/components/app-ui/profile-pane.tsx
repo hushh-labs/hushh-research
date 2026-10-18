@@ -33,6 +33,7 @@ import {
 } from "@/lib/navigation/profile-pane";
 import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { useProfilePanePresentation } from "@/lib/navigation/use-profile-pane-presentation";
 import {
   Sheet,
   SheetClose,
@@ -174,12 +175,11 @@ export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
 
 function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
   const { isVaultUnlocked } = useVault();
-  const searchParams = useSearchParams();
-  const location = resolveProfilePaneUrlState(searchParams).location;
+  const panePresentation = useProfilePanePresentation();
   // The controller is prepared while closed. Only the native root or its
   // same-owner React detail is presented; the Chat route tree never moves.
-  if (!isVaultUnlocked) return null;
-  return <VoiceSurfaceActivityBoundary active={open}><ProfilePage presentation="native-page" paneLocation={location} nativeMenuOpen={open}
+  if (!isVaultUnlocked || !panePresentation) return null;
+  return <VoiceSurfaceActivityBoundary active={open}><ProfilePage presentation="native-page" paneLocation={panePresentation.location} panePresentation={panePresentation} nativeMenuOpen={open}
     onNativeMenuClose={() => onOpenChange(false)} nativeControlsEligible={false} /></VoiceSurfaceActivityBoundary>;
 }
 

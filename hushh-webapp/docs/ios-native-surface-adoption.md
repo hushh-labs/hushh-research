@@ -18,6 +18,17 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Current candidate and Memory owner boundary — 2026-10-18
 
+Native Profile now reads its URL, query and sanitized visited-parent metadata
+from one browser-entry snapshot. Previously Next could still render Voice after
+browser Back had already replaced its ancestry with Preferences' entry, emitting
+an intermediate `[Voice]` stack before `[Preferences]`. The nearest navigation
+regression reproduces that mixed-entry path when the old split reads are restored;
+the atomic read-only subscription rejects it. Back and all operations keep their
+existing owners. Connector callbacks consume the same snapshot. This fixes a
+source-proven ordering defect, not yet physical acceptance of all reported flicker.
+The compact Back harness now awaits the Drive destination body before a second
+Back; a shared `Back` accessibility label alone cannot prove arrival.
+
 Back-label RCA now includes a controlled UIKit comparison: the labelled button
 blurs during both `setViewControllers` and ordinary `pushViewController` with no
 SwiftUI, bridge or product operations. The retained product fixture reproduces

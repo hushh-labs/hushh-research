@@ -569,6 +569,7 @@ export type ProfilePagePresentation = "route" | "pane" | "native-page";
 type ProfilePageProps = {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
+  panePresentation?: import("@/lib/navigation/use-profile-pane-presentation").ProfilePanePresentation;
   nativeControlsEligible?: boolean;
   nativeMenuOpen?: boolean;
   onNativeMenuClose?: () => void;
@@ -577,6 +578,7 @@ type ProfilePageProps = {
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
+  panePresentation,
   nativeControlsEligible = true,
   nativeMenuOpen = false,
   onNativeMenuClose,
@@ -586,8 +588,10 @@ function ProfilePageContent({
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const routePathname = usePathname();
+  const routeSearchParams = useSearchParams();
+  const pathname = panePresentation?.pathname ?? routePathname;
+  const searchParams = panePresentation?.searchParams ?? routeSearchParams;
   const searchParamsString = searchParams.toString();
 
   useEffect(() => {
@@ -776,7 +780,7 @@ function ProfilePageContent({
     phoneVisit.owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(phoneVisit.owner) &&
     phoneVisit.vaultEpoch === snapshotVaultSessionEpoch();
   const devicesActive = activePanel === "security" && activeDetail === "trusted-devices";
-  const devicesParent = devicesActive ? profilePanelParentForPresentation("security") : null;
+  const devicesParent = devicesActive ? profilePanelParentForPresentation("security", panePresentation?.history) : null;
   const devicesModel = useTrustedDevicesModel(user?.uid ?? null, !!user && !authLoading && isVaultUnlocked &&
     devicesActive && (presentation !== "native-page" || nativeMenuOpen));
   const [nativeDevicesAvailable, setNativeDevicesAvailable] = useState(false);
@@ -1065,7 +1069,7 @@ function ProfilePageContent({
   const nativePricing = projectNativeRequestPricing(nativePricingModel, () => setNativePricingEditorOpen(true));
   useLayoutEffect(() => { if (activePanel !== "request-pricing" || !nativeMenuOpen) { setNativePricingEditorOpen(false); setNativePricingFailed(false); } }, [activePanel, nativeMenuOpen]);
   const [nativeVaultPasswordFallback, setNativeVaultPasswordFallback] = useState(false);
-  const vaultParent = activePanel === "security" && activeDetail === "vault" ? profilePanelParentForPresentation("security") : null;
+  const vaultParent = activePanel === "security" && activeDetail === "vault" ? profilePanelParentForPresentation("security", panePresentation?.history) : null;
   const vaultNativeActive = presentation === "native-page" && nativeMenuOpen && nativeVaultAvailable &&
     activePanel === "security" && activeDetail === "vault" && vaultAccess.canMutateSecureData && vaultParent !== null && !nativeVaultPasswordFallback;
   const nativeVault = useNativeVaultMethods(vaultMethods, vaultNativeActive, vaultAccess.canMutateSecureData);
@@ -1340,7 +1344,7 @@ function ProfilePageContent({
     onVoice: () => updateProfileView({ panel: "preferences", detail: "voice" }, "push"),
   });
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
-  const voiceParent = profilePanelParentForPresentation("preferences");
+  const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
   const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
   const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: user?.uid, vaultKey, vaultOwnerToken,
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
@@ -4934,7 +4938,7 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
-  const legalParent = profileLegalParentForPresentation();
+  const legalParent = profileLegalParentForPresentation(panePresentation?.history);
   const nativeLegal = projectNativeProfileLegal(activeDetail === "privacy" || activeDetail === "terms" ? activeDetail : null,
     (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT), legalParent === true);
   const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
@@ -5123,7 +5127,9 @@ function ProfilePageContent({
 /** Keep feature controllers above the body renderer. A native presentation may
  * replace the body, not the catalog/OAuth/editor owner or its query authority. */
 function NativeProfileRetainedConnectors(props: ProfilePageProps) {
-  const pathname = usePathname(), search = useSearchParams();
+  const routePathname = usePathname(), routeSearch = useSearchParams();
+  const pathname = props.panePresentation?.pathname ?? routePathname;
+  const search = props.panePresentation?.searchParams ?? routeSearch;
   const location = props.paneLocation ?? resolveProfilePaneUrlState(search).location;
   const connectorId = location.panel === "connectors" && location.detail?.startsWith("connector:") ? location.detail.slice("connector:".length) : null;
   const changeConnector = useCallback((next: string | null) => {
