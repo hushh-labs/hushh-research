@@ -1187,6 +1187,21 @@ class DriveSharingStore(DriveDocumentStore):
                     "needs_dates": code == "date_range_required",
                 },
             )
+            if terminal and not has_job and autoshare_request(self._open_request(row)):
+                # The automatic start failed for good before any search existed,
+                # so nothing can ever be delivered. B may already have paid (the
+                # order exists from A's Allow): that payment is reconciled here,
+                # as one that arrives after this park is, and the refund worker
+                # returns it in full instead of B reading "Paid" until expiry.
+                connection.execute(
+                    text("""UPDATE drive_request_payment_orders
+                      SET reconciliation_required=TRUE,
+                        reconciliation_reason='authority_changed',
+                        reconciliation_at=clock_timestamp(),updated_at=clock_timestamp()
+                      WHERE request_id=:request AND status='paid'
+                        AND reconciliation_required=FALSE"""),
+                    {"request": row["request_id"]},
+                )
             if (
                 visible_code
                 in {

@@ -370,14 +370,17 @@ released once with the public reason `stopped`, and the unpaid earning is void
 when the request ends, whatever its outcome. An autoshare request whose search
 finds only files the owner cannot share ends as `no_match`. Checkout never opens
 for an allowed autoshare request whose automatic search start has failed for good
-(the refusal reason is `search_parked`), and a payment on a link opened before
-that is refunded in full. A search that waits for another of the owner's searches
-(one runs at a time) is waiting, never a failed start. Two worker instances can
-reach the same request at once (a scheduled drain and a payment wake): one holds
-its batches while it freezes and approves them, and the other skips that request,
-which is also waiting, never a failed attempt. That hold is a session lock on a
-dedicated database session, never on the worker's one-connection SQLAlchemy pool,
-which the pass itself needs.
+(the refusal reason is `search_parked`). A payment on a link opened before that is
+refunded in full, whether it completed after the start parked or before it: B can
+pay at Allow, before any search exists, and the park then marks that paid order
+for reconciliation (`authority_changed`) in the same transaction, so the refund
+worker returns it at once instead of when the request expires. A search that
+waits for another of the owner's searches (one runs at a time) is waiting, never
+a failed start. Two worker instances can reach the same request at once (a
+scheduled drain and a payment wake): one holds its batches while it freezes and
+approves them, and the other skips that request, which is also waiting, never a
+failed attempt. That hold is a session lock on a dedicated database session,
+never on the worker's one-connection SQLAlchemy pool, which the pass itself needs.
 
 Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
 payment processing fee** on that charge, with the deduction capped at the
