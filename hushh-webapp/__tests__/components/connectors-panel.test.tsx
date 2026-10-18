@@ -1196,7 +1196,7 @@ describe("supported connector catalog", () => {
     state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected", google_email: "schedule@example.invalid" } };
     render(panel());
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search connectors" }), { target: { value: "schedule@example.invalid" } });
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search connectors" }), { target: { value: "schedule@example.invalid" } });
     expect(screen.getByRole("button", { name: "Calendar", exact: true })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Gmail", exact: true })).not.toBeInTheDocument();
   });

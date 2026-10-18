@@ -65,6 +65,19 @@ closed. See [native Browser evidence](../../../consent-protocol/docs/reference/p
 
 ### Pending candidate corrections — 2026-10-18 UTC
 
+Fresh main `135d3c9d2a87` is integrated in local candidate `32c9342806`.
+Pod stream leases/owner rechecks compose with main's initial and reconnect resync.
+The combined frontend preserves private headers during native streaming and replaces
+a stale authorization value on retry, without duplicate credentials. Local checks:
+229 runtime/route tests, 59 hosting/release tests, 312 focused frontend tests,
+478 Back cases and 10 release-notice tests pass; TypeScript, generated UI validation,
+docs links and docs governance pass. These are local checks, not a full core or
+hosted-CI release receipt. Remote publication is held at the user's request.
+
+The ADK `0eedb8a366fb` merge preview was stopped without promoting its conflicts.
+Its extracted UI models omit current Puppy, provider-aware AI and consent controls;
+those contracts must be ported before integration. The active worktree is untouched.
+
 Files recovery now persists provider-confirmed cancellation before later checks and
 retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation
 proof; HTTP 404/412 remain refused. Focused boundary checks pass. Gmail restart
@@ -112,6 +125,10 @@ The deployed foreground-wake fix prevents hidden-tab/status polling from extendi
 paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
+
+The [local normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md)
+records CI consolidation, Shared continuity and changelog promotion. Nothing in
+that proposal authorizes a push or environment rollout.
 
 1. **Engineering:** app release/readback complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority, recorded commands/connectors and measured cold latency. Keep Browser disabled until each native gate passes.

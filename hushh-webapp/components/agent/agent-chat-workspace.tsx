@@ -10490,15 +10490,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ),
               )}
 
-              <FirstConnectInsightsCard
-                ownerId={user?.uid ?? null}
-                vaultKey={vaultKey ?? null}
-                vaultOwnerToken={vaultOwnerToken ?? null}
-                enabled={hasChatAccess && !isPuppySurface}
-                onPromptSelect={handleWelcomePromptSelect}
-                promptDisabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
-              />
-
               {hasChatAccess && !isPuppySurface && user?.uid ? (
                 <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} />
               ) : null}

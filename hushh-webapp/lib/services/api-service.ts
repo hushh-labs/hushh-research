@@ -783,11 +783,9 @@ async function apiFetch(
         return null;
       }
 
-      const retryHeaders = {
-        ...mergedHeaders,
-        Authorization: `Bearer ${freshToken}`,
-        [AUTH_REFRESH_RETRY_HEADER]: "1",
-      };
+      const retryHeaders = new Headers(mergedHeaders);
+      retryHeaders.set("Authorization", `Bearer ${freshToken}`);
+      retryHeaders.set(AUTH_REFRESH_RETRY_HEADER, "1");
       return apiFetch(path, {
         ...options,
         headers: retryHeaders,

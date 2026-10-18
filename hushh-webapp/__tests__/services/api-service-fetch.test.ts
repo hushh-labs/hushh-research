@@ -176,9 +176,12 @@ describe("ApiService.apiFetch", () => {
       const response = await pending;
       expect(nativeStreamFetch).toHaveBeenCalledWith(
         `${ApiService.getBaseUrl()}/api/one/messages/events`,
-        expect.objectContaining({ signal: controller.signal, headers: expect.objectContaining({ Accept: "text/event-stream", Authorization: `Bearer ${originalToken}` }) }),
+        expect.objectContaining({ signal: controller.signal }),
         "caller",
       );
+      const firstHeaders = new Headers(nativeStreamFetch.mock.calls[0][1].headers);
+      expect(firstHeaders.get("Accept")).toBe("text/event-stream");
+      expect(firstHeaders.get("Authorization")).toBe(`Bearer ${originalToken}`);
       expect(capacitorMocks.request).not.toHaveBeenCalled();
       expect(mockFetch).not.toHaveBeenCalled();
       if (switchAccount) {
@@ -187,7 +190,7 @@ describe("ApiService.apiFetch", () => {
       } else {
         expect(response).toBe(streamed);
         expect(nativeStreamFetch).toHaveBeenCalledTimes(2);
-        expect(nativeStreamFetch.mock.calls[1][1].headers.Authorization).toBe(`Bearer ${freshToken}`);
+        expect(new Headers(nativeStreamFetch.mock.calls[1][1].headers).get("Authorization")).toBe(`Bearer ${freshToken}`);
       }
     } finally {
       await streamed.body?.cancel();
@@ -632,14 +635,9 @@ describe("ApiService.apiFetch", () => {
       expect(response.status).toBe(200);
       expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
       expect(capacitorMocks.request).toHaveBeenCalledTimes(2);
-      expect(capacitorMocks.request.mock.calls[1]?.[0]).toEqual(
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: `Bearer ${freshToken}`,
-            "X-Hushh-Auth-Refresh-Retry": "1",
-          }),
-        }),
-      );
+      const retryHeaders = new Headers(capacitorMocks.request.mock.calls[1]?.[0].headers);
+      expect(retryHeaders.get("Authorization")).toBe(`Bearer ${freshToken}`);
+      expect(retryHeaders.get("X-Hushh-Auth-Refresh-Retry")).toBe("1");
     } finally {
       if (previousBackendUrl === undefined) {
         delete process.env.NEXT_PUBLIC_BACKEND_URL;

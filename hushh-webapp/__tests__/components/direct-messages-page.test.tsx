@@ -334,8 +334,9 @@ describe("DirectMessagesPage", () => {
 
   it("repairs missed messages immediately on a stream resync", async () => {
     mocks.liveMessageEvents = true;
+    const cancelled = vi.fn();
     let stream!: ReadableStreamDefaultController<Uint8Array>;
-    mocks.openEvents.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } })));
+    mocks.openEvents.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; }, cancel: cancelled })));
     const view = renderConnectionThread();
     try {
       await screen.findByText("Start the conversation with Ankit Kumar Singh.");
@@ -345,7 +346,7 @@ describe("DirectMessagesPage", () => {
       expect(await screen.findByText(received.content)).toBeVisible();
     } finally {
       view.unmount();
-      stream.close();
+      await waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
     }
   });
 
