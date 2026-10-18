@@ -424,6 +424,9 @@ def test_another_requests_batch_maps_to_a_wait_not_a_failure():
     from hushh_mcp.services.drive_trusted_auto_service import _defer_code
 
     assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    # Another of the owner's searches is running: one search at a time. Waiting
+    # for it never counts toward the three failed starts that park a request.
+    assert _defer_code(DriveReadError("search_in_progress")) == "share_in_progress"
     assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
 
 
@@ -940,17 +943,28 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("v1,stage", [(True, "v1"), (False, "sharing")])
-async def test_unpaid_frozen_review_wakes_its_own_checkout_lane(v1, stage):
+async def test_unpaid_frozen_review_wakes_its_own_checkout_lane_only_when_ordered(v1, stage):
     sharing = SimpleNamespace(request_bulk_context=AsyncMock(return_value={"v1LiveRequest": v1}))
     payment = SimpleNamespace(
-        ensure_payment_for_frozen_batch=AsyncMock(return_value={"status": "awaiting_payment"})
+        ensure_payment_for_frozen_batch=AsyncMock(
+            side_effect=[
+                {"status": "awaiting_payment", "orderCreated": True},
+                *[{"status": "awaiting_payment", "orderCreated": False}] * 3,
+            ]
+        )
     )
     wake = AsyncMock()
     service = DriveTrustedAutoService(
         sharing=sharing, bulk=SimpleNamespace(), payment=payment, wake=wake
     )
-    assert not await service._payment_ready(user_id="owner", request_id="request", share_id="share")
+    # The handoff that commits the order wakes its Checkout lane once. Later
+    # handoffs of the same unpaid order are not news to that lane.
+    for _ in range(4):
+        assert not await service._payment_ready(
+            user_id="owner", request_id="request", share_id="share"
+        )
     wake.assert_awaited_once_with(stage)
+    sharing.request_bulk_context.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1002,7 +1016,7 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     )
     payment = SimpleNamespace(
         ensure_payment_for_frozen_batch=AsyncMock(
-            side_effect=[{"status": "awaiting_payment"}, {"status": "paid"}]
+            side_effect=[{"status": "awaiting_payment", "orderCreated": True}, {"status": "paid"}]
         )
     )
     monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)

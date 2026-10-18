@@ -48,6 +48,7 @@ from hushh_mcp.services.drive_request_payment_view import (
     requester_payment_view,
 )
 from hushh_mcp.services.drive_request_queue import (
+    AUTOMATIC_START_CODES,
     STARTED_WORK_SQL,
     queue_view,
     request_queued_since,
@@ -955,9 +956,7 @@ class DriveSharingStore(DriveDocumentStore):
                     AND c.verified_policy_hash=:policy
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NULL
                     AND (:v1_only=FALSE OR r.v1_live_request=TRUE)
-                    AND r.preparation_error_code IN
-                      ('trusted_auto_queued','background_preparation_required',
-                       'owner_price_required','owner_payout_required','payout_unavailable')
+                    AND r.preparation_error_code=ANY(CAST(:start_codes AS text[]))
                     AND r.expires_at>clock_timestamp()
                     AND r.preparation_next_at<=clock_timestamp()
                   ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
@@ -966,7 +965,12 @@ class DriveSharingStore(DriveDocumentStore):
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
                 FROM due WHERE r.request_id=due.request_id RETURNING r.*
                 """),
-                    {"policy": LIVE_POLICY_HASH, "limit": limit, "v1_only": v1_only},
+                    {
+                        "policy": LIVE_POLICY_HASH,
+                        "limit": limit,
+                        "v1_only": v1_only,
+                        "start_codes": sorted(AUTOMATIC_START_CODES),
+                    },
                 )
                 .mappings()
                 .all()

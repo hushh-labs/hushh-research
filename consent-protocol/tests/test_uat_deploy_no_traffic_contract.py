@@ -982,9 +982,12 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
         "_CLOUD_RUN_TAG": "account-deletion-123456789",
     }
 
-    def run_case(**overrides: str) -> subprocess.CompletedProcess[str]:
+    def run_case(date: str = "2026-10-16", **overrides: str) -> subprocess.CompletedProcess[str]:
+        # Pin the clock like validate_dispatch: the guard compares today's UTC
+        # date with the approved window, so the wall clock must not decide CI.
+        script = f"date() {{ printf '%s\\n' '{date}'; }}\n" + guard
         return subprocess.run(  # noqa: S603 - production guard with synthetic environment only.
-            ["/bin/bash", "-c", guard],
+            ["/bin/bash", "-c", script],
             env={**os.environ, **valid, **overrides},
             capture_output=True,
             text=True,
@@ -993,6 +996,8 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
 
     approved = run_case()
     assert approved.returncode == 0, approved.stderr
+    expired = run_case(date="2026-10-18")
+    assert expired.returncode != 0, (expired.stdout, expired.stderr)
     for key, value in (
         ("PROJECT_ID", "another-project"),
         ("_DEPLOY_ENV", "production"),

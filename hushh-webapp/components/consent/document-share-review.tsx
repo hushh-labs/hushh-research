@@ -351,6 +351,18 @@ function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
     review.preparationError !== "preparation_unavailable";
 }
 
+/**
+ * An open autoshare request whose requester has not paid. Its order, and the
+ * owner's earning row with it, exist from Allow; the server sends the owner
+ * payment setup fields only until that order is paid. Copy only: Decline and
+ * Stop are re-checked by the server.
+ */
+function awaitingAutosharePayment(snapshot: Snapshot | null): boolean {
+  const review = snapshot?.review;
+  return !!snapshot && UNDECIDED.has(snapshot.status.status) && review?.autoshare === true &&
+    review.paymentRequired === true && typeof review.paymentsReady === "boolean";
+}
+
 /** Waiting in the durable queue; past the server's threshold it says so plainly. */
 function queueLabel(queue: { queuedAt?: string; queueDelayed?: boolean } | undefined, now: number): string {
   if (queue?.queueDelayed !== true) return "Waiting to start";
@@ -899,6 +911,7 @@ function UnlockedDocumentReview({
     : null;
   const setup = requestSetup(snapshot);
   const automaticSharing = isAutomaticSharingActive(review);
+  const awaitingPayment = awaitingAutosharePayment(snapshot);
   const ownerReviewRequired = review?.search?.coverage?.ownerReviewRequired === true;
   const progressive = review?.progressiveAllowed === true;
   const batches = review?.batches ?? [];
@@ -1245,6 +1258,8 @@ function UnlockedDocumentReview({
         ? sharingProgressLabel(review?.aggregateCounts ?? bulkShare.counts)
         : search && ["queued", "running"].includes(search.status)
           ? `Searching Drive · ${search.matched.toLocaleString()} file candidates`
+          // Autoshare: a finished search waits on the requester, never on an owner review.
+          : awaitingPayment && search ? "Waiting for payment"
           : bulkShare ? BULK_STATUS_LABELS[bulkShare.status]
             : ["completed", "partial"].includes(snapshot?.status.status ?? "") ? "Sharing finished"
               : search ? "Waiting to share"
@@ -1297,6 +1312,9 @@ function UnlockedDocumentReview({
       ? REQUESTER_PAYMENT_TITLES.requestExpired
     : outgoingStatus.status === "completed" && sentCount > 0
       ? `All files sent · ${sentCount.toLocaleString()} ${sentCount === 1 ? "file" : "files"}`
+    // Autoshare refunds what it could not send; the payment row says how much.
+    : outgoingStatus.status === "partial" && sentCount > 0 && requesterPayment?.autoshare === true
+      ? `Files sent · ${sentCount.toLocaleString()}`
     : outgoingStatus.status === "no_files_shared" && sentCount === 0
       ? "No matching files"
     // Stalled or still queued work says so; it never reads as running.
@@ -1397,7 +1415,9 @@ function UnlockedDocumentReview({
   const outgoing = snapshot?.status.direction === "outgoing";
   const payoutProjection = snapshot?.ownerPayout ?? review?.ownerPayout;
   const ownerPayout = !outgoing && payoutProjection
-    ? documentPayoutStatusCopy(payoutProjection)
+    ? awaitingPayment && payoutProjection.status === "awaiting_delivery"
+      ? { status: "Waiting for payment", earnings: null }
+      : documentPayoutStatusCopy(payoutProjection)
     : null;
   // The owner's one retry for files Google Drive could not share. The requester
   // may ask for it; whether it can run stays with this batch view.
@@ -1659,8 +1679,8 @@ function UnlockedDocumentReview({
         {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
         <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.autoshare === true
           ? review.paymentRequired === true
-            ? "Allow and Agent One sends every matching file after they pay."
-            : "Allow and Agent One sends every matching file."
+            ? "Allow and Agent One sends every matching file you can share once they pay."
+            : "Allow and Agent One sends every matching file you can share."
           : review.paymentRequired === true
           ? "Allow to set a price and search Drive. You may need to choose the exact files before payment and sharing."
           : "Allow Agent One to search Drive. You may need to choose the exact files before sharing."}</HelperText>
@@ -1728,18 +1748,21 @@ function UnlockedDocumentReview({
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
           {review.autoshare === true
-            ? "Agent One sends every matching file in batches after payment. You can close this."
+            ? `${review.paymentRequired === true ? "After payment, " : ""}Agent One sends every matching file you can share, in batches. You can close this.`
             : "Agent One searches Drive and shares selected files. You can close this window; the requester sees each original only after Google Drive confirms access."}
         </HelperText>}
         {ownerPeriodNote ? <HelperText>{ownerPeriodNote}</HelperText> : null}
-        {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} file candidates so far
+        {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} file candidates{review.autoshare === true && search.status === "completed" ? "" : " so far"}
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
         {search && review.preparationError !== "date_range_required" && search.unshareableCount ? (
           <HelperText>{ownerOnlyMatchesLabel(search.unshareableCount)}</HelperText>
         ) : null}
-        {/* An Allow can be withdrawn until a batch is frozen: nothing is charged or shared before that. */}
-        {review.ownerAllowed === true && snapshot?.status.status === "pending" &&
-          !bulkShare && batchCount === 0 && !review.aggregateCounts ? (
+        {/* Autoshare: the owner can decline until the requester pays, since nothing
+            is shared before payment; once a paid batch exists, Review removal
+            stops it. Older requests keep their rule: until a batch is frozen. */}
+        {(review.autoshare === true && review.paymentRequired === true ? awaitingPayment
+          : review.ownerAllowed === true && snapshot?.status.status === "pending" &&
+            !bulkShare && batchCount === 0 && !review.aggregateCounts) ? (
           <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
             className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
             disabled={locked} aria-label={denyConfirm.ariaLabel("Decline")}

@@ -19,6 +19,37 @@ from typing import Any
 # picks a due row within a minute. The request stays saved and continues.
 QUEUE_DELAY_AFTER = timedelta(minutes=3)
 QUEUED_PREPARATION_CODE = "trusted_auto_queued"
+# The preparation codes with which the automatic queue (due_trusted_searches)
+# still starts a request's first search: queued, or waiting on owner setup or
+# background Drive access. Any other code, for example the terminal
+# preparation_unavailable after three failed starts, never starts one.
+AUTOMATIC_START_CODES = frozenset(
+    {
+        QUEUED_PREPARATION_CODE,
+        "background_preparation_required",
+        "owner_price_required",
+        "owner_payout_required",
+        "payout_unavailable",
+    }
+)
+# A start in flight: request_bulk_context marked the request active and the
+# search job is not committed yet. A failed start returns it to the queue (or,
+# after three failures, parks it for good).
+_STARTING_CODE = "trusted_auto_active"
+
+
+def automatic_start_parked(preparation_error_code: str | None) -> bool:
+    """A request with no search job yet will never get one automatically.
+
+    Read only for a request whose search job does not exist. The owner's own
+    takeover (manual_search_active) is parked here too: no automatic search
+    starts for it, and only the owner's exact approval can authorize it.
+    """
+    return (
+        preparation_error_code not in AUTOMATIC_START_CODES
+        and preparation_error_code != _STARTING_CODE
+    )
+
 
 # Started work, as SQL scalars over the current drive_share_requests row. Each
 # is the moment that work became due with no worker holding it: the latest of
