@@ -52,6 +52,15 @@ describe("OneDashboardPage", () => {
     window.localStorage.clear();
   });
 
+  it.each([null, 0, 1, 2, 100, 137])("shows the Messages unread count %s rather than its completed setup status", (count) => {
+    render(<OneDashboardPage messagesUnreadCount={count} capabilityStatusById={buildStatusMap({ messages: { state: "completed" } })} />);
+
+    const tile = screen.getByRole("link", { name: "Open Messages" });
+    const label = tile.querySelector('[data-ui-role="trailing-value"]');
+    expect(label?.previousElementSibling).toHaveTextContent(count === null ? "—" : String(count));
+    expect(label).toHaveTextContent(count === null ? "checking" : count === 1 ? "action" : "actions");
+  });
+
   it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
     OneSetupCompletionHintService.markResolved(userId); // dismissed

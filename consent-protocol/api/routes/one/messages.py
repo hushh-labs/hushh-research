@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.services.chat_notification_state import unread_message_count
 from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
 from hushh_mcp.services.direct_messages_service import (
     DEFAULT_MESSAGE_PAGE_SIZE,
@@ -152,6 +153,20 @@ def _handle(exc: Exception) -> HTTPException:
             "message": "Messaging is temporarily unavailable. Please try again.",
         },
     )
+
+
+@router.get("/unread-count")
+async def get_unread_count(
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, int]:
+    """Read the authenticated owner's People and Circle message total only."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        count = await run_in_threadpool(unread_message_count, firebase_uid)
+        return {"unreadCount": count}
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
 
 
 @router.get("/conversations")
