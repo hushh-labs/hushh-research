@@ -471,10 +471,15 @@ def test_active_connection_query_also_requires_no_direct_message_block(monkeypat
 
 
 @pytest.mark.parametrize(
-    "display_name, expected_name", [("  Bob  ", "Bob"), (None, "Hussh member")]
+    "display_name, photo_url, expected_name, expected_photo",
+    [
+        ("  Bob  ", " https://example.com/bob.jpg ", "Bob", "https://example.com/bob.jpg"),
+        (None, " https://example.com/bob.jpg ", "Hussh member", "https://example.com/bob.jpg"),
+        (None, None, "Hussh member", None),
+    ],
 )
 def test_connected_person_draft_includes_safe_identity_before_first_message(
-    monkeypatch, display_name, expected_name
+    monkeypatch, display_name, photo_url, expected_name, expected_photo
 ):
     service = _service()
     person_ref = _conversation()["peer_person_ref"]
@@ -489,7 +494,7 @@ def test_connected_person_draft_includes_safe_identity_before_first_message(
         return {
             "peer_person_ref": person_ref,
             "peer_display_name": display_name,
-            "peer_photo_url": " https://example.com/bob.jpg ",
+            "peer_photo_url": photo_url,
         }
 
     monkeypatch.setattr(service, "_execute_one", execute_one)
@@ -499,7 +504,7 @@ def test_connected_person_draft_includes_safe_identity_before_first_message(
         "conversation": None,
         "peerPersonRef": person_ref,
         "peerDisplayName": expected_name,
-        "peerPhotoUrl": "https://example.com/bob.jpg",
+        "peerPhotoUrl": expected_photo,
         "canSend": True,
         "disconnectedNotice": False,
     }
