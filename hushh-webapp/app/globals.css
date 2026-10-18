@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Native products and compiler/export output are never UI source. Git ignore
+ * discovery is insufficient in some development worktrees: scanning these
+ * trees reads old object/dependency files and packaged copies of the app. */
+@source not "../ios";
+@source not "../android";
+@source not "../out";
+@source not "../.next*/**";
+
 /*
  * The Location introduction is mounted only after the client has resolved a
  * vault-backed first-run state. Tailwind's incremental scanner cannot infer

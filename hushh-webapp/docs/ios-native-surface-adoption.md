@@ -55,6 +55,14 @@ states. Vault mutation outcomes now also project into the native page instead
 of relying only on a covered web toast. Ordinary custom-native admission stays
 off. This entry does not establish device, mutation or release acceptance.
 
+The subsequent cold export exposed an independent source-discovery problem:
+the compiler opened ignored `ios/App/build` object/dependency files and its
+worker reached approximately 20 GB. Explicit Tailwind exclusions now keep iOS,
+Android, static export and Next output outside the UI source graph. The nearest
+native CSS contract exercises the installed compiler/scanner with included
+application classes and a negative control that admits native output without
+the exclusions. No application source, utility or verification gate is excluded.
+
 ### Profile Vault and Request pricing conversion — 2026-10-17
 
 The qualification source now maps Security → Vault methods into the retained
