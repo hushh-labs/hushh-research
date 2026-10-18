@@ -1,7 +1,7 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
+import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
 import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
@@ -38,6 +38,32 @@ beforeEach(() => {
   }));
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
   vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
+});
+
+it("retains one custom setup owner across renderer changes and revokes replaced or unmounted commands", async () => {
+  let model!: CustomConnectorSettingsModel;
+  const body = (visible: boolean) => <CustomConnectorsSettings access={access} render={(value, web) => { model = value; return visible ? web : null; }} />;
+  const view = render(body(true));
+  await waitFor(() => expect(model.status).toBe("ready"));
+  const previous = model;
+  act(() => model.openEditor());
+  const draft = { ...model.draft, name: "Synthetic native setup", endpoint: "https://example.com/mcp", credential: "synthetic-private-input" };
+  expect(previous.changeDraft(draft)).toBe(false);
+  const revision = model.inputRevision();
+  act(() => { expect(model.changeDraft(draft, revision)).toBe(true); });
+  expect(model.changeDraft({ ...draft, name: "Stale readback" }, revision)).toBe(false);
+  view.rerender(body(false));
+  expect(model.draft).toEqual(draft);
+  view.rerender(body(true));
+  expect(screen.getByLabelText("Name")).toHaveValue(draft.name);
+  expect(screen.getByLabelText("Access token (optional)")).toHaveValue(draft.credential);
+  expect(loadCustomConnectorSnapshot).toHaveBeenCalledOnce();
+  const retired = model;
+  view.unmount();
+  expect(retired.changeDraft(draft)).toBe(false);
+  expect(await retired.save()).toBe(false);
+  expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
+  expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
 });
 
 it("admits only the app-owned HTTPS return for native connector sign-in", () => {

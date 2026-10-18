@@ -1274,6 +1274,8 @@ describe("supported connector catalog", () => {
     const first = latest();
     act(() => entry(first, "gmail").onOpen?.());
     await waitFor(() => expect(latest().selectedConnector?.id).toBe("gmail"));
+    expect(latest().detail).toMatchObject({ kind: "gmail", status: "Not connected", connected: false, sendAllowed: false, draftsAllowed: false });
+    const originalMail = latest().detail;
     // A retired list cannot change the current detail or start another read.
     await act(async () => {
       entry(first, "calendar").onOpen?.();
@@ -1286,9 +1288,12 @@ describe("supported connector catalog", () => {
     expect(await screen.findByRole("region", { name: "Gmail" })).toBeInTheDocument();
     expect(state.overview).toHaveBeenCalledTimes(1);
     const retired = latest();
+    act(() => { if (originalMail?.kind === "gmail") originalMail.connect?.run(); });
+    expect(state.gmailStartConnect).not.toHaveBeenCalled();
     view.unmount();
-    await act(async () => { await retired.catalog.retry(); });
+    await act(async () => { await retired.catalog.retry(); if (retired.detail?.kind === "gmail") retired.detail.connect?.run(); });
     expect(state.overview).toHaveBeenCalledTimes(1);
+    expect(state.gmailStartConnect).not.toHaveBeenCalled();
   });
 
   it("rejects a delayed catalog after same-owner token rotation", async () => {

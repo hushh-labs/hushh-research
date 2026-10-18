@@ -156,8 +156,22 @@ type ConnectorListEntry = {
  * enter the existing feature owner; dispatch is not a provider-success receipt.
  * Invoke them only after commit/admission, never from render or ref callbacks.
  * Native detail scenes extend this port, not the underlying service authority. */
+export type ConnectorDetailAction = { label: string; disabled: boolean; run: () => void; destructive?: boolean };
+/** Feature facts and existing commands, not a native UI schema or service port. */
+export type ConnectorDetailPresentation =
+  | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
+      sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
+      retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
+  | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
+      connection: ConnectorDetailAction; retry?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
+  | { kind: "plaid"; status: string; message: string; banks: readonly { name: string; status: string; disconnect: ConnectorDetailAction }[];
+      connect?: ConnectorDetailAction }
+  | { kind: "curated"; name: string; description: string; account?: string; status: string; message: string;
+      connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction };
 export type ConnectorsPanelPresentation = {
   selectedConnector: { id: string; name: string } | null;
+  /** Null for families whose complete private presentation is not mapped yet. */
+  detail: ConnectorDetailPresentation | null;
   catalog: {
     status: "locked" | "loading" | "unavailable" | "ready";
     groups: readonly { title: "Connected" | "Available"; entries: readonly ConnectorListEntry[] }[];
@@ -2248,6 +2262,57 @@ function OwnerConnectorsPanel({
   );
 
   const inProfile = surface === "profile";
+  const token = vaultOwnerToken;
+  const currentPresentation = () => committedPresentation.current === presentationBinding && open && !!token &&
+    currentToken.current === token && !!controller.current && !controller.current.signal.aborted;
+  const guardPresentation = (action: () => void) => () => { if (currentPresentation()) action(); };
+  const detailAction = (label: string, disabled: boolean, run: () => void, destructive = false): ConnectorDetailAction => ({
+    label, disabled, ...(destructive ? { destructive: true } : {}),
+    run: guardPresentation(() => { if (!disabled) run(); }),
+  });
+  const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
+    kind: "gmail", account: gmail.status?.google_email || "Gmail",
+    status: gmail.loadingStatus ? "Checking Mail…" : gmail.statusError ? "Status unavailable" : gmail.status?.needs_reauth ? "Sign-in needed" : gmail.status?.connected ? "Connected" : "Not connected",
+    message: mailBusy ? "Updating Mail…" : mailMessage, connected: gmail.status?.connected === true,
+    sendAllowed: gmail.status?.send_permission_granted === true, draftsAllowed: gmail.status?.compose_permission_granted === true,
+    ...(!gmail.status?.connected || gmail.status?.needs_reauth ? { connect: detailAction("Connect Mail", mailBusy || gmail.loadingStatus, () => { void connectMail(); }) } : {}),
+    ...(gmail.status?.connected || gmail.status?.needs_reauth ? { disconnect: detailAction("Disconnect Mail", mailBusy, () => setConfirm("mail"), true) } : {}),
+    ...(gmail.statusError ? { retry: detailAction("Retry Mail", mailBusy, () => { void gmail.refreshStatus({ force: true, reconcile: false }); }) } : {}),
+    ...(gmail.status?.connected && !gmail.status.compose_permission_granted ? { enableDrafts: detailAction("Enable Gmail drafts", mailBusy || gmail.loadingStatus, () => { void connectMail("compose"); }) } : {}),
+    ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
+  };
+  const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
+    kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
+    message: calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage,
+    helper: !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null,
+    connection: calendar.connected ? detailAction("Disconnect Calendar", calendarBusy, () => setConfirm("calendar"), true) :
+      detailAction(calendarConnectLabel, calendarBusy, () => { void connectCalendar(); }),
+    ...(calendar.error ? { retry: detailAction("Retry", false, () => { void calendar.refresh(); }) } : {}),
+    ...(calendarPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => calendarPopupCancel.current?.abort()) } : {}),
+  };
+  const plaidDetail: Extract<ConnectorDetailPresentation, { kind: "plaid" }> = {
+    kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
+    message: plaidBusy ? "Disconnecting bank…" : plaidMessage,
+    banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
+      name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
+    })),
+    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", false, () => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }) } : {}),
+  };
+  const curatedDetail: Extract<ConnectorDetailPresentation, { kind: "curated" }> | null = selectedCatalog ? {
+    kind: "curated", name: selectedCatalog.displayName, description: selectedCatalog.description,
+    ...(selectedCatalog.accountLabel ? { account: selectedCatalog.accountLabel } : {}),
+    status: selectedCatalog.curatedOAuth === true && !canStartSelectedCurated && !["not_connected", "revoked"].includes(selectedCatalog.status) ? "Unavailable" :
+      selectedCatalog.curatedOAuth === true && selectedCatalog.status === "verifying" ? "Sign-in needed" : labels[selectedCatalog.status] ?? "Status unavailable",
+    message: selectedCatalog.curatedOAuth === true ? curatedBusy ? "Working…" : curatedMessage : "",
+    ...(selectedCatalog.curatedOAuth === true && canStartSelectedCurated && ["not_connected", "revoked", "needs_reauth", "verifying"].includes(selectedCatalog.status) ? {
+      connect: detailAction(["needs_reauth", "verifying"].includes(selectedCatalog.status) ? "Reconnect" : "Connect", curatedBusy || loading, () => { void connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName); }),
+    } : {}),
+    ...(selectedCatalog.curatedOAuth === true && !["not_connected", "revoked"].includes(selectedCatalog.status) ? { disconnect: detailAction("Disconnect", curatedBusy, () => setConfirm(`curated:${selectedCatalog.connectorId}`), true) } : {}),
+    ...(selectedCatalog.curatedOAuth === true && curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? { cancelSignIn: detailAction("Cancel sign-in", false, () => curatedPopupCancel.current?.abort()) } : {}),
+  } : null;
+  const detail: ConnectorDetailPresentation | null = activeConnector === "gmail" ? mailDetail : activeConnector === "calendar" ? calendarDetail :
+    activeConnector === "plaid" ? plaidDetail : activeConnector && !["google_drive", "instagram", "linkedin"].includes(activeConnector) ? curatedDetail : null;
   const listSections = [
     ["Connected", connectedEntries],
     ["Available", availableEntries],
@@ -2423,18 +2488,10 @@ function OwnerConnectorsPanel({
                 Gmail
               </h3>
               <p className="break-all text-sm text-muted-foreground">
-                {gmail.status?.google_email || "Gmail"}
+                {mailDetail.account}
               </p>
               <p role="status" className="text-sm">
-                {gmail.loadingStatus
-                  ? "Checking Mail…"
-                  : gmail.statusError
-                    ? "Status unavailable"
-                    : gmail.status?.needs_reauth
-                      ? "Sign-in needed"
-                      : gmail.status?.connected
-                        ? "Connected"
-                        : "Not connected"}
+                {mailDetail.status}
               </p>
               <div className="flex flex-wrap gap-2">
                 {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
@@ -2490,7 +2547,7 @@ function OwnerConnectorsPanel({
                 aria-live="polite"
                 className="text-sm text-muted-foreground"
               >
-                {mailBusy ? "Updating Mail…" : mailMessage}
+                {mailDetail.message}
               </p>
             </section>}
             {activeConnector === "google_drive" && <section
@@ -2872,13 +2929,13 @@ function OwnerConnectorsPanel({
                     Google Calendar
                   </h3>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    {calendarDescription}
+                    {calendarDetail.description}
                   </p>
                 </div>
 
                 <div className="space-y-3">
                   <p role="status" className="text-lg font-medium">
-                    {calendarStatusLabel}
+                    {calendarDetail.status}
                   </p>
                   {calendar.connected ? (
                     <Button
@@ -2932,11 +2989,7 @@ function OwnerConnectorsPanel({
                       aria-live="polite"
                       className="text-sm text-muted-foreground"
                     >
-                      {calendarPopupPending
-                        ? "Finish signing in with Google in the window that opened."
-                        : calendarBusy
-                          ? "Updating Calendar…"
-                          : calendarMessage}
+                      {calendarDetail.message}
                     </p>
                   ) : null}
                 </div>
@@ -2945,7 +2998,7 @@ function OwnerConnectorsPanel({
             {activeConnector === "plaid" && (
               <section className="space-y-3" aria-label="Plaid connection details">
                 <p className="text-sm text-muted-foreground">
-                  {financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected"}
+                  {plaidDetail.status}
                 </p>
                 {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
                   <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
@@ -2958,7 +3011,7 @@ function OwnerConnectorsPanel({
                     </Button>
                   </div>
                 ))}
-                <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidBusy ? "Disconnecting bank…" : plaidMessage}</p>
+                <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
                 {!plaidConnections.length && !financial.loading && !financial.error && (
                   <Button className={touch} size="compact" variant="outline" onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
                     Connect a bank
@@ -3029,22 +3082,19 @@ function OwnerConnectorsPanel({
     </div>
   );
   if (!render) return webBody;
-  const token = vaultOwnerToken;
-  const current = () => committedPresentation.current === presentationBinding && open && !!token &&
-    currentToken.current === token && !!controller.current && !controller.current.signal.aborted;
-  const guard = (action: () => void) => () => { if (current()) action(); };
   return render({
     selectedConnector: activeConnector ? { id: activeConnector, name: entries.find(entry => entry.id === activeConnector)?.name ?? "Connector" } : null,
+    detail,
     catalog: {
       status: !vaultOwnerToken ? "locked" : catalogLoadFailed ? "unavailable" : !overview && !statusChecked ? "loading" : "ready",
       groups: listSections.map(([title, items]) => ({ title, entries: items.map(entry => ({ ...entry,
-        ...(entry.onOpen ? { onOpen: guard(entry.onOpen) } : {}),
-        ...(entry.action ? { action: { ...entry.action, onClick: guard(() => { if (!entry.action?.disabled) entry.action?.onClick(); }) } } : {}),
+        ...(entry.onOpen ? { onOpen: guardPresentation(entry.onOpen) } : {}),
+        ...(entry.action ? { action: { ...entry.action, onClick: guardPresentation(() => { if (!entry.action?.disabled) entry.action?.onClick(); }) } } : {}),
       })) })),
-      retry: () => current() ? refresh(controller.current?.signal) : Promise.resolve(false),
+      retry: () => currentPresentation() ? refresh(controller.current?.signal) : Promise.resolve(false),
     },
     confirmation: confirm ? { ...connectorConfirmCopy(confirm), busy: confirmBusy,
-      confirm: guard(() => { if (!confirmBusy) confirmAction(); }), cancel: guard(() => { if (!confirmBusy) setConfirm(null); }) } : null,
+      confirm: guardPresentation(() => { if (!confirmBusy) confirmAction(); }), cancel: guardPresentation(() => { if (!confirmBusy) setConfirm(null); }) } : null,
     webBody,
   });
 }
