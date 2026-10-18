@@ -55,6 +55,20 @@ its one-point threshold. Both native host contracts pass, including final-pair
 acknowledgement and immediate password-replica scrubbing. Host contracts remain
 separate from installed-product warm journeys and Release performance evidence.
 
+Installed iPhone candidate `2455bf461d`, Agent One 1.4.1 (69), UAT Debug
+qualification, passes credential-free XCTest admission and normal configured
+passphrase unlock. Separate attach-only Pricing and Security batches each pass
+one test with zero skipped: native price editor → synthetic edit → keyboard →
+Cancel → Back, and native Vault methods → protected password editor → keyboard →
+Cancel → Back. Both retain the same WebView and warm session; neither saves a
+price, changes a credential or fulfills a payment. The executable digest is
+`086cad4ddc369c30bc54efbd5cff8991c8a0378aac7d0590f88ad1e38d2e9d3f`;
+1,681 bundled/exported assets match at
+`240c5ffe8919ae1d4cae1b92d52f077910978a5d05904d3c0fba763e316dd43f`.
+Strict app/runner signatures, seven UAT backend targets and no remote WebView
+override pass. Mutation, transition-frame, full accessibility and Release
+performance acceptance remain separate from these bounded functional receipts.
+
 ### Latest-main integration and preview boundary — 2026-10-17
 
 Merge `5f70c584e9` incorporates main through `a01b055edd`. The installed iPhone
