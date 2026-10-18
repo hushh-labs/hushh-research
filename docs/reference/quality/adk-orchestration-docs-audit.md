@@ -16,38 +16,39 @@ Selected external model providers retain their disclosed processing boundary.
 
 | Journey | Demonstrated outcome | Next measurable result |
 | --- | --- | --- |
-| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev | GCP owner-project Vertex currently returns 403. Resolve that exact authority/provider refusal and complete a real owner-pod response; no implicit bridge substitution |
-| Voice | GCP recorded transcription/commands use admitted pod routes and the authorized model factory. Local correction disables Azure capture, Live admission and recorded transcription; private Live cannot borrow the shared model key | Complete focused boundary checks, then release the correction. Actual GCP recorded audio remains live-unverified; native conversational Live requires its own compatible model |
+| Owner cloud / AI | Azure normal owner chat completes; provider-aware GCP/Azure onboarding and encrypted custom-key choices serve dev | The GCP qualification pod's owner-project Vertex returns 403. Resolve that exact provider/authority refusal; no implicit bridge substitution |
+| Voice | Deployed app selects GCP recorded commands and disables Azure capture. Source-qualified pod guards refuse Azure transcription/Live and a shared Live key | The workflow reused reviewed Dev 25; pod guards are not installed. A fresh image needs exact-predecessor recovery and owner approval. GCP recorded audio remains live-unverified; conversational Live also needs a compatible native model |
 | Files | Dedicated ADK specialist and explorer. Personal and fresh Shared Move, stable identity, byte-exact download and Undo pass; earlier interrupted 4,195,328-byte transfer and selected analysis pass | Finish the retained synthetic deletion after the guarded correction serves; qualify fresh setup and current-image organization without disturbing owners |
 | Software updates | Personal Azure Dev 25 approved in Settings; same durable operation, recovery, installed digest, unchanged incarnation and exactly one Feed completion verified | Preserve exact tested predecessor compatibility; broader interruption and rollback acceptance stays distinct |
 | Puppy | Existing Hermes identity and grant; signed binding, sealed WSS, streamed Gemma 12B response and idle UI. Previous Stop, withdrawal, refusal and re-enable receipts retained | Keep the default and existing relay. No model sweep. Independent-network and cold-model percentiles are unclaimed; phone testing was waived |
 | Browser Use | Native ADK adapter, responsive preview, mouse/touch control, fenced takeover/handback, private checkpoints and encrypted remembered sessions tested locally | **Disabled on both clouds.** GCP native worker cannot adopt required non-root identity, so Chromium refuses startup. Azure native execution identity/Chromium/transport remain unqualified. No unsandboxed or alternative-executor fallback |
 | Background / continuity | Files queue delivery and preservation of originals previously demonstrated on both clouds; durable update and command/MCP recovery owners exist | Prove current-image connectors/recorded commands and supported continuation. General goals, Azure due-time delivery and scheduled browser work are not qualified |
-| Erasure / transitions | Earlier disposable Shared erasure verified objects and Firebase absence. Explicit Shared/assigned/pending placement is preserved | Fresh Shared deletion is fenced on one uncertain upload. Environment-specific migration, external revocation and cloud cleanup must have receipts; unknown placement never silently becomes Shared |
+| Erasure / transitions | Earlier Shared erasure verified object/Firebase absence. The retained fixture now receives the intended safe 409 instead of 500 on deployed `28a0fa1091` | Its upload remains unverified; account/vault stay fenced and retained. No direct provider deletion, SQL override or automatic retry. Migration, external revocation and cloud cleanup still need receipts |
+| Security | Runtime/authority negative controls and the critical Capacitor patch have source evidence | Dependency alerts, including companion alerts, remain an independent clearance requirement; green CI does not close them |
 
 ## Source and serving evidence
 
 | Surface | Exact evidence | Scope |
 | --- | --- | --- |
-| Dev application | Hub source `e9482e4319ad`, revision `consent-protocol-00185-f9z`, image `73c3632206cd`; frontend source `991a06ccbc01`, revision `hushh-webapp-00153-7ck`, image `3796e3503566`; both 100% traffic | Last independent ADC readback. [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39104101777) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39105713670) succeeded. GitHub governs; Cloud Build builds |
-| Installed personal pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; image `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | Operation `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC. Only tested predecessor `250aea9e…fc69f1` admitted. Initial lock refusal retained; normal retry completed the same operation |
+| Dev application | Source `28a0fa109175`; hub `consent-protocol-00186-5zw` / image `d80e03ebc21a`; frontend `hushh-webapp-00154-jzm` / image `c7f92a59242b`; both 100% traffic | Approved-ADC readback at 12:21 UTC. [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39122438292): 22 successful jobs. [Governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39125450154) succeeded. GitHub governs; Cloud Build builds |
+| Installed personal pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; image `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | Operation `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC. Only tested predecessor `250aea9e…fc69f1` admitted. Initial lock refusal retained; normal retry completed the same operation. Post-app-deploy image/revision and 1 vCPU / 2 GiB, min 0 / max 1 are unchanged |
 | Recovery | Both native workers recovered 4,195,328 Files bytes exactly from the admitted predecessor; temporary workers removed with absence readback | Azure authenticated replacement also retained encrypted chat, settings and key identity. This is not live rollback fault-injection proof |
-| Source-qualified candidate | `21b82a583aa7`, including `db8c9bab2f01`: completed upload receipt settles before post-send refusal; uncertain cancellation needs HTTP 499, exact-object/bucket proof and CAS; safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves a confirmed-active session | All local core stages verified: secret, governance, web-core, protocol, packed MCP and integration. Exact-SHA hosted CI and governed deployment remain required; none of these corrections is installed on an owner pod |
-| Owner-cloud voice correction | Azure capture and transcription disabled; private Live model reporting and construction require the same known Vertex transport, never a shared key | 286 backend passes, 73 existing skips, 60 frontend passes; all three security regressions fail on old source. Typecheck, UI contracts, skills and isolated docs pass. These are local results, not an installed pod upgrade |
+| Deployed application correction | `28a0fa109175`, executable evidence `21b82a583aa7`: upload receipt settles before post-send refusal; uncertain cancellation requires HTTP 499, exact-object/bucket proof and CAS; safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves a confirmed-active session | Local core, exact-SHA hosted CI and governed deployment pass. Live product cleanup returns the safe 409, not completed erasure. Pod hardening remains source-qualified until a fresh image is released and approved |
+| Source-qualified pod voice guards | Pod source refuses Azure transcription/Live; private Live reporting and construction require the same known Vertex transport, never a shared key | 286 backend passes, 73 existing skips, 60 frontend passes; all three security regressions fail on old source. Typecheck, UI contracts, skills and isolated docs pass. These are local results, not an installed pod upgrade |
+| Schema / rollback | Post-deploy: 65 migration rows, 964 applied, no failed migration or required-contract/checksum mismatch; history cleanup 249 deferred | Captured rollback: hub `00185-f9z` / source `e9482e4319ad`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
+| Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
 **Verification receipt:** the broad parallel run retained 21,253 passes and one
 Live-revocation fixture failure. The fixture now explicitly selects supported native
 GCP Live; its complete 15-case suite passes with unchanged assertions. All 1,475
 serial database checks and every test import pass. Web-core inputs remained
 byte-identical and its completed result was reused. MCP and integration, including
-396 PKM checks, pass. No model evaluation was requested or run. The disposable
-database and scratch were removed.
+396 PKM checks, pass. Local verification ran no live model evaluation; deployment
+ran its existing managed-runtime check. The disposable database and scratch were removed.
 
 Original interrupted, missing-test-environment, strict-type and architecture refusals
 are retained. The architecture ratchet now reports zero new or worsened findings;
 no budget, assertion, security or consent gate was weakened.
-| Schema / rollback | 65 migration rows, 964 applied, no required-contract/checksum mismatch; history cleanup 249 deferred | Application rollback: hub `00184-fkl` / source `39dd047b92a0`, frontend `00153-7ck` / source `991a06ccbc01`. Application rollback cannot recover destructively deleted history |
-| Hermes | Source `f082c71325`; profile and Gemma 12B default preserved | Focused relay checks and live response pass. Broad companion Python validation is incomplete and dependency alerts remain; this is not distribution clearance |
 
 ### GCP authority and Browser qualification
 
@@ -70,8 +71,11 @@ operator fixtures, not ordinary Google/CAPTCHA/SMS onboarding. Background analys
 stayed off and no model call occurred. Normal deletion returned 500 twice; the
 account remains fenced with its vault and one uncertain create-only receipt.
 Exact provider-session status 412 is **not** terminal proof. No SQL fence or provider
-object was manually cleared. The local correction above needs governed release
-and an observed product cleanup result before this row can pass.
+object was manually cleared. After deployment, one admitted product continuation
+returned `409 FILES_ERASURE_WAITING_FOR_WRITES` at 12:22 UTC. The synthetic account
+and original library remain retained; no retry followed. The earlier process lost
+its RAM-only passphrase, so this was operator fixture cleanup, not normal unlocked-UI
+deletion or vault recovery.
 
 ## Performance and economics
 
@@ -92,7 +96,7 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **Engineering:** source and local gates complete. Obtain exact-SHA hosted CI, deploy dev once and read back serving revisions; any pod image remains a separate exact-owner approval.
+1. **Engineering:** app release/readback complete. A fresh pod image must remove the deliberate Dev 25 reuse pin, qualify recovery from the actual installed digest and use exact owner approval. Do not describe the reused image as the new source.
 2. **Engineering + Operations:** finish retained synthetic erasure, GCP native model authority, recorded commands/connectors and measured cold latency. Keep Browser disabled until each native gate passes.
 3. **Release owner:** decide dev readiness from actual journey receipts. Production still requires migration/release-channel graduation, IAM, erasure, recovery, hub capacity and independent UAT acceptance.
 
