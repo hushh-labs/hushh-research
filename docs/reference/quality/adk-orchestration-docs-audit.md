@@ -15,7 +15,7 @@ and exactly one Feed completion are verified. The existing Hermes identity then
 completed one streamed Gemma 12B response; the UI returned to idle with no overflow.
 No other model was tested. An initial setup-progress lock refusal was retained;
 one normal retry completed the same approved operation. Its owner-first journal
-repair is locally verified and not yet serving.
+repair now serves dev after exact-source CI and governed deployment.
 Shared Files transfer, consented analysis and reversible management pass. Personal
 Files Move/download/undo pass; Shared-specific Move, cold latency, connectors and
 full lifecycle acceptance remain gates. Computer Use, managed Hussh provisioning
@@ -25,10 +25,10 @@ and cross-cloud Files moves stay disabled.
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Application | `39dd047b92a0`; [exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39089875159) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39091378215) pass | Local core evidence retains the three original fixture failures, 75 focused remediation passes and the successful canonical tail. The new progress-lock repair is not included in this serving revision |
+| Application | `e9482e4319ad`; [exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/39104101777) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/39105713670) pass | Resumed core evidence retains the original failure, 21,249 parallel passes, 1,470 serial passes, 27 owning checks and the unfenced-runtime negative. The browser-only follow-up adds 12 focused passes; unchanged protocol/MCP/integration inputs reuse their completed proof |
 | Published repair target | Image `4a3b29a74641…a939ac9a`, source `991a06ccbc01` | Both native workers recovered 4,195,328 retained Files bytes exactly and were removed with absence readback. Azure authenticated replacement retained encrypted history, Files, settings and key identity; post-update chat completed. Dev 25 admits only the tested Dev 23 digest `250aea9e…fc69f1` |
-| Dev hub/frontend | Approved-ADC readback: hub `00184-fkl` / `f2222d7d57d7`, source `39dd047b92a0`; frontend `00153-7ck` / `3796e3503566`, source `991a06ccbc01`; both 100% traffic | Backend-only workflow; GitHub governs and Cloud Build builds. Immutable pod-image reuse and archived release equality pass |
-| Schema / rollback | Last independent ledger read: 65 rows, 964 applied, zero checksum/required-contract mismatches; this deployment passed pre/post schema gates. History cleanup 249 remains deferred. Application rollback: source `991a06ccbc01`, hub `00183-7xk`, frontend `00153-7ck` | No live rollback or destructive history cutover. Application rollback does not reverse schema or recover deleted information |
+| Dev hub/frontend | Approved-ADC readback: hub `00185-f9z` / `73c3632206cd`, source `e9482e4319ad`; frontend `00153-7ck` / `3796e3503566`, source `991a06ccbc01`; both 100% traffic | Backend-only workflow; the complete frontend delta is two browser-test paths, so its image was preserved. GitHub governs and Cloud Build builds. Dev 25 archive equality passes |
+| Schema / rollback | Last independent ledger read: 65 rows, 964 applied, zero checksum/required-contract mismatches; this deployment passed pre/post schema gates. History cleanup 249 remains deferred. Application rollback: hub `00184-fkl`, source `39dd047b92a0`; frontend `00153-7ck`, source `991a06ccbc01` | No live rollback or destructive history cutover. Application rollback does not reverse schema or recover deleted information |
 | Published pod release | `2026.10-dev.25+991a06ccbc01.4a3b29a7`, immutable `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; publisher `39091378215` | Serving/archive equality verified; exact predecessor only. Publishing did not install it |
 | Personal Azure pod | Settings-approved operation `op_b9a279571aaf47bcaffdbc4689c80d6c`, verified 18 October 03:19:39 UTC; revision `ca-hussh-one-pod--u36234007817f`, digest `4a3b29a7…a939ac9a` | Same service, identity and incarnation; 1 vCPU, 2 GiB, min 0/max 1, one worker, HTTP threshold 8, relay grace 600 s. One matching Feed completion; no account/device reset |
 | Prior Dev 21 qualification | Both disposable clouds recovered 4,195,328 Files bytes using native identities, then upgraded from exact predecessor. Azure also retained encrypted chat/settings and completed another real response. Temporary Jobs deleted and absence verified | GCP live chat continuity and live rollback remain unverified; isolated evidence is distinct from personal Settings approval |
@@ -59,7 +59,7 @@ parity and landed-SHA smoke verified. Neither grants application promotion.
 | Normal private chat | Latest Dev 23 post-update normal owner UI: unchanged tool catalog, HTTP 200 and `RUN_FINISHED`; first content 4.410 s, completion 5.600 s from POST. Prior same-session synthetic history remains | One warm sample; cold p95 and recorded voice/connector journeys remain Engineering acceptance |
 | Files workspace | Dedicated `agent_files` explorer. On deployed `f378a75b5588`, normal owner navigation, folder creation, 32 KiB upload, actual Move dialog, destination readback, byte-exact download and undo with stable identity pass. Only the new synthetic file/folder were trashed. Earlier interrupted transfers, rename/undo, trash/restore and cold unlock receipts remain | Personal-pod acceptance does not prove Shared-specific Move. Fresh/existing setup and UAT storage/IAM acceptance remain; trash is not immediate physical erasure |
 | Organization | Prior normal Azure owner queue/terminal result preserves original bytes. Exact earlier target completed automatic synthetic jobs on GCP Cloud Tasks and Azure Storage Queue; original content remained byte-exact and settings restored | Current-image live foreground analysis and fresh provisioning are not inferred from older receipts |
-| Software update | Dev 25 normal approval and one retained operation finish with recovery/digest verification and exactly one Feed event. Prior Dev 23 separately proved active-chat drain, durable idle and refresh/re-unlock | The first Dev 25 job hit the unchanged owner-lock guard before any ARM mutation. One normal retry reused the same approved operation. Local owner-first progress hardening passes focused/negative controls but still needs release; no live rollback fault injection |
+| Software update | Dev 25 normal approval and one retained operation finish with recovery/digest verification and exactly one Feed event. Prior Dev 23 separately proved active-chat drain, durable idle and refresh/re-unlock | The first Dev 25 job hit the unchanged owner-lock guard before any ARM mutation. One normal retry reused the same approved operation. Owner-first progress hardening now serves in `e9482e4319ad`; no additional owner installation or live rollback fault injection |
 | Puppy | Dev 25: existing Hermes identity/grant, fresh signed binding, sealed WSS and nonempty streamed Gemma 12B response; UI idle and aligned. Request-to-first-text 35.257 s, completion 35.509 s; device first content 25.308 s. No cloud fallback or model sweep | One post-update sample, not cold or p95. Prior Stop, withdrawal, refusal and re-enable receipts remain; phone was waived. Independent-network and cold-model percentiles are unclaimed |
 | Restart continuation | New installed image includes sealed private command/MCP recovery; Files jobs and updates retain their existing durable owners | Source/recovery tests do not prove every live connector/command continuation. Current admission and exact review remain necessary; uncertain effects cannot be blindly replayed |
 | AI / setup | Provider-aware Shared/GCP/Azure defaults, encrypted Azure custom keys, public-destination validation, quota preflight, billing recovery and durable setup retry are implemented and serving | Live custom-key/default responses, missing-billing return and fresh native sign-in on both platforms remain acceptance rows. Cloud readiness cannot imply available model quota |
@@ -113,6 +113,8 @@ device model first content was 25.308 s. The occluded browser proves received
 stream progress, not foreground paint or a cold-start percentile. The response
 settled to idle; ribbon/composer share a 760 px measure with 0 px edge mismatch.
 No other model, cloud fallback, re-enrollment or configuration change occurred.
+The standby relay was later restored from its unchanged profile after exit 137;
+the termination cause is unconfirmed and no inference was repeated.
 The earlier Dev 23 generic and typed 60-second failures remain retained. The
 installed 90/95-second first-data repair keeps later inactivity and total bounds.
 
@@ -135,7 +137,8 @@ unchanged locally. The reviewed split separates dismissal from confirmed
 revocation while retaining every assertion and timeout. All 12 affected
 Chromium/WebKit cases pass at 320, 390 and 1440 px without retries; the longest
 takes 2.795 seconds locally after extraction. This qualifies the test split, not hosted reliability.
-There is no third blind rerun or deployment.
+The corrected candidate passes complete hosted CI and one backend-only dev rollout.
+Both original failed attempts remain retained; no new pod image or installation occurred.
 
 Hermes' queued validation exposed inherited runner labels unavailable to this
 organization. The companion uses standard hosted runners with bounded workers;
