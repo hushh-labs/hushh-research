@@ -54,6 +54,26 @@ flowchart TB
 
 ---
 
+## Messages unread action count
+
+`GET /api/one/messages/unread-count` requires the existing Firebase ID token
+and returns only `{ "unreadCount": number }` with `Cache-Control: private,
+no-store`. The owner comes from verified authentication, never a caller-supplied
+user ID. Web uses the existing `/api/one/[...path]` proxy; native uses the shared
+`ApiService` HTTP transport.
+
+The Messages roster tile uses this exact total of received unread People and
+Circle messages, including totals above 100. The calculation reuses the native
+notification badge's owner/membership/deletion filters without its display cap;
+it reads no message bodies and changes no read state. Empty means zero; a failed
+request retains the previous verified count or an unresolved indicator.
+
+The home counter rechecks on shared Feed and direct-message invalidations,
+focus, foreground, visibility and connectivity recovery. It uses the existing
+visible-page 45-second shared clock as a fallback, including cross-device web
+reads that do not emit a Feed change. Existing conversation visibility and
+read-through boundaries remain authoritative for clearing unread messages.
+
 ## Circle Wars weekly participation
 
 Migration 358 extends `one_referral_circle_selections` and
