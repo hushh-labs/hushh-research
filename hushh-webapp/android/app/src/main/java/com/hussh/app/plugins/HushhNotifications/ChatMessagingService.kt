@@ -13,6 +13,8 @@ import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.content.Context
 import android.util.Base64
 import androidx.core.app.NotificationCompat
@@ -61,8 +63,7 @@ class ChatMessagingService : FirebaseMessagingService() {
         val conversation = data["conversation_id"] ?: data["circle_id"] ?: event
         val person = Person.Builder().setName(sender).setKey(trusted?.optString("senderRef")?.ifBlank { null } ?: sender).setIcon(IconCompat.createWithBitmap(avatar)).build()
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply { description = "Direct and Circle chat messages" })
+        ensureChannel(this)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             this.data = Uri.parse("hussh-chat://notification/${Uri.encode(event)}")
@@ -78,6 +79,7 @@ class ChatMessagingService : FirebaseMessagingService() {
             .setLargeIcon(avatar).setContentTitle(group ?: sender).setContentText(body).setStyle(style)
             .setContentIntent(tap).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setGroup("chat:$conversation")
+            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
             .setNumber(count)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .addExtras(Bundle().apply {
@@ -133,6 +135,19 @@ class ChatMessagingService : FirebaseMessagingService() {
     }
     companion object {
         const val CHANNEL = "hussh_chat_messages_v1"
+        fun ensureChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            // Existing channel sound/importance choices belong to the person.
+            if (manager.getNotificationChannel(CHANNEL) != null) return
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Direct and Circle chat messages"
+                enableVibration(true)
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            })
+        }
         fun clearRead(context: Context, thread: String, key: String, sequence: Long?, before: Long?, messageId: String?) {
             ChatPreviewKeys.withKey(context, key) {
                 ChatDeliveryState.read(context, key, thread, (sequence ?: before ?: 0).toDouble(), messageId)

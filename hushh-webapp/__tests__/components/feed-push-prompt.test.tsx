@@ -47,6 +47,7 @@ describe("FeedPushPrompt", () => {
     state.deliveryMode = "inbox_only";
     state.deliveryDetail = null;
     state.retry.mockReset();
+    state.openSettings.mockReset();
   });
   afterEach(() => {
     Reflect.deleteProperty(window, "Notification");
@@ -106,4 +107,21 @@ describe("FeedPushPrompt", () => {
     expect(state.retry).not.toHaveBeenCalled();
   });
 
+  it.each(["native_chat_alerts_disabled", "native_chat_sound_disabled"])(
+    "scopes %s recovery to chat while other channels remain enabled",
+    async (detail) => {
+      state.native = true;
+      state.deliveryMode = "push_active";
+      state.deliveryDetail = detail;
+      const { rerender } = render(<FeedPushPrompt />);
+      expect(screen.queryByRole("status")).toBeNull();
+      rerender(<FeedPushPrompt context="location" />);
+      expect(screen.queryByRole("status")).toBeNull();
+
+      rerender(<FeedPushPrompt context="chat" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+      await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+      expect(state.retry).not.toHaveBeenCalled();
+    },
+  );
 });

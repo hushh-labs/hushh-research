@@ -85,6 +85,24 @@ describe("native FCM permission ownership", () => {
       expect.any(Function),
     );
   });
+  it("retains generic registration but reports unavailable native chat custody for retry", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    mocks.registerPushToken.mockResolvedValueOnce({
+      ok: true,
+      clone: () => ({ json: async () => ({ registered: true, chatReady: false }) }),
+    });
+    await expect(initializeFCM("user-1", "id-token")).resolves.toEqual({ status: "push_failed", detail: "native_chat_key_unavailable" });
+    expect(mocks.registerPushToken).toHaveBeenCalledOnce();
+    expect(mocks.requestPermissions).not.toHaveBeenCalled();
+  });
+  it.each([
+    [{ chatAlertsEnabled: false, chatSoundsEnabled: true }, "native_chat_alerts_disabled"],
+    [{ chatAlertsEnabled: true, chatSoundsEnabled: false }, "native_chat_sound_disabled"],
+  ])("checks chat channel readiness independently of activity alerts: %s", async (chatSettings, detail) => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    mocks.getNotificationSettings.mockResolvedValue({ alertsEnabled: true, soundsEnabled: true, emergencySoundEnabled: true, ...chatSettings });
+    await expect(initializeFCM("user-1", "id-token")).resolves.toEqual({ status: "push_active", detail });
+  });
   it("does not register a previous account after a delayed native token lookup", async () => {
     let complete!: (value: { token: string }) => void;
     mocks.checkPermissions.mockResolvedValue({ receive: "granted" });

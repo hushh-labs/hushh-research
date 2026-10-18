@@ -224,13 +224,15 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
             }
 
             if !(200...299).contains(http.statusCode) {
-                let bodyStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("⚠️ [\(self.TAG)] registerPushToken non-OK: \(http.statusCode) body=\(bodyStr)")
+                print("⚠️ [\(self.TAG)] registerPushToken non-OK: \(http.statusCode)")
                 call.resolve(["success": false])
                 return
             }
 
-            call.resolve(["success": true])
+            let payload = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let registered = payload?["registered"] as? Bool ?? true
+            let degraded = payload?["degraded"] as? Bool ?? false
+            call.resolve(["success": registered && !degraded, "registered": registered, "degraded": degraded])
         }.resume()
     }
 

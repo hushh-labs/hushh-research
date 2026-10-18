@@ -14,6 +14,28 @@ from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCip
 from hushh_mcp.services.direct_messages_service import DirectMessageCipher
 
 logger = logging.getLogger(__name__)
+_wakeup: asyncio.Event | None = None
+_grace_wakeup: asyncio.TimerHandle | None = None
+
+
+def wake_direct_message_push_worker() -> None:
+    """Reuse the commit doorbell; preserve the outbox's two-second read grace."""
+    global _grace_wakeup
+    if _wakeup is None:
+        return
+    _wakeup.set()
+    # A commit arrives before migration 290's initial due_at. One bounded
+    # timer per process sweeps again when that grace ends, not five seconds
+    # later. Bursts never allocate one timer per recipient/message.
+    if _grace_wakeup is None:
+
+        def grace_elapsed() -> None:
+            global _grace_wakeup
+            _grace_wakeup = None
+            if _wakeup is not None:
+                _wakeup.set()
+
+        _grace_wakeup = asyncio.get_running_loop().call_later(2, grace_elapsed)
 
 
 def dispatch_direct_message_pushes() -> int:
@@ -161,18 +183,32 @@ def dispatch_direct_message_pushes() -> int:
 
 
 async def run_direct_message_push_worker():
+    global _wakeup, _grace_wakeup
+    _wakeup = asyncio.Event()
     ready = False
     idle_delay = 1
-    while True:
-        try:
-            processed = await asyncio.to_thread(dispatch_direct_message_pushes)
-            delay = 1 if processed else idle_delay
-            idle_delay = 1 if processed else min(5, idle_delay * 2)
-            if not ready:
-                logger.info("direct_message.push_worker_ready max_idle_s=5")
-                ready = True
-        except Exception as exc:
-            logger.warning("direct_message.push_sweep_failed error_type=%s", type(exc).__name__)
-            delay = idle_delay
-            idle_delay = min(5, idle_delay * 2)
-        await asyncio.sleep(delay)
+    try:
+        while True:
+            _wakeup.clear()
+            try:
+                processed = await asyncio.to_thread(dispatch_direct_message_pushes)
+                if processed >= 20:
+                    continue  # Drain committed bursts without a poll between batches.
+                delay = 1 if processed else idle_delay
+                idle_delay = 1 if processed else min(5, idle_delay * 2)
+                if not ready:
+                    logger.info("direct_message.push_worker_ready max_idle_s=5")
+                    ready = True
+            except Exception as exc:
+                logger.warning("direct_message.push_sweep_failed error_type=%s", type(exc).__name__)
+                delay = idle_delay
+                idle_delay = min(5, idle_delay * 2)
+            try:
+                await asyncio.wait_for(_wakeup.wait(), timeout=delay)
+            except TimeoutError:
+                pass
+    finally:
+        _wakeup = None
+        if _grace_wakeup is not None:
+            _grace_wakeup.cancel()
+            _grace_wakeup = None

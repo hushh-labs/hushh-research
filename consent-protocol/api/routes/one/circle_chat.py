@@ -14,7 +14,11 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+from api.consent_listener import (
+    LOCAL_RESYNC_EVENT_TYPE,
+    subscribe_consent_queue,
+    unsubscribe_consent_queue,
+)
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.circle_chat_service import MAX_SEQUENCE, CircleChatError, CircleChatService
@@ -309,7 +313,7 @@ async def chat_wait(
     membership_changed = False
     photo_changed = False
     try:
-        queue = await subscribe_consent_queue(user)
+        queue = await subscribe_consent_queue(user, snapshot_resets=True)
         current = await asyncio.to_thread(_call, response, "revision", owner, circle)
         if current["latestSequence"] == after:
             try:
@@ -321,6 +325,13 @@ async def chat_wait(
                             event = await asyncio.wait_for(queue.get(), timeout=0.5)
                         except TimeoutError:
                             continue
+                        if event.get("type") == LOCAL_RESYNC_EVENT_TYPE:
+                            # LISTEN reconnect/overflow means any snapshot may
+                            # be stale. Reread through current membership; never
+                            # replay queued content or wait for the 20s timeout.
+                            changed = read_changed = receipts_changed = True
+                            reactions_changed = membership_changed = photo_changed = True
+                            break
                         if str(event.get("circle_id") or "") == str(circle):
                             changed = True
                             read_changed = event.get("type") == "location_circle_chat_read"
