@@ -3462,7 +3462,10 @@ class DriveBulkShareStore(DriveLivePreferences):
         # Nor has an autoshare search whose every match A cannot share (Drive's
         # canShare): A never selects files there, so no approval can follow.
         outcome = (
-            "no_match"
+            "partial"
+            if checkpoint.get("semantic_plan") is not None
+            and (checkpoint.get("semantic_coverage_incomplete") is True or search_ended)
+            else "no_match"
             if not successes
             and not errors
             and (

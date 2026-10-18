@@ -104,8 +104,9 @@ FACT_FIELDS = (
 )
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
-    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,driveId,"
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,version,modifiedTime,createdTime,driveId,"
     "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
+    "owners(displayName,emailAddress),sharingUser(displayName,emailAddress),"
     "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
 )
 # Drive sorts each key ascending unless told "desc"; live results are newest

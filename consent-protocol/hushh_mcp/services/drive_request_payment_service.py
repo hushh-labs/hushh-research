@@ -25,6 +25,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     automatic_recipient_current,
     autoshare_owner_allow_authority,
     request_has_document_scope,
+    semantic_search_request,
     valid_owner_price_cents,
 )
 from hushh_mcp.services.drive_request_checkout_refusals import (
@@ -338,6 +339,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise checkout_refusal("request_closed")
         private = sharing._open_request(request)
+        if semantic_search_request(private):
+            self._require_semantic_search_plan(connection, request=request, sharing=sharing)
         if require_package_disclosure:
             from hushh_mcp.services.drive_request_package_disclosure import (
                 buyer_package_disclosure,
@@ -427,6 +430,52 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         # the public routing hint or a caller-supplied package flag.
         request["_agent_package_required"] = private.get("agent_package_required") is True
         return request
+
+    def _require_semantic_search_plan(self, connection, *, request: dict, sharing) -> None:
+        """An enrolled order cannot charge before its bound interpretation is ready."""
+        from hushh_mcp.services.drive_request_semantic_plan import (
+            SemanticDrivePlan,
+            semantic_plan_digest,
+        )
+
+        search = self._row(
+            connection,
+            """SELECT job_id,checkpoint_envelope,status,incomplete_search,connection_generation,
+                      expires_at>clock_timestamp() AS live
+               FROM drive_owner_search_jobs
+               WHERE user_id=:user AND client_request_id=:request""",
+            {"user": request["user_id"], "request": str(request["request_id"])},
+        )
+        if (
+            search is None
+            or search["status"] not in {"queued", "running", "completed"}
+            or search["incomplete_search"]
+            or search["live"] is not True
+        ):
+            raise checkout_refusal("search_parked")
+        current = DriveLivePreferences(db=self.db).live_active(
+            connection, user_id=request["user_id"]
+        )
+        if search["connection_generation"] != current["connection_generation"]:
+            raise checkout_refusal("connection_changed")
+        try:
+            checkpoint = sharing.sharing_cipher.open(
+                search["checkpoint_envelope"],
+                user_id=request["user_id"],
+                resource_id=str(search["job_id"]),
+                purpose="owner-search-checkpoint",
+            )
+            plan = SemanticDrivePlan.model_validate(checkpoint.get("semantic_plan"))
+            valid = (
+                plan.status == "ready"
+                and checkpoint.get("semantic_plan_digest") == semantic_plan_digest(plan)
+                and checkpoint.get("request_origin_id") == str(request["request_id"])
+                and checkpoint.get("request_revision") == request["revision"]
+            )
+        except (DriveSharingError, KeyError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise checkout_refusal("search_parked")
 
     @logs_checkout_refusals
     async def checkout(
