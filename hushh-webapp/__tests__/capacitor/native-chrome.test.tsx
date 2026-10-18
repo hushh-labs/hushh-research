@@ -1046,7 +1046,7 @@ describe("private native drawer action boundary", () => {
     await presentation.retire();
   });
 
-  it.each(["content", "delivery", "visit", "lock-cycle"] as const)("fences a committed native Back through a %s update without replaying it", async update => {
+  it.each(["content", "delivery", "pending-apply", "visit", "lock-cycle"] as const)("fences a committed native Back through a %s update without replaying it", async update => {
     const bridge = presentationBridge();
     const capabilities = await bridge.plugin.getCapabilities();
     bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true, compatibleBackRefreshes: true });
@@ -1064,7 +1064,12 @@ describe("private native drawer action boundary", () => {
     presentation.publish(projection, actions);
     await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
     const back = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
-    if (update !== "delivery") {
+    const applyReceipt = deferred<NativeDrawerProjection & { phase: "active" }>();
+    if (update === "pending-apply") {
+      await act(async () => { await Promise.resolve(); });
+      bridge.apply.mockImplementationOnce(() => applyReceipt.promise);
+      bridge.emit(back);
+    } else if (update !== "delivery") {
       bridge.emit(back);
       await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
     }
@@ -1072,6 +1077,14 @@ describe("private native drawer action boundary", () => {
       ...(update === "visit" ? { profileDestinationId: "memory-live-reopened" } : {}),
       ...(update === "lock-cycle" ? { navigationLocked: true } : {}) }, { ...actions, back: currentBack });
     await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    if (update === "pending-apply") {
+      // A new dispatch can begin after choose captures the previous drain.
+      // Neither rejection nor confirmation is valid before its apply receipt.
+      expect(bridge.plugin.settleChoice).not.toHaveBeenCalled();
+      expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+      applyReceipt.resolve({ ...projection, updateSequence: 2, appearance: "dark", phase: "active" });
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
     if (update === "lock-cycle") {
       presentation.publish({ ...projection, updateSequence: 3 }, { ...actions, back: currentBack });
       await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
@@ -1083,10 +1096,59 @@ describe("private native drawer action boundary", () => {
     confirmation.resolve({ valid: true });
     await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
     expect(oldBack).not.toHaveBeenCalled();
-    expect(currentBack).toHaveBeenCalledTimes(update === "content" || update === "delivery" ? 1 : 0);
+    const expected = update === "visit" || update === "lock-cycle" ? 0 : 1;
+    expect(currentBack).toHaveBeenCalledTimes(expected);
     bridge.emit(back);
     await act(async () => { await Promise.resolve(); });
-    expect(currentBack).toHaveBeenCalledTimes(update === "content" || update === "delivery" ? 1 : 0);
+    expect(currentBack).toHaveBeenCalledTimes(expected);
+    await presentation.retire();
+  });
+
+  it.each(["rejected", "accepted", "locked", "reopened", "legacy", "missing-port"] as const)("honors the Close settlement contract for %s without replay", async outcome => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalRefreshes: true, closeSettlements: outcome !== "legacy" });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const settlement = deferred<{ valid: boolean }>();
+    if (outcome === "reopened") vi.mocked(bridge.plugin.settleChoice).mockReturnValueOnce(settlement.promise);
+    if (outcome === "missing-port") bridge.plugin.settleChoice = undefined;
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, profileStack: [] };
+    const close = vi.fn(() => outcome === "accepted" || outcome === "reopened");
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close };
+    const phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    if (outcome === "missing-port") {
+      expect(await presentation.listen()).toBe(false);
+      expect(bridge.apply).not.toHaveBeenCalled();
+      expect(phases).toHaveBeenCalledWith("retired");
+      expect(close).not.toHaveBeenCalled();
+      return;
+    }
+    await presentation.listen(); presentation.publish(projection, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    await act(async () => { await Promise.resolve(); });
+    const event = { ...choice(), family: "profile" as const, action: "close" as const, rowId: undefined };
+    bridge.emit(event);
+    if (outcome === "locked") presentation.publish({ ...projection, updateSequence: 2, navigationLocked: true }, actions);
+    if (outcome === "legacy") {
+      await waitFor(() => expect(close).toHaveBeenCalledOnce());
+      expect(bridge.plugin.settleChoice).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledWith(expect.objectContaining({ sequence: event.sequence, success: outcome === "accepted" || outcome === "reopened" })));
+      if (outcome === "reopened") {
+        presentation.publish({ ...projection, updateSequence: 2, open: false }, actions);
+        await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+        presentation.publish({ ...projection, updateSequence: 3 }, actions);
+        await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+        settlement.resolve({ valid: false });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      }
+      expect(close).toHaveBeenCalledTimes(outcome === "locked" ? 0 : 1);
+      bridge.emit(event);
+      await act(async () => { await Promise.resolve(); });
+      expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce();
+    }
+    expect(phases).not.toHaveBeenCalledWith("quarantined");
     await presentation.retire();
   });
 

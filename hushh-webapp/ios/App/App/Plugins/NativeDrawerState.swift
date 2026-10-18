@@ -345,7 +345,7 @@ struct NativeDrawerLease {
     private var terminalOpen = false
     private var terminalEnabled = false
     private var settlesBack = false
-    private var pendingSettlements = Set<Int>()
+    private var pendingSettlements: [Int: String] = [:]
     private(set) var interactionGeneration = 1
     private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
 
@@ -406,19 +406,27 @@ struct NativeDrawerLease {
               choice.interaction == interaction,
               choice.action == action, choice.row == row, choice.text == text else { return false }
         consumed = sequence
-        if action == "row" || (action == "back" || action == "root" || action == "ancestor") && settlesBack { pendingSettlements.insert(sequence) }
+        // Older clients do not acknowledge Close. A subsequent Close replaces
+        // only that terminal bookkeeping, never pending row/Back operations.
+        if action == "close" { pendingSettlements = pendingSettlements.filter { $0.value != "close" } }
+        if action == "row" || action == "close" || (action == "back" || action == "root" || action == "ancestor") && settlesBack {
+            pendingSettlements[sequence] = action
+        }
         emitted = emitted.filter { $0.key > sequence }
         return true
     }
     func acceptsSettlement(identity: NativeDrawerIdentity, privacy: Int, sequence: Int) -> Bool {
-        self.identity == identity && privacyGeneration == privacy && pendingSettlements.contains(sequence)
+        self.identity == identity && privacyGeneration == privacy && pendingSettlements[sequence] != nil
+    }
+    func isCloseSettlement(sequence: Int) -> Bool {
+        pendingSettlements[sequence] == "close" || emitted[sequence]?.action == "close"
     }
     mutating func settle(identity: NativeDrawerIdentity, privacy: Int, sequence: Int, success: Bool) -> Bool {
         guard self.identity == identity, privacyGeneration == privacy else { return false }
-        let confirmed = pendingSettlements.contains(sequence)
-        let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root" || emitted[sequence]?.action == "ancestor"
+        let confirmed = pendingSettlements[sequence] != nil
+        let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "close" || emitted[sequence]?.action == "back" || emitted[sequence]?.action == "root" || emitted[sequence]?.action == "ancestor"
         guard confirmed || !success && unconfirmed else { return false }
-        pendingSettlements.remove(sequence)
+        pendingSettlements.removeValue(forKey: sequence)
         emitted.removeValue(forKey: sequence)
         return true
     }

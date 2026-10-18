@@ -11,7 +11,7 @@ import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model
 import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 
 export function projectNativeProfileMenu(name: string, email: string | null, ready: boolean,
-  groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: () => void) {
+  groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: NativeDrawerActions["close"]) {
   const rows = new Map<string, () => void | Promise<void>>(groups.flatMap(group => group.entries.map(entry => [entry.id, actions[entry.id]] as const)));
   rows.set("identity", actions.account);
   const identity: NativeDrawerRow = { id: "identity", label: name, ...(email ? { detail: email } : {}), symbol: "person.crop.circle", enabled: ready };
@@ -34,7 +34,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
   enabled?: boolean;
   navigationLocked?: boolean;
   portrait?: string;
-  groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
+  groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: NativeDrawerActions["close"];
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
   onHidden?: (privacyGeneration: number) => void;
   fallbackOwned?: boolean;

@@ -630,8 +630,9 @@ function ProfilePageContent({
     setShowDeleteConfirm(false); setShowResetConfirm(false);
   }, [isDeleting, isResetting]);
   const closeNativeProfile = useCallback(() => {
-    if (isDeleting || isResetting) return;
+    if (isDeleting || isResetting) return false;
     dismissAccountConfirmation(); onNativeMenuClose?.();
+    return true;
   }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
@@ -5105,7 +5106,11 @@ function ProfilePageContent({
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
-      onClose: () => { if (!(nativeConnectorsActive && nativeConnectors.navigationBlocked()) && !(nativeWorldModelActive && nativeWorldModel.navigationBlocked()) && !(nativeMemoryActive && nativeMemory.navigationBlocked()) && !(nativeRuntimeActive && runtimeSettings.operationPending())) closeNativeProfile(); },
+      onClose: () => {
+        if (nativeConnectorsActive && nativeConnectors.navigationBlocked() || nativeWorldModelActive && nativeWorldModel.navigationBlocked() ||
+            nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
+        return closeNativeProfile();
+      },
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",

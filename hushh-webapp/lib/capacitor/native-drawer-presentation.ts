@@ -12,7 +12,7 @@ import {
 export type NativeDrawerActions = {
   rows: ReadonlyMap<string, (choice: NativeDrawerChoice) => void | Promise<void>>;
   open: () => void;
-  close: () => void;
+  close: () => void | boolean;
   back?: () => void | boolean;
   root?: () => void | boolean;
   ancestor?: (choice: NativeDrawerChoice) => void | boolean;
@@ -48,6 +48,7 @@ export class NativeDrawerPresentation {
   private readmissionGeneration = 0;
   private listening = false;
   private backSettlements = false;
+  private closeSettlements = false;
   private disposed = false;
   private applied = 0;
   private latestReceipt: NativeDrawerReceipt | null = null;
@@ -80,6 +81,8 @@ export class NativeDrawerPresentation {
       if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
       if (capability.profileNavigationStack === true && capability.compatibleBackRefreshes === true) this.fence.enableCompatibleBackRefreshes();
       this.backSettlements = capability.profileNavigationStack === true && this.identity.family === "profile";
+      this.closeSettlements = capability.closeSettlements === true;
+      if (this.closeSettlements && !this.plugin.settleChoice) { await this.retire(); return false; }
       this.completionRequired = capability.presentationCompletion === true;
       if (this.completionRequired) {
         if (!this.plugin.getPresentationState) { this.quarantine(); return false; }
@@ -227,6 +230,12 @@ export class NativeDrawerPresentation {
     if (this.disposed || !this.current || event.sequence <= this.seenChoice) return;
     const terminal = event.action === "close" || event.action === "open";
     if (!this.fence.allows(event)) {
+      if (event.action === "close" && this.closeSettlements && Number.isSafeInteger(event.sequence) &&
+          sameNativeDrawer(event, this.identity) && event.updateSequence <= this.current.state.updateSequence) {
+        this.seenChoice = event.sequence;
+        await this.settle(event, false);
+        return;
+      }
       // Cancel the exact unconfirmed intent, never replay it against new rows.
       if ((event.action === "row" || (event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements) && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
         this.seenChoice = event.sequence;
@@ -236,13 +245,16 @@ export class NativeDrawerPresentation {
       return;
     }
     this.seenChoice = event.sequence;
-    // A terminal intent can outrun its apply receipt. Await that one dispatch;
-    // do not drop it and strand a locally closed native drawer in isolation.
-    await this.inFlight;
+    // A choice can outrun its apply receipt. A compatible refresh may also
+    // start after this await captures the previous drain (including null).
+    // Follow the replacement drain before checking the current applied state;
+    // never confirm against an unacknowledged projection or reject merely
+    // because its dispatch began in that microtask gap.
+    do { await this.inFlight; } while (this.inFlight && !this.disposed);
     const current = this.current;
     if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
         !this.fence.allows(event)) {
-      if (!this.disposed && current && (event.action === "row" || (event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements) && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      if (!this.disposed && current && this.canSettle(event) && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
       else if (!this.disposed && this.fence.terminalIsCurrent(event)) this.quarantine();
       return;
     }
@@ -262,8 +274,8 @@ export class NativeDrawerPresentation {
           operationAccepted = await latest(event) !== false;
         });
       if (invoked) await this.settle(event, operationAccepted);
-      else if (!accepted && (event.action === "row" || (event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements)) await this.settle(event, false);
-      if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
+      else if (!accepted && this.canSettle(event)) await this.settle(event, false);
+      if (!accepted && this.fence.terminalIsCurrent(event) && !(event.action === "close" && this.closeSettlements)) this.quarantine();
     } catch {
       if (invoked) await this.settle(event, false);
       if (!invoked && !this.disposed && (this.fence.terminalIsCurrent(event) || !terminal && this.current === current)) this.quarantine();
@@ -272,8 +284,13 @@ export class NativeDrawerPresentation {
     }
   }
 
+  private canSettle(event: NativeDrawerChoice): boolean {
+    return event.action === "row" || event.action === "close" && this.closeSettlements ||
+      (event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements && !!this.current?.state.profileStack;
+  }
+
   private async settle(event: NativeDrawerChoice, success: boolean): Promise<void> {
-    if (event.action !== "row" && !((event.action === "back" || event.action === "root" || event.action === "ancestor") && this.backSettlements && this.current?.state.profileStack) || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
+    if (!this.canSettle(event) || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
     try {
       const result = await acknowledged(this.plugin.settleChoice({ ...this.identity,
         sequence: event.sequence, privacyGeneration: event.privacyGeneration, success }));
@@ -285,6 +302,10 @@ export class NativeDrawerPresentation {
   }
 
   private destinationWasSuperseded(event: NativeDrawerChoice): boolean {
+    // A late Close receipt belongs to its original open/close lifetime, not a
+    // newly reopened root that happens to have the same destination key.
+    // Ignore that receipt; never quarantine or re-operate the new visit.
+    if (event.action === "close" && this.closeSettlements && !this.fence.terminalLifetimeIsCurrent(event)) return true;
     return this.current?.state.profileStack !== undefined && this.destinations.has(event.updateSequence) &&
       this.destinations.get(event.updateSequence) !== profileDestinationKey(this.current.state);
   }

@@ -110,7 +110,8 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { closeSettlements?: boolean;
+    contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
   settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
@@ -466,10 +467,14 @@ export class NativeDrawerChoiceFence {
     return true;
   }
   retire() { this.retired = true; this.current = null; this.generation++; }
+  terminalLifetimeIsCurrent(choice: NativeDrawerChoice): boolean {
+    return !this.retired && !!this.current && (choice.action === "open" || choice.action === "close") &&
+      sameNativeDrawer(choice, this.current) && choice.privacyGeneration === this.current.privacyGeneration &&
+      validSequence(choice.updateSequence) && choice.updateSequence >= this.terminalUpdateFloor &&
+      choice.updateSequence <= this.current.updateSequence;
+  }
   terminalIsCurrent(choice: NativeDrawerChoice): boolean {
-    if (this.retired || !this.current || choice.action !== "open" && choice.action !== "close") return false;
-    return validSequence(choice.updateSequence) && choice.updateSequence >= this.terminalUpdateFloor &&
-      choice.updateSequence <= this.current.updateSequence &&
+    return !!this.current && this.terminalLifetimeIsCurrent(choice) &&
       nativeDrawerChoiceAllowed({ ...choice, updateSequence: this.current.updateSequence }, this.current);
   }
   backIsCurrent(choice: NativeDrawerChoice): boolean {

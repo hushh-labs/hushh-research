@@ -76,10 +76,42 @@ Memory also projects its busy navigation lock and rejects a native pop that its
 existing feature Back handler merely consumes without committing. These are
 source/contract corrections, not proof of the physical failure's cause or visual
 acceptance. Ordinary native admission remains disabled.
-The bounded review identifies no blocking Back defect in this correction. The
-pre-existing terminal-Close acknowledgement cannot yet distinguish an authored
-busy rejection from acceptance; it remains a separate dismissal qualification
-gap, not an explanation established for the Memory failure.
+Installed `297349486a` passes the previously failed Live memory → Memory return,
+sharing, received records/Drive/Secrets returns and the financial-context editor
+keyboard/Cancel journey. It returns to Profile in the same warm session without
+mutations or privacy coverage. This is functional evidence, not acceptance of
+the reported Back-label blur or whole-family visual/performance qualification.
+The same installed candidate then passes the remaining nine destinations:
+World Model research/source editor Cancel, Preferences/provider editor and Voice,
+Vault/protected editor Cancel, Devices, Connector details/editors/trust, Referrals
+tabs/rules, Help without sending, and both native legal readers with document
+switching and return. These are read/Cancel journeys, not real-save or mutation
+proof; the separate Account/Payouts/Pricing evidence above remains build-bound.
+The subsequent shared-shell stress run completes nine warm cycles, then stops
+with XCTest snapshot/session errors and a privacy-cover diagnostic. The process
+remains alive and a fresh service probe reports an unlocked, authenticated Wi-Fi
+connection. This does not establish the cover's cause or a ten-cycle pass; the
+ordered background-recovery check was not reached.
+One subsequent attach-only recovery enters XCTest but finds no admitted Try again
+control beneath the cover. The current cover/recovery failure therefore remains
+unresolved; neither healthy transport nor the earlier passing batch clears it.
+
+A follow-up negative control reproduces a second Back admission gap: a compatible
+apply dispatch can start after the choice awaits the preceding drain. Follow the
+replacement drain before comparing acknowledged/current state; do not confirm an
+unacknowledged projection or discard a valid pop merely because of that gap.
+
+The candidate also adds negotiated `closeSettlements` using the existing private
+choice settlement port. Authored busy rejection returns false, restores the same
+native drawer promptly and cancels its terminal deadline without replay. Accepted
+Close still waits for an authored closed projection before releasing coverage.
+The native controller fences restoration by the exact Close sequence, motion
+lifetime and privacy generation; stale and duplicate settlements cannot reopen a
+new visit. A late receipt from a closed/reopened lifetime also cannot quarantine
+the newer root merely because both visits share its destination key. Older
+clients retain the existing bounded timeout/readmission path.
+Focused negative controls fail on the prior JS implementation; physical rejection
+and transition qualification remain separate from contract/host evidence.
 
 Referrals continuation (qualification-only candidate): the standard route has a
 private body projection independent of Profile's modal lifetime. It maps You,

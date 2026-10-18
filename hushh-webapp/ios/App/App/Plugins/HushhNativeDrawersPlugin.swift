@@ -197,6 +197,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals"] : [],
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
+                "closeSettlements": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "terminalReadmission": self?.supported == true,
                 "presentationCompletion": self?.supported == true,
                 "coherentShell": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell,
@@ -340,6 +341,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         guard sessionFence.contains(state.identity), privacy.appIsActive, !privacy.shielded, state.privacyGeneration == privacy.generation,
               let sequence = lease.emit(action: action, row: row, state: state, text: text) else { return false }
         leases[family] = lease
+        if action == "close" { controller.recordCloseIntent(sequence: sequence) }
         #if DEBUG
         if action == "close" { controller.observeClose(sequence: sequence) }
         #endif
@@ -383,6 +385,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["valid": false]); return
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            let closing = lease.isCloseSettlement(sequence: sequence)
             guard privacy.appIsActive, !privacy.shielded, self.sessionFence.contains(identity),
                   privacy.generation == call.getInt("privacyGeneration"),
                   lease.settle(identity: identity, privacy: privacy.generation, sequence: sequence, success: success) else {
@@ -390,7 +393,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.leases[identity.family] = lease
             // A late completion cannot clear a reopened editor or a newer choice.
-            controller.model.settle(sequence: sequence, success: success)
+            if closing { controller.settleClose(sequence: sequence, success: success) }
+            else { controller.model.settle(sequence: sequence, success: success) }
             call.resolve(["valid": true])
         }
     }

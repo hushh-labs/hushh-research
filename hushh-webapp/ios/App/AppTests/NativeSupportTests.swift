@@ -708,6 +708,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: cancelled, success: false))
         XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: cancelled, interaction: 1,
             action: "row", row: "rename", allowed: true, text: "Public draft"))
+        let close = try XCTUnwrap(lease.emit(action: "close", row: nil, state: state))
+        XCTAssertTrue(lease.isCloseSettlement(sequence: close))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: true))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 1, sequence: close, success: false))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: false))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: close, success: false))
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: close, interaction: 1,
+            action: "close", row: nil, allowed: true))
         _ = lease.retire(state.identity)
         XCTAssertFalse(lease.acceptsSettlement(identity: state.identity, privacy: 0, sequence: sequence))
     }
@@ -1119,17 +1127,18 @@ final class NativeSupportTests: XCTestCase {
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: nil)
         await fulfillment(of: [admitted], timeout: 3)
         let host = try XCTUnwrap(controller.host)
-        let emitted = expectation(description: "Close emitted")
+        var emitted = expectation(description: "Close emitted")
         var token: Int?, interaction = 0
         controller.model.choose = { action, row, text in
             token = lease.emit(action: action, row: row, state: controller.model.projection, text: text)
             interaction = lease.interactionGeneration
+            if let token, action == "close" { controller.recordCloseIntent(sequence: token) }
             if token != nil { emitted.fulfill() }
             return token != nil
         }
         controller.settle(open: false, userIntent: true)
         await fulfillment(of: [emitted], timeout: 3)
-        let sequence = try XCTUnwrap(token)
+        var sequence = try XCTUnwrap(token)
         let refresh = privateDrawerState(family: "history", update: 2, appearance: "dark")
         XCTAssertTrue(lease.apply(refresh))
         controller.update(refresh)
@@ -1139,6 +1148,26 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(web.accessibilityElementsHidden)
         XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence,
             interaction: interaction, action: "close", row: nil, allowed: controller.allowsInteraction("close", row: nil)))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: false))
+        controller.settleClose(sequence: sequence, success: false)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.model.interactionEnabled && controller.motion.committedOpen
+        }, object: nil)
+        await fulfillment(of: [restored], timeout: 3)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Known rejection restores the authored drawer without uncovering Chat")
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: false))
+        controller.settleClose(sequence: sequence, success: false)
+        XCTAssertTrue(controller.model.interactionEnabled, "A duplicate cannot interrupt a restored visit")
+        emitted = expectation(description: "New deliberate Close emitted")
+        controller.settle(open: false, userIntent: true)
+        await fulfillment(of: [emitted], timeout: 3)
+        sequence = try XCTUnwrap(token)
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 2, privacy: 0, sequence: sequence,
+            interaction: interaction, action: "close", row: nil, allowed: controller.allowsInteraction("close", row: nil)))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: true))
+        controller.settleClose(sequence: sequence, success: true)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Acceptance alone does not manufacture a closed projection")
         let closed = privateDrawerState(family: "history", open: false, update: 3, appearance: "dark")
         XCTAssertTrue(lease.apply(closed))
         controller.update(closed)

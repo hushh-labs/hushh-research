@@ -413,6 +413,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var lastSize: CGSize = .zero
     private var origin: CGFloat = 0
     private var intentPending = false
+    private var closeIntent: (sequence: Int, generation: Int, privacy: Int)?
     private var dragging = false
     private var awaitingReadmission = false
     private var formCovered = false
@@ -426,6 +427,22 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     var requestReadmission: (() -> Void)?
     var requestRecovery: (() -> Void)?
     var presentationDidSettle: ((NativeDrawerProjection) -> Void)?
+    func recordCloseIntent(sequence: Int) {
+        closeIntent = (sequence, motion.generation, model.projection.privacyGeneration)
+    }
+    func settleClose(sequence: Int, success: Bool) {
+        guard let intent = closeIntent, intent.sequence == sequence,
+              intent.generation == motion.generation, intent.privacy == model.projection.privacyGeneration,
+              !motion.retired, intentPending else { return }
+        closeIntent = nil
+        // Acceptance is not an authored closed projection. Keep coverage until
+        // update() observes that state; only known rejection restores it now.
+        guard !success else { return }
+        intentTimeout?.cancel(); intentTimeout = nil
+        readmissionTimeout?.cancel(); readmissionTimeout = nil
+        intentPending = false; awaitingReadmission = false
+        settle(open: model.projection.open, userIntent: false)
+    }
     private var settledUpdateSequence = 0
     var presentationSettled: Bool {
         !motion.retired && viewIfLoaded?.window != nil && !view.bounds.isEmpty && animator == nil && !dragging && !intentPending && !awaitingReadmission &&
@@ -582,6 +599,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             reconcileIsolation()
             return
         }
+        closeIntent = nil
         intentTimeout?.cancel(); intentTimeout = nil
         readmissionTimeout?.cancel(); readmissionTimeout = nil
         awaitingReadmission = false
@@ -787,6 +805,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         retirementCompletions.append(completion)
         guard !motion.retired else { return }
         motion.retire()
+        closeIntent = nil
         model.profileNavigationController?.retire()
         intentTimeout?.cancel(); intentTimeout = nil
         readmissionTimeout?.cancel(); readmissionTimeout = nil
