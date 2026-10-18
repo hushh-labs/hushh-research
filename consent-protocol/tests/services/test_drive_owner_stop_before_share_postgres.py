@@ -113,7 +113,7 @@ def stopped(flow) -> bool:
            FROM drive_share_requests WHERE request_id=:request""",
         {"request": flow.request_id},
     )
-    return row["stopped"]
+    return bool(row["stopped"])
 
 
 def search_status(flow):
@@ -301,6 +301,104 @@ async def test_paid_request_with_three_files_shared_still_removes_them_and_refun
     payout = _settled_once(flow, expected=6, confirmed=3)
     await _settle_again_is_a_no_op(flow, payout)
     outcome_events_once(flow)
+
+
+async def _three_shared_and_a_worker_holds_the_fourth(flow):
+    """Six approved, three shared, and a worker has claimed the next grant.
+
+    The worker's lease (120 seconds) is still live when A stops. A worker
+    often never returns: DriveBulkShareWorker.run cancels its grants when the
+    effect budget runs out, and a cancelled grant keeps its lease.
+    """
+    await flow.ask()
+    assert await flow.until_checkout_opens() is not None, "B can never pay"
+    await flow.pay()
+    await flow.deliver_some(approved=6, delivered=3)
+    [row] = await flow.bulk.due(limit=1)
+    job = await flow.bulk.claim(
+        user_id=row["user_id"],
+        share_id=str(row["share_id"]),
+        position=row["position"],
+        recipient_user_id=row["recipient_user_id"],
+    )
+    assert job is not None and job["state"] == "queued"
+    assert flow.effect_states() == Counter(succeeded=3, queued=3)
+    return job
+
+
+def _stop_codes(flow):
+    """Each grant not shared: its state, its code and whether a lease remains."""
+    return Counter(
+        (row["state"], row["safe_error_code"], row["leased"])
+        for row in flow.sql(
+            """SELECT e.state,e.safe_error_code,e.lease_id IS NOT NULL AS leased
+               FROM drive_bulk_share_effects e
+               JOIN drive_bulk_shares b ON b.share_id=e.share_id
+               WHERE b.origin_request_id=:request AND e.state<>'succeeded'""",
+            {"request": flow.request_id},
+        )
+    )
+
+
+async def _removed_and_settled_once(flow, world):
+    removals = DriveRequestBulkRemovalWorker(
+        store=DriveRequestBulkRemovalStore(db=flow.db),
+        oauth=flow.oauth,
+        adapter=GoogleDrivePermissionAdapter(),
+    )
+    outcome = await removals.run(max_jobs=20, deadline_seconds=60)
+    assert outcome["outcomes"].get("removed") == 3, outcome
+    assert world.shared_with_b() == set()
+    # 6 approved, 3 delivered: half of the price comes back to B, once.
+    payout = _settled_once(flow, expected=6, confirmed=3)
+    await _settle_again_is_a_no_op(flow, payout)
+    outcome_events_once(flow)
+
+
+@pytest.mark.asyncio
+async def test_a_grant_whose_worker_never_returns_cannot_hold_the_settlement(flow_factory):
+    """The Stop releases a grant a worker still holds, so B's refund and A's pay settle."""
+    world = RemovableDriveWorld(in_period(6))
+    flow = flow_factory(world)
+    job = await _three_shared_and_a_worker_holds_the_fourth(flow)
+
+    prepared = await stop(flow)
+    assert (prepared["affectedCount"], prepared["pendingCount"]) == (3, 3)
+    # The worker never comes back and its lease runs out.
+    flow.sql(
+        """UPDATE drive_bulk_share_effects
+           SET lease_expires_at=clock_timestamp()-INTERVAL '1 second' WHERE lease_id=:lease""",
+        {"lease": job["lease_id"]},
+    )
+    await flow.until_quiet()
+    for _ in range(3):
+        await flow.settle()
+
+    assert sum(world.created.values()) == 3
+    await _removed_and_settled_once(flow, world)
+    # The Stop itself released every grant not yet sent, the held one too.
+    assert _stop_codes(flow) == Counter({("skipped", "stopped", False): 3})
+
+
+@pytest.mark.asyncio
+async def test_a_worker_that_returns_after_the_stop_never_reaches_google(flow_factory):
+    world = RemovableDriveWorld(in_period(6))
+    flow = flow_factory(world)
+    job = await _three_shared_and_a_worker_holds_the_fourth(flow)
+    await stop(flow)
+
+    # The worker comes back with its lease: no dispatch, no Google POST, and
+    # the Stop's own record of the grant stays as it is.
+    with pytest.raises(DriveSharingError) as changed:
+        await flow.bulk.mark_dispatching(job)
+    assert str(changed.value) == "bulk_changed"
+    assert await flow.bulk_worker._grant(job) == "superseded"
+    assert sum(world.created.values()) == 3
+    assert _stop_codes(flow) == Counter({("skipped", "stopped", False): 3})
+
+    await flow.until_quiet()
+    assert sum(world.created.values()) == 3
+    await _removed_and_settled_once(flow, world)
 
 
 @pytest.mark.asyncio

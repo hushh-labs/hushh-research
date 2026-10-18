@@ -8,11 +8,11 @@ nothing to remove. The existing Stop now covers that window too.
 
 The confirmed Stop (``access_stop_requested_at``) stays the only authority.
 For an autoshare request the Stop's own transaction also ends everything that
-could still share a file: queued grants are released, frozen and running
-batches stop, and the search stops for good. Each side gets one
-``document_share_outcome`` event. Money settles through the existing lanes:
-the refund worker returns what was not delivered (all of it when nothing was)
-and the owner payout settles once on the Stop.
+could still share a file: every queued grant is released (one a worker holds
+too), frozen and running batches stop, and the search stops for good. Each
+side gets one ``document_share_outcome`` event. Money settles through the
+existing lanes: the refund worker returns what was not delivered (all of it
+when nothing was) and the owner payout settles once on the Stop.
 
 Lock order matches the bulk worker, settlement and withdrawal writers:
 participant graph gates, management context, bulk shares (ORDER BY share_id),
@@ -48,13 +48,18 @@ _PAID_OPEN_SQL = """SELECT EXISTS (
 _LOCK_BATCHES_SQL = """SELECT share_id,status FROM drive_bulk_shares
   WHERE origin_request_id=:request ORDER BY share_id FOR UPDATE"""
 
-# A leased grant belongs to its worker: mark_dispatching rechecks the Stop and
-# the batch under the share lock and releases it, so it never reaches Google.
+# Every queued grant ends here, a leased one too, and loses its lease. Its
+# batch stops below and due() offers a queued grant only while its batch runs,
+# so nothing would claim or release a leased one again: a worker cancelled at
+# its deadline never returns, and that grant would hold the settlement for
+# good. A worker that does return takes the share lock after this Stop and
+# fails mark_dispatching's lease check, so it never reaches Google; its late
+# settle or release finds no lease and changes nothing. A grant past "queued"
+# may already be at Google and keeps its own state.
 _RELEASE_QUEUED_SQL = """UPDATE drive_bulk_share_effects SET state='skipped',
   safe_error_code='stopped',lease_id=NULL,lease_expires_at=NULL,
   updated_at=clock_timestamp()
-  WHERE share_id=:share AND state='queued'
-    AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""
+  WHERE share_id=:share AND state='queued'"""
 
 # An in-flight grant may still settle; its effect keeps its own state.
 _STOP_BATCH_SQL = """UPDATE drive_bulk_shares SET status='stopped',
