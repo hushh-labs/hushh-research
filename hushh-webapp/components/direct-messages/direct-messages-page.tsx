@@ -548,6 +548,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [readRevision, setReadRevision] = useState(0);
   const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions || contactInfoOpen);
   const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || pendingSelection || blockingLayer);
+  const cancelMessageLongPress = messageLongPress.cancel;
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
   const bottomIsUncovered = useCallback(() => {
     const marker = bottomRef.current?.getBoundingClientRect();
@@ -585,7 +586,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       attachmentDrafts.current.clear(); sendAttempts.current.clear();
       sendingSelections.current.clear(); reactionPending.current.clear();
     }
-    messageLongPress.cancel();
+    cancelMessageLongPress();
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
     acknowledged.current.clear(); setContactInfoOpen(false); setJumpTarget(null); setRecordingVoice(false); jumping.current = false;
@@ -599,7 +600,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setLoadingOlder(false); setMessages([]); setThread(EMPTY_THREAD);
     settleReadScope(null);
     return invalidateSelection;
-  }, [invalidateSelection, routeSelection, draftScope, user?.uid, resolvingSelection, settleReadScope, messageLongPress.cancel]);
+  }, [invalidateSelection, routeSelection, draftScope, user?.uid, resolvingSelection, settleReadScope, cancelMessageLongPress]);
 
   useLayoutEffect(() => {
     const input = composerRef.current;
