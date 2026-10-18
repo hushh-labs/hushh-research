@@ -12,6 +12,7 @@ anything a test would otherwise notice.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -55,7 +56,7 @@ from tests.test_data_model_audit_postgres import isolated_postgres as isolated_p
 async def test_replacement_committed_before_update_preserves_successor(
     isolated_postgres, repo_type, table, migration, fields, refusal
 ):
-    """Run the shipped query builder against PostgreSQL, replacing after any pre-read."""
+    """Run the shipped guarded write against PostgreSQL, replacing after any pre-read."""
     engine = create_engine(
         "postgresql+psycopg2://", creator=lambda: psycopg2.connect(isolated_postgres)
     )
@@ -71,7 +72,9 @@ async def test_replacement_committed_before_update_preserves_successor(
 
         def replace_before_write(conn, cursor, statement, parameters, context, executemany):
             nonlocal armed
-            if armed and statement.startswith("UPDATE"):
+            if armed and re.search(
+                rf'\bUPDATE\s+"?{re.escape(table)}"?(?=\s)', statement, re.IGNORECASE
+            ):
                 armed = False
                 # A second committed connection wins after the old worker's read,
                 # immediately before PostgreSQL receives that worker's UPDATE.
@@ -83,6 +86,7 @@ async def test_replacement_committed_before_update_preserves_successor(
         try:
             with pytest.raises(refusal):
                 await repo.finish(user_id="synthetic-owner", job_id="old-job", status="succeeded")
+            assert not armed, "the competing replacement must actually run"
         finally:
             event.remove(engine, "before_cursor_execute", replace_before_write)
         successor = await repo.get("synthetic-owner")

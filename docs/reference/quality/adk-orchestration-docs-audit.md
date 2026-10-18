@@ -123,7 +123,11 @@ before the exact job row and appends against the current journal. Whole-journal
 replacement requires an explicit revision comparison. Fifty-nine focused cases
 are covered (58 initial passes plus the corrected driver-wrapper case); the
 original source fails the contention negative control. The guard and migration
-are unchanged. This hub correction is not yet deployed.
+are unchanged. The full local mirror's parallel leg records 21,249 passes and
+one race-hook mismatch: its old SQL-prefix check missed the new CTE. The corrected
+hook covers quoted and unquoted writes; all 27 owning cases and an unfenced-writer
+negative control pass. Production code is unchanged by that fixture repair;
+the unrun mirror stages remain pending. This hub correction is not yet deployed.
 
 Hermes' queued validation exposed inherited runner labels unavailable to this
 organization. The companion uses standard hosted runners with bounded workers;
@@ -160,7 +164,7 @@ hosting; no automatic upgrade is authorized.
 | --- | --- | --- |
 | Matched cloud chat | GCP: 20 cold p95 71.721 s / 20 warm 7.700 s; Azure: 20 cold 71.304 s / 20 warm 13.389 s | Cold ≤30 s target fails; nominal vCPU equality is not performance equivalence |
 | Latest Dev 21 personal cloud chat | 17 October: POST to first content 6.261 s / completion 7.459 s. Confirmed zero-instance turn: Send to first content 44.837 s / completion 46.040 s; capabilities request 40.304 s | One new warm/unqualified-start sample and one genuine cold sample, not p95. Both reach `RUN_FINISHED` with nonempty UI responses. The cold target fails; wake/readiness dominates this sample. Preloaded-model Puppy response and cancellation pass; cold-model failures remain recorded above |
-| Runtime | Earlier ten-minute soak settled 20 synthetic operations/cloud. The personal Dev 23 revision reached zero replicas at 18:23:27 UTC on 17 October; the existing relay had no pod TCP socket at 18:23:41 | Control-plane observations made no pod wake requests. This idle sample does not establish exact grace timing, concurrent Puppy/Files capacity or a cold-start percentile |
+| Runtime | Earlier ten-minute soak settled 20 synthetic operations/cloud. The personal Dev 25 revision reached zero replicas after its successful Puppy turn, observed at 03:40 UTC on 18 October; prior Dev 23 idle-return proof remains | Read-only control-plane observations made no pod wake requests. This sample does not establish exact grace timing, concurrent Puppy/Files capacity or a cold-start percentile |
 | Model qualification | Gemini 3.8 tools 2/3; 3.5 Flash LOW / Flash-Lite LOW 3/3 tools + 5/6 first-tool; Azure Luna 3/3 + 6/6 | Small bounded sample, defaults unchanged; provider failures/429s retained; estimated charge $1.96791915 within $2 ceiling |
 | Monthly package | 30 billable hours, 50 GiB, 1,500 modeled calls + $5 reserve: Google/3.8 $38.69; Azure/Luna $18.74; Google/Flash-Lite $23.32 | Dated planning estimates, not equivalent quality, invoices or quotas |
 
