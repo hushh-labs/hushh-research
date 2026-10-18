@@ -13,7 +13,7 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
-import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { NativeDrawerChoiceFence, validNativeConnectorPath, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers } from "@/lib/capacitor/native-drawers";
@@ -34,6 +34,7 @@ import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-p
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
 import { NativeWorldModelFence, validNativeWorldModelProjection, type NativeWorldModelProjection, type WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
 import { NativeRuntimeFence, validNativeRuntimeProjection, validNativeRuntimeFinalEdit, type NativeRuntimeProjection } from "@/lib/capacitor/native-profile-runtime-scene";
+import { NativeConnectorFence, validNativeConnectorProjection, validNativeConnectorFinalEdit, type NativeConnectorProjection } from "@/lib/capacitor/native-profile-connector-scene";
 import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
@@ -53,6 +54,37 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("keeps custom-server credentials in their closed scene and rejects stale final input or repeated saves", async () => {
+    const state: NativeConnectorProjection = { ...publicNameScene(), scene: "connector-custom-server", destinationId: "custom-server-visit",
+      draft: { name: "Synthetic server", endpoint: "https://example.com/mcp", credential: "synthetic-private-input", oauthIssuer: "", oauthClientId: "", oauthClientSecret: "", oauthAuthMethod: "none" } };
+    expect(validNativeConnectorProjection(state)).toBe(true);
+    expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, oauthClientSecret: "hidden-secret" } })).toBe(false);
+    expect(validNativeConnectorProjection({ ...state, scene: "runtime-provider" } as never)).toBe(false);
+    const pages = (ids: readonly string[]) => ids.map(id => ({ id, title: "Public page", sections: [] })) as never;
+    expect(validNativeConnectorPath(pages(["connectors", "connector-custom"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-confirm"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "account-delete"]))).toBe(false);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-custom", "connector-confirm"]))).toBe(false);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const edit = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, draft: state.draft,
+      updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const final = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeConnectorFinalEdit(final, state)).toBe(true);
+    expect(validNativeConnectorFinalEdit({ ...final, destinationId: "retired-visit" }, state)).toBe(false);
+    expect(validNativeConnectorFinalEdit({ ...final, composing: true }, state)).toBe(false);
+    const fence = new NativeConnectorFence(state);
+    expect(fence.update(state)).toBe(true);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, updateSequence: 1,
+      privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction({ ...action, updateSequence: 2 }, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
   it("fences the private provider form by destination, final edit and one-shot confirmation", async () => {
     const state: NativeRuntimeProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
       family: "profile", scene: "runtime-provider", destinationId: "public-runtime-visit", updateSequence: 1, privacyGeneration: 0,

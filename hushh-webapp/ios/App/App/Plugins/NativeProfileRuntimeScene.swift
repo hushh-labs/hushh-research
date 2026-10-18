@@ -3,7 +3,30 @@ import UIKit
 
 /// Process-memory presentation only. The existing React/service owner validates
 /// and encrypts credentials. No key, token or persistence authority is received.
-struct NativeRuntimeDraft: Codable, Equatable {
+protocol NativeProfileEditorDraft: Equatable {
+    static var empty: Self { get }
+    var valid: Bool { get }
+    subscript(_ field: String) -> String { get set }
+}
+protocol NativeProfileEditorProjection {
+    associatedtype Draft: NativeProfileEditorDraft
+    var identity: NativeDrawerIdentity { get }
+    var scene: String { get }
+    var destinationId: String { get }
+    var valid: Bool { get }
+    var draft: Draft { get set }
+    var updateSequence: Int { get }
+    var privacyGeneration: Int { get }
+    var acknowledgedEditRevision: Int { get }
+    var draftRevision: Int { get }
+    var busy: Bool { get }
+    var canSave: Bool { get }
+    var checking: Bool { get }
+    var primary: String { get }
+    var accentHex: String { get }
+    var error: String? { get set }
+}
+struct NativeRuntimeDraft: Codable, NativeProfileEditorDraft {
     var credential: String; var transport: String; var project: String; var location: String
     static let empty = Self(credential: "", transport: "developer_api", project: "", location: "")
     var valid: Bool { credential.utf16.count <= 8192 && ["developer_api", "vertex_api_key"].contains(transport) && project.utf16.count <= 256 && location.utf16.count <= 128 }
@@ -13,7 +36,7 @@ struct NativeRuntimeDraft: Codable, Equatable {
         set { switch field { case "credential": credential = newValue; case "project": project = newValue; case "location": location = newValue; default: break } }
     }
 }
-struct NativeRuntimeProjection: Decodable {
+struct NativeRuntimeProjection: Decodable, NativeProfileEditorProjection {
     let documentId: String; let ownerEpoch: String; let ownerGeneration: Int; let revision: Int; let family: String
     let scene: String; let destinationId: String; let updateSequence: Int; let privacyGeneration: Int; let acknowledgedEditRevision: Int; let draftRevision: Int
     var draft: NativeRuntimeDraft; let canSave: Bool; let busy: Bool; let checking: Bool; let primary: String; var error: String?
@@ -32,34 +55,36 @@ struct NativeRuntimeProjection: Decodable {
          "scene": scene, "destinationId": destinationId, "updateSequence": updateSequence, "privacyGeneration": privacyGeneration, "phase": phase]
     }
 }
-@MainActor final class NativeRuntimeModel: ObservableObject {
-    @Published private(set) var projection: NativeRuntimeProjection
-    @Published private(set) var draft: NativeRuntimeDraft
+/// Shared private editor mechanics only. Each feature keeps a closed projection,
+/// authored SwiftUI body and its existing React validation/operation owner.
+@MainActor final class NativeProfileEditorModel<Projection: NativeProfileEditorProjection>: ObservableObject {
+    @Published private(set) var projection: Projection
+    @Published private(set) var draft: Projection.Draft
     @Published private(set) var editRevision = 0
     @Published private(set) var pending: NativeProfileNameAction?
     @Published private(set) var retired = false
     private var sequence = 0; private var confirmed = 0; private var lastComposing = false
     private var fields = [String: WeakField]()
     private final class WeakField { weak var value: UITextField?; init(_ value: UITextField) { self.value = value } }
-    var edit: ((NativeRuntimeDraft, Bool, Int) -> Bool)?
+    var edit: ((Projection.Draft, Bool, Int) -> Bool)?
     var choose: ((NativeProfileNameAction) -> Bool)?
-    var finalEdit: ((NativeRuntimeDraft, Int) -> Void)?
+    var finalEdit: ((Projection.Draft, Int) -> Void)?
     var composing: Bool { fields.values.contains { $0.value?.markedTextRange != nil } }
     var canEdit: Bool { !retired && !projection.busy && pending == nil }
     var canCancel: Bool { !retired && !projection.busy && (pending == nil || projection.primary == "validate" && pending?.action == "save") }
     var canSave: Bool { canEdit && !projection.checking && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
-    init(_ projection: NativeRuntimeProjection) { self.projection = projection; draft = projection.draft }
+    init(_ projection: Projection) { self.projection = projection; draft = projection.draft }
     func register(_ field: UITextField, name: String) { fields[name] = WeakField(field) }
-    func update(_ next: NativeRuntimeProjection) -> Bool {
-        guard !retired, next.valid, next.identity == projection.identity, next.destinationId == projection.destinationId,
+    func update(_ next: Projection) -> Bool {
+        guard !retired, next.valid, next.identity == projection.identity, next.scene == projection.scene, next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration, next.updateSequence > projection.updateSequence,
               next.draftRevision >= projection.draftRevision,
               next.acknowledgedEditRevision >= projection.acknowledgedEditRevision, next.acknowledgedEditRevision <= editRevision else { return false }
         if next.acknowledgedEditRevision == editRevision && !composing { draft = next.draft }
         projection = next; return true
     }
-    private func emit(_ value: NativeRuntimeDraft) {
+    private func emit(_ value: Projection.Draft) {
         guard canEdit, value.valid, editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
         let marked = composing
         guard value != draft || marked != lastComposing else { return }
@@ -71,7 +96,16 @@ struct NativeRuntimeProjection: Decodable {
         for (name, field) in fields { if let text = field.value?.text { value[name] = text } }
         emit(value)
     }
-    func transport(_ transport: String) { var value = draft; value.transport = transport; emit(value) }
+    func change(_ mutation: (inout Projection.Draft) -> Void) {
+        capture()
+        guard canEdit, !composing else { return }
+        var value = draft; mutation(&value)
+        guard value.valid else { return }
+        for (name, field) in fields where value[name] != draft[name] {
+            field.value?.text = value[name]; field.value?.undoManager?.removeAllActions()
+        }
+        emit(value)
+    }
     func action(_ value: String) {
         capture()
         guard (value == "cancel" ? canCancel : value == "save" && canSave), sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
@@ -93,7 +127,10 @@ struct NativeRuntimeProjection: Decodable {
         for field in editors { field.unmarkText(); field.resignFirstResponder() }
         var last = draft
         for (name, field) in fields { if let text = field.value?.text { last[name] = text } }
-        if !composing && last.valid && (last != draft || lastComposing), editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration {
+        // A committed edit is still unacknowledged even if the bridge callback
+        // accepted dispatch. This also covers callback rejection after emit()
+        // updated the local draft; equality alone cannot prove React received it.
+        if !composing && last.valid && (last != draft || lastComposing || editRevision > projection.acknowledgedEditRevision), editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration {
             editRevision += 1; finalEdit?(last, editRevision)
         }
         finalEdit = nil
@@ -101,16 +138,20 @@ struct NativeRuntimeProjection: Decodable {
         fields.removeAll(); draft = .empty; projection.draft = .empty; projection.error = nil; pending = nil
     }
 }
-@available(iOS 26.0, *) private struct NativeRuntimeField: UIViewRepresentable {
-    @ObservedObject var model: NativeRuntimeModel
+typealias NativeRuntimeModel = NativeProfileEditorModel<NativeRuntimeProjection>
+@available(iOS 26.0, *) struct NativeProfilePrivateField<Projection: NativeProfileEditorProjection>: UIViewRepresentable {
+    @ObservedObject var model: NativeProfileEditorModel<Projection>
     let name: String; let label: String; let maximum: Int
+    var secure = false
+    var keyboard: UIKeyboardType = .default
+    let identifier: String
     func makeUIView(context: Context) -> UITextField {
         let field = UITextField(); field.delegate = context.coordinator; field.placeholder = label
-        field.isSecureTextEntry = name == "credential"; field.textContentType = nil
+        field.isSecureTextEntry = secure; field.textContentType = nil; field.keyboardType = keyboard
         field.autocapitalizationType = .none; field.autocorrectionType = .no; field.spellCheckingType = .no
         field.smartDashesType = .no; field.smartQuotesType = .no; field.smartInsertDeleteType = .no
         field.font = .preferredFont(forTextStyle: .body); field.adjustsFontForContentSizeCategory = true
-        field.accessibilityLabel = label; field.accessibilityIdentifier = "native-runtime-\(name)"
+        field.accessibilityLabel = label; field.accessibilityIdentifier = identifier
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed), for: .editingChanged)
         model.register(field, name: name); return field
@@ -131,7 +172,7 @@ struct NativeRuntimeProjection: Decodable {
         field.unmarkText(); field.resignFirstResponder(); field.text = ""; field.undoManager?.removeAllActions()
     }
     final class Coordinator: NSObject, UITextFieldDelegate {
-        var owner: NativeRuntimeField; init(_ owner: NativeRuntimeField) { self.owner = owner }
+        var owner: NativeProfilePrivateField; init(_ owner: NativeProfilePrivateField) { self.owner = owner }
         @objc func changed() { owner.model.capture() }
         func textFieldDidChangeSelection(_ field: UITextField) { owner.model.capture() }
         func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
@@ -156,17 +197,17 @@ struct NativeRuntimeProjection: Decodable {
             }.padding(.horizontal, 16).padding(.vertical, 8)
             Form {
                 Section("API endpoint") {
-                    Picker("API endpoint", selection: Binding(get: { model.draft.transport }, set: { model.transport($0) })) {
+                    Picker("API endpoint", selection: Binding(get: { model.draft.transport }, set: { value in model.change { $0.transport = value } })) {
                         Text("AI Studio").tag("developer_api"); Text("Vertex").tag("vertex_api_key")
                     }.pickerStyle(.segmented).disabled(!model.canEdit).accessibilityIdentifier("native-runtime-transport")
                 }
                 if model.draft.transport == "vertex_api_key" {
                     Section("Google Cloud") {
-                        NativeRuntimeField(model: model, name: "project", label: "Google Cloud project ID", maximum: 256).frame(minHeight: 44)
-                        NativeRuntimeField(model: model, name: "location", label: "Vertex location", maximum: 128).frame(minHeight: 44)
+                        NativeProfilePrivateField(model: model, name: "project", label: "Google Cloud project ID", maximum: 256, identifier: "native-runtime-project").frame(minHeight: 44)
+                        NativeProfilePrivateField(model: model, name: "location", label: "Vertex location", maximum: 128, identifier: "native-runtime-location").frame(minHeight: 44)
                     }
                 }
-                Section { NativeRuntimeField(model: model, name: "credential", label: "Gemini API key", maximum: 8192).frame(minHeight: 44) }
+                Section { NativeProfilePrivateField(model: model, name: "credential", label: "Gemini API key", maximum: 8192, secure: true, identifier: "native-runtime-credential").frame(minHeight: 44) }
                     footer: { Text("Validate the key before confirming it. Your key stays locked to you.") }
                 if let error = model.projection.error, !model.retired { Text(error).foregroundStyle(Color(uiColor: .systemRed)).accessibilityAddTraits(.updatesFrequently) }
                 if model.projection.busy || model.projection.checking { ProgressView("Checking Gemini…") }

@@ -331,6 +331,47 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectorEditorClearsConditionalSecretsAndRetainsFinalInputBeforeRetirement() {
+        let initial = NativeConnectorProjection(documentId: "public-connector-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+            family: "profile", scene: "connector-custom-server", destinationId: "public-connector-visit", updateSequence: 1, privacyGeneration: 0,
+            acknowledgedEditRevision: 0, draftRevision: 0,
+            draft: NativeConnectorDraft(name: "Synthetic", endpoint: "https://example.com/mcp", credential: "", oauthIssuer: "https://accounts.example.com",
+                                        oauthClientId: "synthetic-client", oauthClientSecret: "synthetic-client-secret", oauthAuthMethod: "client_secret_post"),
+            canSave: true, busy: false, error: "Public setup example", appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        let model = NativeConnectorModel(initial), secret = UITextField(), endpoint = UITextField()
+        secret.isSecureTextEntry = true; secret.text = initial.draft.oauthClientSecret; endpoint.text = initial.draft.endpoint
+        model.register(secret, name: "oauthClientSecret"); model.register(endpoint, name: "endpoint"); model.edit = { _, _, _ in true }
+        model.change { $0.oauthAuthMethod = "none"; $0.oauthClientSecret = "" }
+        XCTAssertEqual(secret.text, ""); XCTAssertEqual(model.draft.oauthClientSecret, ""); XCTAssertFalse(model.canSave)
+        let acknowledged = NativeConnectorProjection(documentId: initial.documentId, ownerEpoch: initial.ownerEpoch, ownerGeneration: 1, revision: 1,
+            family: "profile", scene: initial.scene, destinationId: initial.destinationId, updateSequence: 2, privacyGeneration: 0,
+            acknowledgedEditRevision: 1, draftRevision: 1, draft: model.draft, canSave: true, busy: false, error: nil,
+            appearance: "dark", accentHex: "#CCA25C", foregroundHex: "#FFFFFF")
+        XCTAssertTrue(model.update(acknowledged)); XCTAssertTrue(model.canSave)
+        var final: NativeConnectorDraft?
+        model.finalEdit = { value, _ in final = value }
+        endpoint.text = "https://example.com/final-input"
+        model.clear()
+        XCTAssertEqual(final?.endpoint, "https://example.com/final-input"); XCTAssertEqual(final?.oauthClientSecret, "")
+        XCTAssertEqual(secret.text, ""); XCTAssertEqual(endpoint.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.finalEdit); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.projection.error)
+        XCTAssertFalse(model.update(acknowledged))
+        // A bridge dispatch is not an edit acknowledgement. Rejected delivery
+        // and accepted-but-unacknowledged delivery must both offer final input
+        // without restoring a save/choice callback.
+        for delivered in [false, true] {
+            let pending = NativeConnectorModel(initial), field = UITextField()
+            field.text = "synthetic-unacknowledged-input"; pending.register(field, name: "credential")
+            var finalDraft: NativeConnectorDraft?
+            pending.finalEdit = { value, _ in finalDraft = value }; pending.edit = { _, _, _ in delivered }
+            pending.capture()
+            if delivered { pending.clear() }
+            XCTAssertEqual(finalDraft?.credential, "synthetic-unacknowledged-input")
+            XCTAssertTrue(pending.retired); XCTAssertNil(pending.choose); XCTAssertEqual(field.text, "")
+        }
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()

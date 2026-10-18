@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-17.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-18.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -16,7 +16,7 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
-### Complete Profile roster and Payouts integration — 2026-10-17
+### Profile roster and source coverage — 2026-10-18
 
 Memory continuation (bounded physical journey verified; not whole-family qualification): the retained native
 stack now maps categories, sections, entity details, permission choices,
@@ -48,8 +48,13 @@ keyed owner. Replacing the body does not create a second catalog, OAuth session,
 file-review draft or writer; Profile can inject that retained owner's web body
 instead of mounting another panel. Catalog and confirmation actions are revoked
 after a superseding commit or owner retirement. This boundary is not native
-Connectors admission: complete detail scenes and the separately owned Drive,
-trust-rule and custom-connector bodies still need their shared mappings. A
+Connectors admission. Gmail, Calendar, bank and curated-connector details now
+expose closed feature facts and fenced commands through that owner; web status
+copy consumes the same facts. Custom setup has a shared controller and a closed
+private native form (retained text fields, secure credentials, final-input
+readback and confirmed retirement), reusing the provider editor's mechanics.
+The complete catalog/Drive/trust/packet integration is not admitted yet:
+`profileConnectorPages` remains false. A
 retained owner now gates inactive reads and retires the closed visit's requests,
 focus and queued callbacks without writing the old Profile query. An unsettled
 background-access write retains serialization through close/reopen; its same-owner
@@ -65,6 +70,16 @@ editor or gesture continuity: the existing native drawer lease and Profile detai
 owner still rotate with that credential epoch, so their presentation continuity
 requires its own integrated evidence before family qualification.
 
+The extracted native private-editor mechanics also offer committed input at
+retirement when its edit revision exceeds React's acknowledgement. A successful
+bridge dispatch is not an acknowledgement; callback rejection must not suppress
+final readback either. Actions remain revoked and fields/undo buffers are scrubbed
+after that offer. The bounded native review found and confirmed this correction;
+it does not transfer the older provider candidate's physical evidence to this source.
+The Debug simulator build-for-testing and both Connector/Provider editor host
+regressions pass (two tests, no skips). These are model/input-lifecycle checks,
+not integrated Connector presentation or physical-device qualification.
+
 | Destination | Native source coverage / remaining body mapping |
 |---|---|
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
@@ -75,7 +90,7 @@ requires its own integrated evidence before family qualification.
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor and Gemini configuration now source-mapped through shared controllers; their candidate qualification remains separate |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
-| Connectors | Catalog, details, configuration and authorization-return bodies still require native mapping |
+| Connectors | Retained shared detail/configuration models and a closed custom-server native form are source-mapped; complete catalog/Drive/trust/packet integration remains unadmitted |
 | Invite friends | Existing route-bound referrals workspace still requires native mapping |
 | Help & feedback | Native form, message types, draft and delivery outcomes |
 | Privacy | Native authored-document reader and links |

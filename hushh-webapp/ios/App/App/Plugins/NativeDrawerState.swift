@@ -134,13 +134,15 @@ struct NativeDrawerProjection: Codable {
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),
                   stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
                   stack.first?.id != "world-model" || Self.validWorldModelPath(stack.map(\.id)),
+                  stack.first?.id != "connectors" || Self.validConnectorPath(stack.map(\.id)),
                   !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
                         Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "world-model" && Self.validWorldModelPath(stack.map(\.id)) ||
+                        stack.first?.id == "connectors" && Self.validConnectorPath(stack.map(\.id)) ||
                         stack.first?.id == "payouts" && Self.validPayoutPath(stack.map(\.id)) ||
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
                         ["voice", "gemini"].contains(page.id) && index == 1 && stack.first?.id == "preferences" ||
@@ -227,6 +229,12 @@ struct NativeDrawerProjection: Codable {
         guard path.count > start, path[start] == "finance-preferences", path.count <= start + 2 else { return false }
         return path.count == start + 1 || path[start + 1] == "finance-anchor"
     }
+    static func validConnectorPath(_ path: [String]) -> Bool {
+        guard path.first == "connectors", path.count <= 3 else { return false }
+        let children: [String: Set<String>] = ["connectors": ["connector-detail", "connector-custom", "connector-custom-detail"],
+            "connector-detail": ["connector-confirm"], "connector-custom-detail": ["connector-custom-confirm"]]
+        return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
+    }
     static func validWorldModelPath(_ path: [String]) -> Bool {
         guard path.first == "world-model", path.count <= 4 else { return false }
         let children: [String: Set<String>] = [
@@ -255,7 +263,7 @@ struct NativeDrawerProjection: Codable {
             let path = profileStack?.map(\.id) ?? []
             return family == "profile" && backEnabled &&
                 (row == "security" && [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(path) ||
-                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path) || Self.validWorldModelPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
+                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path) || Self.validWorldModelPath(path) || Self.validConnectorPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
         }
         guard action == "row", let row else { return false }
         if profileStack?.last?.memorySearch?.id == row { return text.map { $0.utf16.count <= 256 } == true }

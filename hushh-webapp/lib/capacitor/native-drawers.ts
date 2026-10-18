@@ -8,6 +8,7 @@ import type { NativeSupportScenePort } from "./native-profile-support-scene";
 import type { NativePhoneScenePort } from "./native-profile-phone-scene";
 import type { NativeWorldModelScenePort } from "./native-profile-world-model-scene";
 import type { NativeRuntimeScenePort } from "./native-profile-runtime-scene";
+import type { NativeConnectorScenePort } from "./native-profile-connector-scene";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -42,7 +43,8 @@ export type NativeDrawerSection = { id: string; title?: string; rows: readonly N
 export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";
-export type NativeProfilePage = { id: NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
+export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm";
+export type NativeProfilePage = { id: NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
   /** Private Memory filter, submitted explicitly; not a public search index. */
   memorySearch?: { id: string; query: string } };
@@ -93,11 +95,15 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
+  applyProfileConnectorScene?: NativeConnectorScenePort["applyProfileConnectorScene"];
+  confirmProfileConnectorAction?: NativeConnectorScenePort["confirmProfileConnectorAction"];
+  settleProfileConnectorAction?: NativeConnectorScenePort["settleProfileConnectorAction"];
+  retireProfileConnectorScene?: NativeConnectorScenePort["retireProfileConnectorScene"];
   applyProfileRuntimeScene?: NativeRuntimeScenePort["applyProfileRuntimeScene"];
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
   settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
@@ -127,7 +133,7 @@ export interface HushhNativeDrawersPlugin {
   confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
   settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
+  addListener: NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
@@ -143,7 +149,7 @@ export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNati
 /** Admission needs the whole scene handshake, including confirmed withdrawal.
  * A flag alone cannot safely transfer an editor to a partially capable wrapper.
  * Keep this mapping shared by the destination and its editor adapters. */
-export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price" | "world-model" | "runtime-provider"): boolean {
+export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "account-name" | "writing-style" | "support" | "phone" | "vault-passphrase" | "request-price" | "world-model" | "runtime-provider" | "connector-custom-server"): boolean {
   const methods = scene === "account-name"
     ? [plugin.applyProfileNameScene, plugin.confirmProfileNameAction, plugin.settleProfileNameAction, plugin.retireProfileNameScene]
     : scene === "writing-style"
@@ -152,6 +158,7 @@ export function hasNativeProfileScene(plugin: HushhNativeDrawersPlugin, scene: "
       : scene === "vault-passphrase" ? [plugin.applyProfilePasswordScene, plugin.confirmProfilePasswordAction, plugin.settleProfilePasswordAction, plugin.retireProfilePasswordScene]
       : scene === "request-price" ? [plugin.applyProfilePricingScene, plugin.confirmProfilePricingAction, plugin.settleProfilePricingAction, plugin.retireProfilePricingScene]
       : scene === "world-model" ? [plugin.applyProfileWorldModelScene, plugin.confirmProfileWorldModelAction, plugin.settleProfileWorldModelAction, plugin.retireProfileWorldModelScene]
+      : scene === "connector-custom-server" ? [plugin.applyProfileConnectorScene, plugin.confirmProfileConnectorAction, plugin.settleProfileConnectorAction, plugin.retireProfileConnectorScene]
       : scene === "runtime-provider" ? [plugin.applyProfileRuntimeScene, plugin.confirmProfileRuntimeAction, plugin.settleProfileRuntimeAction, plugin.retireProfileRuntimeScene]
       : [plugin.applyProfilePhoneScene, plugin.confirmProfilePhoneAction, plugin.settleProfilePhoneAction, plugin.retireProfilePhoneScene];
   return methods.every(method => typeof method === "function");
@@ -260,6 +267,15 @@ export function validNativeFinancePath(pages: readonly NativeProfilePage[]): boo
     (path.length === start + 1 || path[start + 1] === "finance-anchor");
 }
 
+export function validNativeConnectorPath(pages: readonly NativeProfilePage[]): boolean {
+  if (pages[0]?.id !== "connectors" || pages.length > 3) return false;
+  const children: Partial<Record<NativeConnectorPageId, readonly NativeConnectorPageId[]>> = {
+    connectors: ["connector-detail", "connector-custom", "connector-custom-detail"],
+    "connector-detail": ["connector-confirm"], "connector-custom-detail": ["connector-custom-confirm"],
+  };
+  return pages.slice(1).every((page, index) => children[pages[index]!.id as NativeConnectorPageId]?.includes(page.id as NativeConnectorPageId));
+}
+
 export function validNativeWorldModelPath(pages: readonly NativeProfilePage[]): boolean {
   if (pages[0]?.id !== "world-model" || pages.length > 4) return false;
   const children: Partial<Record<NativeWorldModelPageId, readonly NativeWorldModelPageId[]>> = {
@@ -293,15 +309,17 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       value.profileStack[0]?.id === "payouts" && !validNativePayoutPath(value.profileStack) ||
       value.profileStack[0]?.id === "memory" && !validNativeMemoryPath(value.profileStack) ||
       value.profileStack[0]?.id === "world-model" && !validNativeWorldModelPath(value.profileStack) ||
+      value.profileStack[0]?.id === "connectors" && !validNativeConnectorPath(value.profileStack) ||
       value.profileStack.some(page => page && ["finance-preferences", "finance-anchor"].includes(page.id)) && !validNativeFinancePath(value.profileStack) ||
       new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument", "memorySearch"]) ||
         page.memorySearch !== undefined && (page.id !== "memory" || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
           !validIdentifier(page.memorySearch.id) || typeof page.memorySearch.query !== "string" || page.memorySearch.query.length > 256) ||
-        !(index === 0 ? ["world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
           validNativeFinancePath(value.profileStack!) ||
           value.profileStack?.[0]?.id === "memory" && validNativeMemoryPath(value.profileStack) ||
           value.profileStack?.[0]?.id === "world-model" && validNativeWorldModelPath(value.profileStack) ||
+          value.profileStack?.[0]?.id === "connectors" && validNativeConnectorPath(value.profileStack) ||
           value.profileStack?.[0]?.id === "payouts" && validNativePayoutPath(value.profileStack) ||
           ["account-reset", "account-delete"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "account" ||
           ["voice", "gemini"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "preferences" ||
@@ -387,7 +405,7 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
   if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled &&
     (choice.rowId === "security" && ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "") ||
-      !!state.profileStack && (validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack) || validNativeFinancePath(state.profileStack) || validNativeWorldModelPath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
+      !!state.profileStack && (validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack) || validNativeFinancePath(state.profileStack) || validNativeWorldModelPath(state.profileStack) || validNativeConnectorPath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
   if (state.profileStack?.at(-1)?.memorySearch?.id === choice.rowId) return typeof choice.text === "string" && choice.text.length <= 256;
   const document = valueDocument(state);
