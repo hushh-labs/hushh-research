@@ -2933,6 +2933,8 @@ export function NearbyCheckInSheet({
 
                 <FlowActionGroup
                   stacked
+                  measure="decision"
+                  className="max-w-[244px]"
                   secondary={
                     <Button
                       type="button"

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,16 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 // Device keyboards, signed-in routes and push delivery have separate proofs.
 let script: string;
 let css: string;
+async function holdMessage(page: Page, row: Locator) {
+  const bubble = row.locator("[data-chat-bubble]");
+  // A real hold starts on a stable, uncovered bubble after dialog exit/scroll.
+  await bubble.click({ trial: true });
+  const box = (await bubble.boundingBox())!;
+  await bubble.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
+  await bubble.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+}
 test.beforeAll(async () => {
   const root = process.cwd();
   const { build } = await import("vite");
@@ -543,9 +553,10 @@ test.describe("compact message layout", () => {
       const geometry = await bubble.evaluate(element => {
         const text = element.querySelector(":scope > p")!.getBoundingClientRect();
         const time = element.querySelector("time")!.getBoundingClientRect();
-        return { textBottom: text.bottom, timeTop: time.top, textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
+        return { textBottom: text.bottom, timeTop: time.top, timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize), textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
       });
       expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      expect(geometry.timeSize).toBeLessThanOrEqual(11);
       for (const label of ["React to message", "Message options"]) {
         const button = row.getByRole("button", { name: label });
         const rect = (await button.boundingBox())!;
@@ -667,7 +678,8 @@ test("Enter preserves composition and mobile newlines while desktop Enter sends"
 test("preserves replies, edits and delete actions with a short phone keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 }); await mount(page);
   const received = page.locator('[data-chat-message="maya-77"]');
-  await received.locator("[data-chat-bubble]").click(); await received.getByRole("button", { name: "Message options" }).click();
+  await expect(received.getByRole("button", { name: "Message options" })).toHaveCSS("pointer-events", "none");
+  await holdMessage(page, received);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.getByText("Replying to Maya Rao", { exact: true })).toBeVisible();
   await page.locator("[data-direct-message-composer-input]").fill("Reply stays in this chat\nA multiline reply\nwith another line\nand a final line");
@@ -678,7 +690,7 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.sends.at(-1)?.replyToMessageId)).toBe("maya-77");
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const own = page.locator('[data-chat-message]').filter({ hasText: "Reply stays in this chat" });
-  await own.locator("[data-chat-bubble]").click(); await own.getByRole("button", { name: "Message options" }).click();
+  await holdMessage(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await page.evaluate(() => { document.documentElement.classList.add('kb-open', 'native-keyboard-inset'); document.documentElement.style.setProperty("--kb-height", "300px"); });
   await page.getByRole("textbox", { name: "Edit message", exact: true }).fill("Edited reply");
@@ -688,13 +700,13 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect(page.locator('[data-chat-message]').filter({ hasText: "Edited reply" })).toHaveCount(1);
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
-  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "React to message" }).click();
+  await holdMessage(page, edited);
   await fixture(page, "fixture.holdReaction()");
-  await page.getByRole("button", { name: "React ❤️", exact: true }).click();
+  await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
   await edited.locator("[data-chat-bubble]").click();
   await fixture(page, "fixture.releaseReaction()");
-  await edited.getByRole("button", { name: "Message options" }).click();
+  await holdMessage(page, edited);
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   const deleted = page.getByText("This message was deleted.", { exact: true });

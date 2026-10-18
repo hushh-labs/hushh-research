@@ -348,7 +348,7 @@ export function LiveShareStatusCard({
             disabled={stopBusy}
             className={cn(
               LIVE_SHARE_ACTION_CLASSNAME,
-              "text-destructive hover:text-destructive",
+              "text-[color:var(--app-destructive)] hover:text-[color:var(--app-destructive)]",
             )}
             data-ui-contract="occlusion-sensitive"
             data-ui-role="control"

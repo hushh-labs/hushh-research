@@ -38,6 +38,7 @@ const {
   mockUseRequireAuth,
   mockUseVault,
   mockEnsureKey,
+  mockBootstrapKey,
   mockEncryptLocationForRecipient,
   mockDecryptLocationEnvelope,
   mockRegisterKey,
@@ -61,6 +62,7 @@ const {
   mockClearPreVaultForUser,
   mockCreateGrant,
   mockStoreEnvelope,
+  mockSendSosEmails,
   mockViewEnvelope,
   mockRevokeGrant,
   mockShortenGrant,
@@ -106,6 +108,7 @@ const {
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
   mockEnsureKey: vi.fn(),
+  mockBootstrapKey: vi.fn(),
   mockEncryptLocationForRecipient: vi.fn(),
   mockDecryptLocationEnvelope: vi.fn(),
   mockRegisterKey: vi.fn(),
@@ -129,6 +132,7 @@ const {
   mockClearPreVaultForUser: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
+  mockSendSosEmails: vi.fn(),
   mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
   mockShortenGrant: vi.fn(),
@@ -364,6 +368,7 @@ vi.mock("@/components/vault/vault-flow", () => ({
   ),
 }));
 
+vi.mock("@/lib/one-location/key-bootstrap", () => ({ bootstrapCurrentUserLocationRecipientKey: mockBootstrapKey }));
 vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
@@ -374,7 +379,11 @@ vi.mock("@/lib/one-location/encryption", () => ({
   // Promise.allSettled then swallowed, hiding the whole branch from these tests.
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE:
     "Recipient key unavailable for this location share.",
-  ensureVaultSyncedRecipientKey: vi.fn(async () => {}),
+  ensureVaultSyncedRecipientKey: vi.fn(async () => ({
+    ...(await mockEnsureKey()),
+    encryptedPrivateKeyJwk: { ciphertext: "sealed-private-key", iv: "iv", tag: "tag", algorithm: "AES-256-GCM", encoding: "base64" },
+    needsRegister: false,
+  })),
 }));
 
 // The live publisher reads the shared position store rather than reaching the
@@ -411,6 +420,7 @@ vi.mock("@/lib/one-location/service", () => ({
     checkoutNearby: mockCheckoutNearby,
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
+    sendSosEmails: mockSendSosEmails,
     captureCurrentPosition: mockCaptureCurrentPosition,
     reverseGeocode: mockReverseGeocode,
     placesAutocomplete: mockPlacesAutocomplete,
@@ -602,6 +612,7 @@ vi.mock("sonner", () => {
       error: vi.fn(),
       info: vi.fn(),
       message: vi.fn(),
+      warning: vi.fn(),
       dismiss: vi.fn(),
     }),
   };
@@ -1111,6 +1122,8 @@ describe("OneLocationAgentPage", () => {
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
     window.sessionStorage.clear();
+    const { clearSosIncident } = await import("@/lib/one-location/sos-incident");
+    clearSosIncident();
     // Most page-flow tests are not about the optional saved-place prompt.
     // A dedicated integration test below clears this outcome and proves it.
     window.localStorage.setItem(
@@ -1170,6 +1183,13 @@ describe("OneLocationAgentPage", () => {
       algorithm: "ECDH-P256-AES256-GCM",
     });
     mockRegisterKey.mockResolvedValue({});
+    // Bootstrap integration is tested at its service boundary; page tests
+    // retain the registration port and check canonical recovery is requested.
+    mockBootstrapKey.mockImplementation(async ({ userId, vaultOwnerToken }) => {
+      const key = await mockEnsureKey(userId);
+      await mockRegisterKey({ vaultOwnerToken, ...key });
+      return { userId, ...key, canReceiveLocation: true };
+    });
     // Back to what a build with no NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID reports,
     // so one opted-in test cannot leak the Google branch into the next.
     mockGoogleAvailability = () => "unconfigured";
@@ -1284,6 +1304,7 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "web",
     });
     mockStoreEnvelope.mockResolvedValue({});
+    mockSendSosEmails.mockResolvedValue({ emailed: 0, attempted: 1, configured: true, withoutEmail: [] });
     mockViewEnvelope.mockResolvedValue({
       grant: {},
       envelope: {
@@ -1542,6 +1563,7 @@ describe("OneLocationAgentPage", () => {
       publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
       algorithm: "ECDH-P256-AES256-GCM",
     });
+    expect(mockBootstrapKey).toHaveBeenCalledWith({ userId: "user_a", vaultOwnerToken: "vault-token", vaultKey: "vault-key", strictRecovery: true });
     expect(mockSyncCurrentUser).toHaveBeenCalledWith(
       expect.objectContaining({ uid: "user_a" }),
     );
@@ -1656,6 +1678,47 @@ describe("OneLocationAgentPage", () => {
         name: /Investor D for private sharing/i,
       }),
     ).toBeNull();
+  });
+
+  it.each(["Share", "Ask"])("keeps %s readiness current after key registration, stale pages and revocation", async (flow) => {
+    const initial = { ...locationState(), ownerGrants: [] };
+    let latest = initial;
+    const oldPages: Array<(value: { items: typeof initial.recipients; page: number; hasMore: boolean; totalCount: number }) => void> = [];
+    mockGetState.mockImplementation(async () => latest);
+    mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+      if (latest === initial && limit !== 100) return new Promise((resolve) => oldPages.push(resolve));
+      return { items: latest.recipients, page: 1, hasMore: false, totalCount: latest.recipients.length };
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(oldPages.length).toBeGreaterThanOrEqual(2));
+    if (flow === "Share") await openSharePersonStep();
+    else await openAskFlow();
+    expect(screen.getByText("Location setup pending")).toBeTruthy();
+    expect(screen.queryByText("Invite them first")).toBeNull();
+    const action = flow === "Share" ? /Select Advisor C for private sharing/i : /Select Advisor C for location request/i;
+    if (flow === "Share") expect(screen.queryByRole("button", { name: action })).toBeNull();
+    else expect(screen.getByRole("button", { name: action })).toBeEnabled();
+
+    latest = { ...initial, recipients: initial.recipients.map((row) => row.userId === "user_c" ? {
+      ...row, canReceiveLocation: true, keyId: "new-account-key", publicKeyJwk: { kty: "EC", crv: "P-256", x: "new-x", y: "new-y" },
+    } : row) };
+    act(() => dispatchOneLocationStateChanged("user_a", ["workspace"]));
+    await waitFor(() => expect(screen.queryByText("Location setup pending")).toBeNull());
+    await waitFor(() => expect(mockListRecipientsPage.mock.calls.length).toBeGreaterThanOrEqual(4));
+    await act(async () => {
+      for (const finish of oldPages) finish({ items: initial.recipients, page: 1, hasMore: false, totalCount: initial.recipients.length });
+    });
+    expect(screen.getByRole("button", { name: action })).toBeEnabled();
+    expect(screen.queryByText("Location setup pending")).toBeNull();
+    expect(screen.getAllByText("Advisor C")).toHaveLength(1);
+
+    latest = { ...initial };
+    act(() => dispatchOneLocationStateChanged("user_a", ["workspace"]));
+    await waitFor(() => expect(screen.getByText("Location setup pending")).toBeTruthy());
+    if (flow === "Share") expect(screen.queryByRole("button", { name: action })).toBeNull();
+    else expect(screen.getByRole("button", { name: action })).toBeEnabled();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("refreshes the full workspace once when foreground signals arrive in a burst", async () => {
@@ -2244,7 +2307,7 @@ describe("OneLocationAgentPage", () => {
     expect(headerRowForStatus, "the status escaped the toggle group").toBe(
       headerActions.closest('[data-slot="page-header-row"]'),
     );
-    expect(status).toHaveClass("block", "whitespace-nowrap", "text-center");
+    expect(status).toHaveClass("block", "whitespace-normal", "text-center");
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
     expect(
@@ -2272,7 +2335,7 @@ describe("OneLocationAgentPage", () => {
     ).toBe(true);
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
-    ).toHaveAttribute("data-size", "ios");
+    ).toHaveAttribute("data-size", "default");
     // The status text is the ONLY thing on this screen that says what the
     // switch is for, so it has to render at every width. It used to be
     // `hidden … sm:inline` + aria-hidden, i.e. present on a desktop browser and
@@ -2320,13 +2383,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Location off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
 
-    // The caption is a separate, explicit action target. It must call the
-    // same transition once, without relying on native label forwarding.
+    // The caption shares the label's larger tap area and changes state once.
     mockCaptureCurrentPosition.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Location off" }),
-    );
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("one-location-header-status"));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
     ).toHaveAttribute("aria-checked", "true");
@@ -3291,7 +3351,7 @@ describe("OneLocationAgentPage", () => {
     await openSharePersonStep();
 
     expect(screen.queryByText("Ready for private sharing")).toBeNull();
-    expect(screen.getByText("Invite them first")).toBeTruthy();
+    expect(screen.getByText("Location setup pending")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -4463,6 +4523,31 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it.each(["full", "partial", "unknown", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {
+    mockGetSmsContacts.mockResolvedValue(outcome === "partial" ? ["user_b", "user_d"] : ["user_b"]);
+    let publicationCount = 0;
+    mockStoreEnvelope.mockImplementation(async () => {
+      if (outcome === "none") throw new Error("publish unavailable");
+      if (outcome === "unknown") return { recipientAlerted: null };
+      return { recipientAlerted: outcome === "full" || publicationCount++ === 0 };
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).not.toBeDisabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    if (outcome === "none") {
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The alert could not be sent. Call for help directly."), { timeout: 4000 });
+    } else {
+      await waitFor(() => expect(outcome === "partial" ? toast.warning : toast.success).toHaveBeenCalledWith(
+        outcome === "full" ? "SMS alert sent." : outcome === "unknown" ? "SMS location shared." : "Some contacts may miss this alert.",
+        { classNames: { title: "!line-clamp-1" } },
+      ), { timeout: 4000 });
+    }
+    expect(mockSendSosEmails).toHaveBeenCalled();
+  });
+
   it("does not prompt for location merely by opening Save My Soul", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "prompt", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage />);
@@ -4478,6 +4563,14 @@ describe("OneLocationAgentPage", () => {
 
   it("does not let passive SOS warm-up block an explicit emergency alert", async () => {
     mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    // A successful alert now reaches its email/result completion and refreshes
+    // state. Model the grant the server actually created until it is revoked.
+    const baseState = locationState();
+    const smsGrant = { ...baseState.ownerGrants[0]!, id: "grant_new", shareKind: "sos", expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() };
+    let alertActive = false;
+    mockCreateGrant.mockImplementation(async () => { alertActive = true; return smsGrant; });
+    mockRevokeGrant.mockImplementation(async () => { alertActive = false; return { ...smsGrant, status: "revoked" }; });
+    mockGetState.mockImplementation(async () => ({ ...baseState, ownerGrants: alertActive ? [smsGrant] : [] }));
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     let releasePassive!: (value: { state: "prompt"; precise: null; background: "foreground-only"; locationServicesEnabled: true }) => void;
@@ -5255,7 +5348,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Invite them first").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Location setup pending").length).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
@@ -5368,7 +5461,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Temporary link")).toBeTruthy();
     expect(
       screen.getByText(
-        "Anyone with this link can see your location until it expires.",
+        "Anyone with the link can view.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
@@ -6382,7 +6475,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
     expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(screen.getByText("Invite them first")).toBeTruthy();
+    expect(screen.getByText("Location setup pending")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();

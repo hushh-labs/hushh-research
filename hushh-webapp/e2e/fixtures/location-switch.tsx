@@ -4,6 +4,8 @@ import { Switch } from "../../components/ui/switch";
 import { usePageEnterAnimation } from "../../lib/morphy-ux/hooks/use-page-enter";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { MapPin } from "lucide-react";
+import { LocationHeaderActions, LocationPrimaryShareCard } from "../../components/one-location/redesign/location-hub-summary";
+import { LiveShareStatusCard } from "../../components/one-location/redesign/live-share-status-card";
 import { DurationPresetPicker } from "../../components/one-location/redesign/duration-presets";
 import {
   LOCATION_HEADER_ACTIONS_CLASSNAME,
@@ -19,6 +21,15 @@ function Fixture() {
   const [duration, setDuration] = useState("0.25");
   const ref = useRef<HTMLDivElement>(null);
   usePageEnterAnimation(ref);
+  if (document.body.dataset.compact) return <main className="app-page-shell" data-app-shell-width="agent">
+    <PageHeader title="Location" accent="location" titleRole="agent" actionsInlineMobile
+      actions={<LocationHeaderActions vm={{ locationEnabled: checked, locationAcquiring: false, locationBlocked: false,
+        locationPaused: false, locationAccuracyLimited: false, onShowMyLocation: () => setChecked(true), onHideMyLocation: () => setChecked(false) }} />}
+      className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center" />
+    <LocationPrimaryShareCard onClick={() => { document.body.dataset.shared = "true"; }} />
+    <LiveShareStatusCard status={{ count: 1, grantCount: 1, names: ["Asha"], startedAt: new Date().toISOString(), endsAt: null, stoppableGrantId: "sms-grant", singleGrantIsSms: true }}
+      onManage={() => {}} onStop={() => { document.body.dataset.stopped = "true"; }} />
+  </main>;
   return (
     <main
       ref={ref}

@@ -127,10 +127,25 @@ textarea {
   --app-input-radius: var(--app-radius-lg);
 }
 
+/* This nested element owns page scrolling. Body/native bounce settings do not
+   suppress its local elastic edge affordance in the web view. Keep ordinary
+   scrolling and nested sheet/map gestures while bounding every route mode. */
+[data-app-scroll-root="true"] {
+  overscroll-behavior-y: none;
+}
+
+/* Inline Circle chat uses the page scroller. Native resize:none leaves the
+   layout viewport behind the keyboard: bound the actual scroll viewport rather
+   than inserting a keyboard-sized blank element between chat and members.
+   Docked Messages owns its keyboard geometry separately. */
+html.native-keyboard-inset.kb-open
+  [data-app-scroll-root="true"]:has([data-circle-chat-inline="true"]) {
+  max-height: calc(100dvh - var(--kb-height, 0px));
+}
+
 [data-app-scroll-root="true"][data-app-scroll-mode="hidden-shell"] {
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 

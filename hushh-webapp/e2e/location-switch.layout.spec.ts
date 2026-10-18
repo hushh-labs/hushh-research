@@ -126,6 +126,37 @@ async function expectContainedDuringEnter(page: Page) {
 }
 
 for (const width of [320, 393, 430, 1440]) {
+  test(`compact Location header and text-aligned share action at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const toggle = page.getByRole("switch");
+    await expect(toggle).toHaveCSS("width", "36px");
+    await expect(toggle).toHaveCSS("height", "20px");
+    const status = page.getByTestId("one-location-header-status");
+    const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
+    expect(geometry.size).toBeLessThanOrEqual(12);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+    expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
+    await status.click();
+    await expect(toggle).toBeChecked();
+    await toggle.press("Space");
+    await expect(toggle).not.toBeChecked();
+    const share = page.getByRole("button", { name: "Share location", exact: true });
+    const caption = page.getByText("Choose a Circle or contact.", { exact: true });
+    if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);
+    await share.click();
+    await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
+    const stop = page.getByRole("button", { name: "Stop SMS", exact: true });
+    await expect(stop).toHaveCSS("color", "rgb(255, 59, 48)");
+    await stop.hover();
+    await expect(stop).toHaveCSS("color", "rgb(255, 59, 48)");
+    await stop.click();
+    await expect(page.locator("body")).toHaveAttribute("data-stopped", "true");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`compact-location-${width}.png`), animations: "disabled" });
+  });
+
   for (const dark of [false, true]) {
     test(`Location controls at ${width}px ${dark ? "dark" : "light"}`, async ({
       page,

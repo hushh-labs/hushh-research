@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Check, CheckCheck, ChevronDown, Quote, Pencil, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
+import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
@@ -58,11 +60,15 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   const [busy, setBusy] = useState(false);
   const [reactionError, setReactionError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const longPress = useLongPress(!confirmed || !visible || layoutBlocked);
   const selecting = useRef(false);
   const saving = useRef(false);
   const deleted = confirmed && Boolean(message.deletedForEveryoneAt);
   const current = useRef(message); current.current = message;
-  useEffect(() => { if (!visible || layoutBlocked || deleted) setMenuOpen(false); }, [visible, layoutBlocked, deleted]);
+  useEffect(() => {
+    if (!visible || layoutBlocked || deleted) { setMenuOpen(false); setPickerOpen(false); }
+  }, [visible, layoutBlocked, deleted]);
   useEffect(() => setReactions(message.reactions ?? []), [message.reactions]);
 
   const react = async (emoji: string) => {
@@ -92,7 +98,15 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
       {!own ? <div className={styles.avatar}>{!grouped ? <ConnectionPersonAvatar size="comfortable" className="!size-8" label={message.senderName} photoUrl={message.senderPhotoUrl} /> : null}</div> : null}
       <div className={styles.stack}>
         <div className={styles.bubbleWrap}>
-          <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}>
+          <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}
+            data-chat-bubble="true"
+            onPointerDown={(event) => longPress.start(event, () => setMenuOpen(true))}
+            onPointerMove={longPress.move} onPointerUp={longPress.cancel}
+            onPointerCancel={longPress.cancel} onPointerLeave={longPress.cancel}
+            onContextMenu={(event) => {
+              if (!confirmed || !visible || layoutBlocked) return;
+              event.preventDefault(); longPress.cancel(); setMenuOpen(true);
+            }}>
             {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{message.senderName}</bdi></p> : null}
             {deleted ? <p className={styles.failed}>This message was deleted.</p> : message.failed ? <p className={styles.failed}>This message could not be opened on this device.</p> : <>
               {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyTarget.senderName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
@@ -106,11 +120,12 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <div className={styles.meta}>
               {confirmed && message.editedAt && !deleted ? <span>Edited</span> : null}
               <time dateTime={message.createdAt} title={time.toLocaleString()}>{time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>
-              {own ? confirmed ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-4" /> : <Check aria-hidden="true" className="size-4" />}</span>
+              {own ? confirmed ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-3" /> : <Check aria-hidden="true" className="size-3" />}</span>
                 : <span role="status">{message.delivery === "sending" ? "Sending…" : "Delivery unconfirmed"}</span> : null}
             </div>
           </div>
           {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked}
+            open={pickerOpen} onOpenChange={setPickerOpen}
             triggerClassName={styles.addReaction}
             dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
           {confirmed && onAction ? <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -119,6 +134,10 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             </ShellActionSurface></DropdownMenuTrigger>
             <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none"
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
+              {!deleted ? <>
+                <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
+                <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
+              </> : null}
               {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><Quote aria-hidden="true" />Reply</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
               <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 aria-hidden="true" />Delete for me</DropdownMenuItem>

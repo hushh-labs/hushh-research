@@ -58,6 +58,37 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+test("phone Circle actions open on hold and the keyboard adds no gap before members", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await mount(page, false, true);
+  await expect(page.getByText("Only circle members can read these messages.", { exact: true })).toHaveCount(0);
+  const message = page.locator('[data-chat-message="hello"]');
+  const options = message.getByRole("button", { name: "Message options" });
+  await expect(options.locator("..")).toHaveCSS("opacity", "0");
+  const bubble = message.locator("[data-chat-bubble]");
+  await bubble.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
+  await bubble.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+  await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
+  await expect(message.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await bubble.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
+  await bubble.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+  await page.getByRole("menuitem", { name: "More reactions…", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Emoji picker" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Emoji picker" })).not.toBeVisible();
+  for (const inset of [0, 300]) {
+    await page.evaluate((inset) => { document.documentElement.style.setProperty("--kb-height", `${inset}px`); document.documentElement.classList.toggle("kb-open", inset > 0); }, inset);
+    const gap = await page.getByRole("button", { name: "View circle members" }).evaluate((node) => node.getBoundingClientRect().top - document.querySelector("[data-one-chat-surface]")!.getBoundingClientRect().bottom);
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(16);
+  }
+});
+
 for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   await mount(page, width === 393, true);
@@ -68,9 +99,10 @@ for (const width of [320, 393, 768, 1440]) test(`short circle messages keep time
   const geometry = await row.evaluate(element => {
     const text = [...element.querySelectorAll("p")].find(node => node.textContent === "Hi 🙂")!.getBoundingClientRect();
     const time = [...element.querySelectorAll("time")].at(-1)!.getBoundingClientRect();
-    return { textBottom: text.bottom, timeTop: time.top };
+    return { textBottom: text.bottom, timeTop: time.top, timeSize: parseFloat(getComputedStyle([...element.querySelectorAll("time")].at(-1)!).fontSize) };
   });
   expect(geometry.timeTop).toBeLessThan(geometry.textBottom);
+  expect(geometry.timeSize).toBeLessThanOrEqual(11);
   await page.screenshot({ path: test.info().outputPath(`inline-circle-time-${width}.png`), animations: "disabled" });
 });
 
@@ -243,8 +275,13 @@ for (const width of [320, 393, 1440]) {
         return { topGap: Math.abs(action.top - bubble.top), beside: action.right <= bubble.left || action.left >= bubble.right,
           left: action.left, right: action.right };
       });
-      expect(alignment.topGap).toBeLessThanOrEqual(1);
-      expect(alignment.beside).toBe(true);
+      if (width >= 768) {
+        expect(alignment.topGap).toBeLessThanOrEqual(1);
+        expect(alignment.beside).toBe(true);
+      } else {
+        await expect(trigger).toHaveCSS("opacity", "0");
+        await expect(trigger).toHaveCSS("pointer-events", "none");
+      }
       expect(alignment.left).toBeGreaterThanOrEqual(0);
       expect(alignment.right).toBeLessThanOrEqual(width);
       const menu = message.getByRole("button", { name: "Message options" });
@@ -254,7 +291,7 @@ for (const width of [320, 393, 1440]) {
       expect(Math.abs(menuBox!.y - hitArea!.y)).toBeLessThanOrEqual(1);
       expect(menuBox!.x).toBeGreaterThanOrEqual(0);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       const picker = page.getByRole("dialog", { name: "Emoji picker" });
       await expect(picker).toBeVisible();
       await picker.getByRole("tab", { name: "Flags", exact: true }).click();
@@ -276,10 +313,10 @@ for (const width of [320, 393, 1440]) {
       if (id === "reply") await page.screenshot({ path: test.info().outputPath(`circle-reactions-${width}.png`) });
       await badge.click();
       await expect(badge).toHaveCount(0);
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(picker).not.toBeVisible();
-      await trigger.click();
+      await trigger.focus(); await page.keyboard.press("Enter");
       await expect(picker).toBeVisible();
       // The picker can cover either header or composer; its collision gutter is outside it.
       await page.locator("body").click({ position: { x: 1, y: 1 } });
@@ -353,12 +390,12 @@ test("Circle smiley supports keyboard selection and reaction failure recovery", 
   const badge = message.getByRole("button", { name: "🇮🇳, 1 reactions, you reacted" });
   await expect(badge).toHaveCount(0);
   await expect(message.getByRole("alert")).toContainText("Reaction could not be saved. Try again.");
-  await trigger.click();
+  await trigger.focus(); await page.keyboard.press("Enter");
   await picker.getByPlaceholder("Search emoji").fill("🇮🇳");
   await picker.getByRole("button", { name: "Use 🇮🇳", exact: true }).click();
   await expect(badge).toBeVisible();
   await expect(message.getByRole("alert")).toHaveCount(0);
-  await trigger.click();
+  await trigger.focus(); await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   await expect(picker).not.toBeVisible();
   await expect(trigger).toBeFocused();

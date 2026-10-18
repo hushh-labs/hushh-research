@@ -33,7 +33,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
   it("keeps Location header status on the shared readiness formatter", () => {
     const source = readSource(
-      "components/one-location/redesign/location-redesign-hub.tsx",
+      "components/one-location/redesign/location-hub-summary.tsx",
     );
 
     expect(source).toContain('return "Finding you\\u2026";');
@@ -91,7 +91,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain('label.replace(/^Stops in\\b/i, "Expires in")');
     expect(source).toContain(
-      "Anyone with this link can see your location until it expires.",
+      "Anyone with the link can view.",
     );
     expect(source).toContain("Anyone with this link can see your location.");
     expect(cardSource).toContain("Revoke link");

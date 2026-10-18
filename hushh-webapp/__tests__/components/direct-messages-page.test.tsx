@@ -802,7 +802,7 @@ describe("DirectMessagesPage", () => {
     expect(timestamp?.parentElement?.parentElement).toContainElement(screen.getByLabelText("Sent"));
   });
 
-  it("exposes message reactions and replies after a bubble is tapped", async () => {
+  it("opens reactions and replies on a stationary long press, not a tap or scroll", async () => {
     const message = {
       id: "message-1",
       conversationId: "conversation-1",
@@ -821,10 +821,24 @@ describe("DirectMessagesPage", () => {
     });
 
     renderConnectionThread();
-    fireEvent.click(await screen.findByText("Hello Ankit"));
-
-    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
-    fireEvent.click(screen.getByRole("button", { name: "React ❤️" }));
+    const bubble = await screen.findByText("Hello Ankit");
+    const pointer = (type: string, x = 20) => fireEvent(bubble, Object.assign(new Event(type, { bubbles: true }), { pointerType: "touch", button: 0, clientX: x, clientY: 20 }));
+    vi.useFakeTimers();
+    try {
+      pointer("pointerdown"); pointer("pointerup");
+      act(() => vi.advanceTimersByTime(1_100));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      pointer("pointerdown"); pointer("pointermove", 40);
+      act(() => vi.advanceTimersByTime(1_100));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      pointer("pointerdown");
+      act(() => vi.advanceTimersByTime(999));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      pointer("pointerup");
+    } finally { vi.useRealTimers(); }
+    fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
         idToken: "test-token",

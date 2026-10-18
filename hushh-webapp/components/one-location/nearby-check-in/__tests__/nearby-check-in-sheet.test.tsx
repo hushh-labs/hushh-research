@@ -2643,6 +2643,7 @@ describe("NearbyCheckInSheet", () => {
 
       await screen.findByTestId("nearby-presence-active");
       const checkOut = screen.getByRole("button", { name: "I'm leaving" });
+      expect(checkOut.closest('[data-ui-role="flow-actions"]')).toHaveClass("mx-auto", "max-w-[244px]");
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");

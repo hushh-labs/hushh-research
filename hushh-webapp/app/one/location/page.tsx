@@ -191,7 +191,6 @@ import {
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
   decryptLocationEnvelope,
   encryptLocationForRecipient,
-  ensureLocationRecipientKey,
   ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
@@ -1546,15 +1545,6 @@ export function oneLocationFailureClass(error: unknown): string {
 function isRetryableForegroundError(error: unknown): boolean {
   const failureClass = oneLocationFailureClass(error);
   return failureClass === "one_api_unavailable" || failureClass === "network";
-}
-
-/** "Parth", "Parth and Aarav", "Parth, Aarav and 2 others". */
-function formatNameList(names: string[]): string {
-  const cleaned = names.map((name) => name.trim()).filter(Boolean);
-  if (cleaned.length === 0) return "someone";
-  if (cleaned.length === 1) return cleaned[0]!;
-  if (cleaned.length === 2) return `${cleaned[0]} and ${cleaned[1]}`;
-  return `${cleaned[0]}, ${cleaned[1]} and ${cleaned.length - 2} others`;
 }
 
 async function runOneLocationForegroundAttempt<T>(params: {
@@ -3216,6 +3206,7 @@ export function OneLocationAgentPageContent({
   const foregroundReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
+  const [recipientDirectoryRevision, setRecipientDirectoryRevision] = useState(0);
   // Kept separate from connectionGraphRevision: Circle lifecycle events must
   // re-read an open roster/picker, but must not also restart every paged
   // recipient-directory query that depends on the connection graph.
@@ -3281,6 +3272,38 @@ export function OneLocationAgentPageContent({
     [state?.recipients],
   );
 
+  // Both pickers project the same latest account snapshot without discarding
+  // selected people outside the bounded workspace page. Never join by name.
+  const commitRecipientSnapshots = useCallback((rows: OneLocationRecipient[], isCurrent: () => boolean = () => true) => {
+    const latest = new Map(rows.map((row) => [row.userId, row]));
+    setPagedRecipientsByUserId((current) => {
+      if (!isCurrent()) return current;
+      const next = new Map(current);
+      for (const row of rows) next.set(row.userId, row);
+      return next;
+    });
+    const reconcile = (current: OneLocationRecipient[] | null) => isCurrent()
+      ? current?.map((row) => latest.get(row.userId) ?? row) ?? null
+      : current;
+    setRecipientPageRows(reconcile);
+    setShareRecipientPageRows(reconcile);
+  }, []);
+  const recipientAuthoritySignature = useMemo(() => JSON.stringify([auth.userId, recipients.map((row) => [
+    row.userId, row.displayName, row.photoUrl, row.publicPersonRef, row.keyId,
+    row.publicKeyJwk, row.keyAlgorithm, row.keyRegisteredAt, row.canReceiveLocation,
+    row.connectedFromContacts, row.isRia,
+  ])]), [auth.userId, recipients]);
+  const recipientAuthoritySignatureRef = useRef(recipientAuthoritySignature);
+  recipientAuthoritySignatureRef.current = recipientAuthoritySignature;
+  const appliedRecipientSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (appliedRecipientSignatureRef.current === recipientAuthoritySignature) return;
+    appliedRecipientSignatureRef.current = recipientAuthoritySignature;
+    recipientPageRequestRef.current += 1;
+    shareRecipientPageRequestRef.current += 1;
+    commitRecipientSnapshots(recipients, () => recipientAuthoritySignature === recipientAuthoritySignatureRef.current);
+  }, [commitRecipientSnapshots, recipientAuthoritySignature, recipients]);
+
   const loadRecipientPage = useCallback(
     async ({
       page = 1,
@@ -3304,18 +3327,16 @@ export function OneLocationAgentPageContent({
             limit: 50,
             query: query.trim() || undefined,
           });
-        if (requestId !== recipientPageRequestRef.current) return;
+        const isCurrent = () => requestId === recipientPageRequestRef.current && recipientAuthoritySignature === recipientAuthoritySignatureRef.current;
+        if (!isCurrent()) return;
         setRecipientPageRows((current) => {
+          if (!isCurrent()) return current;
           if (!append || !current) return result.items;
           const byUserId = new Map(current.map((row) => [row.userId, row]));
           for (const row of result.items) byUserId.set(row.userId, row);
           return [...byUserId.values()];
         });
-        setPagedRecipientsByUserId((current) => {
-          const next = new Map(current);
-          for (const row of result.items) next.set(row.userId, row);
-          return next;
-        });
+        commitRecipientSnapshots(result.items, isCurrent);
         setRecipientPage(result.page);
         setRecipientPageHasMore(result.hasMore);
         setRecipientPageTotalCount(result.totalCount);
@@ -3329,7 +3350,7 @@ export function OneLocationAgentPageContent({
         }
       }
     },
-    [recipientSearch, vaultOwnerToken],
+    [commitRecipientSnapshots, recipientAuthoritySignature, recipientSearch, vaultOwnerToken],
   );
 
   const reloadRecipientAuthority = useCallback(async (
@@ -3370,6 +3391,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     connectionGraphRevision,
+    recipientDirectoryRevision,
     loadRecipientPage,
     recipientSearch,
     vaultOwnerToken,
@@ -3389,13 +3411,10 @@ export function OneLocationAgentPageContent({
         query: shareRecipientSearch.trim() || undefined,
       })
         .then((result) => {
-          if (requestId !== shareRecipientPageRequestRef.current) return;
-          setShareRecipientPageRows(result.items);
-          setPagedRecipientsByUserId((current) => {
-            const next = new Map(current);
-            for (const row of result.items) next.set(row.userId, row);
-            return next;
-          });
+          const isCurrent = () => requestId === shareRecipientPageRequestRef.current && recipientAuthoritySignature === recipientAuthoritySignatureRef.current;
+          if (!isCurrent()) return;
+          setShareRecipientPageRows((current) => isCurrent() ? result.items : current);
+          commitRecipientSnapshots(result.items, isCurrent);
         })
         .catch(() => undefined);
     }, 250);
@@ -3403,7 +3422,7 @@ export function OneLocationAgentPageContent({
       window.clearTimeout(timer);
       shareRecipientPageRequestRef.current += 1;
     };
-  }, [connectionGraphRevision, shareRecipientSearch, vaultOwnerToken]);
+  }, [commitRecipientSnapshots, connectionGraphRevision, recipientAuthoritySignature, recipientDirectoryRevision, shareRecipientSearch, vaultOwnerToken]);
   const autoApprovePreference = useMemo(
     () =>
       state?.autoApprovePreference ?? {
@@ -4270,12 +4289,11 @@ export function OneLocationAgentPageContent({
                 );
               },
             );
-            const key = await ensureLocationRecipientKey(activeUserId);
-            await OneLocationService.registerRecipientKey({
+            await bootstrapCurrentUserLocationRecipientKey({
+              userId: activeUserId,
               vaultOwnerToken: activeVaultOwnerToken,
-              keyId: key.keyId,
-              publicKeyJwk: key.publicKeyJwk,
-              algorithm: key.algorithm,
+              vaultKey,
+              strictRecovery: true,
             });
             workspaceBootstrapUserRef.current = activeUserId;
           }
@@ -4374,6 +4392,7 @@ export function OneLocationAgentPageContent({
       contactMatchedUserIds,
       setSelectedShareCircleSelections,
       stateEntry?.userId,
+      vaultKey,
       vaultOwnerToken,
     ],
   );
@@ -4456,6 +4475,11 @@ export function OneLocationAgentPageContent({
         if (oneLocationStateRefreshRevisionRef.current !== revision) return;
         await refresh({ background: true });
         if (oneLocationStateRefreshRevisionRef.current !== revision) return;
+        if (detail.domains.includes("workspace")) {
+          recipientPageRequestRef.current += 1;
+          shareRecipientPageRequestRef.current += 1;
+          setRecipientDirectoryRevision((current) => current + 1);
+        }
         if (shouldRefreshSmsRoster) await refreshSmsRoster();
       })().catch(() => undefined);
     });
@@ -6060,17 +6084,6 @@ export function OneLocationAgentPageContent({
         });
         if (sosOwnerRef.current !== owner) return;
 
-        // Only worth saying when it changes what the sender should do next:
-        // "nobody's phone lit up" reads very differently if two inboxes got it.
-        // And a contact with no address is named rather than skipped in
-        // silence — "Emailed 0" with no reason is what made a broken email
-        // channel look like a working one.
-        const mailNote =
-          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
-          (mail.withoutEmail.length > 0
-            ? ` No mail on file for ${formatNameList(mail.withoutEmail)}.`
-            : "");
-
         // Emitted after the email fallback so it reports the alert's real
         // outcome rather than the push channel's. An SOS where every push
         // failed but two inboxes received it is not an alert that reached
@@ -6088,11 +6101,13 @@ export function OneLocationAgentPageContent({
           toast.error("The alert could not be sent. Call for help directly.");
         } else if (shared < totalSelected || unreachable.length > 0) {
           toast.warning(
-            `Shared ${shared}/${totalSelected}. Push requests: ${reached}.${mailNote}`,
+            "Some contacts may miss this alert.",
+            { classNames: { title: "!line-clamp-1" } },
           );
         } else {
           toast.success(
-            `Shared with ${shared}. Push requests: ${reached}.${mailNote}`,
+            reached > 0 || mail.emailed > 0 ? "SMS alert sent." : "SMS location shared.",
+            { classNames: { title: "!line-clamp-1" } },
           );
         }
         void refresh().catch(() => null);
@@ -8270,13 +8285,11 @@ export function OneLocationAgentPageContent({
         if (!currentCommand()) return failedResult;
         await (async () => {
           try {
-            const key = await ensureLocationRecipientKey(activeUserId);
-            if (!currentCommand()) return;
-            await OneLocationService.registerRecipientKey({
+            await bootstrapCurrentUserLocationRecipientKey({
+              userId: activeUserId,
               vaultOwnerToken: activeVaultOwnerToken,
-              keyId: key.keyId,
-              publicKeyJwk: key.publicKeyJwk,
-              algorithm: key.algorithm,
+              vaultKey,
+              strictRecovery: true,
             });
           } catch (error) {
             if (!currentCommand()) return;
@@ -8374,6 +8387,7 @@ export function OneLocationAgentPageContent({
       scheduleOneLocationStateRefresh,
       selectedRequestOwnerIds,
       selectedRequestOwners,
+      vaultKey,
       vaultOwnerToken,
     ],
   );
@@ -14081,6 +14095,11 @@ export function OneLocationAgentPageContent({
               if (owner) OneLocationStateResource.invalidate(owner);
             }
             await refresh({ background: true });
+            if (owner && shareAudienceOwnerUserIdRef.current === owner) {
+              recipientPageRequestRef.current += 1;
+              shareRecipientPageRequestRef.current += 1;
+              setRecipientDirectoryRevision((current) => current + 1);
+            }
             await refreshSmsRoster();
           };
           await Promise.allSettled([
