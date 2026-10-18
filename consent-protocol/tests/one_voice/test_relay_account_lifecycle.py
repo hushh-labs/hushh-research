@@ -113,7 +113,21 @@ def _events(fake: FakeLive) -> list[dict]:
 async def _card(transport, fake, pending):
     session = _session(transport, fake, pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+
+    async def wait_for_card():
+        while not transport.frames("pending_action"):
+            if task.done():
+                await task
+                pytest.fail("Voice session ended before pending_action")
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_for_card(), timeout=3)
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+
     card = transport.frames("pending_action")[-1]
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
     await asyncio.sleep(0.05)
