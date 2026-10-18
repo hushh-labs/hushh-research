@@ -1006,7 +1006,7 @@ async def test_collection_bootstrap_captures_token_and_replays_new_files(collect
     assert status["initialCompletedAt"] is None
     with collection.db.engine.connect() as conn:
         stored = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
-        assert "end" not in str(stored["checkpoint_envelope"])
+        assert set(stored["checkpoint_envelope"]) == {"version", "iv", "ciphertext"}
         assert collection.checkpoint(dict(stored))["changes_token"] == "end"
 
 
