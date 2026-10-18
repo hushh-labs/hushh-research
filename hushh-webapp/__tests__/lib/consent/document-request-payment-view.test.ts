@@ -112,6 +112,59 @@ describe("presentRequesterPayment", () => {
   });
 });
 
+// 2026-10-18: an autoshare requester read "You pay only if files are found"
+// while their order waited for its link. Autoshare asks for payment at Allow
+// and refunds what is not sent, so its copy says that, and only that.
+describe("presentRequesterPayment for an autoshare request", () => {
+  const refund = (status: "queued" | "pending" | "manual_review" | "succeeded", amountCents: number) =>
+    ({ status, amountCents });
+  it.each([
+    [{ state: "preparing" as const, nextAction: "wait_owner" as const, checkoutPending: true },
+      "Getting your payment ready", "If nothing matches, you get a full refund.", null, "withdraw"],
+    [{ state: "preparing" as const, nextAction: "wait_owner" as const },
+      "No payment due yet", "You pay before files are sent. If nothing matches, you get a full refund.", null, "withdraw"],
+    [{}, "Payment due", "Files start arriving right after you pay. If nothing matches, you get a full refund.", "29m left", "pay"],
+    [{ state: "paid" as const, nextAction: "none" as const }, "Paid $25", null, null, null],
+    [{ state: "refund_pending" as const, nextAction: "none" as const, refund: refund("queued", 2500) },
+      "Refund of $25 pending", "No files were sent.", null, null],
+    [{ state: "refund_pending" as const, nextAction: "none" as const, refund: refund("pending", 833) },
+      "Refund of $8.33 pending", "For files not sent.", null, null],
+    [{ state: "refund_pending" as const, nextAction: "none" as const, refund: refund("manual_review", 833) },
+      "Refund of $8.33 pending", "This is taking longer than usual.", null, null],
+    [{ state: "refund_pending" as const, nextAction: "none" as const, withdrawn: true, refund: refund("queued", 2500) },
+      "Payment received after you withdrew", "Refund of $25 pending", null, null],
+    [{ state: "refunded" as const, nextAction: "none" as const, refund: refund("succeeded", 2500) },
+      "Refunded $25", "No files were sent.", null, null],
+    [{ state: "partially_refunded" as const, nextAction: "none" as const, refund: refund("succeeded", 833) },
+      "Paid $25", "$8.33 refunded for files not sent.", null, null],
+    [{ state: "awaiting_owner" as const, nextAction: "wait_owner" as const },
+      "Waiting for owner setup", "You can pay once they finish setup.", null, "withdraw"],
+    [{ state: "link_expired" as const, nextAction: "new_request" as const },
+      "Payment link expired", "Ask the owner again from their profile.", null, "new_request"],
+    [{ state: "closed" as const, nextAction: "none" as const }, "Request closed", "Nothing to pay.", null, null],
+  ])("presents %o", (overrides, title, line, remaining, action) => {
+    expect(presentRequesterPayment(view({ autoshare: true, ...overrides }), NOW))
+      .toEqual({ title, line, remaining, action });
+  });
+
+  it("gives a refund reason only beside a refund the server reports", () => {
+    for (const state of ["paid", "partially_refunded", "refunded", "refund_pending"] as const) {
+      const shown = presentRequesterPayment(view({ autoshare: true, state, nextAction: "none", refund: null }), NOW);
+      expect(shown.line ?? "").not.toMatch(/sent|refunded/);
+    }
+  });
+
+  it("keeps an older request's copy, even beside a stray pending link (negative control)", () => {
+    expect(presentRequesterPayment(view({ state: "preparing", nextAction: "wait_owner", checkoutPending: true }), NOW))
+      .toEqual({ title: "No payment due yet", line: "You pay only if files are found.", remaining: null, action: "withdraw" });
+    expect(presentRequesterPayment(view(), NOW).line).toBe("Sharing starts after payment.");
+    expect(presentRequesterPayment(view({ state: "refunded", nextAction: "none", refund: refund("succeeded", 2500) }), NOW).line)
+      .toBeNull();
+    expect(presentRequesterPayment(view({ state: "partially_refunded", nextAction: "none", refund: refund("succeeded", 833) }), NOW).line)
+      .toBe("$8.33 refunded");
+  });
+});
+
 describe("parseRequesterPaymentView", () => {
   const wire = {
     state: "payable",
@@ -132,6 +185,17 @@ describe("parseRequesterPaymentView", () => {
     expect(parseRequesterPaymentView(legacy)?.withdrawn).toBe(false);
   });
 
+  it("keeps the autoshare marker, and a pending link only while preparing", () => {
+    expect(parseRequesterPaymentView({ ...wire, autoshare: true })).toEqual({ ...wire, autoshare: true });
+    const preparing = { ...wire, state: "preparing", nextAction: "wait_owner", checkoutExpiresAt: null };
+    expect(parseRequesterPaymentView({ ...preparing, autoshare: true, checkoutPending: true }))
+      .toMatchObject({ autoshare: true, checkoutPending: true });
+    // Without the flow, or outside preparing, a pending link means nothing.
+    expect(parseRequesterPaymentView({ ...preparing, checkoutPending: true })).not.toHaveProperty("checkoutPending");
+    expect(parseRequesterPaymentView({ ...wire, autoshare: true, checkoutPending: true })).not.toHaveProperty("checkoutPending");
+    expect(parseRequesterPaymentView({ ...wire, autoshare: false })).not.toHaveProperty("autoshare");
+  });
+
   it.each([
     ["unknown state", { state: "deposited" }],
     ["sub-cent price", { amountCents: 2550.5 }],
@@ -141,6 +205,8 @@ describe("parseRequesterPaymentView", () => {
     ["other currency", { currency: "eur" }],
     ["unknown refund status", { refund: { status: "refunded", amountCents: 100 } }],
     ["oversized refund", { refund: { status: "pending", amountCents: 60_000 } }],
+    ["unreadable autoshare marker", { autoshare: "yes" }],
+    ["unreadable pending link", { checkoutPending: 1 }],
   ])("fails closed on %s", (_label, change) => {
     expect(parseRequesterPaymentView({ ...wire, ...change })).toBeNull();
   });

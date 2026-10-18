@@ -72,6 +72,22 @@ def bulk(lifecycle, monkeypatch):
         connection.execute(
             text("ALTER TABLE drive_bulk_share_files ADD COLUMN origin_request_id UUID")
         )
+        # The grant queue skips a request that still awaits payment. Mirror only
+        # the request and order columns due() reads (migrations 232, 262, 287,
+        # 298 and 356); this fixture's shares have no such request.
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_share_requests (
+            request_id UUID PRIMARY KEY, status TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            payment_required BOOLEAN NOT NULL DEFAULT FALSE,
+            access_stop_requested_at TIMESTAMPTZ, access_expires_at TIMESTAMPTZ)""")
+        )
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_request_payment_orders (
+            request_id UUID PRIMARY KEY, status TEXT NOT NULL, paid_at TIMESTAMPTZ,
+            reconciliation_required BOOLEAN NOT NULL DEFAULT FALSE,
+            stripe_mode TEXT NOT NULL)""")
+        )
         # Migration 287's per-file removal ledger: the recipient's file lists
         # hide removed files. Mirror only the columns that check reads.
         connection.execute(

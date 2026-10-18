@@ -39,6 +39,14 @@ export type RequesterPaymentView = {
   /** Marked agent packets require their sealed buyer disclosure before Pay. */
   packageDisclosureRequired?: boolean;
   packageDisclosure?: DrivePackageDisclosure | null;
+  /**
+   * Autoshare: payment is asked when the owner allows, before files are found;
+   * files stream after payment and what is not sent is refunded. Absent on
+   * older requests, which keep their own copy.
+   */
+  autoshare?: boolean;
+  /** Autoshare, "preparing" only: the order exists and its payment link is being made. */
+  checkoutPending?: boolean;
 };
 
 export type RequesterPriceState = "estimate" | "owner_set" | "final" | "awaiting_owner";
@@ -148,6 +156,9 @@ export function parseRequesterPaymentView(value: unknown): RequesterPaymentView 
   }
   if (raw.withdrawn !== undefined && typeof raw.withdrawn !== "boolean") return null;
   if (raw.packageDisclosureRequired !== undefined && typeof raw.packageDisclosureRequired !== "boolean") return null;
+  if (raw.autoshare !== undefined && typeof raw.autoshare !== "boolean") return null;
+  if (raw.checkoutPending !== undefined && typeof raw.checkoutPending !== "boolean") return null;
+  const autoshare = raw.autoshare === true;
   return {
     state,
     amountCents,
@@ -159,6 +170,8 @@ export function parseRequesterPaymentView(value: unknown): RequesterPaymentView 
     withdrawn: raw.withdrawn === true,
     ...(raw.packageDisclosureRequired === undefined ? {} : { packageDisclosureRequired: raw.packageDisclosureRequired as boolean }),
     ...(raw.packageDisclosure === undefined ? {} : { packageDisclosure: parseDrivePackageDisclosure(raw.packageDisclosure) }),
+    ...(autoshare ? { autoshare: true } : {}),
+    ...(autoshare && state === "preparing" && raw.checkoutPending === true ? { checkoutPending: true } : {}),
   };
 }
 
@@ -241,6 +254,9 @@ export function requesterPaymentTickMs(view: RequesterPaymentView): number | nul
   return OPEN_STATES.has(view.state) && instant(view.requestExpiresAt) !== null ? 30_000 : null;
 }
 
+/** Autoshare asks for payment before files are found; the server refunds what is not sent. */
+const AUTOSHARE_REFUND_LINE = "If nothing matches, you get a full refund.";
+
 export function presentRequesterPayment(
   view: RequesterPaymentView,
   now: number,
@@ -255,18 +271,30 @@ export function presentRequesterPayment(
     action: RequesterPaymentPresentation["action"] = null,
     remaining: string | null = null,
   ): RequesterPaymentPresentation => ({ title, line, remaining, action });
+  const autoshare = view.autoshare === true;
+  // Autoshare settles by delivery: a full refund means no file was sent, a
+  // smaller one is for the files that were not. Only the server's refund counts.
+  const refundReason = !autoshare || !view.refund || view.amountCents === null
+    ? null
+    : view.refund.amountCents < view.amountCents
+      ? "For files not sent."
+      : "No files were sent.";
   switch (state) {
     case "none":
       return present("");
     case "awaiting_owner":
       return present(REQUESTER_PAYMENT_TITLES.awaitingOwner, "You can pay once they finish setup.", "withdraw");
     case "preparing":
+      if (autoshare)
+        return view.checkoutPending === true
+          ? present("Getting your payment ready", AUTOSHARE_REFUND_LINE, "withdraw")
+          : present("No payment due yet", `You pay before files are sent. ${AUTOSHARE_REFUND_LINE}`, "withdraw");
       return present("No payment due yet", "You pay only if files are found.", "withdraw");
     case "payable": {
       const deadline = instant(view.checkoutExpiresAt) as number;
       return present(
         "Payment due",
-        "Sharing starts after payment.",
+        autoshare ? `Files start arriving right after you pay. ${AUTOSHARE_REFUND_LINE}` : "Sharing starts after payment.",
         "pay",
         formatPaymentRemaining(deadline - now),
       );
@@ -281,12 +309,13 @@ export function presentRequesterPayment(
       const pending = refund ? `Refund of ${refund} pending` : "Refund pending";
       if (view.withdrawn) return present("Payment received after you withdrew", pending);
       const slow = view.refund?.status === "manual_review" || view.refund?.status === "failed";
-      return present(pending, slow ? "This is taking longer than usual." : price ? `Paid ${price}` : null);
+      return present(pending, slow ? "This is taking longer than usual." : refundReason ?? (price ? `Paid ${price}` : null));
     }
     case "refunded":
-      return present(refund ? `Refunded ${refund}` : "Refunded");
+      return present(refund ? `Refunded ${refund}` : "Refunded", refundReason);
     case "partially_refunded":
-      return present(price ? `Paid ${price}` : "Paid", refund ? `${refund} refunded` : null);
+      return present(price ? `Paid ${price}` : "Paid",
+        refund ? autoshare ? `${refund} refunded for files not sent.` : `${refund} refunded` : null);
     case "closed":
       return view.withdrawn ? present("Request withdrawn") : present("Request closed", "Nothing to pay.");
   }
