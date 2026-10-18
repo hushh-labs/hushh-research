@@ -8,6 +8,9 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 // Device keyboards, signed-in routes and push delivery have separate proofs.
 let script: string;
 let css: string;
+async function touchMessageActions(page: Page) {
+  return page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
+}
 async function holdMessage(page: Page, row: Locator) {
   const bubble = row.locator("[data-chat-bubble]");
   // A real hold starts on a stable, uncovered bubble after dialog exit/scroll.
@@ -477,6 +480,7 @@ test("a late send cannot redirect another conversation or erase its draft", asyn
 });
 test("hover actions do not shift messages or the centered composer", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
+  const touchActions = await touchMessageActions(page);
   const bubble = page.locator('[data-message-role="user"]').last();
   const before = await bubble.boundingBox();
   await bubble.hover();
@@ -499,19 +503,28 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
     const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
-    expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
-    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
-    if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
-    else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
+    if (touchActions) {
+      await expect(emoji.locator("..")).toHaveCSS("opacity", "0");
+      for (const button of [emoji, row.getByRole("button", { name: "Message options" })]) {
+        await expect(button).toHaveCSS("pointer-events", "none");
+        const box = (await button.boundingBox())!;
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(1440);
+      }
+    } else {
+      expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
+      if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
+      else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
+    }
   }
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  const touchPointer = await page.evaluate(() => matchMedia("(hover: none)").matches);
-  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS(
-    "opacity",
-    touchPointer ? "1" : "0",
-  );
+  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "0");
   await bubble.getByRole("button", { name: "Message options" }).focus();
+  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "1");
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
   await page.getByRole("button", { name: "Contact info", exact: true }).focus();
@@ -733,7 +746,11 @@ test("refresh reconciles remote edits and deletions throughout loaded history", 
   await fixture(page, "fixture.holdHistory(); fixture.incoming()");
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.historyPending())).toBe(true);
   const own = page.locator('[data-chat-message="maya-79"]');
-  await own.locator("[data-chat-bubble]").click(); await own.getByRole("button", { name: "Message options" }).click();
+  if (await touchMessageActions(page)) await holdMessage(page, own);
+  else {
+    await own.locator("[data-chat-bubble]").click();
+    await own.getByRole("button", { name: "Message options" }).click();
+  }
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   await expect(own).toHaveCount(0);

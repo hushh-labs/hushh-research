@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,6 +58,26 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.bringToFront();
 }
 
+async function touchMessageActions(page: Page) {
+  return page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
+}
+
+async function openMessageOptions(page: Page, message: Locator) {
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  if (await touchMessageActions(page)) {
+    const bubble = message.locator("[data-chat-bubble]");
+    await bubble.click({ trial: true });
+    const box = await bubble.boundingBox();
+    const pointer = { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0,
+      clientX: box!.x + box!.width / 2, clientY: box!.y + box!.height / 2 };
+    await bubble.dispatchEvent("pointerdown", pointer);
+    await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
+    await bubble.dispatchEvent("pointerup", pointer);
+  } else {
+    await message.getByRole("button", { name: "Message options" }).click();
+  }
+}
+
 test("phone Circle actions open on hold and the keyboard adds no gap before members", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, true);
@@ -65,18 +85,11 @@ test("phone Circle actions open on hold and the keyboard adds no gap before memb
   const message = page.locator('[data-chat-message="hello"]');
   const options = message.getByRole("button", { name: "Message options" });
   await expect(options.locator("..")).toHaveCSS("opacity", "0");
-  const bubble = message.locator("[data-chat-bubble]");
-  await bubble.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
-  await expect(page.getByRole("menu")).toBeVisible();
-  await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
-  await bubble.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+  await openMessageOptions(page, message);
   await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
   await expect(message.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeVisible();
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await bubble.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
-  await expect(page.getByRole("menu")).toBeVisible();
-  await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open");
-  await bubble.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+  await openMessageOptions(page, message);
   await page.getByRole("menuitem", { name: "More reactions…", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Emoji picker" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -109,14 +122,14 @@ for (const width of [320, 393, 768, 1440]) test(`short circle messages keep time
 test("Circle message menu offers only actions authorized for that sender", async ({ page }) => {
   await mount(page, false, true);
   const own = page.locator('[data-chat-message="reply"]');
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   for (const name of ["Reply", "Edit", "Delete for me", "Delete for everyone"]) {
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
   }
   await page.screenshot({ path: test.info().outputPath("circle-message-options.png") });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.locator('[data-chat-message="hello"]').getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, page.locator('[data-chat-message="hello"]'));
   await expect(page.getByRole("menuitem", { name: "Reply", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Delete for me", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toHaveCount(0);
@@ -129,7 +142,7 @@ test("Circle reply, edit and both deletion scopes complete without disturbing ad
   await mount(page, false, true);
   const peer = page.locator('[data-chat-message="hello"]');
   const own = page.locator('[data-chat-message="reply"]');
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
   await expect(page.getByLabel("Replying to message")).toContainText("Kushal Trivedi");
@@ -141,24 +154,24 @@ test("Circle reply, edit and both deletion scopes complete without disturbing ad
   await expect(quote).toContainText("Hey everyone!");
   await quote.click();
   await expect(peer).toBeFocused();
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await page.getByRole("textbox", { name: "Edit message text" }).fill("Updated meetup plan");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(own).toContainText("Updated meetup plan");
   await expect(own).toContainText("Edited");
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(peer).toBeVisible();
-  await peer.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, peer);
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await page.getByRole("button", { name: "Delete message", exact: true }).click();
   await expect(peer).toHaveCount(0);
   await expect(quote).toHaveCount(0);
   await expect(page.getByText("Original message unavailable", { exact: true })).toBeVisible();
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Delete message", exact: true }).click();
   await expect(own).toContainText("This message was deleted.");
@@ -172,7 +185,7 @@ test("Circle edit failure keeps the draft and retries the identical sealed chang
   await mount(page, false, true);
   await page.evaluate(() => { (window as unknown as { chatFixture: { failNextMutation: boolean } }).chatFixture.failNextMutation = true; });
   const own = page.locator('[data-chat-message="reply"]');
-  await own.getByRole("button", { name: "Message options" }).click();
+  await openMessageOptions(page, own);
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   const input = page.getByRole("textbox", { name: "Edit message text" });
   await input.fill("   ");
@@ -262,6 +275,7 @@ for (const width of [320, 393, 1440]) {
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width, height: 844 });
     await mount(page, false, true);
+    const touchActions = await touchMessageActions(page);
     for (const id of ["hello", "reply", "photo"]) {
       const message = page.locator(`[data-chat-message="${id}"]`);
       const trigger = message.getByRole("button", { name: "React to message" });
@@ -275,7 +289,7 @@ for (const width of [320, 393, 1440]) {
         return { topGap: Math.abs(action.top - bubble.top), beside: action.right <= bubble.left || action.left >= bubble.right,
           left: action.left, right: action.right };
       });
-      if (width >= 768) {
+      if (!touchActions) {
         expect(alignment.topGap).toBeLessThanOrEqual(1);
         expect(alignment.beside).toBe(true);
       } else {
@@ -285,6 +299,10 @@ for (const width of [320, 393, 1440]) {
       expect(alignment.left).toBeGreaterThanOrEqual(0);
       expect(alignment.right).toBeLessThanOrEqual(width);
       const menu = message.getByRole("button", { name: "Message options" });
+      if (touchActions) {
+        await expect(menu.locator("..")).toHaveCSS("opacity", "0");
+        await expect(menu).toHaveCSS("pointer-events", "none");
+      }
       const menuBox = await menu.boundingBox();
       expect(menuBox!.width).toBeGreaterThanOrEqual(44);
       expect(menuBox!.height).toBeGreaterThanOrEqual(44);
