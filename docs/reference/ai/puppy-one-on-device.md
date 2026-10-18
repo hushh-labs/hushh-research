@@ -56,23 +56,18 @@ vendor. Three things hold it up:
 
 ### What is NOT on-device yet
 
-**The agent hierarchy.** `consent-protocol/hushh_mcp/agents/` holds **19 runtime
-packages** — calendar, connected_systems, connections, email,
-kai, kyc, location, memory_intent, memory_merge, memory_segmentation, nav,
-onboarding, one, orchestrator, personal_information, pkm_structure,
-portfolio_import, realtime_bench, and wallet. Several now use manifest-owned
-ADK paths, but the full hierarchy still does not run end-to-end inside Hermes.
+**The agent hierarchy.** Authored product definitions live in
+`consent-protocol/hushh_mcp/agents/*/agent.yaml`; their generated registries own
+capability discovery. A remote Puppy inference receipt does not prove that the
+full ADK hierarchy executes natively inside Hermes.
 
-Do not describe this as a "five-agent chain". Four of those nineteen runtime
-packages (`memory_segmentation → memory_intent → memory_merge → pkm_structure`;
-the Financial Guard stage was removed on 2026-10-02) are the sub-chain that
-`pkm_agent_lab_service.py:_run_agent_contract` invokes for PKM structuring
-specifically. Calling the sub-chain the system makes a large port look small.
-
-The remaining PKM sub-chain still calls Gemini directly with Gemini-only
-`ThinkingConfig` and `response_schema`. `model_override` swaps the model id, never
-the provider, so moving that sub-chain on-device needs a provider abstraction
-behind `_run_agent_contract` and an OpenAI-compatible structured-output path.
+The PKM graph (`memory_segmentation → memory_intent → memory_merge →
+pkm_structure`) is one bounded subsystem, not the whole private agent.
+`PKMAgentLabService._run_agent_contract` uses the managed-runtime client and,
+for eligible Gemini clients, the shared ADK single-turn operon. The provider
+adapter already exists; changing `model_override` does not establish on-device
+provider support or end-to-end Hermes parity. Qualify those paths separately
+without replacing the existing runtime boundary.
 
 The goal is that this hierarchy runs **natively inside Hermes**, reusing the
 same image structure as the pods that run on the user's own cloud, so the same
@@ -97,7 +92,12 @@ work, so validity is scored beside it against the real `save_to_pkm` schema. A
 present-but-empty `scope_path` or `merge_patch` counts as missing: it is the
 cheapest output available and must not win.
 
-### Results
+### Local PKM benchmark snapshot
+
+These results measure local PKM tool calls, not remote Puppy relay acceptance.
+The current dev relay keeps the owner's selected **Gemma 12B** default. Existing
+benchmark results do not authorize changing that selection or repeating a model
+sweep; qualify only the selected model when the affected path changes.
 
 `Mac16,5 · Apple M4 Max · 128 GB`, 5 cases x 2 reps per model, warm p50:
 
@@ -114,12 +114,11 @@ zero usable PKM saves.** `gemma-4-e2b` is the quickest to finish and the
 highest throughput, and every one of its answers was either prose or a call
 missing required fields. A latency-only benchmark would have crowned it.
 
-`gemma-4-26b-a4b-qat` is the right default and is what this machine already
-runs. It matches e2b's latency to within 1%, and everything it returns is
-usable. It is also faster than the 12B and roughly 3.5x faster than the 31B,
-because `a4b` means about 4B parameters active per token: 26B-class quality at
-4B-class speed. Bigger is not slower by accident here, it is slower because
-dense models activate everything.
+`gemma-4-26b-a4b-qat` performed best in this bounded PKM sample. Its warm
+latency was within 1% of e2b, with valid calls in all ten cases. It was faster
+than the tested 12B and roughly 3.5x faster than the tested 31B. This comparison
+does not establish equivalent quality on other tasks or select the remote
+relay's default.
 
 `qwen3.6-35b-a3b` is correct when it answers, but it failed 2 of 10 turns and
 its p95 is more than double its p50. Not a default.

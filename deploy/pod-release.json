@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.24",
+  "version": "2026.10-dev.25",
   "channel": "dev",
   "summary": "More reliable Puppy connections and clearer timeout recovery.",
   "notes": {
@@ -12,9 +12,11 @@
       "Local response timeouts remain distinct from connection failures."
     ],
     "security": [
-      "Existing agents still require recovery-qualified compatibility and exact owner approval before installation.",
+      "Installation remains an exact owner-approved update; encrypted recovery is qualified for the listed predecessor.",
       "The total response deadline and private device permissions remain bounded."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:250aea9ee2a5cfe5faf2feceb450d8ee9386d7c6d4d678478248af7630fc69f1"
+  ]
 }
