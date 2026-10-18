@@ -121,6 +121,21 @@ describe("DirectMessagesService", () => {
     expect(JSON.stringify(result)).not.toContain("peerUserId");
   });
 
+  it.each([0, 1, 2, 100, 137, 12000])("reads the exact combined unread count %s without message previews", async (count) => {
+    apiFetch.mockResolvedValueOnce(Response.json({ unreadCount: count }));
+
+    expect(await DirectMessagesService.unreadCount({ idToken: "firebase-token" })).toBe(count);
+    expect(apiFetch).toHaveBeenCalledWith("/api/one/messages/unread-count", expect.objectContaining({
+      cache: "no-store",
+      headers: expect.objectContaining({ Authorization: "Bearer firebase-token" }),
+    }));
+  });
+
+  it.each([undefined, "2", -1, 1.5])("rejects an unverified count %s instead of claiming zero unread", async (count) => {
+    apiFetch.mockResolvedValueOnce(Response.json({ unreadCount: count }));
+    await expect(DirectMessagesService.unreadCount({ idToken: "firebase-token" })).rejects.toThrow("could not be verified");
+  });
+
   it("sends through a public person reference and validates the response pair", async () => {
     const sentMessage = {
       ...conversation.latestMessage,
