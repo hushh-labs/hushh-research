@@ -3421,6 +3421,7 @@ function LocationSettingsFlow({
 
           <DialogFooter>
             <FlowActionGroup
+              stacked
               measure="decision"
               className="max-w-[244px]"
               primary={

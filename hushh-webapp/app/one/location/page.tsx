@@ -1753,7 +1753,7 @@ function LocalMapPreview({
           // map borderless avoids the loud double-frame that previously made
           // the map look detached from its own metadata.
           nested
-            ? "h-40 rounded-t-[16px] rounded-b-none sm:h-44"
+            ? "h-[clamp(208px,56vw,304px)] rounded-t-[16px] rounded-b-none sm:h-[clamp(240px,32vw,360px)]"
             : "h-48 sm:h-56",
         )}
       >
@@ -1788,48 +1788,52 @@ function LocalMapPreview({
         </div>
       </div>
 
-      <div className={cn("space-y-3 p-3.5 sm:p-4", nested && "space-y-2 p-3")}>
-        <div className="min-w-0">
-          <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
-            Updated {captured}
-            {accuracy ? ` - ${accuracy}` : ""} -{" "}
-            {locationSourceLabel(point.sourcePlatform)}
-          </p>
-        </div>
+      {!nested || point.drive || showNavigation ? (
+        <div className={cn("space-y-3 p-3.5 sm:p-4", nested && "space-y-2 p-3")}>
+          {!nested ? (
+            <div className="min-w-0">
+              <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
+                Updated {captured}
+                {accuracy ? ` - ${accuracy}` : ""} -{" "}
+                {locationSourceLabel(point.sourcePlatform)}
+              </p>
+            </div>
+          ) : null}
 
-        {point.drive ? (
-          <div className="rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3">
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent)]">
-              <Route className="h-3.5 w-3.5" aria-hidden="true" />
-              Driving to {point.drive.destination.label}
-            </p>
-            <p className="mt-0.5 text-[13px] font-semibold text-foreground">
-              {driveEtaText(point.drive.etaSeconds)}
-            </p>
-          </div>
-        ) : null}
+          {point.drive ? (
+            <div className="rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3">
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent)]">
+                <Route className="h-3.5 w-3.5" aria-hidden="true" />
+                Driving to {point.drive.destination.label}
+              </p>
+              <p className="mt-0.5 text-[13px] font-semibold text-foreground">
+                {driveEtaText(point.drive.etaSeconds)}
+              </p>
+            </div>
+          ) : null}
 
-        {showNavigation ? (
-          <div className="grid gap-2">
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
-            >
-              <a
-                href={directionsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open Google Maps directions to shared live location"
+          {showNavigation ? (
+            <div className="grid gap-2">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
               >
-                <Route className="h-4 w-4" aria-hidden="true" />
-                Directions
-              </a>
-            </Button>
-          </div>
-        ) : null}
-      </div>
+                <a
+                  href={directionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open Google Maps directions to shared live location"
+                >
+                  <Route className="h-4 w-4" aria-hidden="true" />
+                  Directions
+                </a>
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {isStale ? (
         <div

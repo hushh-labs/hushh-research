@@ -108,6 +108,7 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
+import { circleTotalMemberCount } from "@/lib/one-location/circle-member-count";
 import {
   isForeignSmsSystemCircle,
   isSmsSystemCircle,
@@ -250,8 +251,9 @@ function smsCircleCapacityDescription(
     return `SMS Circle limit: ${memberLimit} people total. Could not confirm available spots.`;
   }
 
-  const memberCountCopy = `${circle.memberCount} ${
-    circle.memberCount === 1 ? "member is" : "members are"
+  const memberCount = circleTotalMemberCount(circle.memberCount);
+  const memberCountCopy = `${memberCount} ${
+    memberCount === 1 ? "member is" : "members are"
   } in this Circle`;
   const capacityCopy = remainingCapacity > 0
     ? `you can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}`

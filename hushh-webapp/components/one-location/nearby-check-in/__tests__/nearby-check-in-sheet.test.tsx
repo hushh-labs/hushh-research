@@ -2607,6 +2607,7 @@ describe("NearbyCheckInSheet", () => {
       expect(savedPlaces.addSavedLocation.mock.calls[0]?.[0]).toMatchObject({
         input: {
           category: "other",
+          savedFrom: "check_in",
           label: "Blue Bottle Coffee",
           latitude: 37.4275,
           longitude: -122.1697,

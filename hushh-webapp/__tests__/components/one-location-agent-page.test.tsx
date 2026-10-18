@@ -5902,9 +5902,14 @@ describe("OneLocationAgentPage", () => {
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
+    expect(mapPreview.parentElement).toHaveClass(
+      "h-[clamp(208px,56vw,304px)]",
+      "sm:h-[clamp(240px,32vw,360px)]",
+    );
     expect(screen.queryAllByText(/Paused · last seen/)).toHaveLength(1);
-    expect(screen.queryAllByText(/^Updated /)).toHaveLength(1);
-    expect(screen.getByText(/Accuracy \+\/- 18 m/)).toBeTruthy();
+    expect(screen.queryByText(/^Updated /)).toBeNull();
+    expect(screen.queryByText(/Accuracy \+\/- 18 m/)).toBeNull();
+    expect(screen.queryByText("Web")).toBeNull();
     expect(screen.queryByText("Lat")).toBeNull();
     expect(screen.queryByText("Lng")).toBeNull();
 

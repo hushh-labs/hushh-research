@@ -452,7 +452,7 @@ export function CircleMemberActionsMenu({
                       variant="ghost"
                       size="prominent"
                       disabled={busy}
-                      className="w-full justify-center text-destructive hover:bg-transparent hover:text-destructive"
+                      className="w-full justify-center text-[color:var(--app-destructive)] hover:bg-transparent hover:text-[color:var(--app-destructive)]"
                       onClick={() => setSheetConfirmingRemove(true)}
                     >
                       <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />

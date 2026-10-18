@@ -141,7 +141,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
     expect(removeFromCircle).toHaveClass(
       "w-full",
       "justify-center",
-      "text-destructive",
+      "text-[color:var(--app-destructive)]",
     );
 
     const actionMenu = within(sheet).getByRole("menu", { name: triggerName });
