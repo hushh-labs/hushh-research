@@ -37,18 +37,18 @@ export const VaultContext = createContext<{ vaultOwnerToken: string } | null>({
 export function useCalendarConnectionStatus() {
   // Starts disconnected without a request; `refresh` reads the routed
   // owner status endpoint, the way the production hook re-reads the server.
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState({ connected: false, status: "disconnected", google_email: null as string | null });
   return {
-    connected,
+    connected: status.connected && status.status === "connected",
     loaded: true,
     error: null,
-    status: { status: connected ? "connected" : "disconnected" },
+    status,
     refresh: () => {
       // eslint-disable-next-line no-restricted-syntax -- Synthetic status read intercepted by the browser harness; never a product component.
       void fetch("/api/one/calendar/status/fixture-owner")
         .then((response) => response.json())
-        .then((body: { connected?: boolean; status?: string }) =>
-          setConnected(body.connected === true && body.status === "connected"),
+        .then((body: { connected?: boolean; status?: string; google_email?: string | null }) =>
+          setStatus({ connected: body.connected === true, status: body.status || "disconnected", google_email: body.google_email || null }),
         )
         .catch(() => undefined);
     },

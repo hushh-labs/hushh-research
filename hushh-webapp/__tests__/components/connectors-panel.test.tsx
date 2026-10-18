@@ -5,9 +5,11 @@ import { join } from "node:path";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import type { GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
 
 const state = vi.hoisted(() => ({
-  user: { uid: "owner-a", getIdToken: vi.fn() },
+  user: { uid: "owner-a", email: "login@example.invalid", getIdToken: vi.fn() },
   token: "synthetic-owner-token" as string | null,
   overview: vi.fn(),
   startOAuthConnect: vi.fn(),
@@ -17,9 +19,10 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
   calendarRefresh: vi.fn(),
   calendarDisconnect: vi.fn(),
-  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
+  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } as Partial<GoogleCalendarStatus> },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
-  gmailStatus: { connected: false, compose_permission_granted: false } as Record<string, boolean>,
+  gmailStatus: { connected: false, compose_permission_granted: false } as Partial<GmailConnectionStatus>,
+  gmailError: false,
   connectGmail: vi.fn(),
   gmailStartConnect: vi.fn(),
   startNativeConnect: vi.fn(),
@@ -49,7 +52,7 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: state.gmailStatus,
     loadingStatus: false,
-    statusError: false,
+    statusError: state.gmailError,
     disconnectGmail: vi.fn(),
     refreshStatus: vi.fn(),
   }),
@@ -136,6 +139,7 @@ describe("supported connector catalog", () => {
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
     state.gmailStatus = { connected: false, compose_permission_granted: false };
+    state.gmailError = false;
     state.gmailStartConnect.mockReset();
     state.startNativeConnect.mockReset();
     state.completeNativeConnect.mockReset();
@@ -1051,6 +1055,92 @@ describe("supported connector catalog", () => {
     expect(connected.getByText("Plaid")).toBeInTheDocument();
     expect(screen.queryByText("Duplicate Calendar")).not.toBeInTheDocument();
     expect(screen.queryByText("Duplicate Plaid")).not.toBeInTheDocument();
+  });
+
+  it.each(["drawer", "profile"] as const)("shows separate Google account identities in the %s", async (surface) => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = {
+      connected: true, loaded: true, error: null,
+      status: { status: "connected", google_email: "schedule@example.invalid" },
+    };
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", status: "connected", profile: "live", accountLabel: "files@example.invalid" }],
+      features: { connections_panel_v2: true, google_drive_connection: true },
+    });
+    render(surface === "profile" ? <ConnectorsPanel open surface="profile" {...callbacks} /> : panel());
+    expect(await screen.findByText("Connected as files@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Connected as schedule@example.invalid")).toBeInTheDocument();
+    if (surface === "profile") {
+      expect(screen.getByTestId("profile-connector-row-calendar")).toHaveTextContent("Connected as schedule@example.invalid");
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Calendar", exact: true }));
+      expect(within(screen.getByRole("region", { name: "Calendar details" })).getByText("Connected as schedule@example.invalid")).toBeInTheDocument();
+    }
+  });
+
+  it("retains each account while sign-in needs to be refreshed", async () => {
+    state.gmailStatus = { connected: true, needs_reauth: true, google_email: "mail@example.invalid" };
+    state.calendar = {
+      connected: false, loaded: true, error: null,
+      status: { status: "needs_reauth", google_email: "schedule@example.invalid" },
+    };
+    render(panel());
+    expect(await screen.findByText("Sign-in needed · mail@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Sign-in needed · schedule@example.invalid")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Calendar", exact: true }));
+    expect(within(screen.getByRole("region", { name: "Calendar details" })).getByText("Sign-in needed · schedule@example.invalid")).toBeInTheDocument();
+  });
+
+  it("keeps the recovery cue when sign-in is needed but an email is missing", async () => {
+    state.gmailStatus = { connected: true, needs_reauth: true, google_email: null };
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "needs_reauth", google_email: "  " } };
+    render(panel());
+    expect(await screen.findAllByText("Sign-in needed · account details unavailable")).toHaveLength(2);
+  });
+
+  it("does not use the app login address when provider identity is unavailable", async () => {
+    state.gmailStatus = { connected: true };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    render(panel());
+    expect(await screen.findAllByText("Account details unavailable")).toHaveLength(2);
+    expect(screen.queryByText(/login@example.invalid/)).not.toBeInTheDocument();
+  });
+
+  it("hides old provider identities when disconnected or status is unavailable", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected", google_email: "schedule@example.invalid" } };
+    const view = render(panel());
+    expect(await screen.findByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    state.gmailStatus = { connected: false, google_email: "mail@example.invalid" };
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected", google_email: "schedule@example.invalid" } };
+    view.rerender(panel());
+    expect(screen.queryByText(/mail@example.invalid|schedule@example.invalid/)).not.toBeInTheDocument();
+    state.gmailStatus.connected = true;
+    state.gmailError = true;
+    state.calendar.connected = true;
+    state.calendar.error = "Status unavailable";
+    view.rerender(panel());
+    expect(screen.queryByText(/mail@example.invalid|schedule@example.invalid/)).not.toBeInTheDocument();
+  });
+
+  it("shows Drive authorization without claiming verification is complete", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", status: "verifying", profile: "live", accountLabel: "files@example.invalid" }],
+      features: { connections_panel_v2: true, google_drive_connection: true, google_drive_live: true },
+    });
+    render(panel());
+    expect(await screen.findByText("Authorized · files@example.invalid")).toBeInTheDocument();
+    expect(screen.queryByText("Connected as files@example.invalid")).not.toBeInTheDocument();
+  });
+
+  it("finds a connector by its connected account email", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected", google_email: "schedule@example.invalid" } };
+    render(panel());
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search connectors" }), { target: { value: "schedule@example.invalid" } });
+    expect(screen.getByRole("button", { name: "Calendar", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gmail", exact: true })).not.toBeInTheDocument();
   });
 
   it("filters the real connector list and restores it when search is cleared", async () => {
