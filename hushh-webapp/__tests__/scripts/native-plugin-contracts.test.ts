@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -62,5 +63,58 @@ describe("native plugin contract verifier", () => {
         stdio: "pipe",
       }),
     ).not.toThrow();
+  });
+
+  it.each([
+    {
+      file: "native-workspace.ts",
+      before: "  getWorkspaceState(options: NativeWorkspaceIdentity): Promise<NativeWorkspaceReceipt | { valid: false }>;",
+      after: "",
+      diagnostic: "extra native method(s) not declared in TypeScript: getWorkspaceState",
+    },
+    {
+      file: "native-drawers.ts",
+      before: '  applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];',
+      after: "",
+      diagnostic: "extra native method(s) not declared in TypeScript: applyProfileMemoryScene",
+    },
+    {
+      file: "native-workspace.ts",
+      before: "export interface NativeWorkspacePort {",
+      after: "export interface NativeWorkspacePort {\n  contractNegativeControl(): Promise<void>;",
+      diagnostic: "missing method(s): contractNegativeControl",
+    },
+  ])("rejects inherited/indexed contract drift: $diagnostic", ({ file, before, after, diagnostic }) => {
+    // A disposable overlay runs the actual verifier without changing source or
+    // duplicating the native trees. Only the mutated TypeScript file is copied.
+    const appRoot = process.cwd();
+    const overlay = mkdtempSync(path.join(tmpdir(), "hushh-native-contract-"));
+    const linkEntries = (source: string, target: string, omit: string) => {
+      mkdirSync(target, { recursive: true });
+      for (const entry of readdirSync(source)) {
+        if (entry !== omit) symlinkSync(path.join(source, entry), path.join(target, entry));
+      }
+    };
+    try {
+      linkEntries(appRoot, overlay, "lib");
+      linkEntries(path.join(appRoot, "lib"), path.join(overlay, "lib"), "capacitor");
+      const ports = path.join(appRoot, "lib/capacitor");
+      linkEntries(ports, path.join(overlay, "lib/capacitor"), file);
+      const source = readFileSync(path.join(ports, file), "utf8");
+      expect(source).toContain(before);
+      writeFileSync(path.join(overlay, "lib/capacitor", file), source.replace(before, after));
+      let failure: { status?: number; stderr?: string } | undefined;
+      try {
+        execFileSync(process.execPath, [path.join(appRoot, "scripts/native/verify-native-plugin-contracts.mjs")], {
+          cwd: overlay, encoding: "utf8", stdio: "pipe",
+        });
+      } catch (error) {
+        failure = error as typeof failure;
+      }
+      expect(failure?.status).toBe(1);
+      expect(failure?.stderr).toContain(diagnostic);
+    } finally {
+      rmSync(overlay, { recursive: true, force: true });
+    }
   });
 });
