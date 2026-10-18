@@ -62,14 +62,14 @@ final class NativeDrawerModel: ObservableObject {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
         let deviceAncestor = [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(navigationPath) && path == ["security"]
-        let payoutAncestor = NativeDrawerProjection.validPayoutPath(navigationPath) && !path.isEmpty && path.count + 1 < navigationPath.count
+        let workspaceAncestor = (NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
         guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,
-              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor || payoutAncestor,
+              path.count + 1 == navigationPath.count || path.isEmpty && navigationPath.count > 1 || deviceAncestor || workspaceAncestor,
               Array(navigationPath.prefix(path.count)) == path else { return }
-        guard choice(deviceAncestor || payoutAncestor ? "ancestor" : path.isEmpty && navigationPath.count > 1 ? "root" : "back",
-                     row: deviceAncestor ? "security" : payoutAncestor ? path.last : nil) else { return }
+        guard choice(deviceAncestor || workspaceAncestor ? "ancestor" : path.isEmpty && navigationPath.count > 1 ? "root" : "back",
+                     row: deviceAncestor ? "security" : workspaceAncestor ? path.last : nil) else { return }
         backPending = true
         // The native pop has committed. React still owns the route and
         // confirms the existing Back event; never replay UIKit's transition.
@@ -861,7 +861,15 @@ struct NativeDrawerContent: View {
             case .page(let id):
                 if let document = model.page(id)?.legalDocument {
                     NativeProfileLegalReader(model: model, document: document)
-                } else { profileContent(model.page(id)?.sections ?? []) }
+                } else {
+                    VStack(spacing: 0) {
+                        if let search = model.page(id)?.memorySearch {
+                            NativeMemorySearchControl(model: model, search: search)
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                        }
+                        profileContent(model.page(id)?.sections ?? [])
+                    }
+                }
             }
         } else if model.projection.family == "profile", model.projection.profileStack != nil {
             profileNavigation
@@ -1178,6 +1186,47 @@ struct NativeDrawerContent: View {
                 .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// Private, local filter draft. Submit searches the complete React-owned
+/// category model, not just the currently projected pagination window. Nothing
+/// is bridged per keystroke or stored outside this retained presentation.
+private struct NativeMemorySearchControl: View {
+    @ObservedObject var model: NativeDrawerModel
+    let search: NativeMemorySearch
+    @State private var draft = ""
+    @State private var acknowledged = ""
+    private func submit(_ value: String) {
+        guard value.utf16.count <= 256 else { return }
+        _ = model.choice("row", row: search.id, text: value)
+    }
+    private var content: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Search saved details", text: $draft)
+                .textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.search)
+                .onSubmit { submit(draft) }.accessibilityIdentifier("native-memory-search")
+            if !draft.isEmpty {
+                Button { draft = ""; submit("") } label: {
+                    Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.borderless).accessibilityLabel("Clear saved details search")
+            }
+        }.padding(.horizontal, 14).frame(minHeight: 44)
+            .disabled(!model.controlsEnabled || model.choicePending || !model.interactionEnabled)
+            .onAppear { draft = search.query; acknowledged = search.query }
+            .onChange(of: search.query) { _, next in
+                if draft == acknowledged { draft = next }
+                acknowledged = next
+            }
+            .onChange(of: model.projection.enabled) { _, enabled in
+                draft = enabled ? search.query : ""
+                acknowledged = enabled ? search.query : ""
+            }
+    }
+    var body: some View {
+        if #available(iOS 26.0, *) { content.glassEffect(.regular, in: Capsule()) }
+        else { content.background(.regularMaterial, in: Capsule()) }
     }
 }
 

@@ -52,11 +52,16 @@ struct NativeDrawerSection: Codable, Identifiable {
     let rows: [NativeDrawerRow]
 }
 
+struct NativeMemorySearch: Codable {
+    let id: String
+    let query: String
+}
 struct NativeProfilePage: Codable, Identifiable {
     let id: String
     let title: String
     let sections: [NativeDrawerSection]
     var legalDocument: NativeLegalDocument? = nil
+    var memorySearch: NativeMemorySearch? = nil
 }
 
 struct NativeDrawerProjection: Codable {
@@ -94,7 +99,10 @@ struct NativeDrawerProjection: Codable {
         if let stack = options["profileStack"] {
             guard let pages = stack as? [[String: Any]] else { return false }
             for page in pages {
-                guard Set(page.keys).isSubset(of: ["id", "title", "sections", "legalDocument"]), let sections = page["sections"] as? [[String: Any]] else { return false }
+                guard Set(page.keys).isSubset(of: ["id", "title", "sections", "legalDocument", "memorySearch"]), let sections = page["sections"] as? [[String: Any]] else { return false }
+                if let search = page["memorySearch"] {
+                    guard let search = search as? [String: Any], Set(search.keys) == ["id", "query"] else { return false }
+                }
                 if let document = page["legalDocument"] {
                     guard let document = document as? [String: Any], NativeLegalDocument.hasClosedShape(document) else { return false }
                 }
@@ -120,11 +128,13 @@ struct NativeDrawerProjection: Codable {
               Self.text(title, 256), sections.count <= 32,
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
         if let stack = profileStack {
-            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : 3), Set(stack.map(\.id)).count == stack.count,
+            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : stack.first?.id == "memory" ? 5 : 3), Set(stack.map(\.id)).count == stack.count,
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),
+                  stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["payouts", "request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                        stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "payouts" && Self.validPayoutPath(stack.map(\.id)) ||
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
                         page.id == "voice" && index == 1 && stack.first?.id == "preferences" ||
@@ -134,6 +144,7 @@ struct NativeDrawerProjection: Codable {
                         ["vault-method", "vault-remove"].contains(page.id) && (index == 1 && stack.first?.id == "vault" || index == 2 && stack.first?.id == "security" && stack[1].id == "vault") ||
                         ["privacy", "terms"].contains(page.id) && index == 1 && stack.first?.id == "legal") &&
                           Self.text(page.title, 256) && page.sections.count <= 32 &&
+                          (page.memorySearch == nil || page.id == "memory" && NativeDrawerIdentity.identifier(page.memorySearch!.id) && page.memorySearch!.query.utf16.count <= 256) &&
                           (["privacy", "terms"].contains(page.id) ? page.legalDocument?.valid == true &&
                             page.legalDocument?.type == page.id && page.sections.isEmpty : page.legalDocument == nil)
                   }) else { return false }
@@ -182,6 +193,7 @@ struct NativeDrawerProjection: Codable {
             }
         }
         for page in profileStack ?? [] {
+            if let search = page.memorySearch { guard ids.insert(search.id).inserted else { return false } }
             for action in page.legalDocument?.actionIds ?? [] {
                 guard ids.insert(action).inserted else { return false }
             }
@@ -193,6 +205,16 @@ struct NativeDrawerProjection: Codable {
         let start = path.count > 1 && ["payout-activity", "payout-stripe"].contains(path[1]) ? 2 : 1
         guard path.count - start <= 6 else { return false }
         return path.dropFirst(start).enumerated().allSatisfy { $0.element == "payout-receipt-\($0.offset + 1)" }
+    }
+    static func validMemoryPath(_ path: [String]) -> Bool {
+        guard path.first == "memory", path.count <= 5 else { return false }
+        let children: [String: Set<String>] = [
+            "memory": ["memory-domain", "memory-sharing", "memory-live"],
+            "memory-domain": ["memory-section"], "memory-section": ["memory-entity"],
+            "memory-entity": ["memory-confirm"], "memory-sharing": ["memory-connection"],
+            "memory-connection": ["memory-confirm"], "memory-live": ["memory-record"]
+        ]
+        return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
     }
     private static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
     var cleared: NativeDrawerProjection {
@@ -212,9 +234,10 @@ struct NativeDrawerProjection: Codable {
             let path = profileStack?.map(\.id) ?? []
             return family == "profile" && backEnabled &&
                 (row == "security" && [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(path) ||
-                  Self.validPayoutPath(path) && path.dropLast(2).contains(where: { $0 == row }))
+                  (Self.validPayoutPath(path) || Self.validMemoryPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
         }
         guard action == "row", let row else { return false }
+        if profileStack?.last?.memorySearch?.id == row { return text.map { $0.utf16.count <= 256 } == true }
         if text == nil, profileStack?.last?.legalDocument?.actionIds.contains(row) == true { return true }
         return activeSections.contains { $0.rows.contains {
             guard $0.enabled, $0.readOnly != true, $0.pending != true else { return false }

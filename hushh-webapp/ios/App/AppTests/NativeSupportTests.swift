@@ -979,6 +979,15 @@ final class NativeSupportTests: XCTestCase {
         payout.profileStack![1] = NativeProfilePage(id: "account-delete", title: "Wrong parent", sections: [])
         XCTAssertFalse(payout.valid, "Financial pages cannot admit unrelated account operations")
         XCTAssertFalse(NativeDrawerProjection.validPayoutPath(["payouts", "payout-receipt-2"]))
+        var memory = account
+        memory.profileStack = ["memory", "memory-domain", "memory-section", "memory-entity", "memory-confirm"].map {
+            NativeProfilePage(id: $0, title: "Synthetic Memory navigation", sections: [])
+        }
+        XCTAssertTrue(memory.valid)
+        XCTAssertTrue(memory.allows(action: "ancestor", row: "memory-section"))
+        XCTAssertFalse(memory.allows(action: "ancestor", row: "account"))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-confirm"]))
+        XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "account-delete"]))
         for kind in ["account-reset", "account-delete"] {
             var confirmation = account
             confirmation.profileStack = account.profileStack! + [NativeProfilePage(id: kind, title: "Confirm account action", sections: [])]

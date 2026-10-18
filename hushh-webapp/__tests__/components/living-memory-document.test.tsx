@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveMirrorClaim, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
@@ -12,7 +12,9 @@ const m = vi.hoisted(() => ({
   epoch: 0,
   view: null as LiveMirrorView | null,
   listeners: new Set<() => void>(),
+  privacy: { generation: 0, appIsActive: true, shielded: false },
 }));
+vi.mock("@/lib/capacitor/session-privacy", () => ({ nativePrivacyObservation: () => ({ state: m.privacy }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid } }),
 }));
@@ -43,6 +45,10 @@ vi.mock("@/lib/services/cache-service", () => ({
 }));
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { useNativeMemory, nativeMemoryText, type NativeMemoryModel } from "@/components/profile/use-native-memory";
+import { validNativeMemoryPath, type NativeDrawerChoice, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { buildPkmDomainPresentation } from "@/lib/profile/pkm-profile-presentation";
+import { buildPkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import { formatLiveMirrorDateTime, formatLiveMirrorValue, liveMirrorSourceRoute } from "@/lib/pkm/live-mirror-presentation";
 import {
@@ -141,8 +147,118 @@ beforeEach(() => {
   m.epoch = 0;
   m.view = mirror();
   m.listeners.clear();
+  m.privacy = { generation: 0, appIsActive: true, shielded: false };
 });
 afterEach(cleanup);
+
+describe("native Memory operation boundary", () => {
+  function model(overrides: Partial<NativeMemoryModel> = {}): NativeMemoryModel {
+    return { owner: "synthetic-owner", active: true, detail: null, loading: false, metadataReady: true, sharingReady: true,
+      metadataFailed: false, sharingFailed: false, domains: [], connections: [], selectedDomain: null, selectedConnection: null,
+      permissions: [], upgrade: null, manifestLoading: false, manifestFailed: false, pendingPermissions: {},
+      preview: { open: false, title: "", presentation: null, loading: false, error: null, deletingEntityKey: null },
+      openDomain: vi.fn(), openConnection: vi.fn(), openSharing: vi.fn(), openRoot: vi.fn(), refresh: vi.fn(), navigate: vi.fn(), closePreview: vi.fn(), openRetainedDetails: vi.fn(),
+      previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
+      removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
+  }
+  it("bounds large category projections, preserves Unicode and rejects callbacks from a retired owner", () => {
+    const text = "😀漢字".repeat(5000);
+    const chunks = nativeMemoryText(text);
+    expect(chunks.join("")).toBe(text);
+    expect(chunks.every(chunk => chunk.length <= 3000 && !/[\uD800-\uDBFF]$/.test(chunk))).toBe(true);
+    const input = model({ domains: Array.from({ length: 2100 }, (_, index) => buildPkmDomainPresentation({
+      domain: { key: `synthetic-domain-${index}`, displayName: `Category ${index}`, attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] })) });
+    const hook = renderHook(({ input }) => useNativeMemory(input), { initialProps: { input } });
+    const rows = hook.result.current.pages[0]!.sections[0]!.rows;
+    expect(rows.length).toBeLessThanOrEqual(42);
+    const command = hook.result.current.rows.get(rows.find(row => row.label === "Category 0")!.id)!;
+    act(() => { void command(); });
+    expect(input.openDomain).toHaveBeenCalledWith("synthetic-domain-0");
+    const search = hook.result.current.pages[0]!.memorySearch!;
+    act(() => { void hook.result.current.rows.get(search.id)!({ text: "Category 2099" } as NativeDrawerChoice); });
+    expect(hook.result.current.pages[0]!.sections[0]!.rows.some(row => row.label === "Category 2099")).toBe(true);
+    expect(hook.result.current.pages[0]!.sections[0]!.rows.some(row => row.label === "Category 0")).toBe(false);
+    hook.rerender({ input: { ...input, owner: "replacement-owner" } });
+    act(() => { void command(); });
+    expect(input.openDomain).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(hook.result.current.pages)).not.toContain("synthetic-domain-0");
+  });
+  it("keeps long navigation text admissible without dropping its complete detail content", () => {
+    const title = "😀".repeat(300), summary = "漢".repeat(5000);
+    const domain = { ...buildPkmDomainPresentation({ domain: { key: "synthetic", displayName: "Synthetic", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] }), title, summary };
+    const hook = renderHook(() => useNativeMemory(model({ detail: "domain:synthetic", domains: [domain], selectedDomain: domain })));
+    expect(hook.result.current.pages.every(page => page.title.length <= 256)).toBe(true);
+    const details = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows);
+    expect(details.filter(row => row.readOnly).map(row => row.label).join("\n")).toContain(title);
+    expect(details.every(row => row.label.length <= 4096 && (row.detail?.length ?? 0) <= 4096)).toBe(true);
+    expect(details.filter(row => row.readOnly).map(row => row.label).join("")).toContain(summary);
+  });
+  it("keeps a failed revocation visible and rejects its confirmation across privacy generations", async () => {
+    m.privacy = { generation: 0, appIsActive: true, shielded: false };
+    const grant = { id: "private-grant", scope: "attr.synthetic.*", domainTitle: "Synthetic category", readableAccessLabel: "Approved details" };
+    const connection = { id: "private-connection", requesterLabel: "Synthetic connection", grants: [grant], domains: ["Synthetic category"], broadAccessCount: 0, accessCount: 1 } as NativeMemoryModel["connections"][number];
+    const input = model({ detail: "connection:private-connection", selectedConnection: connection, connections: [connection], revoke: vi.fn().mockRejectedValue(new Error("synthetic unavailable")) });
+    const projected: NativeProfilePage[][] = [];
+    const hook = renderHook(({ value }) => {
+      const result = useNativeMemory(value); projected.push(result.pages); return result;
+    }, { initialProps: { value: input } });
+    const choose = (label: string) => {
+      const row = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      return hook.result.current.rows.get(row.id)!;
+    };
+    act(() => { void choose("Revoke this access category")(); });
+    const staleConfirm = choose("Revoke access");
+    m.privacy = { ...m.privacy, generation: 1 };
+    await act(async () => { await staleConfirm(); });
+    expect(input.revoke).not.toHaveBeenCalled();
+    act(() => { void choose("Cancel")(); });
+    act(() => { void choose("Revoke this access category")(); });
+    await act(async () => { await choose("Revoke access")(); });
+    expect(input.revoke).toHaveBeenCalledOnce();
+    expect(hook.result.current.pages.at(-1)!.id).toBe("memory-confirm");
+    expect(hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).some(row => row.label.includes("Couldn't confirm"))).toBe(true);
+    expect(JSON.stringify(hook.result.current.pages)).not.toMatch(/private-grant|attr\.synthetic|private-connection/);
+    const first = projected.length;
+    hook.rerender({ value: { ...input, detail: "sharing", selectedConnection: null } });
+    expect(projected.slice(first).every(validNativeMemoryPath)).toBe(true);
+    expect(projected[first]!.map(page => page.id)).toEqual(["memory", "memory-sharing"]);
+  });
+  it("keeps valid ancestry when a saved entity disappears before confirmation settlement", () => {
+    const domain = buildPkmDomainPresentation({ domain: { key: "synthetic", displayName: "Synthetic", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] });
+    const input = model({ detail: "domain:synthetic", domains: [domain], selectedDomain: domain,
+      preview: { open: true, title: "Synthetic section", loading: false, error: null, deletingEntityKey: null,
+        presentation: { title: "Synthetic section", stats: [], groups: [{ kind: "entities", items: [{ key: "display-only", title: "Synthetic record", fields: [], deletable: true }] }] } } });
+    const projected: NativeProfilePage[][] = [];
+    const hook = renderHook(({ value }) => { const state = useNativeMemory(value); projected.push(state.pages); return state; }, { initialProps: { value: input } });
+    const choose = (label: string) => {
+      const row = hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      act(() => { void hook.result.current.rows.get(row.id)!(); });
+    };
+    choose("Synthetic record"); choose("Remove saved entry");
+    const first = projected.length;
+    hook.rerender({ value: { ...input, preview: { ...input.preview, presentation: null } } });
+    expect(projected.slice(first).every(validNativeMemoryPath)).toBe(true);
+    expect(hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === "Remove")?.enabled).toBe(false);
+    hook.rerender({ value: { ...input, preview: { ...input.preview, open: false, presentation: null } } });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-domain"]);
+    expect(hook.result.current.back()).toBe(false);
+    expect(input.removeEntity).not.toHaveBeenCalled();
+  });
+  it("changes the opaque action handle when a different saved record reuses its display position", () => {
+    const presentation = (id: string) => buildPkmSectionPreviewPresentation({ domain: "financial", domainTitle: "Finance",
+      permissionLabel: "Context", topLevelScopePath: "context", value: { context: { entries: [{ id, text: "Same visible text", category: "general" }] } } });
+    const domain = buildPkmDomainPresentation({ domain: { key: "financial", displayName: "Finance", attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }, activeGrants: [] });
+    const input = model({ detail: "domain:financial", domains: [domain], selectedDomain: domain,
+      preview: { open: true, title: "Context", loading: false, error: null, deletingEntityKey: null, presentation: presentation("original_private_id") } });
+    const hook = renderHook(({ value }) => useNativeMemory(value), { initialProps: { value: input } });
+    const row = () => hook.result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === "General")!;
+    const oldHandle = row().id;
+    hook.rerender({ value: { ...input, preview: { ...input.preview, presentation: presentation("replacement_private_id") } } });
+    expect(row().id).not.toBe(oldHandle);
+    expect(hook.result.current.rows.has(oldHandle)).toBe(false);
+    expect(JSON.stringify(hook.result.current.pages)).not.toMatch(/original_private_id|replacement_private_id/);
+  });
+});
 
 describe("Profile Live Mirror", () => {
   it("announces only the headline; the ticking check time stays outside the live region", () => {

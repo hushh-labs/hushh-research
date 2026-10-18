@@ -4,7 +4,7 @@
  * A pane address naming the model must show the model, never the Profile root
  * menu and never a redirect back to the route (which proxy.ts sends back here).
  */
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const nav = vi.hoisted(() => ({
@@ -80,9 +80,13 @@ import { WorldModelResearchService } from "@/lib/services/world-model-research-s
 import { WorldModelDecisionService } from "@/lib/services/world-model-decision-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(auth.user.uid);
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
   // "not found"; this test is about what the pane shows, not those reads.
@@ -98,6 +102,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionOwner(null);
   vi.restoreAllMocks();
 });
 
@@ -108,6 +113,28 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it("does not replace an explicit Memory refresh with a late initialization response", async () => {
+    nav.query = "profile_pane=1&profile_panel=my-data";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    const metadata = (label: string) => ({ ...PersonalKnowledgeModelService.emptyMetadata(auth.user.uid),
+      domains: [{ key: "synthetic", displayName: label, attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }] });
+    let resolveInitial!: (value: ReturnType<typeof metadata>) => void;
+    const initial = new Promise<ReturnType<typeof metadata>>(resolve => { resolveInitial = resolve; });
+    const read = vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockImplementation((_id, force) =>
+      force ? Promise.resolve(metadata("Fresh category")) : initial);
+    vi.spyOn(ConsentCenterService, "getCenter").mockResolvedValue({ active_grants: [] } as never);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "my-data", detail: null }} /></StepProgressProvider>);
+    await waitFor(() => expect(read).toHaveBeenCalled());
+    act(() => { window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId: auth.user.uid } })); });
+    await waitFor(() => expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument());
+    act(() => { resolveInitial(metadata("Stale category")); });
+    // Let the intentionally deferred initialization settle without awaiting
+    // unrelated live-resource effects in one global async React act scope.
+    await initial;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument();
+    expect(within(activeScreen()!).queryByText("Stale category")).not.toBeInTheDocument();
+  });
   it.each(["domain:missing", "connection:missing"] as const)("retains a destination body when %s cannot resolve", detail => {
     nav.query = `profile_pane=1&profile_panel=my-data&profile_detail=${encodeURIComponent(detail)}`;
     window.history.replaceState(null, "", `/one?${nav.query}`);

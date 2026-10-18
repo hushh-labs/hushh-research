@@ -587,6 +587,18 @@ describe("private native drawer action boundary", () => {
     expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("account-delete")] })).toBe(false);
     expect(validNativeDrawerProjection({ ...payout, profileStack: [payoutPage("payouts"), payoutPage("payout-receipt-2")] })).toBe(false);
     expect(validNativeDrawerProjection({ ...account, profileStack: [payoutPage("account"), payoutPage("payout-receipt-1")] })).toBe(false);
+    const memory = { ...account, profileStack: ["memory", "memory-domain", "memory-section", "memory-entity", "memory-confirm"].map(id => ({ id, title: "Synthetic memory", sections: [] })) } as NativeDrawerProjection;
+    expect(validNativeDrawerProjection(memory)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "memory-section" }, memory)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", action: "ancestor", rowId: "account" }, memory)).toBe(false);
+    expect(validNativeDrawerProjection({ ...memory, profileStack: [payoutPage("memory"), payoutPage("memory-confirm")] })).toBe(false);
+    expect(validNativeDrawerProjection({ ...memory, profileStack: [payoutPage("memory"), payoutPage("account-delete")] })).toBe(false);
+    const memorySearch = { ...memory, profileStack: [{ ...payoutPage("memory"), memorySearch: { id: "private-memory-search", query: "Synthetic" } }] };
+    expect(validNativeDrawerProjection(memorySearch)).toBe(true);
+    expect(validNativeDrawerProjection({ ...memorySearch, profileStack: [{ ...memorySearch.profileStack[0]!, memorySearch: null }] } as never)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", rowId: "private-memory-search", text: "Category" }, memorySearch)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), family: "profile", rowId: "private-memory-search", text: "a".repeat(257) }, memorySearch)).toBe(false);
+    expect(validNativeDrawerProjection({ ...memorySearch, profileStack: [{ ...memorySearch.profileStack[0]!, id: "account" }] })).toBe(false);
     const event = { ...choice(), family: "profile" as const, rowId: "edit-name" };
     expect(nativeDrawerChoiceAllowed(event, account)).toBe(true);
     expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);

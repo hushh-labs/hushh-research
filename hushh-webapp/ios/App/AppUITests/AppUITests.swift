@@ -4671,6 +4671,42 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
                 continue
             }
+            if id == "my-data", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let live = app.buttons.matching(NSPredicate(format: "label == %@", "Live memory")).firstMatch
+                let sharing = app.buttons.matching(NSPredicate(format: "label == %@", "Manage sharing")).firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(live), waitForAdmittedControl(sharing) else {
+                    XCTFail("PROFILE_NATIVE_MEMORY_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
+                    "PROFILE_NATIVE_MEMORY_DUPLICATE_WEB_BODY")
+                let search = app.textFields["native-memory-search"].firstMatch
+                if search.exists {
+                    search.tap()
+                    guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_MEMORY_KEYBOARD_UNAVAILABLE"); return }
+                    search.typeText("Synthetic native query\n")
+                    let clear = app.buttons["Clear saved details search"].firstMatch
+                    guard waitForAdmittedControl(clear) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SUBMITTED"); return }
+                    clear.tap()
+                }
+                guard waitForAdmittedControl(live) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SETTLED"); return }
+                live.tap()
+                let memoryBack = app.navigationBars.buttons["Memory"].firstMatch
+                guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_SOURCE_RETURN_UNAVAILABLE"); return }
+                memoryBack.tap()
+                guard waitForAdmittedControl(sharing) else { XCTFail("PROFILE_NATIVE_MEMORY_ROOT_NOT_RESTORED"); return }
+                sharing.tap()
+                guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_SHARING_NOT_ADMITTED"); return }
+                memoryBack.tap()
+                guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else {
+                    XCTFail("PROFILE_NATIVE_MEMORY_SHARING_RETURN_FAILED"); return
+                }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_MEMORY_PROFILE_RETURN_FAILED"); return
+                }
+                print("PROFILE_NATIVE_MEMORY sources=true sharing=true returned=true mutated=false")
+                continue
+            }
             if id == "payouts", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let coins = app.buttons["native-profile-row-payout-coins"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(coins) else {

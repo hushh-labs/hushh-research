@@ -18,6 +18,27 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Complete Profile roster and Payouts integration — 2026-10-17
 
+Memory continuation (source only; not installed/qualified): the retained native
+stack now maps categories, sections, entity details, permission choices,
+connections, revocation/removal confirmations and Live Memory facts/history/preview.
+The private native search submits to the existing complete category model; it
+does not search only its current 40-row presentation window. All dynamic record
+and scope keys stay behind per-visit opaque action handles. Navigation text is
+bounded, with complete long content available in paginated details.
+Stored entity/context IDs are bound to original local preview objects outside
+display/export JSON. Display keys such as `entity-1` cannot address mutations;
+cloned/shared previews have no edit/delete target. No historical record cleanup
+is inferred from this forward fix.
+
+The shared operation owner now rejects superseded/dismissed preview loads and
+old-owner refreshes, serializes whole-domain sharing/context writes and keeps
+confirmed mutations distinct from a later refresh failure. Native revocation
+retains the existing scope-wide effect, explicitly explained in confirmation.
+Shared records, protected details, financial-context forms and the full Memory
+workspace retain an explicit complete-body handoff; they are reachable, **not
+counted as converted**. Search, native row presence and a successful build do
+not establish visual, accessibility, device-performance or whole-roster parity.
+
 Native menu presence is not feature conversion. The authored normal roster has
 13 destinations; Developer tools is an additional guarded destination. Current
 source coverage, not whole-program or installed-candidate acceptance:
@@ -27,7 +48,7 @@ source coverage, not whole-program or installed-candidate acceptance:
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
 | Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; current batch awaiting installed qualification |
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
-| Memory | Rich root, domains, sections, editing, sharing and secrets still require native mapping |
+| Memory | Native category/section/entity browsing, search, sharing and Live Memory source mapping; shared/protected bodies and ordinary editing still require native conversion/qualification |
 | Personal World Model | Research, facts, sources, decisions and invitations still require native mapping |
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance/provider nested bodies still require native mapping |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |

@@ -120,9 +120,10 @@ export class NativeDrawerPresentation {
         [...state.sections, ...(state.profileStack?.flatMap(page => page.sections) ?? [])].some(section => section.rows.some(row => !row.readOnly && (row.options ? row.options.map(option => option.id) : [row.id, row.renameActionId, row.deleteActionId])
           .some(id => id !== undefined && !actions.rows.has(id)))) ||
         state.profileStack?.some(page => page.legalDocument && nativeLegalActionIds(page.legalDocument).some(id => !actions.rows.has(id))) ||
+        state.profileStack?.some(page => page.memorySearch && !actions.rows.has(page.memorySearch.id)) ||
         state.backEnabled && !actions.back || (state.profileStack?.length ?? 0) > 1 && !actions.root ||
         (state.profileStack?.length === 3 && state.profileStack[0]?.id === "security" ||
-          (state.profileStack?.length ?? 0) >= 3 && state.profileStack?.[0]?.id === "payouts") && !actions.ancestor) { this.quarantine(); return false; }
+          (state.profileStack?.length ?? 0) >= 3 && ["memory", "payouts"].includes(state.profileStack?.[0]?.id ?? "")) && !actions.ancestor) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,
@@ -130,6 +131,7 @@ export class NativeDrawerPresentation {
         ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })),
       ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
         ...(page.legalDocument ? { legalDocument: structuredClone(page.legalDocument) } : {}),
+        ...(page.memorySearch ? { memorySearch: { ...page.memorySearch } } : {}),
         sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
           ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;

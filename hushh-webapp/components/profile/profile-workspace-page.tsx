@@ -57,6 +57,10 @@ import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
+import { useNativeMemory } from "./use-native-memory";
+import { pkmPreviewEntityTarget, validPkmPreviewPath } from "@/lib/profile/pkm-section-preview";
+import { ProfileMemoryOperations } from "./profile-memory-operations";
+import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { useDocumentRequestPricingModel } from "@/components/consent/use-document-request-pricing-model";
 import { useNativeProfilePortrait } from "./use-native-profile-portrait";
 
@@ -337,10 +341,9 @@ function buildPkmEntityDeletionCandidate(
   topLevelScopePath: string,
   entityKey: string,
 ): Record<string, unknown> {
-  const segments = topLevelScopePath
-    .split(".")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
+  if (!validPkmPreviewPath(topLevelScopePath) || !validPkmPreviewPath(entityKey) || entityKey.includes("."))
+    throw new Error("This saved entry cannot be addressed safely.");
+  const segments = topLevelScopePath.split(".");
   const root: Record<string, unknown> = {};
   let current = root;
 
@@ -788,6 +791,32 @@ function ProfilePageContent({
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const memoryOperations = useMemo(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
+    return new ProfileMemoryOperations(() => !!owner && owner.userId === user?.uid &&
+      JSON.stringify([owner.userId, snapshotVaultSessionEpoch()]) === nativeDetailOwner &&
+      isValidatedAuthSessionOwnerCurrent(owner) && snapshotVaultSessionEpoch() === epoch);
+  }, [nativeDetailOwner, user?.uid]);
+  useLayoutEffect(() => {
+    memoryOperations.activate();
+    setPendingPermissionToggles({});
+    setPkmMetadata(null); setConsentCenter(null); setDomainManifests({});
+    setPkmError(null); setConsentCenterError(null);
+    setDomainManifestErrors({}); setLoadingDomainManifests({});
+    setSavingFinancialContext(false); setFinancialContextText(""); setEditingFinancialContextId(null);
+    setDomainPreview({ open: false, permissionKey: null, domainKey: null, topLevelScopePath: null,
+      title: "", description: "", presentation: null, loading: false, error: null, deletingEntityKey: null });
+    return () => memoryOperations.retire();
+  }, [memoryOperations]);
+  useLayoutEffect(() => {
+    memoryOperations.cancelPreview();
+    return () => memoryOperations.cancelPreview();
+  }, [memoryOperations, activePanel, activeDetail, nativeMenuOpen]);
+  const closeDomainPreview = () => {
+    memoryOperations.cancelPreview();
+    setDomainPreview(value => ({ ...value, open: false }));
+  };
   const accountPreparationOwner = useRef<string | null>(nativeDetailOwner);
   useLayoutEffect(() => {
     // A confirmation is not an authorization that survives owner/vault change.
@@ -961,6 +990,11 @@ function ProfilePageContent({
   const [nativeVaultAvailable, setNativeVaultAvailable] = useState(false);
   const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
   const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
+  const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
+  const [nativeMemoryWebBody, setNativeMemoryWebBody] = useState(false);
+  const nativeMemoryActive = presentation === "native-page" && nativeMenuOpen && nativeMemoryAvailable &&
+    activePanel === "my-data" && vaultAccess.canMutateSecureData;
+  useLayoutEffect(() => { setNativeMemoryWebBody(false); }, [activeDetail, nativeMenuOpen, nativeDetailOwner]);
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
   const nativePayout = useNativePayouts(nativePayoutActive);
@@ -1198,6 +1232,35 @@ function ProfilePageContent({
     ],
   );
 
+  const nativeMemory = useNativeMemory({
+    active: nativeMemoryActive, owner: nativeDetailOwner, detail: activePanel === "my-data" ? activeDetail : null,
+    loading: loadingPkmMetadata || loadingConsentCenter, metadataReady: pkmMetadataReady, sharingReady: consentCenterReady,
+    metadataFailed: !!pkmError, sharingFailed: !!consentCenterError, domains: domainPresentations, connections: accessConnections,
+    selectedDomain, selectedConnection, permissions: selectedDomainPermissions, upgrade: selectedDomainUpgrade,
+    manifestLoading: !!selectedDomain && !!loadingDomainManifests[selectedDomain.key],
+    manifestFailed: !!selectedDomain && !!domainManifestErrors[selectedDomain.key], pendingPermissions: pendingPermissionToggles,
+    preview: domainPreview,
+    openDomain: key => updateProfileView({ panel: "my-data", detail: `domain:${key}` }, "push"),
+    openConnection: id => updateProfileView({ panel: "my-data", detail: `connection:${id}` }, "push"),
+    openSharing: () => updateProfileView({ panel: "my-data", detail: "sharing" }, "push"),
+    openRoot: () => updateProfileView({ panel: "my-data", detail: null }, "replace"),
+    refresh: () => { void refreshPkmMetadata(true); void refreshConsentCenter(true); void refreshVisibleDomainManifests(true); },
+    navigate: href => router.push(href),
+    closePreview: closeDomainPreview,
+    openRetainedDetails: () => setNativeMemoryWebBody(true),
+    previewPermission: permission => selectedDomain ? handlePreviewDomainPermission(selectedDomain.key, permission) : Promise.resolve(),
+    setPosture: (permission, posture) => selectedDomain ? handleToggleDomainPermission(selectedDomain.key, permission, posture) : Promise.resolve(),
+    removeEntity: entity => handleDeletePkmPreviewEntity(entity),
+    editEntity: entity => { handleEditFinancialContextEntry(entity); setNativeMemoryWebBody(true); },
+    revoke: scope => handleRevoke(scope, undefined, { quiet: true }),
+  });
+  useBackLayer(pathname, nativeMemoryActive && !nativeMemoryWebBody && nativeMemory.nested ? 3 : 0, nativeMemory.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
+  useBackLayer(pathname, nativeMemoryActive && nativeMemoryWebBody ? 3 : 0, () => {
+    if (savingFinancialContext) return true;
+    setNativeMemoryWebBody(false); return true;
+  }, isPanePresentation ? { profile_pane: "1" } : undefined);
+
   const nativePreferences = useNativeProfilePreferences({
     enabled: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && !activeDetail && isVaultUnlocked,
     retainDraft: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && isVaultUnlocked,
@@ -1285,14 +1348,18 @@ function ProfilePageContent({
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid || hasVault === null) return;
+      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      const request = memoryOperations.beginRead("metadata");
+      setLoadingPkmMetadata(true);
+      try {
       const metadata = await loadProfilePkmMetadataForVaultState({
         userId: user.uid,
         hasVault,
         force,
         vaultOwnerToken,
       });
-      setPkmMetadata(metadata);
+      if (!request.current()) return;
+      setPkmMetadata(previous => request.current() ? metadata : previous);
       setPkmError(null);
       if (!hasVault) {
         setDomainManifests({});
@@ -1300,8 +1367,9 @@ function ProfilePageContent({
         setLoadingDomainManifests({});
       }
       return metadata;
+      } finally { if (request.current()) setLoadingPkmMetadata(false); }
     },
-    [hasVault, user?.uid, vaultOwnerToken],
+    [hasVault, user?.uid, vaultOwnerToken, memoryOperations],
   );
 
   // A domain written on another route (Wallet, Kai import, chat) reaches this
@@ -1328,8 +1396,9 @@ function ProfilePageContent({
   }, [hasVault, refreshPkmMetadata, user?.uid]);
 
   const refreshDomainManifest = useCallback(
-    async (domainKey: string, force = false) => {
-      if (!user?.uid || !vaultOwnerToken) return null;
+    async (domainKey: string, force = false, recoveryIsCurrent?: () => boolean) => {
+      if (!user?.uid || !vaultOwnerToken || !memoryOperations.current()) return null;
+      const request = memoryOperations.beginRead(`manifest:${domainKey}`);
       setLoadingDomainManifests((current) => ({
         ...current,
         [domainKey]: true,
@@ -1341,7 +1410,9 @@ function ProfilePageContent({
           vaultOwnerToken,
           force,
         );
-        setDomainManifests((current) => ({
+        if (!request.current() || recoveryIsCurrent && !recoveryIsCurrent()) return null;
+        setDomainManifests((current) => !request.current() || memoryOperations.writing(domainKey) && !recoveryIsCurrent?.() ||
+          (!manifest && !!current[domainKey]) || manifest && (current[domainKey]?.manifest_version ?? 0) > manifest.manifest_version ? current : ({
           ...current,
           [domainKey]: manifest,
         }));
@@ -1351,6 +1422,7 @@ function ProfilePageContent({
         }));
         return manifest;
       } catch (_error) {
+        if (!request.current()) return null;
         const message = "Couldn't load sharing controls for these details.";
         setDomainManifestErrors((current) => ({
           ...current,
@@ -1358,13 +1430,13 @@ function ProfilePageContent({
         }));
         return null;
       } finally {
-        setLoadingDomainManifests((current) => ({
+        if (request.current()) setLoadingDomainManifests((current) => ({
           ...current,
           [domainKey]: false,
         }));
       }
     },
-    [user?.uid, vaultOwnerToken],
+    [user?.uid, vaultOwnerToken, memoryOperations],
   );
 
   const refreshVisibleDomainManifests = useCallback(
@@ -1442,8 +1514,12 @@ function ProfilePageContent({
 
   const refreshConsentCenter = useCallback(
     async (force = false) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !memoryOperations.current()) return;
+      const request = memoryOperations.beginRead("sharing");
+      setLoadingConsentCenter(true);
+      try {
       const idToken = await user.getIdToken();
+      if (!request.current()) return;
       const nextCenter = await ConsentCenterService.getCenter({
         idToken,
         userId: user.uid,
@@ -1451,10 +1527,12 @@ function ProfilePageContent({
         view: "active",
         force,
       });
-      setConsentCenter(nextCenter);
+      if (!request.current()) return;
+      setConsentCenter(previous => request.current() ? nextCenter : previous);
       setConsentCenterError(null);
+      } finally { if (request.current()) setLoadingConsentCenter(false); }
     },
-    [user],
+    [user, memoryOperations],
   );
 
   const { handleRevoke } = useConsentActions({
@@ -1480,13 +1558,15 @@ function ProfilePageContent({
         setInitialized(true);
       }
 
-      if (!user?.uid || hasVault === null) return;
-
+      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      const metadataRead = memoryOperations.beginRead("metadata");
+      const sharingRead = memoryOperations.beginRead("sharing");
       try {
         setLoadingPkmMetadata(true);
         setLoadingConsentCenter(true);
 
         const idToken = await user.getIdToken();
+        if (cancelled || !memoryOperations.current()) return;
         const [metadata, center] = await Promise.all([
           loadProfilePkmMetadataForVaultState({
             userId: user.uid,
@@ -1502,32 +1582,26 @@ function ProfilePageContent({
             force: false,
           }),
         ]);
-        if (cancelled) return;
-        setPkmMetadata(metadata);
-        setConsentCenter(center);
-        setPkmError(null);
-        setConsentCenterError(null);
+        if (cancelled || !memoryOperations.current()) return;
+        if (metadataRead.current()) { setPkmMetadata(previous => metadataRead.current() ? metadata : previous); setPkmError(null); setLoadingPkmMetadata(false); }
+        if (sharingRead.current()) { setConsentCenter(previous => sharingRead.current() ? center : previous); setConsentCenterError(null); setLoadingConsentCenter(false); }
         if (!hasVault) {
           setDomainManifests({});
           setDomainManifestErrors({});
           setLoadingDomainManifests({});
         }
         completeStep();
-      } catch (error) {
-        console.error("Failed to load profile manager data:", error);
-        if (!cancelled) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to load profile knowledge view.";
-          setPkmError(message);
-          setConsentCenterError(message);
+      } catch {
+        if (!cancelled && memoryOperations.current()) {
+          const message = "Couldn't load saved details and access state.";
+          if (metadataRead.current()) setPkmError(message);
+          if (sharingRead.current()) setConsentCenterError(message);
           completeStep();
         }
       } finally {
-        if (!cancelled) {
-          setLoadingPkmMetadata(false);
-          setLoadingConsentCenter(false);
+        if (!cancelled && memoryOperations.current()) {
+          if (metadataRead.current()) setLoadingPkmMetadata(false);
+          if (sharingRead.current()) setLoadingConsentCenter(false);
         }
       }
     }
@@ -1548,6 +1622,7 @@ function ProfilePageContent({
     shouldLoadProfileWorkspaceData,
     user,
     vaultOwnerToken,
+    memoryOperations,
   ]);
 
   useEffect(() => {
@@ -2743,6 +2818,12 @@ function ProfilePageContent({
       requestVaultUnlock("profile_data");
       return;
     }
+    if (!memoryOperations.current()) return;
+    const request = memoryOperations.beginPreview();
+    const privacy = nativePrivacyObservation().state;
+    const current = () => memoryOperations.acceptsPreview(request) && (!privacy ||
+      nativePrivacyObservation().state?.generation === privacy.generation && nativePrivacyObservation().state?.appIsActive === true &&
+      nativePrivacyObservation().state?.shielded === false);
 
     setDomainPreview({
       open: true,
@@ -2767,6 +2848,7 @@ function ProfilePageContent({
         vaultOwnerToken,
         segmentIds: [permission.topLevelScopePath],
       });
+      if (!current()) return;
       setDomainPreview((current) => ({
         ...current,
         open: true,
@@ -2790,6 +2872,7 @@ function ProfilePageContent({
         deletingEntityKey: null,
       }));
     } catch (error) {
+      if (!current()) return;
       const message =
         error instanceof Error
           ? error.message
@@ -2814,7 +2897,10 @@ function ProfilePageContent({
 
   const handleDeletePkmPreviewEntity = async (
     entity: PkmSectionPreviewEntity,
-  ) => {
+  ): Promise<boolean> => {
+    const target = pkmPreviewEntityTarget(entity);
+    const reviewed = domainPreview.open && domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity));
+    if (!target || !reviewed) { toast.error("Reopen this saved entry before removing it."); return false; }
     const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
     const topLevelScopePath = domainPreview.topLevelScopePath;
     if (
@@ -2825,8 +2911,13 @@ function ProfilePageContent({
       !topLevelScopePath
     ) {
       requestVaultUnlock("profile_data");
-      return;
+      return false;
     }
+    const operation = memoryOperations.beginWrite(domainKey);
+    if (!operation) return false;
+    const previewRequest = memoryOperations.beginPreview();
+    const previewIsCurrent = () => operation.current() && memoryOperations.acceptsPreview(previewRequest);
+    let committed = false;
 
     setDomainPreview((current) => ({
       ...current,
@@ -2835,30 +2926,32 @@ function ProfilePageContent({
     }));
 
     try {
-      if (domainKey === "financial" && topLevelScopePath === "context") {
-        const deleted = await handleDeleteFinancialContextEntry(entity.key);
+      if (target.kind === "financial-context") {
+        if (domainKey !== "financial" || topLevelScopePath !== "context") return false;
+        const deleted = await handleDeleteFinancialContextEntry(target.entryId);
         if (!deleted) {
-          setDomainPreview((current) => ({
+          if (previewIsCurrent()) setDomainPreview((current) => ({
             ...current,
             deletingEntityKey: null,
           }));
-          return;
+          return false;
         }
       } else {
+        const parentPath = [topLevelScopePath, ...target.relativePath.slice(0, -2)].join(".");
         await PersonalKnowledgeModelService.storePreparedDomain({
           userId: user.uid,
           vaultKey,
           domain: domainKey,
           domainData: buildPkmEntityDeletionCandidate(
-            topLevelScopePath,
-            entity.key,
+            parentPath,
+            target.entityId,
           ),
           summary: {},
           mergeDecision: {
             merge_mode: "delete_entity",
             target_domain: domainKey,
-            target_entity_id: entity.key,
-            target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
+            target_entity_id: target.entityId,
+            target_entity_path: `${topLevelScopePath}.${target.relativePath.join(".")}`,
             match_confidence: 1,
             match_reason:
               "User removed this saved PKM entry from the profile interface.",
@@ -2866,6 +2959,8 @@ function ProfilePageContent({
           vaultOwnerToken,
         });
       }
+      committed = true;
+      if (!operation.current()) return true;
 
       const permission = selectedDomainPermissions.find(
         (candidate) => candidate.key === domainPreview.permissionKey,
@@ -2877,7 +2972,7 @@ function ProfilePageContent({
         vaultOwnerToken,
         segmentIds: [topLevelScopePath],
       });
-
+      if (!previewIsCurrent()) return true;
       setDomainPreview((current) => ({
         ...current,
         presentation: buildPkmSectionPreviewPresentation({
@@ -2898,17 +2993,25 @@ function ProfilePageContent({
       void refreshPkmMetadata(true);
       void refreshDomainManifest(domainKey, true);
       toast.success("Saved entry removed.");
+      return true;
     } catch (error) {
+      if (!operation.current()) return committed;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't remove this saved entry.";
-      setDomainPreview((current) => ({
+      if (previewIsCurrent()) setDomainPreview((current) => ({
         ...current,
-        error: message,
+        error: committed ? "Entry removed. Refresh to load the latest details." : message,
+        presentation: committed ? null : current.presentation,
         deletingEntityKey: null,
       }));
-      toast.error(message);
+      if (committed) toast.success("Entry removed. Refresh to load the latest details.");
+      else toast.error(message);
+      return committed;
+    } finally {
+      if (previewIsCurrent()) setDomainPreview(value => ({ ...value, deletingEntityKey: null }));
+      operation.finish();
     }
   };
 
@@ -2935,6 +3038,9 @@ function ProfilePageContent({
       toast.error("These details are still preparing sharing controls.");
       return;
     }
+    const operation = memoryOperations.beginWrite(domainKey);
+    if (!operation) return;
+    let committed = false;
 
     const optimisticManifest = applyManifestExposureChange(
       previousManifest,
@@ -2970,46 +3076,54 @@ function ProfilePageContent({
         previousManifest,
         vaultOwnerToken,
       });
-
+      committed = true;
+      if (!operation.current()) return;
       setDomainManifests((current) => ({
         ...current,
         [domainKey]: updatedManifest,
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
+      if (!operation.current()) return;
       toast.success(
         nextPosture === "private"
           ? "This section is private."
           : "One will ask before sharing this section.",
       );
     } catch (error) {
+      if (!operation.current()) return;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't update sharing right now.";
-      setDomainManifests((current) => ({
+      if (!committed) setDomainManifests((current) => ({
         ...current,
         [domainKey]: previousManifest,
       }));
 
-      if (error instanceof PkmScopeExposureError && error.status === 409) {
-        await Promise.all([
-          refreshDomainManifest(domainKey, true),
+      if (committed) {
+        toast.success("Sharing updated. Refresh to load the latest access state.");
+      } else if (error instanceof PkmScopeExposureError && error.status === 409) {
+        const [refreshed] = await Promise.all([
+          refreshDomainManifest(domainKey, true, operation.current),
           refreshConsentCenter(true),
           refreshPkmMetadata(true),
         ]);
+        if (!operation.current()) return;
         toast.error(
-          "Sharing changed elsewhere. The latest version has been reloaded.",
+          refreshed ? "Sharing changed elsewhere. The latest version has been reloaded."
+            : "Sharing changed elsewhere. Refresh these details before trying again.",
         );
       } else {
         void refreshDomainManifest(domainKey, true);
         toast.error(message || "Couldn't update sharing right now.");
       }
     } finally {
-      setPendingPermissionToggles((current) => {
+      if (operation.current()) setPendingPermissionToggles((current) => {
         const next = { ...current };
         delete next[permissionKey];
         return next;
       });
+      operation.finish();
     }
   };
 
@@ -3025,6 +3139,8 @@ function ProfilePageContent({
       toast.error("Add financial context before saving.");
       return;
     }
+    const operation = memoryOperations.beginWrite("financial");
+    if (!operation) return;
 
     const updatedAt = new Date().toISOString();
     setSavingFinancialContext(true);
@@ -3042,6 +3158,7 @@ function ProfilePageContent({
           source: "profile_financial_context_save",
         },
         build: (context) => {
+          if (!operation.current()) throw new Error("session_changed");
           const current = context.currentDomainData || {};
           const existingContext =
             current.context &&
@@ -3102,6 +3219,7 @@ function ProfilePageContent({
       if (!result.success) {
         throw new Error(result.message || "Financial context save failed.");
       }
+      if (!operation.current()) return;
 
       toast.success(
         editingFinancialContextId
@@ -3113,6 +3231,7 @@ function ProfilePageContent({
       void refreshPkmMetadata(true);
       void refreshDomainManifest("financial", true);
     } catch (error) {
+      if (!operation.current()) return;
       const message =
         error instanceof Error
           ? error.message
@@ -3120,11 +3239,16 @@ function ProfilePageContent({
       setPkmError(message);
       toast.error(message);
     } finally {
-      setSavingFinancialContext(false);
+      if (operation.current()) setSavingFinancialContext(false);
+      operation.finish();
     }
   };
 
   const handleEditFinancialContextEntry = (entity: PkmSectionPreviewEntity) => {
+    if (!memoryOperations.current() || memoryOperations.writing("financial")) return;
+    const target = pkmPreviewEntityTarget(entity);
+    if (target?.kind !== "financial-context" || !domainPreview.open ||
+        !domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity))) return;
     const payload = entity.editPayload || {};
     const category =
       typeof payload.category === "string" && payload.category.trim()
@@ -3135,10 +3259,10 @@ function ProfilePageContent({
         ? payload.text.trim()
         : entity.fields.find((field) => field.label === "Context")?.value || "";
 
-    setEditingFinancialContextId(entity.key);
+    setEditingFinancialContextId(target.entryId);
     setFinancialContextCategory(category as FinancialContextCategory);
     setFinancialContextText(text);
-    setDomainPreview((current) => ({ ...current, open: false }));
+    closeDomainPreview();
   };
 
   const handleDeleteFinancialContextEntry = async (entryId: string) => {
@@ -3146,6 +3270,9 @@ function ProfilePageContent({
       requestVaultUnlock("profile_data");
       return false;
     }
+    // Called only by the fenced entity-removal owner, which already holds
+    // the financial-domain writer. Do not acquire the same lock twice.
+    if (!memoryOperations.current() || !memoryOperations.writing("financial")) return false;
 
     const updatedAt = new Date().toISOString();
     try {
@@ -3160,6 +3287,7 @@ function ProfilePageContent({
           source: "profile_financial_context_delete",
         },
         build: (context) => {
+          if (!memoryOperations.current() || !memoryOperations.writing("financial")) throw new Error("session_changed");
           const current = context.currentDomainData || {};
           const existingContext =
             current.context &&
@@ -3209,11 +3337,13 @@ function ProfilePageContent({
       if (!result.success) {
         throw new Error(result.message || "Financial context delete failed.");
       }
+      if (!memoryOperations.current()) return true;
 
       void refreshPkmMetadata(true);
       void refreshDomainManifest("financial", true);
       return true;
     } catch (error) {
+      if (!memoryOperations.current()) return false;
       const message =
         error instanceof Error
           ? error.message
@@ -3876,6 +4006,7 @@ function ProfilePageContent({
     <div className="space-y-3">
       <Select
         value={financialContextCategory}
+        disabled={savingFinancialContext}
         onValueChange={(value) =>
           setFinancialContextCategory(value as FinancialContextCategory)
         }
@@ -3894,6 +4025,7 @@ function ProfilePageContent({
       </Select>
       <Textarea
         value={financialContextText}
+        disabled={savingFinancialContext}
         onChange={(event) => setFinancialContextText(event.target.value)}
         placeholder="What should Hussh remember?"
         className="min-h-[112px]"
@@ -4107,12 +4239,7 @@ function ProfilePageContent({
                 : undefined
             }
             hideHighlights={selectedDomain.key === "financial"}
-            onPreviewOpenChange={(open) =>
-              setDomainPreview((current) => ({
-                ...current,
-                open,
-              }))
-            }
+            onPreviewOpenChange={(open) => { if (!open) closeDomainPreview(); }}
             onPreviewPermission={(permission) =>
               void handlePreviewDomainPermission(selectedDomain.key, permission)
             }
@@ -4756,8 +4883,11 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable}
-    workspace={activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable}
+    workspace={activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
+      pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
+      back: () => { if (!nativeMemory.back()) popProfileStack(); }, root: () => updateProfileView({ panel: null, detail: null }, "replace")
+    } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
       onPresented: nativePayout.onPresented,
       ancestor: nativePayout.ancestor,
       back: () => { if (!nativePayout.back()) popProfileStack(); },

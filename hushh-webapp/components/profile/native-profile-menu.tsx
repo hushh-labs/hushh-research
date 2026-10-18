@@ -86,7 +86,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -104,7 +104,8 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onVaultCapability?: (supported: boolean) => void;
   onPricingCapability?: (supported: boolean) => void;
   onPayoutCapability?: (supported: boolean) => void;
-  workspace?: { kind: "request-pricing" | "payouts"; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
+  onMemoryCapability?: (supported: boolean) => void;
+  workspace?: { kind: "request-pricing" | "payouts" | "memory"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
     editor?: (destinationId: string) => ReactNode; onPresented?: () => void };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
   phone?: { active: boolean; editor: (options: { native: boolean; destinationId?: string; onFallback: () => void }) => ReactNode };
@@ -120,6 +121,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [vaultSupported, setVaultSupported] = useState(false);
   const [pricingSupported, setPricingSupported] = useState(false);
   const [payoutSupported, setPayoutSupported] = useState(false);
+  const [memorySupported, setMemorySupported] = useState(false);
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
@@ -155,10 +157,12 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setPricingSupported(pricing); onPricingCapability?.(pricing);
         const payout = stack && capability.profilePayoutPages === true;
         setPayoutSupported(payout); onPayoutCapability?.(payout);
+        const memory = stack && capability.profileMemoryPages === true;
+        setMemorySupported(memory); onMemoryCapability?.(memory);
       }
-    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); } });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability]);
+  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability]);
   useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
   const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
   const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);
@@ -166,10 +170,10 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&
-    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : payoutSupported && workspace.pages[0]?.id === "payouts");
+    workspace.pages.length === 1 && workspace.pages[0]?.id === "request-pricing" : workspace.kind === "payouts" ? payoutSupported && workspace.pages[0]?.id === "payouts" : memorySupported && workspace.pages[0]?.id === "memory");
   const nativePath: readonly NativeProfilePage[] = nativeAccount ? [account!.page, ...(account!.confirmation ? [account!.confirmation] : [])] : nativeSettings ? settings!.pages : nativeLegal ? legal!.pages : nativeWorkspace ? workspace!.pages : [];
   const destinationKey = nativeSupport ? JSON.stringify([menu.surfaceOpen, "support"]) :
-    nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null]) : "";
+    nativePath.length ? JSON.stringify([menu.surfaceOpen, nativePath.map(item => item.id), nativePhone ? "phone" : null, nativeWorkspace ? workspace?.visitKey : null]) : "";
   // A new destination visit gets a new token, including A → B → A. Compatible
   // theme/content updates preserve it; an old form cannot act in a later visit.
   const destinationId = useMemo(() => destinationKey && lifetime ? crypto.randomUUID() : undefined, [lifetime, destinationKey]);

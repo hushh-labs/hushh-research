@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
+import { buildPkmSectionPreviewPresentation, pkmPreviewEntityTarget } from "@/lib/profile/pkm-section-preview";
 
 describe("buildPkmSectionPreviewPresentation", () => {
   it("unwraps single-key section payloads and converts entity maps into readable entries", () => {
@@ -36,6 +36,9 @@ describe("buildPkmSectionPreviewPresentation", () => {
     expect(presentation.groups[0].items[0]?.title).toBe("I live in New York City now.");
     expect(presentation.groups[0].items[0]?.subtitle).toBe("correction · active");
     expect(presentation.groups[0].items[0]?.deletable).toBe(true);
+    const entity = presentation.groups[0].items[0]!;
+    expect(pkmPreviewEntityTarget(entity)).toEqual({ kind: "entity", relativePath: ["entities", "sf_residence_001"], entityId: "sf_residence_001" });
+    expect(pkmPreviewEntityTarget(JSON.parse(JSON.stringify(entity)))).toBeNull();
     expect(presentation.groups[0].items[0]?.fields).toEqual([]);
     expect(JSON.stringify(presentation)).not.toContain("sf_residence_001");
     expect(JSON.stringify(presentation)).not.toMatch(/created at|updated at/i);
@@ -43,6 +46,28 @@ describe("buildPkmSectionPreviewPresentation", () => {
       presentation.groups[0].items[0]?.fields.some((field) => field.label === "Entity Id")
     ).toBe(false);
     expect(presentation.groups[0].items[0]?.sections?.[0]?.label).toBe("Observations");
+  });
+
+  it("binds context edits to the original saved ID without putting it in display/export JSON", () => {
+    const params = { domain: "financial", domainTitle: "Finance", permissionLabel: "Context", topLevelScopePath: "context",
+      value: { context: { entries: [{ id: "ctx_original", category: "risk", text: "Synthetic investment preference" }] } } };
+    const presentation = buildPkmSectionPreviewPresentation(params);
+    const group = presentation.groups[0]!;
+    if (group.kind !== "entities") throw new Error("expected context entities");
+    const entity = group.items[0]!;
+    expect(entity.key).toBe("context-1");
+    expect(pkmPreviewEntityTarget(entity)).toEqual({ kind: "financial-context", entryId: "ctx_original" });
+    expect(JSON.stringify(presentation)).not.toContain("ctx_original");
+    expect(pkmPreviewEntityTarget({ ...entity })).toBeNull();
+    const unknown = buildPkmSectionPreviewPresentation({ ...params, domain: "professional" });
+    expect(unknown.groups[0]?.kind === "entities" && unknown.groups[0].items[0]?.editable).toBe(false);
+    const unsupported = buildPkmSectionPreviewPresentation({ ...params, topLevelScopePath: " context ", value: {
+      entities: { private_entry: { summary: "Noncanonical section" } },
+      context: { entries: [{ id: "canonical_sibling", text: "Keep this sibling" }] },
+    } });
+    const unsupportedEntities = unsupported.groups.flatMap(group => group.kind === "entities" ? group.items : []);
+    expect(unsupportedEntities.length).toBeGreaterThan(0);
+    expect(unsupportedEntities.every(entity => !entity.deletable && pkmPreviewEntityTarget(entity) === null)).toBe(true);
   });
 
   it("renders receipts memory as semantic groups instead of raw keys", () => {
