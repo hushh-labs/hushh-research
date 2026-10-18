@@ -4878,12 +4878,39 @@ final class AppUITests: XCTestCase {
                 // bodies. Exercise the real handoff and return in this batch;
                 // the old early-continue skipped precisely these transitions.
                 let children: [String] = id == "account" ? ["account-phone"] :
-                    id == "preferences" ? ["preferences-gemini", "preferences-voice"] : ["security-vault"]
+                    id == "preferences" ? (ProcessInfo.processInfo.environment["HUSHH_PROFILE_PROVIDER_ONLY"] == "true" ? ["preferences-gemini"] : ["preferences-gemini", "preferences-voice"]) : ["security-vault"]
                 for childID in children {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
                     guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     print("PROFILE_BATCH_STEP stage=child_tap")
                     child.tap()
+                    if childID == "preferences-gemini", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                        let ownKey = app.buttons["native-profile-row-runtime-byok"].firstMatch
+                        let configure = app.buttons["native-profile-row-runtime-configure"].firstMatch
+                        let providerBack = app.navigationBars.buttons["Preferences"].firstMatch
+                        guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else { XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return }
+                        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_PROVIDER_DUPLICATE_WEB_BODY")
+                        // Choosing an editor changes no saved configuration.
+                        // Never validate, save or remove the reviewer's key.
+                        if configure.exists { configure.tap() } else { ownKey.tap() }
+                        let key = app.secureTextFields["native-runtime-credential"].firstMatch
+                        let endpoint = app.segmentedControls["native-runtime-transport"].firstMatch
+                        let cancel = app.buttons["native-runtime-cancel"].firstMatch
+                        guard waitForAdmittedControl(key), waitForAdmittedControl(endpoint), waitForAdmittedControl(cancel) else { XCTFail("PROFILE_NATIVE_PROVIDER_EDITOR_UNAVAILABLE"); return }
+                        key.tap()
+                        guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_PROVIDER_KEYBOARD_UNAVAILABLE"); return }
+                        let vertex = endpoint.buttons["Vertex"].firstMatch
+                        guard waitForAdmittedControl(vertex) else { XCTFail("PROFILE_NATIVE_PROVIDER_ENDPOINT_UNAVAILABLE"); return }
+                        vertex.tap()
+                        let project = app.textFields["native-runtime-project"].firstMatch
+                        guard waitForAdmittedControl(project) else { XCTFail("PROFILE_NATIVE_PROVIDER_VERTEX_FIELDS_UNAVAILABLE"); return }
+                        cancel.tap()
+                        guard waitForAdmittedControl(providerBack), waitForAdmittedControl(ownKey) else { XCTFail("PROFILE_NATIVE_PROVIDER_EDITOR_RETURN_FAILED"); return }
+                        providerBack.tap()
+                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_PROVIDER_PARENT_NOT_RESTORED"); return }
+                        print("PROFILE_NATIVE_PROVIDER editor=true endpoint=true keyboard=true returned=true mutated=false")
+                        continue
+                    }
                     if childID == "account-phone", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let number = app.textFields["native-phone-number"].firstMatch
                         let country = app.buttons["native-phone-country"].firstMatch

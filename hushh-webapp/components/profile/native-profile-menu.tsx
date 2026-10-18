@@ -87,7 +87,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, detailOverlay, account, settings, support, legal, phone, workspace, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented" | "onHidden" | "fallbackOwned">;
@@ -99,7 +99,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   detailOverlay?: ReactNode;
   account?: { active: boolean; page: NativeProfilePage; confirmation?: NativeProfilePage; back?: () => void; root?: () => void;
     rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
-  settings?: { active: boolean; requiresVoice?: boolean; requiresFinance?: boolean; requiresDevices?: boolean; requiresVault?: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; back?: () => void; ancestor?: NativeDrawerActions["ancestor"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
+  settings?: { active: boolean; requiresVoice?: boolean; requiresFinance?: boolean; requiresDevices?: boolean; requiresVault?: boolean; requiresRuntime?: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; back?: () => void; ancestor?: NativeDrawerActions["ancestor"]; root: () => void; editor?: (destinationId?: string) => ReactNode };
   onVoiceCapability?: (supported: boolean) => void;
   onDevicesCapability?: (supported: boolean) => void;
   onVaultCapability?: (supported: boolean) => void;
@@ -108,6 +108,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   onMemoryCapability?: (supported: boolean) => void;
   onFinanceCapability?: (supported: boolean) => void;
   onWorldModelCapability?: (supported: boolean) => void;
+  onRuntimeCapability?: (supported: boolean) => void;
   workspace?: { kind: "request-pricing" | "payouts" | "memory" | "world-model"; visitKey?: string; active: boolean; pages: readonly NativeProfilePage[]; rows: NativeDrawerActions["rows"]; root: () => void; back?: () => void; ancestor?: NativeDrawerActions["ancestor"];
     editor?: (destinationId: string) => ReactNode; onPresented?: () => void };
   support?: { active: boolean; editor: (destinationId: string, onFallback: () => void) => ReactNode };
@@ -127,6 +128,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const [memorySupported, setMemorySupported] = useState(false);
   const [financeSupported, setFinanceSupported] = useState(false);
   const [worldModelSupported, setWorldModelSupported] = useState(false);
+  const [runtimeSupported, setRuntimeSupported] = useState(false);
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [phoneFailedVisit, setPhoneFailedVisit] = useState<string | null>(null);
   const [supportFailedOwner, setSupportFailedOwner] = useState<string | null>(null);
@@ -168,14 +170,16 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
         setFinanceSupported(finance); onFinanceCapability?.(finance);
         const worldModel = stack && capability.profileWorldModelPages === true && hasNativeProfileScene(nativeDrawers, "world-model");
         setWorldModelSupported(worldModel); onWorldModelCapability?.(worldModel);
+        const runtime = settings && capability.profileRuntimeScene === true && hasNativeProfileScene(nativeDrawers, "runtime-provider");
+        setRuntimeSupported(runtime); onRuntimeCapability?.(runtime);
       }
-    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); } });
+    }).catch(() => { if (current) { setStackSupported(false); setVoiceSupported(false); onVoiceCapability?.(false); setDevicesSupported(false); onDevicesCapability?.(false); setVaultSupported(false); onVaultCapability?.(false); setPricingSupported(false); onPricingCapability?.(false); setPayoutSupported(false); onPayoutCapability?.(false); setMemorySupported(false); onMemoryCapability?.(false); setFinanceSupported(false); onFinanceCapability?.(false); setWorldModelSupported(false); onWorldModelCapability?.(false); setRuntimeSupported(false); onRuntimeCapability?.(false); } });
     return () => { current = false; };
-  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability]);
+  }, [hasAccount, onVoiceCapability, onDevicesCapability, onVaultCapability, onPricingCapability, onPayoutCapability, onMemoryCapability, onFinanceCapability, onWorldModelCapability, onRuntimeCapability]);
   useEffect(() => { if (!phone?.active) setPhoneFailedVisit(null); }, [phone?.active]);
   const nativePhone = phoneSupported && phone?.active === true && phoneFailedVisit !== lifetime;
   const nativeAccount = stackSupported === true && account?.active === true && (!account.confirmation || accountActionsSupported) && (!phone?.active || nativePhone);
-  const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported) && (!settings.requiresFinance || financeSupported) && (!settings.requiresDevices || devicesSupported) && (!settings.requiresVault || vaultSupported);
+  const nativeSettings = settingsSupported && settings?.active === true && (!settings.requiresVoice || voiceSupported) && (!settings.requiresFinance || financeSupported) && (!settings.requiresDevices || devicesSupported) && (!settings.requiresVault || vaultSupported) && (!settings.requiresRuntime || runtimeSupported);
   const nativeSupport = supportSupported && support?.active === true && supportFailedOwner !== lifetime;
   const nativeLegal = legalSupported && legal?.active === true;
   const nativeWorkspace = workspace?.active === true && (workspace.kind === "request-pricing" ? pricingSupported &&

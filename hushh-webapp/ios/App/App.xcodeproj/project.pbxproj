@@ -24,6 +24,7 @@
 		5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000007 /* NativeProfileArtwork.swift */; };
 		5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000009 /* NativeProfileNameScene.swift */; };
 		5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */; };
+		5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */; };
 		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
 		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
 		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
@@ -135,6 +136,7 @@
 		5E5510C10000000000000001 /* NativeDrawerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerState.swift; path = Plugins/NativeDrawerState.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000009 /* NativeProfileNameScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileNameScene.swift; path = Plugins/NativeProfileNameScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileWorldModelScene.swift; path = Plugins/NativeProfileWorldModelScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileRuntimeScene.swift; path = Plugins/NativeProfileRuntimeScene.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 				5E5510C10000000000000001 /* NativeDrawerState.swift */,
 				5E5510C10000000000000009 /* NativeProfileNameScene.swift */,
 				5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */,
+				5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */,
 				5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */,
 				5E5510C1000000000000000D /* NativeProfileStyleScene.swift */,
 				5E5510C1000000000000000F /* NativeProfileSupportScene.swift */,
@@ -587,6 +590,7 @@
 				5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */,
 				5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */,
 				5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */,
+				5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */,
 				5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */,
 				5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */,
 				5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */,

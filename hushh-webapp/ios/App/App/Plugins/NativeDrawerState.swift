@@ -137,13 +137,13 @@ struct NativeDrawerProjection: Codable {
                   !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["world-model", "memory", "payouts", "request-pricing", "account", "preferences", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
                         Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "world-model" && Self.validWorldModelPath(stack.map(\.id)) ||
                         stack.first?.id == "payouts" && Self.validPayoutPath(stack.map(\.id)) ||
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
-                        page.id == "voice" && index == 1 && stack.first?.id == "preferences" ||
+                        ["voice", "gemini"].contains(page.id) && index == 1 && stack.first?.id == "preferences" ||
                         ["session", "devices"].contains(page.id) && index == 1 && stack.first?.id == "security" ||
                         page.id == "device-unlink" && (index == 1 && stack.first?.id == "devices" || index == 2 && stack.first?.id == "security" && stack[1].id == "devices") ||
                         page.id == "vault" && index == 1 && stack.first?.id == "security" ||

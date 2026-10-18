@@ -302,6 +302,35 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderFormRetainsFinalInputAndScrubsItsPrivateReplica() {
+        func state(_ update: Int, _ ack: Int, destination: String = "public-runtime-visit") -> NativeRuntimeProjection {
+            NativeRuntimeProjection(documentId: "public-runtime-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+                family: "profile", scene: "runtime-provider", destinationId: destination, updateSequence: update, privacyGeneration: 0,
+                acknowledgedEditRevision: ack, draftRevision: ack, draft: NativeRuntimeDraft(credential: ack == 0 ? "" : "synthetic-provider-key", transport: "developer_api", project: "", location: "global"),
+                canSave: true, busy: false, checking: false, primary: "validate", error: "Public validation example", appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+        }
+        let model = NativeRuntimeModel(state(1, 0)), field = UITextField()
+        field.isSecureTextEntry = true; model.register(field, name: "credential")
+        model.edit = { _, _, _ in true }; model.choose = { _ in true }
+        field.text = "synthetic-provider-key"; model.capture()
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.update(state(2, 1, destination: "retired-runtime-visit")))
+        XCTAssertTrue(model.update(state(2, 1)))
+        XCTAssertTrue(model.canSave)
+        model.action("save"); let action = model.pending!
+        XCTAssertTrue(model.confirm(action)); XCTAssertFalse(model.confirm(action))
+        XCTAssertTrue(model.settle(action)); XCTAssertEqual(field.text, "synthetic-provider-key")
+        var finalInput: NativeRuntimeDraft?
+        model.finalEdit = { value, _ in finalInput = value }
+        field.text = "synthetic-final-provider-key"
+        model.clear()
+        XCTAssertEqual(finalInput?.credential, "synthetic-final-provider-key", "Final committed text is reconciled before replica scrubbing")
+        XCTAssertEqual(field.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
+        XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.finalEdit)
+        XCTAssertFalse(model.update(state(3, 1)))
+    }
+
+    @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()

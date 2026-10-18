@@ -50,7 +50,7 @@ source coverage, not whole-program or installed-candidate acceptance:
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
 | Memory | Native category/section/entity browsing, search, sharing and Live Memory source mapping; shared/protected bodies and ordinary editing still require native conversion/qualification |
 | Personal World Model | Native research/status, cited facts/decisions/corrections/removal, public-source preparation/review/sharing confirmation, invitation create/share/revoke/claim and research/email settings are source-mapped; combined candidate qualification is separate |
-| Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor now source-mapped through its shared controller, awaiting candidate qualification; provider body remains unmapped |
+| Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor and Gemini configuration now source-mapped through shared controllers; their candidate qualification remains separate |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
 | Connectors | Catalog, details, configuration and authorization-return bodies still require native mapping |
@@ -131,8 +131,36 @@ set or idempotency scopes. Profile-only `navigationLocked` blocks Close, Back,
 ancestor and drawer gestures during reconciliation, while keeping the existing
 Retry action usable; it is not a global content-disable flag. These contracts
 are additive to NativeDrawers v1 and do not enable ordinary native admission.
-The installed `82f9dd038c` candidate does not contain this continuation or the
-Finance continuation; do not transfer its physical acceptance to either.
+Installed World Model candidate `9e030cd669`, Agent One 1.4.1 (69), UAT Debug
+qualification, passes two native host contracts, credential-free XCTest admission,
+configured normal passphrase unlock and one attach-only World Model journey.
+Research/email settings, sources, the native URL editor and software keyboard,
+Cancel and nested Back return successfully without a record mutation. The batch
+observes full-height Profile and one accessible WebView on return; these counts
+are not object-identity, transition-frame, accessibility or Release-performance
+acceptance. The executable digest is
+`9a21e8f5aadefa4d0fef59e18a9b9134d25102bdeb4e179780d5c630453425f3`;
+1,681 bundled/exported assets match at
+`65597307516f01c02ee86420e8dc8f2fbce8c7022f63632644bc2639d5580c8e`.
+Strict app/runner signatures, seven UAT targets and no remote override pass.
+This installed candidate includes the Finance source, but that family has not
+inherited this World Model journey's acceptance.
+
+Gemini continuation (source only): Preferences and the established web/setup
+surfaces now share one owner/credential-visit controller. Native mode rows and
+the complete private editor retain endpoint, project/location, secure key input,
+validation, explicit Save, removal, cancellation and existing encrypted writers.
+The API key never enters public chrome, native persistence or diagnostics.
+Provider validation is distinct from a saved configuration; coming-soon providers
+remain read-only. Ordinary custom-native admission stays off.
+
+Token/epoch replacement retires the old controller and editor binding. Saved
+configuration reads cannot replace a staged or freshly validated tuple, and a
+retired write stops before its next operation. Final committed native input has
+a read-only, revision-fenced reconciliation path before replica scrubbing; it
+cannot restore actions or overwrite newer input. Explicit Cancel and successful
+Save discard that readback. These source contracts and candidate builds are not
+physical provider, real credential-save or whole-roster acceptance.
 
 The subsequent cold export exposed an independent source-discovery problem:
 the compiler opened ignored `ios/App/build` object/dependency files and its

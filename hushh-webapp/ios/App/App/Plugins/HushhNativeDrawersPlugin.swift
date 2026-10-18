@@ -81,6 +81,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmProfileWorldModelAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfileWorldModelAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireProfileWorldModelScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfileRuntimeScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfileRuntimeAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfileRuntimeAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfileRuntimeScene", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
@@ -95,6 +99,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var phoneScene: NativeProfilePhoneScene? { form as? NativeProfilePhoneScene }
     private var passwordScene: NativeProfilePasswordScene? { form as? NativeProfilePasswordScene }
     private var worldModelScene: NativeProfileWorldModelScene? { form as? NativeProfileWorldModelScene }
+    private var runtimeScene: NativeProfileRuntimeScene? { form as? NativeProfileRuntimeScene }
     private var pricingScene: NativeProfilePricingScene? {
         get { form as? NativeProfilePricingScene }
         set { form = newValue }
@@ -157,6 +162,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profilePayoutPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileMemoryPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileWorldModelPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileRuntimeScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
@@ -465,9 +471,96 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let worldModelDestinations: [String: Set<String>] = ["world-model-fact-edit": ["world-model-fact", "world-model-review-fact"], "world-model-sources": ["world-model-sources"], "world-model-invitation": ["world-model-invitations"]]
         let nativeWorldModel = worldModelDestinations[scene]?.contains(profile.profileStack?.last?.id ?? "") == true && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativeRuntime = scene == "runtime-provider" && profile.open && profile.profileStack?.last?.id == "gemini" &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel) && profile.enabled
+            (!profile.open && destinationId == nil || nativeAccount || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime) && profile.enabled
+    }
+    @objc func applyProfileRuntimeScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeRuntimeProjection.keys),
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == NativeRuntimeProjection.draftKeys,
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
+                  let next = try? JSONDecoder().decode(NativeRuntimeProjection.self, from: bytes), next.valid,
+                  self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_RUNTIME_UNAVAILABLE"); return }
+            if let scene = self.runtimeScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_RUNTIME_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.controllers["profile"]?.presentationSettled == true else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return }
+            let scene = NativeProfileRuntimeScene(next); self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.finalEdit = { [weak self, weak scene] draft, revision in
+                guard let self, let scene, self.sessionFence.contains(scene.identity),
+                      self.runtimeScene === scene || self.retiringForms[ObjectIdentifier(scene)] === scene else { return }
+                let state = scene.model.projection
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = false; event["editRevision"] = revision
+                event["baseDraftRevision"] = state.draftRevision; event["acknowledgedEditRevision"] = state.acknowledgedEditRevision
+                self.notifyListeners("profileRuntimeFinalEdit", data: event, retainUntilConsumed: false)
+            }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.runtimeScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profileRuntimeEdit", data: event, retainUntilConsumed: false); return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.runtimeScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profileRuntimeAction", data: event, retainUntilConsumed: false); return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return }
+                guard presented, self.runtimeScene === scene,
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                    if self.runtimeScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_RUNTIME_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_RUNTIME_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfileRuntimeAction(_ call: CAPPluginCall) { runtimeAction(call, settlement: false) }
+    @objc func settleProfileRuntimeAction(_ call: CAPPluginCall) { runtimeAction(call, settlement: true) }
+    private func runtimeAction(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "runtime-provider", destinationId: call.getString("destinationId")),
+                  let scene = self.runtimeScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: "runtime-provider") else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfileRuntimeScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
+                  let identity = self.identity(call), identity.family == "profile", call.getString("scene") == "runtime-provider",
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_RUNTIME_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == "runtime-provider" && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.runtimeScene {
+                guard scene.identity == identity, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_RUNTIME_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_RUNTIME_STALE_RETIREMENT"); return }
+            // Main-actor admission creates the form before presentation starts.
+            // With neither an active nor retiring instance there is nothing to
+            // withdraw; an unadmitted revision cannot poison other form leases.
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = "runtime-provider"; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
     }
     @objc func applyProfileWorldModelScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in

@@ -33,6 +33,7 @@ import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
 import { NativeWorldModelFence, validNativeWorldModelProjection, type NativeWorldModelProjection, type WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
+import { NativeRuntimeFence, validNativeRuntimeProjection, validNativeRuntimeFinalEdit, type NativeRuntimeProjection } from "@/lib/capacitor/native-profile-runtime-scene";
 import { NativePasswordFence, validNativePasswordProjection, type NativePasswordProjection } from "@/lib/capacitor/native-profile-password-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
 import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
@@ -52,6 +53,33 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("fences the private provider form by destination, final edit and one-shot confirmation", async () => {
+    const state: NativeRuntimeProjection = { documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+      family: "profile", scene: "runtime-provider", destinationId: "public-runtime-visit", updateSequence: 1, privacyGeneration: 0,
+      acknowledgedEditRevision: 0, draftRevision: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", primary: "validate", error: null,
+      draft: { credential: "synthetic-provider-key", transport: "developer_api", project: "", location: "global" }, canSave: true, busy: false, checking: false };
+    expect(validNativeRuntimeProjection(state)).toBe(true);
+    expect(validNativeRuntimeProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
+    const fence = new NativeRuntimeFence(state);
+    expect(fence.update(state)).toBe(true);
+    const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
+    const identity = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId };
+    const edit = { ...identity, draft: state.draft, updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
+    const finalEdit = { ...edit, baseDraftRevision: 0, acknowledgedEditRevision: 0 };
+    expect(validNativeRuntimeFinalEdit(finalEdit, state)).toBe(true);
+    expect(validNativeRuntimeFinalEdit({ ...finalEdit, destinationId: "retired-visit" }, state)).toBe(false);
+    expect(validNativeRuntimeFinalEdit({ ...finalEdit, composing: true }, state)).toBe(false);
+    expect(fence.consumeEdit({ ...edit, destinationId: "retired-runtime-visit" })).toBe(false);
+    expect(fence.consumeEdit(edit)).toBe(true);
+    const action = { ...identity, updateSequence: 1, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1 })).toBe(true);
+    const final = { ...action, updateSequence: 2 };
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(true);
+    expect(await fence.consumeAction(final, async () => ({ valid: true }), () => true)).toBe(false);
+    fence.retire();
+    expect(fence.consumeEdit({ ...edit, editRevision: 2 })).toBe(false);
+  });
   it.each<WorldModelForm>([
     { scene: "world-model-fact-edit", draft: { text: "Public corrected statement" } },
     { scene: "world-model-sources", draft: { urls: "https://public.example/profile", permitted: true } },
