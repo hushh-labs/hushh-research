@@ -1050,7 +1050,8 @@ class DirectMessagesService:
         )
         self._reject_self(viewer, peer)
         row = self._conversation_by_pair(viewer, peer)
-        can_send = bool(self._active_connection_id(viewer, peer))
+        connection_id = self._active_connection_id(viewer, peer)
+        can_send = bool(connection_id)
         if row:
             conversation = self._public_conversation(self._conversation_projection(row, viewer))
             # The query's graph snapshot is authoritative for its own result,
@@ -1061,14 +1062,60 @@ class DirectMessagesService:
             return {
                 "conversation": conversation,
                 "peerPersonRef": conversation["peerPersonRef"] or person_ref,
+                "peerDisplayName": conversation["peerDisplayName"],
+                "peerPhotoUrl": conversation["peerPhotoUrl"],
                 "canSend": can_send,
                 "disconnectedNotice": not can_send,
             }
+        if connection_id:
+            # A first-message draft needs the same identity as Connect. Fence
+            # this read too: a revoke/block between the two queries must not
+            # disclose a now-unavailable peer's profile or claim it is writable.
+            profile = self._execute_one(
+                """
+                SELECT
+                  peer_profile.public_person_ref AS peer_person_ref,
+                  peer_identity.display_name AS peer_display_name,
+                  COALESCE(
+                    NULLIF(BTRIM(peer_identity.custom_photo_url), ''),
+                    NULLIF(BTRIM(peer_identity.photo_url), '')
+                  ) AS peer_photo_url
+                FROM connections connection
+                LEFT JOIN actor_profiles peer_profile
+                  ON peer_profile.user_id = :peer_user_id
+                LEFT JOIN actor_identity_cache peer_identity
+                  ON peer_identity.user_id = :peer_user_id
+                WHERE connection.id = CAST(:connection_id AS UUID)
+                  AND connection.status = 'active'
+                  AND connection.user_a_id = LEAST(:viewer_user_id, :peer_user_id)
+                  AND connection.user_b_id = GREATEST(:viewer_user_id, :peer_user_id)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM direct_message_blocks block
+                    WHERE (block.blocker_user_id = :viewer_user_id
+                           AND block.blocked_user_id = :peer_user_id)
+                       OR (block.blocker_user_id = :peer_user_id
+                           AND block.blocked_user_id = :viewer_user_id)
+                  )
+                LIMIT 1
+                """,
+                {"viewer_user_id": viewer, "peer_user_id": peer, "connection_id": connection_id},
+            )
+            if profile:
+                return {
+                    "conversation": None,
+                    "peerPersonRef": str(profile.get("peer_person_ref") or "").strip()
+                    or person_ref,
+                    "peerDisplayName": str(profile.get("peer_display_name") or "").strip()
+                    or "Hussh member",
+                    "peerPhotoUrl": str(profile.get("peer_photo_url") or "").strip() or None,
+                    "canSend": True,
+                    "disconnectedNotice": False,
+                }
         return {
             "conversation": None,
             "peerPersonRef": person_ref,
-            "canSend": can_send,
-            "disconnectedNotice": not can_send,
+            "canSend": False,
+            "disconnectedNotice": True,
         }
 
     def _message_relationship_exists(self, user_id: str, peer_user_id: str) -> bool:
