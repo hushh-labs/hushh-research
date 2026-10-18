@@ -84,7 +84,7 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
 
-for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1920, 1080]]) {
+for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000], [1920, 1080]]) {
   test(`responsive Messages approval preview at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, false, false, false, "idle", { preview: true });
@@ -97,7 +97,7 @@ for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1920, 1080
   });
 }
 
-for (const width of [393, 960, 1920]) {
+for (const width of [393, 768, 960, 1920]) {
   test(`Circles shares the complete Messages workspace geometry at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     const errors = await mount(page, false, false, true);
@@ -108,10 +108,15 @@ for (const width of [393, 960, 1920]) {
     const pane = page.locator('[data-circle-messages-pane][data-active="true"]');
     const thread = pane.getByRole("region", { name: "Weekend friends messages" });
     const dock = page.locator('[data-bottom-shell-motion-stack]');
-    if (width >= 960) {
+    if (width >= 768) {
       const listBox = (await pane.getByRole("complementary", { name: "Circles" }).boundingBox())!;
       const threadBox = (await thread.boundingBox())!;
       const dockBox = (await dock.boundingBox())!;
+      expect(Math.abs(listBox.width - width * 0.4)).toBeLessThanOrEqual(1);
+      const header = pane.getByRole("complementary", { name: "Circles" }).locator("header");
+      const heading = (await header.getByRole("heading", { name: "Messages" }).boundingBox())!;
+      const actions = (await header.locator('[class*="inboxHeaderActions"]').boundingBox())!;
+      expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(Math.abs(listBox.y + listBox.height - 1000)).toBeLessThanOrEqual(1);
       expect(Math.abs(threadBox.x - listBox.x - listBox.width)).toBeLessThanOrEqual(1);
       expect(Math.abs(dockBox.x - threadBox.x - 16)).toBeLessThanOrEqual(1);
@@ -131,6 +136,28 @@ for (const width of [393, 960, 1920]) {
       const conversation = (await thread.boundingBox())!;
       return conversation.y + conversation.height - (await page.locator('[data-agent-bar-shell]').boundingBox())!.y;
     }).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [768, 820, 1024]) {
+  test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1024 });
+    const errors = await mount(page);
+    await page.getByRole("button", { name: "Contact info", exact: true }).click();
+    await page.getByRole("button", { name: "Search messages", exact: true }).click();
+    const input = page.getByRole("searchbox", { name: "Search messages" });
+    await expect(input).toBeVisible();
+    await input.fill("friendly");
+    const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
+    for (const control of [input, page.getByRole("button", { name: "Close message search" }), page.getByRole("button", { name: "Contact info", exact: true })]) {
+      const box = (await control.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(thread.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(thread.x + thread.width);
+    }
+    await page.getByRole("button", { name: "Close message search" }).click();
+    await expect(input).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Maya Rao", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
   });
 }
@@ -346,7 +373,7 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
   await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeVisible();
   expect(errors).toEqual([]);
 });
-for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [959, 852], [960, 852], [1024, 768], [1440, 1000], [1920, 1080], [2560, 1440], [844, 390]]) {
+for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [768, 852], [959, 852], [960, 852], [1024, 768], [1440, 1000], [1920, 1080], [2560, 1440], [844, 390]]) {
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
@@ -395,10 +422,11 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     expect(Math.abs(layout.canvas.y - layout.top)).toBeLessThanOrEqual(2);
     expect(layout.canvas.height).toBeGreaterThanOrEqual(layout.availableHeight - 2);
     expect(Math.abs(layout.threadHeader.y - layout.canvas.y)).toBeLessThanOrEqual(1);
-    if (width! >= 960) {
+    const split = width! >= 768 && (height! >= 500 || width! >= 1024);
+    if (split) {
       expect(layout.aside).not.toBeNull();
       expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(layout.aside!.width - Math.min(370, Math.max(328, width! * 0.26)))).toBeLessThanOrEqual(2);
+      expect(Math.abs(layout.aside!.width - width! * 0.4)).toBeLessThanOrEqual(1);
       const inboxHeader = page.getByRole("complementary", { name: "Conversations" }).locator("header");
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
@@ -449,12 +477,12 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
     expect(geometry!.height).toBeGreaterThanOrEqual(44); expect(target!.width).toBeGreaterThanOrEqual(44); expect(target!.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width! + 1);
-    if (width! < 960) {
+    if (!split) {
       const workspace = (await page.locator('[data-direct-message-page]').boundingBox())!;
       const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
       expect(Math.abs(thread.width - workspace.width)).toBeLessThanOrEqual(1);
     }
-    if (width! >= 960) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
+    if (split) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
     else { await page.getByRole("button", { name: "Back to messages" }).click(); await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible(); }
     expect(errors).toEqual([]);
   });

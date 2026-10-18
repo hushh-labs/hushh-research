@@ -1153,7 +1153,7 @@ article[data-message-role="user"] .messageActionError {
   .voiceButton, .sendButton { width: 2.75rem; height: 2.75rem; }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .threadHeader[data-search-open="true"] .threadIdentity { display: none; }
   .threadHeader[data-search-open="true"] .threadHeaderActions { flex: 1; }
   .threadHeader[data-search-open="true"] .threadSearchField {
@@ -1728,7 +1728,7 @@ article[data-message-role="user"] .messageDeliveryState {
 .newChatPerson:hover, .newChatPerson:focus-visible { background: color-mix(in srgb, var(--chat-ios-accent) 9%, transparent); outline: none; }
 .newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
-@media (min-width: 960px) {
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   /* The list reaches the bottom edge. Only the conversation reserves the
      shared dock, so the composer does not leave a blank band under the list. */
   .page, .page[data-chat-open="true"] {
@@ -1743,7 +1743,12 @@ article[data-message-role="user"] .messageDeliveryState {
     max-width: min(75%, 40rem);
   }
 }
-@media (max-width: 959px) {
+/* Keep the list header on one line at the narrowest tablet split, with
+   the same 44px action targets as the wider workspace. */
+@media (min-width: 768px) and (max-width: 819px) {
+  .page .inboxHeader { padding-inline: 12px; gap: 4px; }
+}
+@media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
   .page, .page[data-chat-open="true"] { grid-template-columns: minmax(0, 1fr); }
   .page[data-chat-lane="people"]:not([data-chat-open="true"]) > .thread { display: none; }
   .page[data-chat-lane="people"][data-chat-open="true"] > .inbox { display: none; }

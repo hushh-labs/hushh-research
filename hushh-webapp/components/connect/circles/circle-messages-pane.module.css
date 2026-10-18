@@ -34,13 +34,13 @@
 .empty { padding: 40px 20px; }
 .empty a { color: var(--chat-accent); font-weight: 600; }
 .notice { padding: 20px; font-size: 13px; color: var(--chat-muted); }
-@media (min-width: 960px) {
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   .thread {
     align-self: start;
     height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset, 0px) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
   }
 }
-@media (max-width: 959px) {
+@media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
   .pane { display: block; }
   .list[data-thread-open] { display: none; }
   .thread:not([data-thread-open]) { display: none; }

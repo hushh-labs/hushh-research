@@ -762,7 +762,7 @@ html.native-keyboard-inset.kb-open
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
   --app-bottom-shell-max-width: 760px;
-  --app-messages-sidebar-width: clamp(20.5rem, 26vw, 23.125rem);
+  --app-messages-sidebar-width: 40vw;
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),
@@ -7633,7 +7633,7 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
 
 /* Messages is a split workspace on desktop. The shared dock remains one
    column, aligned to the conversation rather than the whole viewport. */
-@media (min-width: 960px) {
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   html:has([data-direct-message-page]) [data-app-scroll-root] {
     /* The desktop workspace reserves dock space inside the conversation. */
     padding-bottom: 0;

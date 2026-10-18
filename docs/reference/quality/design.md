@@ -191,8 +191,9 @@ safe area
    and do not push or overlap the top-bar actions on a small viewport.
 7. The bottom navigation frame uses the shared bottom-chrome width constraint.
    Its segments are equal-width and centered at every breakpoint. Messages
-   on desktop places the entire shared bottom column inside the conversation
-   pane; the list fills the other column to the bottom edge. The voice slot is
+   on tablets and desktop uses a 40% list / 60% conversation split, placing
+   the entire shared bottom column inside the conversation pane; the list
+   fills the other column to the bottom edge. Phones use one pane at a time. The voice slot is
    narrower than the navigation frame while retaining a 44px hit target.
 8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
    use the Location-aligned agent measure and shared outer gutter. Its stable

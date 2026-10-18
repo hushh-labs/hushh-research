@@ -7,7 +7,7 @@
  * and the inset are CSS tokens in `app/globals.css`
  * (`--app-bottom-shell-max-width`, `--app-bottom-shell-inline-inset`); these
  * classes are the only way a bar consumes them.
- * Messages on desktop places this whole column inside its conversation pane;
+ * Messages on tablets and desktop places this column inside its conversation pane;
  * composer and navigation still share the same edges.
  *
  * Widths are container-relative, never `100vw`: `100vw` counts a desktop
