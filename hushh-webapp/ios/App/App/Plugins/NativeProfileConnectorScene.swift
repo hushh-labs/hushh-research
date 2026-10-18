@@ -4,24 +4,55 @@ import UIKit
 /// Only the person's custom-server draft. Vault access and provider operations
 /// never cross this boundary; the existing feature controller owns both.
 struct NativeConnectorDraft: Codable, NativeProfileEditorDraft {
-    var name: String; var endpoint: String; var credential: String; var oauthIssuer: String
-    var oauthClientId: String; var oauthClientSecret: String; var oauthAuthMethod: String
+    enum Kind { case custom, profileLink, packetPrice }
+    private(set) var kind = Kind.custom
+    var name = ""; var endpoint = ""; var credential = ""; var oauthIssuer = ""
+    var oauthClientId = ""; var oauthClientSecret = ""; var oauthAuthMethod = "none"
+    var network = ""; var link = ""; var price = ""
+    init(name: String, endpoint: String, credential: String, oauthIssuer: String, oauthClientId: String, oauthClientSecret: String, oauthAuthMethod: String) {
+        self.name = name; self.endpoint = endpoint; self.credential = credential; self.oauthIssuer = oauthIssuer
+        self.oauthClientId = oauthClientId; self.oauthClientSecret = oauthClientSecret; self.oauthAuthMethod = oauthAuthMethod
+    }
+    private enum CodingKeys: String, CodingKey { case name, endpoint, credential, oauthIssuer, oauthClientId, oauthClientSecret, oauthAuthMethod, network, link, price }
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        if fields.contains(.network) {
+            kind = .profileLink; network = try fields.decode(String.self, forKey: .network); link = try fields.decode(String.self, forKey: .link)
+        } else if fields.contains(.price) {
+            kind = .packetPrice; price = try fields.decode(String.self, forKey: .price)
+        } else {
+            name = try fields.decode(String.self, forKey: .name); endpoint = try fields.decode(String.self, forKey: .endpoint)
+            credential = try fields.decode(String.self, forKey: .credential); oauthIssuer = try fields.decode(String.self, forKey: .oauthIssuer)
+            oauthClientId = try fields.decode(String.self, forKey: .oauthClientId); oauthClientSecret = try fields.decode(String.self, forKey: .oauthClientSecret)
+            oauthAuthMethod = try fields.decode(String.self, forKey: .oauthAuthMethod)
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var fields = encoder.container(keyedBy: CodingKeys.self)
+        for (key, value) in event { if let key = CodingKeys(rawValue: key), let value = value as? String { try fields.encode(value, forKey: key) } }
+    }
     static let empty = Self(name: "", endpoint: "", credential: "", oauthIssuer: "", oauthClientId: "", oauthClientSecret: "", oauthAuthMethod: "none")
     var valid: Bool {
-        name.utf16.count <= 100 && endpoint.utf16.count <= 2048 && credential.utf16.count <= 8192 && oauthIssuer.utf16.count <= 2048 &&
+        if kind == .profileLink { return ["instagram", "linkedin"].contains(network) && link.utf16.count <= 2048 }
+        if kind == .packetPrice { return price.utf16.count <= 64 }
+        return name.utf16.count <= 100 && endpoint.utf16.count <= 2048 && credential.utf16.count <= 8192 && oauthIssuer.utf16.count <= 2048 &&
         oauthClientId.utf16.count <= 8192 && oauthClientSecret.utf16.count <= 8192 &&
         ["none", "client_secret_post", "client_secret_basic"].contains(oauthAuthMethod) && (oauthAuthMethod != "none" || oauthClientSecret.isEmpty)
     }
-    var event: [String: Any] { ["name": name, "endpoint": endpoint, "credential": credential, "oauthIssuer": oauthIssuer,
-                              "oauthClientId": oauthClientId, "oauthClientSecret": oauthClientSecret, "oauthAuthMethod": oauthAuthMethod] }
+    var event: [String: Any] {
+        if kind == .profileLink { return ["network": network, "link": link] }
+        if kind == .packetPrice { return ["price": price] }
+        return ["name": name, "endpoint": endpoint, "credential": credential, "oauthIssuer": oauthIssuer,
+                "oauthClientId": oauthClientId, "oauthClientSecret": oauthClientSecret, "oauthAuthMethod": oauthAuthMethod]
+    }
     subscript(_ field: String) -> String {
         get { switch field {
         case "name": return name; case "endpoint": return endpoint; case "credential": return credential; case "oauthIssuer": return oauthIssuer
-        case "oauthClientId": return oauthClientId; case "oauthClientSecret": return oauthClientSecret; default: return ""
+        case "oauthClientId": return oauthClientId; case "oauthClientSecret": return oauthClientSecret; case "link": return link; case "price": return price; default: return ""
         } }
         set { switch field {
         case "name": name = newValue; case "endpoint": endpoint = newValue; case "credential": credential = newValue; case "oauthIssuer": oauthIssuer = newValue
-        case "oauthClientId": oauthClientId = newValue; case "oauthClientSecret": oauthClientSecret = newValue; default: break
+        case "oauthClientId": oauthClientId = newValue; case "oauthClientSecret": oauthClientSecret = newValue; case "link": link = newValue; case "price": price = newValue; default: break
         } }
     }
 }
@@ -33,10 +64,25 @@ struct NativeConnectorProjection: Decodable, NativeProfileEditorProjection {
     var checking: Bool { false }; var primary: String { "save" }
     var identity: NativeDrawerIdentity { NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family) }
     static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId", "updateSequence", "privacyGeneration", "acknowledgedEditRevision", "draftRevision", "draft", "canSave", "busy", "error", "appearance", "accentHex", "foregroundHex"]
-    static let draftKeys: Set<String> = ["name", "endpoint", "credential", "oauthIssuer", "oauthClientId", "oauthClientSecret", "oauthAuthMethod"]
+    static func draftKeys(_ scene: String) -> Set<String> {
+        switch scene {
+        case "connector-custom-server": return ["name", "endpoint", "credential", "oauthIssuer", "oauthClientId", "oauthClientSecret", "oauthAuthMethod"]
+        case "connector-profile-link": return ["network", "link"]
+        case "connector-packet-price": return ["price"]
+        default: return []
+        }
+    }
+    var correctDraftFamily: Bool {
+        switch scene {
+        case "connector-custom-server": return draft.kind == .custom
+        case "connector-profile-link": return draft.kind == .profileLink
+        case "connector-packet-price": return draft.kind == .packetPrice
+        default: return false
+        }
+    }
     var valid: Bool {
         let max = HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
-        return identity.valid && family == "profile" && scene == "connector-custom-server" && NativeDrawerIdentity.identifier(destinationId) && draft.valid &&
+        return identity.valid && family == "profile" && correctDraftFamily && NativeDrawerIdentity.identifier(destinationId) && draft.valid &&
             updateSequence > 0 && updateSequence <= max && [privacyGeneration, acknowledgedEditRevision, draftRevision].allSatisfy { $0 >= 0 && $0 <= max } &&
             (error?.utf16.count ?? 0) <= 1024 && HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil
     }
@@ -48,16 +94,28 @@ struct NativeConnectorProjection: Decodable, NativeProfileEditorProjection {
 typealias NativeConnectorModel = NativeProfileEditorModel<NativeConnectorProjection>
 @available(iOS 26.0, *) private struct NativeConnectorContent: View {
     @ObservedObject var model: NativeConnectorModel
+    private var title: String { model.projection.scene == "connector-packet-price" ? "Packet price" : model.projection.scene == "connector-profile-link" ?
+        model.draft.network == "instagram" ? "Instagram" : "LinkedIn" : "Add connector" }
+    private var submit: String { model.projection.scene == "connector-custom-server" ? "Add connector" : "Done" }
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Button { model.action("cancel") } label: { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
-                    .buttonStyle(.glass).accessibilityLabel("Cancel connector setup").accessibilityIdentifier("native-connector-cancel").disabled(!model.canCancel)
-                Spacer(minLength: 8); Text("Add connector").font(.headline).accessibilityAddTraits(.isHeader); Spacer(minLength: 8)
+                    .buttonStyle(.glass).accessibilityLabel("Cancel").accessibilityIdentifier("native-connector-cancel").disabled(!model.canCancel)
+                Spacer(minLength: 8); Text(title).font(.headline).accessibilityAddTraits(.isHeader); Spacer(minLength: 8)
                 Button { model.action("save") } label: { Image(systemName: "checkmark").frame(minWidth: 44, minHeight: 44) }
-                    .buttonStyle(.glassProminent).accessibilityLabel("Add connector").accessibilityIdentifier("native-connector-submit").disabled(!model.canSave)
+                    .buttonStyle(.glassProminent).accessibilityLabel(submit).accessibilityIdentifier("native-connector-submit").disabled(!model.canSave)
             }.padding(.horizontal, 16).padding(.vertical, 8)
             Form {
+                if model.projection.scene == "connector-profile-link" {
+                    Section {
+                        field("link", "Profile link", maximum: 2048, keyboard: .URL)
+                    } footer: { Text("A public profile link, not a connected account. It won’t give One access to your account.") }
+                } else if model.projection.scene == "connector-packet-price" {
+                    Section {
+                        field("price", "New price (USD)", maximum: 64, keyboard: .decimalPad)
+                    } footer: { Text("Enter $0.50–$500, up to two decimal places. Done updates this draft. Use List on the packet page to publish it.") }
+                } else {
                 Section {
                     field("name", "Name", maximum: 100)
                     field("endpoint", "Server URL", maximum: 2048, keyboard: .URL)
@@ -75,6 +133,7 @@ typealias NativeConnectorModel = NativeProfileEditorModel<NativeConnectorProject
                     }.disabled(!model.canEdit || model.composing).accessibilityIdentifier("native-connector-authentication")
                     if model.draft.oauthAuthMethod != "none" { field("oauthClientSecret", "Client secret", maximum: 8192, secure: true) }
                 } header: { Text("OAuth settings") } footer: { Text("Only add servers you trust. One uses this server’s tools without asking each time. Block any tool you don’t want it to use.") }
+                }
                 if model.projection.busy { ProgressView("Checking connector…") }
                 if let error = model.projection.error, !model.retired { Text(error).foregroundStyle(Color(uiColor: .systemRed)).accessibilityAddTraits(.updatesFrequently) }
             }

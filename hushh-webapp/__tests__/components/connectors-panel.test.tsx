@@ -33,7 +33,8 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null,
+  getVaultKey: () => state.token ? "synthetic-key" : null, getVaultOwnerToken: () => state.token }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));
 vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: {
@@ -65,7 +66,8 @@ vi.mock("@/lib/services/external-connector-service", () => ({
   },
 }));
 vi.mock("@/components/consent/trusted-document-rules", () => ({
-  TrustedDocumentRules: () => null,
+  TrustedDocumentRulesView: () => null,
+  useTrustedDocumentRules: () => ({ rules: [], busy: false, message: "", mutationPending: () => false }),
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: {

@@ -39,6 +39,7 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
 import { disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
@@ -84,9 +85,10 @@ import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import {
   type DriveChatRecoveryReason,
 } from "@/lib/agent/drive-oauth-chat-recovery";
-import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
-import { DriveCollectionPanel } from "@/components/agent/drive-collection-panel";
-import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
+import { TrustedDocumentRulesView, useTrustedDocumentRules, type TrustedDocumentRulesModel } from "@/components/consent/trusted-document-rules";
+import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel } from "@/components/agent/drive-collection-panel";
+import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
+import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
 
 type Props = {
   open: boolean;
@@ -159,12 +161,19 @@ type ConnectorListEntry = {
 export type ConnectorDetailAction = { label: string; disabled: boolean; run: () => void; destructive?: boolean };
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
+  | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
+  | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
+      actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
+      selection: { files: readonly { name: string }[]; background: boolean; canPrepare: boolean; busy: boolean; changeBackground: (next: boolean) => void;
+        confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
+      files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
+      collection: DriveCollectionModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
   | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
       connection: ConnectorDetailAction; retry?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
-  | { kind: "plaid"; status: string; message: string; banks: readonly { name: string; status: string; disconnect: ConnectorDetailAction }[];
+  | { kind: "plaid"; status: string; message: string; banks: readonly { key: string; name: string; status: string; disconnect: ConnectorDetailAction }[];
       connect?: ConnectorDetailAction }
   | { kind: "curated"; name: string; description: string; account?: string; status: string; message: string;
       connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction };
@@ -172,7 +181,10 @@ export type ConnectorsPanelPresentation = {
   selectedConnector: { id: string; name: string } | null;
   /** Null for families whose complete private presentation is not mapped yet. */
   detail: ConnectorDetailPresentation | null;
+  /** Same private setup owner even while its React body is not mounted. */
+  custom: CustomConnectorSettingsModel | null;
   catalog: {
+    query: string; search: (query: string) => void; show: () => void;
     status: "locked" | "loading" | "unavailable" | "ready";
     groups: readonly { title: "Connected" | "Available"; entries: readonly ConnectorListEntry[] }[];
     retry: () => Promise<boolean>;
@@ -213,19 +225,9 @@ function ConnectorActionLabel({ entry }: { entry: ConnectorListEntry }) {
   );
 }
 
-const CONNECTOR_LOGOS: Record<string, string> = {
-  gmail: "gmail",
-  google_drive: "drive",
-  calendar: "calendar",
-  plaid: "plaid",
-  attio: "attio",
-  hubspot: "hubspot",
-  notion: "notion",
-};
-
-// Single-colour black marks disappear on the dark theme, so they invert there.
-// (Official files are used unmodified: see public/icons/connectors/README.md.)
-const MONOCHROME_LOGOS = new Set(["plaid", "attio", "notion"]);
+const CONNECTOR_LOGOS: Record<string, string> = Object.fromEntries(Object.entries(CONNECTOR_ARTWORK)
+  .filter(([, value]) => value.file.endsWith(".svg")).map(([id, value]) => [id, value.file.slice(0, -4)]));
+const MONOCHROME_LOGOS = new Set(Object.entries(CONNECTOR_ARTWORK).filter(([, value]) => value.monochrome).map(([id]) => id));
 
 /**
  * Profile's leading glyph: the connector's own mark, bare, in the same 28px
@@ -233,19 +235,16 @@ const MONOCHROME_LOGOS = new Set(["plaid", "attio", "notion"]);
  * A connector without a mark takes the registry's connections glyph.
  */
 function ProfileConnectorGlyph({ id }: { id: string }) {
-  const logo = CONNECTOR_LOGOS[id];
+  const key = connectorArtworkId(id), artwork = key ? CONNECTOR_ARTWORK[key] : null;
   return (
     <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
-      {id === "instagram" ? (
-        <svg viewBox="1144 245 590 590" className="size-[22px]" aria-hidden="true">
-          <image href="/icons/connectors/instagram-reference.jpg" width="1920" height="1080" />
+      {artwork && "crop" in artwork ? (
+        <svg viewBox={`${artwork.crop.left} ${artwork.crop.top} ${artwork.crop.width} ${artwork.crop.height}`} className="size-[22px]" aria-hidden="true">
+          <image href={`/icons/connectors/${artwork.file}`} width="1920" height="1080" />
         </svg>
-      ) : id === "linkedin" ? (
+      ) : artwork ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src="/icons/connectors/linkedin.png" alt="" className="size-[22px] object-contain" />
-      ) : logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-[22px] object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
+        <img src={`/icons/connectors/${artwork.file}`} alt="" className={`size-[22px] object-contain${artwork.monochrome ? " dark:invert" : ""}`} />
       ) : (
         <ProfilePaneConnectorsIcon size={22} />
       )}
@@ -404,11 +403,22 @@ export function ConnectorsPanel(props: Props) {
   const { user } = useAuth();
   // Discard all local state on account switch or lock; don't display the prior
   // owner's account labels, pending selection or status on the new session.
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
+  const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
+    getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
+  const ownerKey = `${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
+  if (props.render && props.surface === "profile") {
+    return <CustomConnectorsSettings key={ownerKey}
+      access={{ userId: user?.uid ?? "", vaultKey: vaultKey ?? "", vaultOwnerToken: vaultOwnerToken ?? "" }}
+      enabled={props.open && Boolean(user?.uid && vaultKey && vaultOwnerToken)} onPrepareRecovery={props.onPrepareRecovery}
+      isAccessCurrent={customAccessIsCurrent}
+      render={(model, body) => <OwnerConnectorsPanel {...props} customPresentation={{ model, body }} />} />;
+  }
   return (
     <OwnerConnectorsPanel
-      key={`${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`}
+      key={ownerKey}
       {...props}
+      customAccessIsCurrent={customAccessIsCurrent}
     />
   );
 }
@@ -427,7 +437,9 @@ function OwnerConnectorsPanel({
   onPrepareRecovery,
   onClearRecovery,
   render,
-}: Props) {
+  customPresentation,
+  customAccessIsCurrent,
+}: Props & { customPresentation?: { model: CustomConnectorSettingsModel; body: ReactNode }; customAccessIsCurrent?: () => boolean }) {
   const router = useRouter();
   const { user } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
@@ -513,10 +525,17 @@ function OwnerConnectorsPanel({
   // committed between two taps in one frame; a ref is.
   const changesInFlight = useRef(new Set<string>());
   const [search, setSearch] = useState("");
-  const [socialProfileLinks, setSocialProfileLinks] = useState({ instagram: "", linkedin: "" });
-  useEffect(() => {
-    setSocialProfileLinks({ instagram: "", linkedin: "" });
-  }, [user?.uid, vaultOwnerToken]);
+  const socialInput = useMemo(() => ({ owner: unlockOwner, instagram: { link: "", revision: 0 }, linkedin: { link: "", revision: 0 } }), [unlockOwner]);
+  const [socialView, setSocialView] = useState<{ owner: typeof unlockOwner; instagram: string; linkedin: string } | null>(null);
+  const socialProfileLinks = socialView?.owner === unlockOwner ? socialView : { instagram: "", linkedin: "" };
+  const socialCurrent = useCallback(() => open && (activeConnector === "instagram" || activeConnector === "linkedin") &&
+    activeConnectorRef.current === activeConnector && liveUnlockOwner.current === unlockOwner && customAccessIsCurrent?.() === true,
+  [open, activeConnector, unlockOwner, customAccessIsCurrent]);
+  const changeSocialLink = (network: "instagram" | "linkedin", link: string, expectedRevision = socialInput[network].revision) => {
+    if (!socialCurrent() || expectedRevision !== socialInput[network].revision || link.length > 2048) return false;
+    socialInput[network].link = link; socialInput[network].revision += 1;
+    setSocialView({ owner: unlockOwner, instagram: socialInput.instagram.link, linkedin: socialInput.linkedin.link }); return true;
+  };
   const driveBackgroundId = useId();
   const previousActiveConnector = useRef<string | null>(null);
   const appliedInitialConnector = useRef<string | null>(null);
@@ -824,6 +843,17 @@ function OwnerConnectorsPanel({
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
+  // These controllers outlive either body renderer. Never mount another
+  // preparation/listing writer inside an adopted native detail page.
+  const drivePageActive = open && activeConnector === "google_drive" && !!vaultOwnerToken;
+  const collectionActive = drivePageActive && overview?.driveAgentPackagesEnabled === true &&
+    overview.features.drive_document_indexing === true && drive?.profile === "live" && drive.status === "connected";
+  const driveCollection = useDriveCollectionModel(liveBackground, collectionActive);
+  const drivePackets = useDrivePacketCatalogModel({ enabled: collectionActive && !!driveCollection.status,
+    refreshKey: driveCollection.revision, preparationPaused: driveCollection.paused || !driveCollection.status?.enabled });
+  const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
+    token: drivePackets.session.token, guard: drivePackets.session.guard, onChanged: () => { void drivePackets.load(); } });
+  const documentTrust = useTrustedDocumentRules(vaultOwnerToken, drivePageActive);
   useEffect(() => {
     if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
       setLiveBackground(null);
@@ -2270,6 +2300,116 @@ function OwnerConnectorsPanel({
     label, disabled, ...(destructive ? { destructive: true } : {}),
     run: guardPresentation(() => { if (!disabled) run(); }),
   });
+  const retryDrive = () => { void runDrive(async (_token, signal) => {
+    await refresh(signal, true);
+    if (!signal.aborted) await refreshDocuments(signal);
+  }); };
+  const changeDriveBackground = (next: boolean) => { void runDrive(async (token, signal) => {
+    const write = { owner: unlockOwner };
+    backgroundWrite.current = write;
+    setLiveBackgroundChange("saving");
+    try {
+      const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
+      if (signal.aborted || currentToken.current !== token) return;
+      setLiveBackground(confirmed); setLiveBackgroundChange(null);
+      setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
+    } catch (error) {
+      if (signal.aborted || currentToken.current !== token) return;
+      setLiveBackgroundChange(next ? "on" : "off"); throw error;
+    } finally {
+      if (backgroundWrite.current === write) {
+        backgroundWrite.current = null;
+        if (committedPresentation.current && liveUnlockOwner.current === write.owner &&
+            (controller.current?.signal !== signal || currentToken.current !== token)) {
+          // Read back after a retired view/credential; never replay the write.
+          retryLiveBackground(attempt => attempt + 1);
+          // Same-visit renewal leaves release/draining to runDrive's finally.
+          if (controller.current?.signal !== signal) {
+            driveLock.current = false; setDriveBusy(false);
+            if (queuedNativeReconcile.current) queueMicrotask(() => drainNativeReconcile.current());
+            if (queuedNativePickerReconcile.current) queueMicrotask(() => drainNativePickerReconcile.current());
+          }
+        }
+      }
+    }
+  }); };
+  const confirmDriveSelection = () => {
+    if (!pending) return;
+    void runDrive(async (token, signal) => {
+      if (pending.kind === "native") {
+        const selected = await ExternalConnectorService.confirmNativePicker({ vaultOwnerToken: token, attemptId: pending.attemptId,
+          backgroundProcessing: allowBackground, isEffectCurrent: () => !signal.aborted && currentToken.current === token });
+        if (!signal.aborted) setDocuments(selected.documents);
+      } else await ExternalConnectorService.selectDocuments(token, pending.sessionId, pending.files.map(file => file.id), allowBackground);
+      if (!signal.aborted) { restorePickerFocus.current = true; updatePendingSelection(null); await refreshDocuments(signal); }
+    });
+  };
+  const cancelDriveSelection = () => {
+    if (!pending) return;
+    if (pending.kind !== "native") { restorePickerFocus.current = true; updatePendingSelection(null); return; }
+    void runDrive(async (token, signal) => {
+      await ExternalConnectorService.cancelNativePicker({ vaultOwnerToken: token, attemptId: pending.attemptId,
+        isEffectCurrent: () => !signal.aborted && currentToken.current === token });
+      if (!signal.aborted) { restorePickerFocus.current = true; updatePendingSelection(null); }
+    });
+  };
+  const refreshDriveFiles = () => {
+    const signal = controller.current?.signal;
+    if (signal) void refreshDocuments(signal).catch(() => { if (!signal.aborted) setDriveMessage("Could not refresh files. Try again."); });
+  };
+  const changeFileBackground = (item: DriveDocument, enabled: boolean) => { void runDrive(async (token, signal) => {
+    await ExternalConnectorService.setDocumentProcessing(token, item.documentId, enabled);
+    await refreshDocuments(signal);
+  }); };
+  const syncDriveFile = (item: DriveDocument) => { void runDrive(async (token, signal) => {
+    await ExternalConnectorService.syncDocument(token, item.documentId);
+    await refreshDocuments(signal);
+  }); };
+  const driveBackgroundDescription = liveBackgroundChange === "saving" ? "Saving…" : liveBackground === null ?
+    liveBackgroundError ? "Couldn’t check background access." : "Checking background access…" : liveBackgroundChange ?
+      `Couldn’t turn ${liveBackgroundChange}. Try again.` : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away.";
+  const driveDetail: Extract<ConnectorDetailPresentation, { kind: "drive" }> = {
+    kind: "drive", account: drive?.accountLabel || "Search and read files",
+    status: loading ? "Checking Drive…" : !statusChecked ? "Connection status unavailable" : drive ?
+      drive.status === "verifying" && drive.profile === "live" ? "Authorized · connection check needed" : labels[drive.status] ?? "Status unavailable" : "Not connected",
+    message: drivePopupPending ? "Preparing secure Google sign-in…" : driveBusy ? "Updating Drive…" : driveMessage,
+    connected: drive?.status === "connected", busy: driveBusy, mutationPending: () => driveLock.current,
+    notes: [
+      ...(overview?.features.google_drive_live === true && (drive?.status !== "connected" || drive.profile !== "live") ? [overview.driveAgentPackagesEnabled === true ?
+        "Agent One prepares packets from your Drive automatically." : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."] : []),
+      ...(canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant ? ["You can choose files after connecting. One cannot search your entire Drive with this access."] : []),
+      ...(drive?.profile === "live" && drive.status === "connected" ? ["Sharing a file needs your approval, document trust, or an accepted connection in your Trusted Circle while background Drive access is on. Google Drive confirms each file’s access before the requester can open it."] : []),
+      ...(statusChecked && !canConnectDrive && !hasDriveGrant ? ["Drive sign-in is not configured here. Try again later."] : []),
+    ],
+    actions: [
+      ...(canConnectDrive && (!hasDriveGrant || drive?.status === "needs_reauth" || drive?.status === "error") ? [detailAction("Connect Drive", driveBusy || loading, () => { void startDrive(driveConnectionProfile); })] : []),
+      ...(canConnectDrive && drive?.status === "connected" && drive.profile !== "live" ? [detailAction("Enable full Drive access", driveBusy || loading, () => { void startDrive("live"); })] : []),
+      ...(!statusChecked || !canConnectDrive && drive?.status !== "connected" || drive?.status === "error" || drive?.status === "verifying" && drive.profile === "live" ? [detailAction("Retry Drive", driveBusy || loading, retryDrive)] : []),
+      ...(hasDriveGrant ? [detailAction("Disconnect Drive", driveBusy, () => setConfirm("drive"), true)] : []),
+      ...(drivePopupPending ? [detailAction("Cancel sign-in", false, () => drivePopupCancel.current?.abort())] : []),
+      ...(canPick ? [detailAction("Choose files", driveBusy || !!pending, () => { void chooseFiles(); })] : []),
+      ...(documents.length ? [detailAction("Refresh files", driveBusy, refreshDriveFiles)] : []),
+    ],
+    background: drive?.profile === "live" && drive.status === "connected" ? {
+      enabled: liveBackground, description: driveBackgroundDescription, busy: driveBusy,
+      change: next => { if (currentPresentation() && !driveBusy && liveBackground !== null) changeDriveBackground(next); },
+      ...(liveBackground === null && liveBackgroundError ? { retry: detailAction("Retry setting", false, () => retryLiveBackground(attempt => attempt + 1)) } : {}),
+    } : null,
+    selection: pending ? { files: pending.files.map(file => ({ name: file.name })), background: allowBackground,
+      canPrepare: overview?.features.drive_document_indexing === true, busy: driveBusy,
+      changeBackground: next => { if (currentPresentation() && !driveBusy && overview?.features.drive_document_indexing) setAllowBackground(next); },
+      confirm: detailAction("Add selected files", driveBusy, confirmDriveSelection), cancel: detailAction("Cancel selection", driveBusy, cancelDriveSelection),
+    } : null,
+    files: documents.map(item => ({ key: item.documentId, name: item.name, background: item.backgroundProcessing === true,
+      status: !item.backgroundProcessing && item.status === "queued" ? "Background processing is off" : labels[item.status] ?? "Status unavailable",
+      ...(overview?.features.drive_document_indexing || item.backgroundProcessing ? { changeBackground: (next: boolean) => {
+        if (currentPresentation() && !driveBusy) changeFileBackground(item, next);
+      } } : {}),
+      ...(item.backgroundProcessing && overview?.features.drive_document_indexing ? { sync: detailAction("Sync now", driveBusy, () => syncDriveFile(item)) } : {}),
+      remove: detailAction("Remove", driveBusy, () => setConfirm(item.documentId), true),
+    })),
+    collection: collectionActive ? driveCollection : null, packets: drivePackets, packet: ownerPacket, trust: documentTrust,
+  };
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
     status: gmail.loadingStatus ? "Checking Mail…" : gmail.statusError ? "Status unavailable" : gmail.status?.needs_reauth ? "Sign-in needed" : gmail.status?.connected ? "Connected" : "Not connected",
@@ -2294,7 +2434,7 @@ function OwnerConnectorsPanel({
     kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
     message: plaidBusy ? "Disconnecting bank…" : plaidMessage,
     banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
-      name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      key: itemId, name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
       disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
     })),
     ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", false, () => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }) } : {}),
@@ -2312,7 +2452,10 @@ function OwnerConnectorsPanel({
     ...(selectedCatalog.curatedOAuth === true && curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? { cancelSignIn: detailAction("Cancel sign-in", false, () => curatedPopupCancel.current?.abort()) } : {}),
   } : null;
   const detail: ConnectorDetailPresentation | null = activeConnector === "gmail" ? mailDetail : activeConnector === "calendar" ? calendarDetail :
-    activeConnector === "plaid" ? plaidDetail : activeConnector && !["google_drive", "instagram", "linkedin"].includes(activeConnector) ? curatedDetail : null;
+    activeConnector === "plaid" ? plaidDetail : activeConnector === "google_drive" ? driveDetail : inProfile && (activeConnector === "instagram" || activeConnector === "linkedin") ? {
+      kind: "social", network: activeConnector, link: socialProfileLinks[activeConnector], current: socialCurrent,
+      inputRevision: () => socialInput[activeConnector].revision, changeLink: (link, expected) => changeSocialLink(activeConnector, link, expected),
+    } : activeConnector && !["instagram", "linkedin"].includes(activeConnector) ? curatedDetail : null;
   const listSections = [
     ["Connected", connectedEntries],
     ["Available", availableEntries],
@@ -2401,9 +2544,10 @@ function OwnerConnectorsPanel({
                 </SettingsGroup>
               ),
             )}
-            {open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+            {customPresentation ? customPresentation.body : open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
               key={user.uid}
               access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+              isAccessCurrent={customAccessIsCurrent}
               onPrepareRecovery={onPrepareRecovery}
             /> : null}
           </>
@@ -2414,6 +2558,7 @@ function OwnerConnectorsPanel({
               <input
                 ref={searchRef}
                 type="search"
+                maxLength={256}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 aria-label="Search connectors"
@@ -2439,9 +2584,10 @@ function OwnerConnectorsPanel({
             {query && matchingEntries.length === 0 ? (
               <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
             ) : null}
-            {!query && open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+            {!query && customPresentation ? customPresentation.body : !query && open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
               key={user.uid}
               access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+              isAccessCurrent={customAccessIsCurrent}
               onPrepareRecovery={onPrepareRecovery}
             /> : null}
           </>
@@ -2474,7 +2620,7 @@ function OwnerConnectorsPanel({
                       placeholder={activeConnector === "instagram" ? "https://www.instagram.com/username/" : "https://www.linkedin.com/in/username/"}
                       aria-describedby={`social-profile-note-${activeConnector}`}
                       value={socialProfileLinks[activeConnector]}
-                      onChange={(event) => setSocialProfileLinks((current) => ({ ...current, [activeConnector]: event.target.value }))}
+                      onChange={(event) => changeSocialLink(activeConnector, event.target.value)}
                     />
                   </div>
                 </div>
@@ -2627,12 +2773,7 @@ function OwnerConnectorsPanel({
                   className={touch}
                   variant="ghost"
                   disabled={driveBusy || loading}
-                  onClick={() => {
-                    void runDrive(async (_token, signal) => {
-                      await refresh(signal, true);
-                      if (!signal.aborted) await refreshDocuments(signal);
-                    });
-                  }}
+                  onClick={retryDrive}
                 >
                   Retry Drive
                 </Button>}
@@ -2645,56 +2786,17 @@ function OwnerConnectorsPanel({
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <SettingsGroup density="compact">
-                  <SettingsRow title="Background Drive access" description={liveBackgroundChange === "saving" ? "Saving…" : liveBackground === null
-                    ? liveBackgroundError ? "Couldn’t check background access." : "Checking background access…"
-                    : liveBackgroundChange ? `Couldn’t turn ${liveBackgroundChange}. Try again.`
-                    : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away."}
+                  <SettingsRow title="Background Drive access" description={driveBackgroundDescription}
                     trailing={liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
                       disabled={driveBusy}
-                      onCheckedChange={(next) => void runDrive(async (token, signal) => {
-                        const write = { owner: unlockOwner };
-                        backgroundWrite.current = write;
-                        setLiveBackgroundChange("saving");
-                        try {
-                          const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
-                          if (signal.aborted || currentToken.current !== token) return;
-                          setLiveBackground(confirmed);
-                          setLiveBackgroundChange(null);
-                          setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
-                        } catch (error) {
-                          // The switch never left the saved state; the row says the change didn't land.
-                          if (signal.aborted || currentToken.current !== token) return;
-                          setLiveBackgroundChange(next ? "on" : "off");
-                          throw error;
-                        } finally {
-                          if (backgroundWrite.current === write) {
-                            backgroundWrite.current = null;
-                            if (committedPresentation.current && liveUnlockOwner.current === write.owner &&
-                                (controller.current?.signal !== signal || currentToken.current !== token)) {
-                              // This owner's write settled after its old view
-                              // retired. Reconcile, never replay or adopt the
-                              // old view's result into a new visit.
-                              retryLiveBackground(attempt => attempt + 1);
-                              // Same-visit renewal leaves release/draining to
-                              // runDrive's finally; doing it early would let
-                              // that finally release a newer operation's lock.
-                              if (controller.current?.signal !== signal) {
-                                driveLock.current = false;
-                                setDriveBusy(false);
-                                if (queuedNativeReconcile.current) queueMicrotask(() => drainNativeReconcile.current());
-                                if (queuedNativePickerReconcile.current) queueMicrotask(() => drainNativePickerReconcile.current());
-                              }
-                            }
-                          }
-                        }
-                      })}
+                      onCheckedChange={changeDriveBackground}
                     /> : null} />
                   {liveBackground === null && liveBackgroundError && <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>}
                 </SettingsGroup>
               )}
               {overview?.driveAgentPackagesEnabled === true && overview.features.drive_document_indexing === true &&
                 drive?.profile === "live" && drive.status === "connected" &&
-                <DriveCollectionPanel backgroundEnabled={liveBackground} />}
+                <DriveCollectionView model={driveCollection} packets={<DrivePacketCatalogView model={drivePackets} ownerModel={ownerPacket} />} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-normal [&::-webkit-details-marker]:hidden">
@@ -2706,7 +2808,7 @@ function OwnerConnectorsPanel({
                   </p>
                 </details>
               )}
-              {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
+              {vaultOwnerToken ? <TrustedDocumentRulesView model={documentTrust} /> : null}
               {hasDriveGrant && drive?.status === "connected" && (
                 <Button className={`${touch} self-start px-0 text-destructive`} variant="ghost" disabled={driveBusy}
                   onClick={() => setConfirm("drive")}>Disconnect Drive</Button>
@@ -2762,36 +2864,7 @@ function OwnerConnectorsPanel({
                     <Button
                       className={touch}
                       disabled={driveBusy}
-                      onClick={() =>
-                        void runDrive(async (token, signal) => {
-                          if (pending.kind === "native") {
-                            const selected =
-                              await ExternalConnectorService.confirmNativePicker(
-                                {
-                                  vaultOwnerToken: token,
-                                  attemptId: pending.attemptId,
-                                  backgroundProcessing: allowBackground,
-                                  isEffectCurrent: () =>
-                                    !signal.aborted &&
-                                    currentToken.current === token,
-                                },
-                              );
-                            if (!signal.aborted) setDocuments(selected.documents);
-                          } else {
-                            await ExternalConnectorService.selectDocuments(
-                              token,
-                              pending.sessionId,
-                              pending.files.map((file) => file.id),
-                              allowBackground,
-                            );
-                          }
-                          if (!signal.aborted) {
-                            restorePickerFocus.current = true;
-                            updatePendingSelection(null);
-                            await refreshDocuments(signal);
-                          }
-                        })
-                      }
+                      onClick={confirmDriveSelection}
                     >
                       Add selected files
                     </Button>
@@ -2799,25 +2872,7 @@ function OwnerConnectorsPanel({
                       className={touch}
                       variant="outline"
                       disabled={driveBusy}
-                      onClick={() => {
-                        if (pending.kind !== "native") {
-                          restorePickerFocus.current = true;
-                          updatePendingSelection(null);
-                          return;
-                        }
-                        void runDrive(async (token, signal) => {
-                          await ExternalConnectorService.cancelNativePicker({
-                            vaultOwnerToken: token,
-                            attemptId: pending.attemptId,
-                            isEffectCurrent: () =>
-                              !signal.aborted && currentToken.current === token,
-                          });
-                          if (!signal.aborted) {
-                            restorePickerFocus.current = true;
-                            updatePendingSelection(null);
-                          }
-                        });
-                      }}
+                      onClick={cancelDriveSelection}
                     >
                       Cancel selection
                     </Button>
@@ -2840,12 +2895,7 @@ function OwnerConnectorsPanel({
                 )}
                 {documents.length > 0 && (
                   <Button className={touch} variant="ghost" disabled={driveBusy}
-                    onClick={() => {
-                      const signal = controller.current?.signal;
-                      if (signal) void refreshDocuments(signal).catch(() => {
-                        if (!signal.aborted) setDriveMessage("Could not refresh files. Try again.");
-                      });
-                    }}>Refresh files</Button>
+                    onClick={refreshDriveFiles}>Refresh files</Button>
                 )}
                 </div>
                 {documents.length > 0 && <ul className="space-y-3" aria-label="Selected Drive files">
@@ -2869,17 +2919,7 @@ function OwnerConnectorsPanel({
                             checked={item.backgroundProcessing === true}
                             aria-label={`Background processing for ${item.name}`}
                             disabled={driveBusy}
-                            onChange={(event) => {
-                              const enabled = event.target.checked;
-                              void runDrive(async (token, signal) => {
-                                await ExternalConnectorService.setDocumentProcessing(
-                                  token,
-                                  item.documentId,
-                                  enabled,
-                                );
-                                await refreshDocuments(signal);
-                              });
-                            }}
+                            onChange={(event) => changeFileBackground(item, event.target.checked)}
                           />
                           <span>Agent One prepares this file while you’re away.</span>
                         </label>
@@ -2891,15 +2931,7 @@ function OwnerConnectorsPanel({
                             className={touch}
                             aria-label={`Sync ${item.name} now`}
                             disabled={driveBusy}
-                            onClick={() =>
-                              void runDrive(async (token, signal) => {
-                                await ExternalConnectorService.syncDocument(
-                                  token,
-                                  item.documentId,
-                                );
-                                await refreshDocuments(signal);
-                              })
-                            }
+                            onClick={() => syncDriveFile(item)}
                           >
                             Sync now
                           </Button>
@@ -3085,7 +3117,9 @@ function OwnerConnectorsPanel({
   return render({
     selectedConnector: activeConnector ? { id: activeConnector, name: entries.find(entry => entry.id === activeConnector)?.name ?? "Connector" } : null,
     detail,
+    custom: customPresentation?.model ?? null,
     catalog: {
+      query: search, search: value => { if (currentPresentation() && value.length <= 256) setSearch(value); }, show: guardPresentation(() => setActiveConnector(null)),
       status: !vaultOwnerToken ? "locked" : catalogLoadFailed ? "unavailable" : !overview && !statusChecked ? "loading" : "ready",
       groups: listSections.map(([title, items]) => ({ title, entries: items.map(entry => ({ ...entry,
         ...(entry.onOpen ? { onOpen: guardPresentation(entry.onOpen) } : {}),

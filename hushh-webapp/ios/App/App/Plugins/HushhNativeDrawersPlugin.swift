@@ -169,8 +169,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "profileWorldModelPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileRuntimeScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileConnectorScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
-                // Complete catalog/Drive/custom presentation admission is separate.
-                "profileConnectorPages": false,
+                // Qualification-only candidate. Ordinary builds keep the
+                // established renderer through the single shell policy.
+                "profileConnectorPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
@@ -481,7 +482,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             destinationId != nil && destinationId == profile.profileDestinationId
         let nativeRuntime = scene == "runtime-provider" && profile.open && profile.profileStack?.last?.id == "gemini" &&
             destinationId != nil && destinationId == profile.profileDestinationId
-        let nativeConnector = scene == "connector-custom-server" && profile.open && profile.profileStack?.last?.id == "connector-custom" &&
+        let connectorDestinations = ["connector-custom-server": "connector-custom", "connector-profile-link": "connector-detail", "connector-packet-price": "connector-packet"]
+        let nativeConnector = connectorDestinations[scene] == profile.profileStack?.last?.id && connectorDestinations[scene] != nil && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
@@ -576,7 +578,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self, let parent = self.bridge?.viewController,
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeConnectorProjection.keys),
-                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == NativeConnectorProjection.draftKeys,
+                  let sceneName = call.getString("scene"), !NativeConnectorProjection.draftKeys(sceneName).isEmpty,
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == NativeConnectorProjection.draftKeys(sceneName),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 65_536,
                   let next = try? JSONDecoder().decode(NativeConnectorProjection.self, from: bytes), next.valid,
                   self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
@@ -631,29 +634,30 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private func connectorAction(_ call: CAPPluginCall, settlement: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: "connector-custom-server", destinationId: call.getString("destinationId")),
-                  let scene = self.connectorScene, scene.identity == identity, scene.model.projection.destinationId == call.getString("destinationId"),
-                  let action = self.nameAction(call, scene: "connector-custom-server") else { call.resolve(["valid": false]); return }
+                  let sceneName = call.getString("scene"), !NativeConnectorProjection.draftKeys(sceneName).isEmpty,
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: sceneName, destinationId: call.getString("destinationId")),
+                  let scene = self.connectorScene, scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: sceneName) else { call.resolve(["valid": false]); return }
             call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
         }
     }
     @objc func retireProfileConnectorScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
-                  let identity = self.identity(call), identity.family == "profile", call.getString("scene") == "connector-custom-server",
+                  let identity = self.identity(call), identity.family == "profile", let sceneName = call.getString("scene"), !NativeConnectorProjection.draftKeys(sceneName).isEmpty,
                   let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
-            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == "connector-custom-server" && $0.receipt("retired")["destinationId"] as? String == destination }) {
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == sceneName && $0.receipt("retired")["destinationId"] as? String == destination }) {
                 scene.retire { call.resolve(scene.receipt("retired")) }; return
             }
             if let scene = self.connectorScene {
-                guard scene.identity == identity, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+                guard scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
                 self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
             }
             guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
             // Main-actor admission creates the form before presentation starts.
             // With neither an active nor retiring instance there is nothing to
             // withdraw; an unadmitted revision cannot poison other form leases.
-            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = "connector-custom-server"; receipt["destinationId"] = destination
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = sceneName; receipt["destinationId"] = destination
             call.resolve(receipt)
         }
     }

@@ -8,7 +8,7 @@ import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/s
 import { Capacitor } from "@capacitor/core";
 import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
-import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
@@ -58,12 +58,71 @@ it("retains one custom setup owner across renderer changes and revokes replaced 
   expect(screen.getByLabelText("Name")).toHaveValue(draft.name);
   expect(screen.getByLabelText("Access token (optional)")).toHaveValue(draft.credential);
   expect(loadCustomConnectorSnapshot).toHaveBeenCalledOnce();
+  const native = model.nativeEditor;
+  act(() => { model.nativeEditor.changeDraft({ ...draft, name: "Final native input" }); });
+  expect(model.nativeEditor.current).toBe(native.current);
+  // UIKit may finish Cancel after a compatible content update. The same
+  // editor can close; that callback must not close a subsequently reopened one.
+  act(() => native.cancelEditor());
+  expect(model.editing).toBe(false);
+  act(() => model.openEditor());
+  expect(native.current()).toBe(false);
+  act(() => native.cancelEditor());
+  expect(model.editing).toBe(true);
   const retired = model;
   view.unmount();
   expect(retired.changeDraft(draft)).toBe(false);
   expect(await retired.save()).toBe(false);
   expect(ExternalConnectorService.refreshMcpCatalog).not.toHaveBeenCalled();
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+});
+
+it.each(["lock", "renewal"] as const)("fences an unsettled setup through %s using live unlock authority, not a React snapshot", async transition => {
+  let liveKey: string | null = access.vaultKey, liveToken: string | null = access.vaultOwnerToken;
+  let model!: CustomConnectorSettingsModel;
+  const isAccessCurrent = () => liveKey === access.vaultKey && Boolean(liveToken);
+  const latest = (value = access) => <CustomConnectorsSettings access={value} isAccessCurrent={isAccessCurrent}
+    render={current => { model = current; return null; }} />;
+  let resolveCatalog!: (value: any[]) => void;
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockImplementationOnce(() => new Promise(resolve => { resolveCatalog = resolve; }));
+  const published: any[] = [];
+  vi.mocked(loadCustomConnectorConfigurations).mockImplementation(async () => [...published]);
+  vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record, _confirmation, _revision, mayPublish) => {
+    if (mayPublish && !mayPublish()) throw new Error("session_changed");
+    published.push(record); return record;
+  });
+  const view = render(latest());
+  await waitFor(() => expect(model.status).toBe("ready"));
+  act(() => model.openEditor());
+  act(() => { model.changeDraft({ ...model.draft, name: "Synthetic server", endpoint: "https://example.com/mcp" }); });
+  const owner = model.current;
+  let saving!: ReturnType<CustomConnectorSettingsModel["save"]>;
+  act(() => { saving = model.save(); });
+  await waitFor(() => expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce());
+  if (transition === "lock") { liveKey = null; liveToken = null; }
+  else liveToken = "synthetic-renewed-owner-token";
+  advanceVaultSessionEpoch(); // The real context advances this on both paths.
+  expect(model.current()).toBe(transition === "renewal"); // Before any React commit.
+  if (transition === "renewal") {
+    view.rerender(latest({ ...access, vaultOwnerToken: liveToken! }));
+    expect(model.current).toBe(owner);
+    expect(model.draft.name).toBe("Synthetic server"); expect(model.busy).toBe(true);
+    await act(async () => { await model.save(); });
+    expect(ExternalConnectorService.refreshMcpCatalog).toHaveBeenCalledOnce();
+  }
+  await act(async () => {
+    resolveCatalog([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
+    await saving;
+  });
+  expect(published).toHaveLength(transition === "renewal" ? 1 : 0);
+  if (transition === "renewal") {
+    await waitFor(() => expect(model.busy).toBe(false));
+    await waitFor(() => expect(loadCustomConnectorSnapshot).toHaveBeenLastCalledWith({ ...access, vaultOwnerToken: liveToken }, true));
+    expect(model.editing).toBe(false);
+  } else {
+    view.rerender(latest({ ...access, vaultKey: "", vaultOwnerToken: "" }));
+    expect(model.draft.name).toBe("");
+  }
 });
 
 it("admits only the app-owned HTTPS return for native connector sign-in", () => {

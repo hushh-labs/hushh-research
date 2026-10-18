@@ -872,7 +872,7 @@ struct NativeDrawerContent: View {
                 } else {
                     VStack(spacing: 0) {
                         if let search = model.page(id)?.memorySearch {
-                            NativeMemorySearchControl(model: model, search: search)
+                            NativeMemorySearchControl(model: model, search: search, connectors: id == "connectors")
                                 .padding(.horizontal, 16).padding(.vertical, 8)
                         }
                         profileContent(model.page(id)?.sections ?? [])
@@ -1203,6 +1203,7 @@ struct NativeDrawerContent: View {
 private struct NativeMemorySearchControl: View {
     @ObservedObject var model: NativeDrawerModel
     let search: NativeMemorySearch
+    var connectors = false
     @State private var draft = ""
     @State private var acknowledged = ""
     private func submit(_ value: String) {
@@ -1212,13 +1213,13 @@ private struct NativeMemorySearchControl: View {
     private var content: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-            TextField("Search saved details", text: $draft)
+            TextField(connectors ? "Search connectors" : "Search saved details", text: $draft)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.search)
-                .onSubmit { submit(draft) }.accessibilityIdentifier("native-memory-search")
+                .onSubmit { submit(draft) }.accessibilityIdentifier(connectors ? "native-connectors-search" : "native-memory-search")
             if !draft.isEmpty {
                 Button { draft = ""; submit("") } label: {
                     Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.borderless).accessibilityLabel("Clear saved details search")
+                }.buttonStyle(.borderless).accessibilityLabel(connectors ? "Clear connectors search" : "Clear saved details search")
             }
         }.padding(.horizontal, 14).frame(minHeight: 44)
             .disabled(!model.controlsEnabled || model.choicePending || !model.interactionEnabled)

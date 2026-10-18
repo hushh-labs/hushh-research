@@ -43,10 +43,11 @@ export type NativeDrawerSection = { id: string; title?: string; rows: readonly N
 export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";
-export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm";
+export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm" |
+  "connector-preparation" | "connector-files" | "connector-selection" | "connector-packets" | "connector-packet" | "connector-trust" | "connector-trust-rule" | "connector-trust-confirm";
 export type NativeProfilePage = { id: NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
-  /** Private Memory filter, submitted explicitly; not a public search index. */
+  /** Private feature filter (legacy wire name), submitted to its owning model. */
   memorySearch?: { id: string; query: string } };
 export type NativeDrawerIdentity = {
   documentId: string;
@@ -268,10 +269,12 @@ export function validNativeFinancePath(pages: readonly NativeProfilePage[]): boo
 }
 
 export function validNativeConnectorPath(pages: readonly NativeProfilePage[]): boolean {
-  if (pages[0]?.id !== "connectors" || pages.length > 3) return false;
+  if (pages[0]?.id !== "connectors" || pages.length > 5) return false;
   const children: Partial<Record<NativeConnectorPageId, readonly NativeConnectorPageId[]>> = {
-    connectors: ["connector-detail", "connector-custom", "connector-custom-detail"],
-    "connector-detail": ["connector-confirm"], "connector-custom-detail": ["connector-custom-confirm"],
+    connectors: ["connector-detail", "connector-confirm", "connector-custom", "connector-custom-detail", "connector-custom-confirm"],
+    "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-selection", "connector-packets", "connector-trust"],
+    "connector-files": ["connector-confirm", "connector-selection"], "connector-packets": ["connector-packet"], "connector-trust": ["connector-trust-rule"], "connector-trust-rule": ["connector-trust-confirm"],
+    "connector-custom-detail": ["connector-custom-confirm"],
   };
   return pages.slice(1).every((page, index) => children[pages[index]!.id as NativeConnectorPageId]?.includes(page.id as NativeConnectorPageId));
 }
@@ -305,7 +308,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   const ids = new Set<string>();
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
-      value.profileStack.length > (value.profileStack[0]?.id === "payouts" ? 8 : value.profileStack[0]?.id === "memory" ? 5 : value.profileStack[0]?.id === "world-model" ? 4 : 3) ||
+      value.profileStack.length > (value.profileStack[0]?.id === "payouts" ? 8 : ["memory", "connectors"].includes(value.profileStack[0]?.id ?? "") ? 5 : value.profileStack[0]?.id === "world-model" ? 4 : 3) ||
       value.profileStack[0]?.id === "payouts" && !validNativePayoutPath(value.profileStack) ||
       value.profileStack[0]?.id === "memory" && !validNativeMemoryPath(value.profileStack) ||
       value.profileStack[0]?.id === "world-model" && !validNativeWorldModelPath(value.profileStack) ||
@@ -313,7 +316,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       value.profileStack.some(page => page && ["finance-preferences", "finance-anchor"].includes(page.id)) && !validNativeFinancePath(value.profileStack) ||
       new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument", "memorySearch"]) ||
-        page.memorySearch !== undefined && (page.id !== "memory" || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
+        page.memorySearch !== undefined && (!["memory", "connectors"].includes(page.id) || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
           !validIdentifier(page.memorySearch.id) || typeof page.memorySearch.query !== "string" || page.memorySearch.query.length > 256) ||
         !(index === 0 ? ["connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
           validNativeFinancePath(value.profileStack!) ||

@@ -57,6 +57,7 @@ import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
+import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { useProfileFinancePreferences } from "./use-profile-finance-preferences";
 import { projectNativeFinancePreferences } from "./native-finance-preferences";
@@ -101,7 +102,8 @@ import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtim
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry, ProfileConnectorsSection } from "@/components/profile/profile-connectors-section";
+import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
 } from "@/components/profile/profile-legal-section";
@@ -560,20 +562,22 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
 
 export type ProfilePagePresentation = "route" | "pane" | "native-page";
 
+type ProfilePageProps = {
+  presentation?: ProfilePagePresentation;
+  paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
+};
+
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
   nativeMenuOpen = false,
   onNativeMenuClose,
-}: {
-  presentation?: ProfilePagePresentation;
-  /** Pane only: the location to show, when the host holds it (see ProfilePane). */
-  paneLocation?: ProfilePaneLocation;
-  nativeControlsEligible?: boolean;
-  nativeMenuOpen?: boolean;
-  onNativeMenuClose?: () => void;
-}) {
+  retainedConnectors,
+}: ProfilePageProps & { retainedConnectors?: ConnectorsPanelPresentation }) {
   const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
@@ -996,6 +1000,12 @@ function ProfilePageContent({
   const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
   const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
+  const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
+  const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
+    activePanel === "connectors" && vaultAccess.canMutateSecureData && retainedConnectors !== undefined;
+  const nativeConnectors = useNativeConnectors(retainedConnectors, nativeDetailOwner, nativeConnectorsWanted);
+  const nativeConnectorsActive = nativeConnectorsWanted && nativeConnectors.mapped && !nativeConnectors.failed;
+  useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
   const worldModel = usePersonalWorldModelModel({ embedded: true, enabled: activePanel === "world-model" &&
@@ -4354,6 +4364,7 @@ function ProfilePageContent({
       buildProfileConnectorsStackEntry({
         detail: activeDetail,
         updateView: updateProfileView,
+        ...(retainedConnectors ? { content: retainedConnectors.webBody } : {}),
       }),
     );
   } else if (activePanel === "legal") {
@@ -4910,8 +4921,16 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable}
-    workspace={activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+    workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
+      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
+      back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
+      root: () => {
+        if (nativeConnectors.navigationBlocked()) return false;
+        retainedConnectors?.custom?.nativeEditor.cancelEditor(); retainedConnectors?.custom?.cancelRemove(); retainedConnectors?.confirmation?.cancel();
+        updateProfileView({ panel: null, detail: null }, "replace"); return true;
+      }
+    } : activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
       pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor,
       back: () => { if (nativeWorldModel.navigationBlocked()) return false; if (!nativeWorldModel.back()) popProfileStack(); return true; },
       root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
@@ -5016,11 +5035,11 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      ...(nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
+      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
-      onClose: () => { if (!(nativeWorldModelActive && nativeWorldModel.navigationBlocked()) && !(nativeRuntimeActive && runtimeSettings.operationPending())) closeNativeProfile(); },
+      onClose: () => { if (!(nativeConnectorsActive && nativeConnectors.navigationBlocked()) && !(nativeWorldModelActive && nativeWorldModel.navigationBlocked()) && !(nativeRuntimeActive && runtimeSettings.operationPending())) closeNativeProfile(); },
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
@@ -5030,30 +5049,25 @@ function ProfilePageContent({
   </NativeProfilePresentation>;
 }
 
-export function ProfilePage({
-  presentation = "route",
-  paneLocation,
-  nativeControlsEligible = true,
-  nativeMenuOpen = false,
-  onNativeMenuClose,
-}: {
-  presentation?: ProfilePagePresentation;
-  paneLocation?: ProfilePaneLocation;
-  nativeControlsEligible?: boolean;
-  nativeMenuOpen?: boolean;
-  onNativeMenuClose?: () => void;
-}) {
-  return (
-    <Suspense fallback={null}>
-      <ProfilePageContent
-        presentation={presentation}
-        paneLocation={paneLocation}
-        nativeControlsEligible={nativeControlsEligible}
-        nativeMenuOpen={nativeMenuOpen}
-        onNativeMenuClose={onNativeMenuClose}
-      />
-    </Suspense>
-  );
+/** Keep feature controllers above the body renderer. A native presentation may
+ * replace the body, not the catalog/OAuth/editor owner or its query authority. */
+function NativeProfileRetainedConnectors(props: ProfilePageProps) {
+  const pathname = usePathname(), search = useSearchParams();
+  const location = props.paneLocation ?? resolveProfilePaneUrlState(search).location;
+  const connectorId = location.panel === "connectors" && location.detail?.startsWith("connector:") ? location.detail.slice("connector:".length) : null;
+  const changeConnector = useCallback((next: string | null) => {
+    const destination: ProfilePaneLocation = { panel: "connectors", detail: next ? `connector:${next}` : null };
+    if (next && !connectorId) pushProfilePaneLocation(pathname, search, destination);
+    else replaceProfilePaneLocation(pathname, search, destination);
+  }, [connectorId, pathname, search]);
+  return <ProfileConnectorsSection open={props.nativeMenuOpen === true && location.panel === "connectors"}
+    connectorId={connectorId} onConnectorChange={changeConnector}
+    render={model => <ProfilePageContent {...props} retainedConnectors={model} />} />;
+}
+
+export function ProfilePage(props: ProfilePageProps) {
+  return <Suspense fallback={null}>{props.presentation === "native-page" ?
+    <NativeProfileRetainedConnectors {...props} /> : <ProfilePageContent {...props} />}</Suspense>;
 }
 
 export default ProfilePage;

@@ -4671,6 +4671,72 @@ final class AppUITests: XCTestCase {
                 print("PROFILE_NATIVE_FORM family=support warm=true submitted=false")
                 continue
             }
+            if id == "connectors", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let search = app.textFields["native-connectors-search"].firstMatch
+                let scroll = app.scrollViews["native-profile-menu-scroll"].firstMatch
+                func row(_ label: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch }
+                func find(_ label: String) -> Bool {
+                    for _ in 0..<12 {
+                        if row(label).exists && row(label).isHittable { return true }
+                        if scroll.exists { scroll.swipeUp() }
+                    }
+                    return false
+                }
+                func filter(_ value: String) -> Bool {
+                    for _ in 0..<12 { if search.exists && search.isHittable { break }; if scroll.exists { scroll.swipeDown() } }
+                    guard waitForAdmittedControl(search) else { return false }
+                    let clear = app.buttons["Clear connectors search"].firstMatch
+                    if clear.exists && clear.isHittable { clear.tap() }
+                    if !value.isEmpty {
+                        guard waitForAdmittedControl(search) else { return false }; search.tap()
+                        guard waitForSoftwareKeyboard(app) else { return false }
+                        search.typeText(value + "\n")
+                    }
+                    return true
+                }
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(search) else { XCTFail("PROFILE_NATIVE_CONNECTORS_NOT_ADMITTED"); return }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_CONNECTORS_DUPLICATE_BODY")
+                guard filter("Gmail"), find("Gmail") else { XCTFail("PROFILE_NATIVE_CONNECTORS_FILTER_UNAVAILABLE"); return }
+                row("Gmail").tap()
+                let catalogBack = app.navigationBars.buttons["Connectors"].firstMatch
+                guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_DETAIL_UNAVAILABLE"); return }
+                catalogBack.tap()
+                guard filter("Instagram"), find("Instagram") else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_UNAVAILABLE"); return }
+                row("Instagram").tap()
+                guard find("Edit profile link") else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_EDITOR_MISSING"); return }
+                row("Edit profile link").tap()
+                let link = app.textFields["native-connector-link"].firstMatch
+                let cancel = app.buttons["native-connector-cancel"].firstMatch
+                guard waitForAdmittedControl(link), waitForAdmittedControl(cancel) else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_FORM_UNAVAILABLE"); return }
+                link.tap()
+                guard waitForSoftwareKeyboard(app) else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_KEYBOARD_UNAVAILABLE"); return }
+                cancel.tap()
+                guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_RETURN_FAILED"); return }
+                catalogBack.tap()
+                guard filter(""), find("Add connector") else { XCTFail("PROFILE_NATIVE_CONNECTOR_SETUP_UNAVAILABLE"); return }
+                row("Add connector").tap()
+                guard waitForAdmittedControl(app.textFields["native-connector-name"].firstMatch),
+                      waitForAdmittedControl(app.textFields["native-connector-endpoint"].firstMatch),
+                      app.secureTextFields["native-connector-credential"].firstMatch.exists, waitForAdmittedControl(cancel) else {
+                    XCTFail("PROFILE_NATIVE_CONNECTOR_SETUP_FORM_UNAVAILABLE"); return
+                }
+                cancel.tap()
+                guard filter("Google Drive"), find("Google Drive") else { XCTFail("PROFILE_NATIVE_DRIVE_UNAVAILABLE"); return }
+                row("Google Drive").tap()
+                guard find("Trusted documents") else { XCTFail("PROFILE_NATIVE_DRIVE_TRUST_UNAVAILABLE"); return }
+                row("Trusted documents").tap()
+                let driveBack = app.navigationBars.buttons["Google Drive"].firstMatch
+                guard waitForAdmittedControl(driveBack) else { XCTFail("PROFILE_NATIVE_DRIVE_TRUST_RETURN_UNAVAILABLE"); return }
+                driveBack.tap()
+                guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return }
+                catalogBack.tap()
+                guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return }
+                print("PROFILE_NATIVE_DESTINATION family=connectors warm=true single_host=true")
+                print("PROFILE_NATIVE_CONNECTORS catalog=true providers=true link_editor=true custom_editor=true trust=true returned=true mutated=false")
+                continue
+            }
             if id == "world-model", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_NOT_ADMITTED"); return }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_WORLD_MODEL_DUPLICATE_WEB_BODY")
@@ -5149,6 +5215,8 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
+        // A changed-family batch must not rerun already-proven One Profile.
+        if admittedDestinations == ["connectors"] { return }
         // WebKit exposes this authored SVG button as an Other AX element on
         // devices. Match its explicit label within the same WebView, not a
         // UIKit-only button role or a coordinate fallback.

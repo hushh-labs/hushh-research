@@ -61,11 +61,19 @@ describe("ordinary private Profile form contract", () => {
     expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, vaultKey: "forbidden" } } as never)).toBe(false);
     expect(validNativeConnectorProjection({ ...state, draft: { ...state.draft, oauthClientSecret: "hidden-secret" } })).toBe(false);
     expect(validNativeConnectorProjection({ ...state, scene: "runtime-provider" } as never)).toBe(false);
+    const link: NativeConnectorProjection = { ...state, scene: "connector-profile-link", draft: { network: "instagram", link: "https://www.instagram.com/example/" } };
+    const price: NativeConnectorProjection = { ...state, scene: "connector-packet-price", draft: { price: "12.34" } };
+    expect(validNativeConnectorProjection(link)).toBe(true);
+    expect(validNativeConnectorProjection(price)).toBe(true);
+    expect(validNativeConnectorProjection({ ...link, draft: state.draft })).toBe(false);
+    expect(validNativeConnectorProjection({ ...price, draft: { ...price.draft, credential: "forbidden" } } as never)).toBe(false);
     const pages = (ids: readonly string[]) => ids.map(id => ({ id, title: "Public page", sections: [] })) as never;
     expect(validNativeConnectorPath(pages(["connectors", "connector-custom"]))).toBe(true);
     expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-confirm"]))).toBe(true);
     expect(validNativeConnectorPath(pages(["connectors", "account-delete"]))).toBe(false);
     expect(validNativeConnectorPath(pages(["connectors", "connector-custom", "connector-confirm"]))).toBe(false);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-trust", "connector-trust-rule", "connector-trust-confirm"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-packets", "connector-trust-confirm"]))).toBe(false);
     const { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId } = state;
     const edit = { documentId, ownerEpoch, ownerGeneration, revision, family, scene, destinationId, draft: state.draft,
       updateSequence: 1, privacyGeneration: 0, editRevision: 1, composing: false };
@@ -73,6 +81,7 @@ describe("ordinary private Profile form contract", () => {
     expect(validNativeConnectorFinalEdit(final, state)).toBe(true);
     expect(validNativeConnectorFinalEdit({ ...final, destinationId: "retired-visit" }, state)).toBe(false);
     expect(validNativeConnectorFinalEdit({ ...final, composing: true }, state)).toBe(false);
+    expect(validNativeConnectorFinalEdit({ ...final, scene: "connector-packet-price", draft: price.draft }, state)).toBe(false);
     const fence = new NativeConnectorFence(state);
     expect(fence.update(state)).toBe(true);
     expect(fence.consumeEdit(edit)).toBe(true);

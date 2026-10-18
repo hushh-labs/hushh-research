@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
@@ -34,7 +34,9 @@ function setupFailure(error: unknown, endpoint: string): string {
   } catch { /* URL validation and server checks own the operation. */ }
   return "Couldn’t connect. Check the server URL and its access token.";
 }
-type CustomConnectorSettingsProps = { access: Access;
+type CustomConnectorSettingsProps = { access: Access; enabled?: boolean;
+  /** Synchronous authoritative unlock/expiry check; never a React snapshot. */
+  isAccessCurrent?: () => boolean;
   onPrepareRecovery?: (input: { attemptId: string; reason: DriveChatRecoveryReason; customConnector?: CustomConnectorRecoveryReference }) => Promise<"ready" | "busy" | "unavailable">;
 };
 
@@ -48,7 +50,7 @@ function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
 }
 
 /** Vault-backed definitions only. Saving is never provider authentication or tool approval. */
-export function useCustomConnectorSettings({ access, onPrepareRecovery }: CustomConnectorSettingsProps) {
+export function useCustomConnectorSettings({ access, enabled = true, isAccessCurrent, onPrepareRecovery }: CustomConnectorSettingsProps) {
   const [items, setItems] = useState<SavedConnector[]>([]);
   const [removing, setRemoving] = useState<SavedConnector | null>(null);
   const [invalid, setInvalid] = useState<InvalidCustomConnector[]>([]);
@@ -59,6 +61,7 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
   const refreshAbort = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [editing, setEditing] = useState(false);
+  const editorVisit = useRef<object | null>(null);
   const [draft, setDraft] = useState(emptyDraft);
   const input = useRef({ value: draft, revision: 0 });
   const updateDraft = (value: CustomConnectorDraft) => {
@@ -68,19 +71,44 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const lifetime = useRef<(() => boolean)>(() => false);
+  const readSerial = useRef(0);
+  const deferredRead = useRef(false);
+  const [loadRevision, reload] = useState(0);
+  const latestAccess = useRef(access), latestEnabled = useRef(enabled);
+  const liveUnlockCheck = useRef(isAccessCurrent);
+  const authGeneration = snapshotValidatedAuthSessionOwner()?.generation;
+  const hasToken = Boolean(access.vaultOwnerToken);
+  // Credential renewal is not a new unlock. This private comparison scope
+  // holds no native projection or persistence authority; the authenticated
+  // owner and actual key remain the existing source of permission.
+  // Callers without live getters retain the old, conservative credential fence.
+  const legacyCredential = isAccessCurrent ? null : access.vaultOwnerToken;
+  const scope = useMemo(() => ({ active: false, userId: access.userId, key: access.vaultKey, hasToken, authGeneration, legacyCredential,
+    owner: snapshotValidatedAuthSessionOwner(), epoch: snapshotVaultSessionEpoch() }),
+    [access.userId, access.vaultKey, hasToken, authGeneration, legacyCredential]);
+  useLayoutEffect(() => { latestAccess.current = access; latestEnabled.current = enabled; liveUnlockCheck.current = isAccessCurrent; });
+  const currentOwner = useCallback(() => Boolean(scope.active && hasToken && access.vaultKey && scope.owner?.userId === access.userId &&
+    latestAccess.current.userId === access.userId && latestAccess.current.vaultKey === access.vaultKey &&
+    latestAccess.current.vaultOwnerToken && isValidatedAuthSessionOwnerCurrent(scope.owner) &&
+    (liveUnlockCheck.current ? liveUnlockCheck.current() : isVaultSessionEpochCurrent(scope.epoch))),
+  [scope, hasToken, access.userId, access.vaultKey]);
 
-  useEffect(() => {
-    let active = true;
-    const accessForLoad = { userId: access.userId, vaultKey: access.vaultKey, vaultOwnerToken: access.vaultOwnerToken };
-    const owner = snapshotValidatedAuthSessionOwner();
-    const epoch = snapshotVaultSessionEpoch();
-    const current = () => Boolean(active && owner?.userId === accessForLoad.userId &&
-      isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch));
-    lifetime.current = current;
+  useLayoutEffect(() => {
+    scope.active = true; readSerial.current += 1; deferredRead.current = false;
     inFlight.current = false;
     setBusy(false); setError(null); setCatalogs({}); setAuthRequired({}); setCheckFailed({}); setRemoving(null);
-    setItems([]); setInvalid([]); setRemovingInvalid(null); updateDraft(emptyDraft()); setEditing(false); setStatus("loading");
+    setItems([]); setInvalid([]); setRemovingInvalid(null); updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false); setStatus("loading");
+    return () => { scope.active = false; readSerial.current += 1; refreshAbort.current?.abort(); };
+  }, [scope]);
+  const epoch = snapshotVaultSessionEpoch();
+  useEffect(() => {
+    if (!enabled || !hasToken || !currentOwner()) return;
+    if (inFlight.current) { deferredRead.current = true; return; }
+    let active = true;
+    const accessForLoad = { userId: access.userId, vaultKey: access.vaultKey, vaultOwnerToken: access.vaultOwnerToken }, attempt = ++readSerial.current;
+    const current = () => active && latestEnabled.current && currentOwner() && attempt === readSerial.current &&
+      latestAccess.current.vaultOwnerToken === accessForLoad.vaultOwnerToken && isVaultSessionEpochCurrent(epoch);
+    setStatus("loading");
     void loadCustomConnectorSnapshot(accessForLoad, true).then(({ configurations: records, invalid: invalidRecords }) => {
       if (!current()) return;
       setItems(records.map(savedConnector));
@@ -89,13 +117,23 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       if (handoff) setCatalogs({ [handoff.connectorId]: handoff.tools });
       setStatus("ready");
     }).catch(() => { if (current()) setStatus("failed"); });
-    return () => { active = false; refreshAbort.current?.abort(); };
-  }, [access.userId, access.vaultKey, access.vaultOwnerToken]);
+    return () => { active = false; };
+  }, [access.userId, access.vaultKey, access.vaultOwnerToken, currentOwner, enabled, epoch, hasToken, loadRevision]);
+
+  const finish = (current: () => boolean) => {
+    if (!current()) return;
+    inFlight.current = false; setBusy(false);
+    // Reconcile through the current credential after a confirmed/failed action;
+    // never replay a write on renewal, close/reopen or an uncertain outcome.
+    if (deferredRead.current || latestAccess.current.vaultOwnerToken !== access.vaultOwnerToken || status === "loading") {
+      deferredRead.current = false; reload(value => value + 1);
+    }
+  };
 
   const save = async () => {
-    if (inFlight.current || !lifetime.current()) return;
-    inFlight.current = true; setBusy(true); setError(null);
-    const current = lifetime.current;
+    if (inFlight.current || !currentOwner() || !enabled) return;
+    inFlight.current = true; readSerial.current += 1; setBusy(true); setError(null);
+    const current = currentOwner;
     const operation = (async () => {
       const configuration = newCustomConnectorConfiguration({
         displayName: name, endpoint,
@@ -116,7 +154,7 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       setItems(previous => [...previous, savedConnector(saved)]);
       if (discovered) setCatalogs(previous => ({ ...previous, [saved.connectorId]: discovered }));
       if (signInNeeded) setAuthRequired(previous => ({ ...previous, [saved.connectorId]: true }));
-      updateDraft(emptyDraft()); setEditing(false);
+      updateDraft(emptyDraft()); editorVisit.current = null; setEditing(false);
       return true;
     })();
     morphyToast.promise(operation, {
@@ -124,13 +162,13 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       error: (error) => setupFailure(error, endpoint),
     });
     try { return await operation === true; } catch (error) { if (current()) setError(setupFailure(error, endpoint)); return false; }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   const refresh = async (item: SavedConnector) => {
-    if (inFlight.current || !lifetime.current()) return;
-    inFlight.current = true; setBusy(true);
-    const current = lifetime.current;
+    if (inFlight.current || !currentOwner() || !enabled) return;
+    inFlight.current = true; readSerial.current += 1; setBusy(true);
+    const current = currentOwner;
     const controller = new AbortController(); refreshAbort.current = controller;
     setCatalogs(previous => { const next = { ...previous }; delete next[item.connectorId]; return next; });
     const operation = (async () => {
@@ -152,13 +190,13 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       else if (current()) setCheckFailed(previous => ({ ...previous, [item.connectorId]: true }));
       /* Shared toast owns the failure. */
     }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   const connect = async (item: SavedConnector) => {
-    if (inFlight.current || !lifetime.current() || !onPrepareRecovery) return;
-    inFlight.current = true; setBusy(true);
-    const current = lifetime.current;
+    if (inFlight.current || !currentOwner() || !enabled || !onPrepareRecovery) return;
+    inFlight.current = true; readSerial.current += 1; setBusy(true);
+    const current = currentOwner;
     const controller = new AbortController(); refreshAbort.current = controller;
     const operation = (async () => {
       const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
@@ -170,13 +208,13 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
     })();
     morphyToast.promise(operation, { loading: "Preparing sign-in…", success: "Continue at your provider.", error: "Could not start sign-in. Check this server supports OAuth and try again." });
     try { await operation; } catch { /* The shared path cancels its attempt; the toast owns the failure. */ }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   const setToolBlocked = async (item: SavedConnector, tool: CatalogTool) => {
-    if (inFlight.current || !lifetime.current()) return;
-    inFlight.current = true; setBusy(true);
-    const current = lifetime.current;
+    if (inFlight.current || !currentOwner() || !enabled) return;
+    inFlight.current = true; readSerial.current += 1; setBusy(true);
+    const current = currentOwner;
     const operation = (async () => {
       const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
       if (!current()) throw new Error("Session changed.");
@@ -195,14 +233,14 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
     })();
     morphyToast.promise(operation, { loading: "Updating tool…", success: tool.permission === "blocked" ? "Tool available in new turns." : "Tool blocked for new turns.", error: "Could not update the tool. Refresh tools and try again." });
     try { await operation; } catch { /* The shared toast owns action errors. */ }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   const remove = async () => {
-    if (!removing || inFlight.current || !lifetime.current()) return;
+    if (!removing || inFlight.current || !currentOwner() || !enabled) return;
     const selected = removing;
-    const current = lifetime.current;
-    inFlight.current = true; setBusy(true);
+    const current = currentOwner;
+    inFlight.current = true; readSerial.current += 1; setBusy(true);
     const operation = removeCustomConnectorConfiguration(access, selected.connectorId,
       { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, selected.revision, current);
     morphyToast.promise(operation, { loading: "Removing connector…", success: "Saved connector removed.", error: "Could not remove. Reopen connectors and try again." });
@@ -214,14 +252,14 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
         setAuthRequired(previous => { const next = { ...previous }; delete next[selected.connectorId]; return next; });
       }
     } catch { /* Shared toast owns the failure. */ }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   const removeInvalid = async () => {
-    if (!removingInvalid || inFlight.current || !lifetime.current()) return;
+    if (!removingInvalid || inFlight.current || !currentOwner() || !enabled) return;
     const selected = removingInvalid;
-    const current = lifetime.current;
-    inFlight.current = true; setBusy(true);
+    const current = currentOwner;
+    inFlight.current = true; readSerial.current += 1; setBusy(true);
     const operation = removeInvalidCustomConnectorConfiguration(access, selected.connectorId,
       { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, current);
     morphyToast.promise(operation, { loading: "Removing saved connector…", success: "Saved connector removed.", error: "Could not remove this connector. Reopen connectors and try again." });
@@ -229,7 +267,7 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       await operation;
       if (current()) { setInvalid(previous => previous.filter(item => item.connectorId !== selected.connectorId)); setRemovingInvalid(null); }
     } catch { /* Shared toast owns the failure. */ }
-    finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    finally { finish(current); }
   };
 
   // The adapter receives private facts and the same feature operations, never
@@ -238,9 +276,14 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
   const binding = Symbol("custom-connector-presentation");
   const committed = useRef<symbol | null>(null);
   useLayoutEffect(() => { committed.current = binding; return () => { if (committed.current === binding) committed.current = null; }; });
-  const current = lifetime.current;
-  const admitted = () => committed.current === binding && current();
+  const current = currentOwner;
+  const admitted = () => enabled && committed.current === binding && current();
   const run = (operation: () => Promise<unknown>) => async () => { if (admitted()) await operation(); };
+  const editor = editing ? editorVisit.current : null;
+  const editorCurrent = useCallback(() => editor !== null && editorVisit.current === editor && currentOwner(), [currentOwner, editor]);
+  const closeEditor = () => {
+    if (!inFlight.current) { updateDraft(emptyDraft()); setError(null); editorVisit.current = null; setEditing(false); }
+  };
   return {
     items, invalid, catalogs, authRequired, checkFailed, status, editing, draft, busy, error, removing, removingInvalid,
     canSignIn: Boolean(onPrepareRecovery), current,
@@ -250,8 +293,8 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
       if (!admitted() || inFlight.current || expectedRevision !== input.current.revision) return false;
       updateDraft(value); return true;
     },
-    openEditor: () => { if (admitted() && !inFlight.current && status === "ready") { setError(null); setEditing(true); } },
-    cancelEditor: () => { if (admitted() && !inFlight.current) { updateDraft(emptyDraft()); setError(null); setEditing(false); } },
+    openEditor: () => { if (admitted() && !inFlight.current && status === "ready" && !editorVisit.current) { setError(null); editorVisit.current = {}; setEditing(true); } },
+    cancelEditor: () => { if (admitted()) closeEditor(); },
     save: async () => admitted() && editing ? save() : false,
     refresh: (item: SavedConnector) => run(() => refresh(item))(),
     connect: (item: SavedConnector) => run(() => connect(item))(),
@@ -260,6 +303,19 @@ export function useCustomConnectorSettings({ access, onPrepareRecovery }: Custom
     requestRemoveInvalid: (item: InvalidCustomConnector) => { if (admitted() && !inFlight.current && invalid.includes(item)) setRemovingInvalid(item); },
     cancelRemove: () => { if (admitted() && !inFlight.current) { setRemoving(null); setRemovingInvalid(null); } },
     remove: run(remove), removeInvalid: run(removeInvalid),
+    // Native confirmation may await UIKit while compatible list/status updates
+    // commit. Bind this private editor to its visit and final input, not every
+    // catalog render; an old visit still cannot cancel or save a reopened one.
+    nativeEditor: {
+      current: editorCurrent, draft, busy, error, inputRevision: () => input.current.revision,
+      mutationPending: () => inFlight.current,
+      changeDraft: (value: CustomConnectorDraft, expectedRevision = input.current.revision) => {
+        if (!editorCurrent() || inFlight.current || expectedRevision !== input.current.revision) return false;
+        updateDraft(value); return true;
+      },
+      save: async () => latestEnabled.current && editorCurrent() && input.current.value === draft ? save() : false,
+      cancelEditor: () => { if (editorCurrent()) closeEditor(); },
+    },
     // Existing web inputs use the same draft, including immediate final-input
     // revision updates. Native scenes validate their closed wire DTO separately.
     field: <K extends keyof CustomConnectorDraft>(key: K, value: CustomConnectorDraft[K]) => {

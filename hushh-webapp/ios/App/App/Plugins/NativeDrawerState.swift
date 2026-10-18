@@ -130,7 +130,7 @@ struct NativeDrawerProjection: Codable {
               navigationLocked == nil || family == "profile",
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
         if let stack = profileStack {
-            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : stack.first?.id == "memory" ? 5 : stack.first?.id == "world-model" ? 4 : 3), Set(stack.map(\.id)).count == stack.count,
+            guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : ["memory", "connectors"].contains(stack.first?.id ?? "") ? 5 : stack.first?.id == "world-model" ? 4 : 3), Set(stack.map(\.id)).count == stack.count,
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),
                   stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
                   stack.first?.id != "world-model" || Self.validWorldModelPath(stack.map(\.id)),
@@ -152,7 +152,7 @@ struct NativeDrawerProjection: Codable {
                         ["vault-method", "vault-remove"].contains(page.id) && (index == 1 && stack.first?.id == "vault" || index == 2 && stack.first?.id == "security" && stack[1].id == "vault") ||
                         ["privacy", "terms"].contains(page.id) && index == 1 && stack.first?.id == "legal") &&
                           Self.text(page.title, 256) && page.sections.count <= 32 &&
-                          (page.memorySearch == nil || page.id == "memory" && NativeDrawerIdentity.identifier(page.memorySearch!.id) && page.memorySearch!.query.utf16.count <= 256) &&
+                          (page.memorySearch == nil || ["memory", "connectors"].contains(page.id) && NativeDrawerIdentity.identifier(page.memorySearch!.id) && page.memorySearch!.query.utf16.count <= 256) &&
                           (["privacy", "terms"].contains(page.id) ? page.legalDocument?.valid == true &&
                             page.legalDocument?.type == page.id && page.sections.isEmpty : page.legalDocument == nil)
                   }) else { return false }
@@ -230,9 +230,11 @@ struct NativeDrawerProjection: Codable {
         return path.count == start + 1 || path[start + 1] == "finance-anchor"
     }
     static func validConnectorPath(_ path: [String]) -> Bool {
-        guard path.first == "connectors", path.count <= 3 else { return false }
-        let children: [String: Set<String>] = ["connectors": ["connector-detail", "connector-custom", "connector-custom-detail"],
-            "connector-detail": ["connector-confirm"], "connector-custom-detail": ["connector-custom-confirm"]]
+        guard path.first == "connectors", path.count <= 5 else { return false }
+        let children: [String: Set<String>] = ["connectors": ["connector-detail", "connector-confirm", "connector-custom", "connector-custom-detail", "connector-custom-confirm"],
+            "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-selection", "connector-packets", "connector-trust"],
+            "connector-files": ["connector-confirm", "connector-selection"], "connector-packets": ["connector-packet"], "connector-trust": ["connector-trust-rule"], "connector-trust-rule": ["connector-trust-confirm"],
+            "connector-custom-detail": ["connector-custom-confirm"]]
         return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
     }
     static func validWorldModelPath(_ path: [String]) -> Bool {

@@ -44,23 +44,36 @@ Native menu presence is not feature conversion. The authored normal roster has
 source coverage, not whole-program or installed-candidate acceptance:
 
 Connectors now has a typed in-process presentation boundary around its existing
-keyed owner. Replacing the body does not create a second catalog, OAuth session,
-file-review draft or writer; Profile can inject that retained owner's web body
-instead of mounting another panel. Catalog and confirmation actions are revoked
-after a superseding commit or owner retirement. This boundary is not native
-Connectors admission. Gmail, Calendar, bank and curated-connector details now
-expose closed feature facts and fenced commands through that owner; web status
-copy consumes the same facts. Custom setup has a shared controller and a closed
-private native form (retained text fields, secure credentials, final-input
-readback and confirmed retirement), reusing the provider editor's mechanics.
-The complete catalog/Drive/trust/packet integration is not admitted yet:
-`profileConnectorPages` remains false. A
-retained owner now gates inactive reads and retires the closed visit's requests,
+keyed owner, retained above the native/web body boundary. The native stack maps
+catalog/filter, Gmail, Calendar, bank and curated-provider details, Drive file
+selection/confirmation, background access, preparation, packet browsing/listing
+and document-trust inspection/revocation. Custom setup, discovered tools,
+sign-in/refresh/block/removal and invalid-record repair reuse the same shared
+controllers. Provider artwork is generated from the web's authored vendor assets,
+including its crop and monochrome treatment—not a parallel system-symbol map.
+Private custom-server, public-link-draft and packet-price editors share retained
+input/retirement mechanics but have separate closed wire shapes. A public-link
+draft grants no connection; Done on a price draft never lists the packet.
+
+Replacing the body does not create another catalog, OAuth session, file-review
+draft, packet writer or trust owner. Catalog/confirmation commands are revoked
+after a superseding commit or retirement; native action handles also bind to the
+actual private target/version rather than its display ordinal. Large trust/file
+lists use bounded nested pages rather than dropping records or exceeding the
+bridge row budget. Native Back and ancestor choices use those existing owners.
+`profileConnectorPages` is advertised only by the explicit iPhone qualification
+shell. Ordinary builds remain qualification-OFF; iPad and older wrappers retain
+their established renderer. This source mapping is **not integrated device or
+whole-family acceptance**. The installed provider candidate cited below predates
+these changes. A retained owner gates inactive reads and retires closed requests,
 focus and queued callbacks without writing the old Profile query. An unsettled
 background-access write retains serialization through close/reopen; its same-owner
 settlement reconciles through a fresh read without replaying the write. Old visit
 cleanup cannot release a reopened visit's lock or erase a newer OAuth marker.
 
+Custom setup uses live vault getters to reject a lock synchronously, before
+React commits; callers without those getters retain conservative epoch fencing.
+The focused regression covers that pre-commit window and same-owner renewal.
 The vault credential epoch also advances during ordinary token renewal; it is
 not the unlock lifetime. Connector operations use the existing owner/key lifetime
 while current-token reads and action bindings retain their credential fences.
@@ -76,8 +89,13 @@ bridge dispatch is not an acknowledgement; callback rejection must not suppress
 final readback either. Actions remain revoked and fields/undo buffers are scrubbed
 after that offer. The bounded native review found and confirmed this correction;
 it does not transfer the older provider candidate's physical evidence to this source.
-The Debug simulator build-for-testing and both Connector/Provider editor host
-regressions pass (two tests, no skips). These are model/input-lifecycle checks,
+The iOS 27.1 Debug simulator build-for-testing and both Connector/Provider editor
+host regressions pass on 2026-10-18 (two tests, no skips or runner startup
+signals). The Connector case covers all three closed editor variants. The
+nearest web/bridge batch passes 360 contracts; the live-lock negative control
+fails on the disabled guard and passes after its exact source is restored.
+Independent security and native-editor reviews close their bounded findings.
+These are source/model/input-lifecycle checks,
 not integrated Connector presentation or physical-device qualification.
 
 | Destination | Native source coverage / remaining body mapping |
@@ -90,7 +108,7 @@ not integrated Connector presentation or physical-device qualification.
 | Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor and Gemini configuration now source-mapped through shared controllers; their candidate qualification remains separate |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
-| Connectors | Retained shared detail/configuration models and a closed custom-server native form are source-mapped; complete catalog/Drive/trust/packet integration remains unadmitted |
+| Connectors | Catalog/filter, provider details, Drive/preparation/files/packets/trust and custom setup/tools/removal now map through retained shared owners; three closed private editor variants. Qualification-only iPhone admission; exact-candidate device/visual/performance acceptance separate |
 | Invite friends | Existing route-bound referrals workspace still requires native mapping |
 | Help & feedback | Native form, message types, draft and delivery outcomes |
 | Privacy | Native authored-document reader and links |

@@ -331,7 +331,7 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testConnectorEditorClearsConditionalSecretsAndRetainsFinalInputBeforeRetirement() {
+    func testConnectorEditorClearsConditionalSecretsAndRetainsFinalInputBeforeRetirement() throws {
         let initial = NativeConnectorProjection(documentId: "public-connector-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
             family: "profile", scene: "connector-custom-server", destinationId: "public-connector-visit", updateSequence: 1, privacyGeneration: 0,
             acknowledgedEditRevision: 0, draftRevision: 0,
@@ -368,6 +368,26 @@ final class NativeSupportTests: XCTestCase {
             if delivered { pending.clear() }
             XCTAssertEqual(finalDraft?.credential, "synthetic-unacknowledged-input")
             XCTAssertTrue(pending.retired); XCTAssertNil(pending.choose); XCTAssertEqual(field.text, "")
+        }
+        for (scene, data, fieldName, lastInput) in [
+            ("connector-profile-link", #"{"network":"instagram","link":"https://www.instagram.com/example/"}"#, "link", "https://www.instagram.com/final-example/"),
+            ("connector-packet-price", #"{"price":"12.34"}"#, "price", "19.95")
+        ] {
+            let draft = try JSONDecoder().decode(NativeConnectorDraft.self, from: Data(data.utf8))
+            let projection = NativeConnectorProjection(documentId: initial.documentId, ownerEpoch: initial.ownerEpoch, ownerGeneration: 1, revision: 2,
+                family: "profile", scene: scene, destinationId: "public-sibling-editor", updateSequence: 1, privacyGeneration: 0,
+                acknowledgedEditRevision: 0, draftRevision: 0, draft: draft, canSave: true, busy: false, error: nil,
+                appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111")
+            XCTAssertTrue(projection.valid)
+            XCTAssertEqual(NativeConnectorProjection.draftKeys(scene), Set(draft.event.keys))
+            let sibling = NativeConnectorModel(projection), field = UITextField()
+            field.text = lastInput; sibling.register(field, name: fieldName)
+            var final: NativeConnectorDraft?
+            sibling.edit = { _, _, _ in true }; sibling.finalEdit = { value, _ in final = value }
+            sibling.capture(); sibling.clear()
+            XCTAssertEqual(final?[fieldName], lastInput)
+            XCTAssertEqual(field.text, ""); XCTAssertEqual(sibling.draft, .empty); XCTAssertEqual(sibling.projection.draft, .empty)
+            XCTAssertNil(sibling.finalEdit); XCTAssertNil(sibling.choose)
         }
     }
 

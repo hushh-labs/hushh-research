@@ -8,23 +8,36 @@ import { nativeDrawers, nativeDrawerAcknowledged } from "@/lib/capacitor/native-
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
 import { NativeConnectorFence, validNativeConnectorProjection, validNativeConnectorFinalEdit, type NativeConnectorIdentity, type NativeConnectorProjection,
-  type NativeConnectorEdit, type NativeConnectorAction, type NativeConnectorScenePort } from "@/lib/capacitor/native-profile-connector-scene";
+  validNativeCustomConnectorDraft, type NativeConnectorDraft, type NativeConnectorScene, type NativeConnectorEdit, type NativeConnectorAction, type NativeConnectorScenePort } from "@/lib/capacitor/native-profile-connector-scene";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type Presentation = NativeProfileScenePresentation<NativeConnectorProjection, NativeConnectorEdit, NativeConnectorAction, undefined>;
+export type NativeConnectorEditorModel = {
+  current: () => boolean; draft: NativeConnectorDraft; busy: boolean; error: string | null; canSave: boolean;
+  inputRevision: () => number; mutationPending: () => boolean; changeDraft: (draft: NativeConnectorDraft, expectedRevision?: number) => boolean;
+  save: () => Promise<unknown>;
+};
 /** No secret persistence, provider call or second validation owner. */
 export function NativeConnectorEditor({ model, owner, destinationId, onClose, onFallback }: {
-  model: CustomConnectorSettingsModel; owner: string; destinationId: string; onClose: () => void; onFallback: () => void;
+  model: CustomConnectorSettingsModel["nativeEditor"]; owner: string; destinationId: string; onClose: () => void; onFallback: () => void;
+}) {
+  return <NativeConnectorForm owner={owner} destinationId={destinationId} onClose={onClose} onFallback={onFallback} scene="connector-custom-server"
+    model={{ ...model, canSave: !!model.draft.name.trim() && !!model.draft.endpoint.trim(),
+      changeDraft: (draft, expected) => validNativeCustomConnectorDraft(draft) && model.changeDraft(draft, expected) }} />;
+}
+/** Closed sibling editors share lifecycle mechanics, not business operations. */
+export function NativeConnectorForm({ model, scene, owner, destinationId, onClose, onSaved, onFallback }: {
+  model: NativeConnectorEditorModel; scene: NativeConnectorScene; owner: string; destinationId: string; onClose: () => void; onSaved?: () => void; onFallback: () => void;
 }) {
   const pathname = usePathname(), appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [phase, setPhase] = useState("checking");
   const [edit, setEdit] = useState<{ identity: NativeConnectorIdentity | null; revision: number; composing: boolean }>({ identity: null, revision: 0, composing: false });
-  const live = useRef({ model, appearance, privacy, edit, destinationId, owner, onClose, onFallback });
-  useLayoutEffect(() => { live.current = { model, appearance, privacy, edit, destinationId, owner, onClose, onFallback }; });
+  const live = useRef({ model, appearance, privacy, edit, destinationId, owner, onClose, onSaved, onFallback });
+  useLayoutEffect(() => { live.current = { model, appearance, privacy, edit, destinationId, owner, onClose, onSaved, onFallback }; });
   const replica = useRef<{ identity: NativeConnectorIdentity; presentation: Presentation; sequence: number; fingerprint: string | null;
     finalInput: { nativeRevision: number; modelRevision: number; discard: boolean } } | null>(null);
   const actions = useCallback(() => ({
@@ -50,7 +63,7 @@ export function NativeConnectorEditor({ model, owner, destinationId, onClose, on
       if (saved && installation) installation.finalInput.discard = true;
       return saved ? { kind: "saved" as const, value: undefined } : { kind: "retained" as const };
     },
-    saved: () => live.current.onClose(), cancel: () => live.current.onClose(),
+    saved: () => (live.current.onSaved ?? live.current.onClose)(), cancel: () => live.current.onClose(),
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, v = live.current, m = v.model;
@@ -58,7 +71,7 @@ export function NativeConnectorEditor({ model, owner, destinationId, onClose, on
     const edit = v.edit.identity === current.identity ? v.edit : { revision: 0, composing: false };
     const draft = { ...m.draft };
     const value = { ...current.identity, ...v.appearance, draft, draftRevision: m.inputRevision(), acknowledgedEditRevision: edit.revision, privacyGeneration: v.privacy.generation,
-      canSave: !edit.composing && !!draft.name.trim() && !!draft.endpoint.trim(), busy: m.busy, error: m.error };
+      canSave: !edit.composing && m.canSave, busy: m.busy, error: m.error };
     const fingerprint = JSON.stringify(value); // Private memory only; never telemetry.
     if (fingerprint === current.fingerprint) { current.presentation.refreshActions(actions()); return; }
     if (current.presentation.publish({ ...value, updateSequence: ++current.sequence }, actions())) current.fingerprint = fingerprint;
@@ -68,7 +81,7 @@ export function NativeConnectorEditor({ model, owner, destinationId, onClose, on
   useEffect(() => {
     if (generation === undefined || shielded || !active) return;
     const base = createNativeDrawerIdentity("profile"); if (!base) return;
-    const identity: NativeConnectorIdentity = { ...base, family: "profile", scene: "connector-custom-server", destinationId };
+    const identity: NativeConnectorIdentity = { ...base, family: "profile", scene, destinationId };
     let current = true;
     const isCurrent = () => current && live.current.model.current === controller && controller() && live.current.owner === owner && live.current.destinationId === destinationId &&
       snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) && live.current.privacy?.generation === generation &&
@@ -129,7 +142,7 @@ export function NativeConnectorEditor({ model, owner, destinationId, onClose, on
       current = false; instance.fingerprint = null; if (replica.current === instance) replica.current = null;
       void presentation.retire().then(finishRetirement);
     };
-  }, [owner, controller, destinationId, epoch, generation, shielded, active, publish]);
+  }, [owner, controller, scene, destinationId, epoch, generation, shielded, active, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;
