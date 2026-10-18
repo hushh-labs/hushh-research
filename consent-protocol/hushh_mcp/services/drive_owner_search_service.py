@@ -959,6 +959,30 @@ def compile_request_queries(
         )
         brain_queries = _brain_queries(parsed_brain, base, brain_order)
         if brain_queries is not None:
+            generic_meeting_notes = (
+                not parsed_brain.topics
+                and not parsed_brain.corrected
+                and len(parsed_brain.parts) == 1
+                and parsed_brain.parts[0].key == "meeting_notes"
+                and any(
+                    item.phrase == "notes by gemini" for item in parsed_brain.parts[0].standalone
+                )
+                and _is_meeting_note_request(purpose.get("purpose", ""))
+            )
+            if generic_meeting_notes:
+                # Drive's name operator matches prefixes. A Gemini file named
+                # "Meeting started ... - Notes by Gemini" need not match the
+                # brain's trailing "notes by gemini" name clause, and a body
+                # index hit is not guaranteed. Exhaust this narrow title pass;
+                # a one-page head start would leave the same recall gap.
+                title = " and ".join([f"name contains {quote_literal('Meeting started')}", *base])
+                if len(title) > MAX_QUERY_CHARS:
+                    raise DriveReadError("invalid_argument")
+                # Preserve the existing title head start on the create-time
+                # page; the prefix pass follows before the content scan.
+                brain_queries.insert(
+                    1, {"arguments": {"query": title, "orderBy": f"{brain_order} desc"}}
+                )
             return brain_queries, period
     broader_subject = None
     compound_free_subject = None
@@ -1067,8 +1091,21 @@ def compile_request_queries(
         if candidate_query not in queries:
             queries.append(candidate_query)
 
+    if meeting_notes_v1 and not parsed.exact_title and not entity_subject:
+        # Gemini-generated notes have a distinctive title prefix. A single
+        # newest-first page gives these likely records the first evaluation
+        # cohort. The later exhaustive alias pass still covers every title,
+        # including older Gemini notes and other meeting-note spellings.
+        gemini_title = " and ".join([f"name contains {quote_literal('Meeting started')}", *base])
+        queries.insert(
+            0,
+            {
+                "arguments": {"query": gemini_title, "orderBy": f"{order} desc"},
+                "head_start_pages": 1,
+            },
+        )
     # Put the common title aliases before broad clue pages so a sync or
-    # standup file enters the first evaluation cohort as soon as possible.
+    # standup file enters an early evaluation cohort.
     append_v1_meeting_note_sweep()
 
     def append_v1_structural_sweep() -> None:

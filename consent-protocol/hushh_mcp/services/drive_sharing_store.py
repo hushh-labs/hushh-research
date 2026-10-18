@@ -1016,10 +1016,15 @@ class DriveSharingStore(DriveDocumentStore):
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND (:v1_only=FALSE OR (r.v1_live_request=TRUE
                       AND j.v1_statement_search=TRUE))
-                    AND r.preparation_error_code IN
+                    AND (r.preparation_error_code IN
                       ('trusted_auto_active','background_preparation_required',
                        'owner_price_required','owner_payout_required','payout_unavailable')
-                    AND r.preparation_next_at<=clock_timestamp()
+                      OR (r.preparation_error_code='payment_not_ready'
+                        AND o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
+                    AND (r.preparation_next_at<=clock_timestamp()
+                      OR (o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
                     AND r.expires_at>clock_timestamp()
                     AND j.status IN ('queued','running','completed')
                     AND (NOT r.payment_required OR o.request_id IS NULL

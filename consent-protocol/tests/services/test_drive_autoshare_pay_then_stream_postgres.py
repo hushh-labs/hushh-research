@@ -629,6 +629,85 @@ async def test_thirty_five_page_unpaid_search_wakes_sharing_at_most_twice(flow, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("parked", [False, True])
+async def test_finished_owner_allowed_search_resumes_held_batch_after_payment(
+    flow, monkeypatch, parked
+):
+    """The scheduled drain must recover a paid request after Search has ended."""
+    _emulate_pay_on_allow(monkeypatch)
+    await flow.request(trusted=False)
+    await flow.start_search()
+    await flow.page(35, unshareable=1)
+    await flow.finish()
+    assert flow.search_status() == "completed"
+    assert flow.request_status() == "pending"
+    assert [batch["file_count"] for batch in flow.batches()] == [25]
+    assert all(batch["approved_at"] is None for batch in flow.batches())
+    assert flow.effect_count() == 0
+    if parked:
+        # A prior worker can park an unpaid review for five minutes. Stripe's
+        # paid webhook must make it due on the next pass without another Allow.
+        with flow.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_share_requests
+                  SET preparation_error_code='payment_not_ready',
+                      preparation_next_at=clock_timestamp()+INTERVAL '5 minutes'
+                  WHERE request_id=:request"""),
+                {"request": flow.request_id},
+            )
+    assert await flow.auto.continue_batches(max_jobs=2) == 0
+    assert await flow.grant_all() == 0
+
+    await flow.checkout()
+    await flow.pay()
+    assert await flow.auto.continue_batches(max_jobs=2) == 1
+    await flow.drain()
+    assert sum(batch["file_count"] for batch in flow.batches()) == 35
+    assert all(batch["approval_source"] == "trusted_auto" for batch in flow.batches())
+    assert flow.effect_count() == 35
+    assert await flow.grant_all() == 35
+    assert await flow.auto.continue_batches(max_jobs=2) == 0
+    assert await flow.grant_all() == 0
+    assert flow.create_session.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_paid_completed_search_without_batches_is_recovered_by_scheduled_drain(
+    flow, monkeypatch
+):
+    """A completed search can have committed results but no batch handoff."""
+    _emulate_pay_on_allow(monkeypatch)
+    await flow.request(trusted=False)
+    await flow.start_search()
+    with monkeypatch.context() as handoff:
+        handoff.setattr(flow.auto, "after_search_page", AsyncMock(return_value=0))
+        handoff.setattr(flow.auto, "after_search_slice", AsyncMock(return_value=0))
+        await flow.page(35)
+        await flow.finish()
+    assert flow.search_status() == "completed"
+    assert flow.batches() == [] and flow.effect_count() == 0
+    with flow.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_next_at=clock_timestamp()+INTERVAL '5 minutes'
+              WHERE request_id=:request"""),
+            {"request": flow.request_id},
+        )
+    assert await flow.auto.continue_batches(max_jobs=2) == 0
+    assert await flow.grant_all() == 0
+
+    await flow.checkout()
+    await flow.pay()
+    assert await flow.auto.continue_batches(max_jobs=2) == 1
+    assert [batch["file_count"] for batch in flow.batches()] == [25, 10]
+    assert flow.effect_count() == 35
+    assert await flow.grant_all() == 35
+    assert await flow.auto.continue_batches(max_jobs=2) == 0
+    assert await flow.grant_all() == 0
+    assert flow.create_session.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_pay_at_allow_opens_checkout_before_the_search_starts(flow, monkeypatch):
     _emulate_pay_on_allow(monkeypatch)
     await flow.request(trusted=False)

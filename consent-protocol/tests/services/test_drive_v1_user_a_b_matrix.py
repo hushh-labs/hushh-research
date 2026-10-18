@@ -91,7 +91,7 @@ async def test_user_a_discovery_then_user_b_content_decision(
         plan.model_dump(mode="json"), REQUEST, "Asia/Kolkata", v1_live_request=True
     )
     assert period == {"start": "2026-09-02", "end": "2026-10-02", "timezone": "Asia/Kolkata"}
-    assert "standup" in queries[1]["arguments"]["query"]
+    assert "standup" in queries[2]["arguments"]["query"]
     assert all(
         "modifiedTime >=" not in item["arguments"]["query"]
         and "createdTime >=" not in item["arguments"]["query"]
