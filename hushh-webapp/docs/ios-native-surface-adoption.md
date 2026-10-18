@@ -19,9 +19,9 @@ evidence, not admission or release claims for the latest implementation.
 ### Latest-main integration and preview boundary — 2026-10-17
 
 Merge `5f70c584e9` incorporates main through `a01b055edd`. The installed iPhone
-remains the photo-qualified `a00d04764c` below; source integration does not transfer
-that physical acceptance to the merged candidate. Main's version increment to
-1.4.1 is preserved. Ordinary custom-native admission remains disabled.
+now runs `4550df9656`, Agent One 1.4.1 (69), UAT-backed Debug custom-native
+qualification. Main's version increment is preserved. Ordinary custom-native
+admission remains disabled.
 
 The shared One pane keeps the existing name/owner model, live Memory preview and
 retained native content plane, and incorporates main's Feed / To-do / Profile
@@ -37,6 +37,25 @@ lint, static parity and design/render checks pass. The source-only independent
 review found matching extracted behavior and retained exports. These are not
 native material, iPad or integrated physical acceptance.
 
+The combined candidate's native build, separate app/runner installation and
+preparation pass. Credential-free XCTest admission and normal configured
+passphrase unlock pass without skipped tests; private-run diagnostics are removed.
+The attach-only photo journey passes root/Account web-aligned top portraits,
+existing options → preview → Close → Account → Chat, one retained WebView and no
+photo mutation. Executable digest:
+`5c1f7ea6aecc1551e34ad8a9aa68d8ab4fe7b66a665a8e11a7d6b42e718c5163`.
+Its 1,681 exported/bundled assets match at
+`19ea87577fa8c1761789dfd1d75cdfe73801651bad7f66f1bd8335a618114fe8`;
+strict app/runner signatures, seven UAT targets and no remote WebView override
+are verified. This is bounded functional/layout proof, not full visual,
+accessibility, staged-resume or Release-performance acceptance.
+
+The current core attempt was deliberately interrupted during protocol collection
+after host gaming activity began; its 16 automatic workers exited. It is neither
+a core pass nor a product-test failure. Rerun the complete canonical gate on a
+quiet host, using supported `PYTEST_XDIST_AUTO_NUM_WORKERS=2` and `CORE_SERIAL=1`,
+before pushing. No current-head CI, merge or deployment is inferred.
+
 Review also identified incoming To-do-preview stale read/write settlement and
 shared-files owner/epoch/Undo fencing gaps. They remain unresolved implementation
 work, not waived acceptance. Preserve same-owner, same-epoch Undo after closing
@@ -45,7 +64,7 @@ the remaining native scene conversions remain separately tracked below.
 
 ### Profile height, photo header and current physical checks — 2026-10-17
 
-Current installed candidate: UAT-backed `a00d04764c`, Agent One 1.4.0 (69),
+Historical installed candidate: UAT-backed `a00d04764c`, Agent One 1.4.0 (69),
 Debug custom-native qualification. Its warm physical journey passes the root
 and Account top-portrait geometry, existing photo options → preview → Close,
 Account return and Chat/session continuity. Ordinary builds remain unchanged.
