@@ -138,12 +138,21 @@ def test_send_returns_clear_server_enforced_connection_error():
 
 def test_open_by_person_ref_is_private_no_store_and_uses_the_opaque_ref():
     service = MagicMock()
-    service.open_with_person.return_value = {"conversation": None, "canSend": True}
     person_ref = "11111111-1111-4111-8111-111111111111"
+    draft = {
+        "conversation": None,
+        "peerPersonRef": person_ref,
+        "peerDisplayName": "Connected person",
+        "peerPhotoUrl": "https://example.com/person.jpg",
+        "canSend": True,
+        "disconnectedNotice": False,
+    }
+    service.open_with_person.return_value = draft
     with patch("api.routes.one.messages._service", return_value=service):
         response = _client().get(f"/api/one/messages/with/person/{person_ref}")
 
     assert response.status_code == 200
+    assert response.json() == draft
     assert response.headers["cache-control"] == "private, no-store"
     service.open_with_person.assert_called_once_with("viewer-user", recipient_person_ref=person_ref)
 

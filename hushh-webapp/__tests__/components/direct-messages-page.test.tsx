@@ -311,6 +311,44 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByText("Loading messages…")).toBeInTheDocument();
   });
 
+  it("opens a new connected person's chat with their identity before the first message", async () => {
+    mocks.getConversationWithPerson.mockResolvedValue({
+      conversation: null,
+      peerPersonRef: "person-1",
+      peerDisplayName: "Ankit Kumar Singh",
+      peerPhotoUrl: "https://example.com/ankit.jpg",
+      canSend: true,
+      disconnectedNotice: null,
+    });
+    renderConnectionThread();
+
+    expect(await screen.findByRole("heading", { name: "Ankit Kumar Singh", exact: true })).toBeVisible();
+    expect(screen.getByText("Connected", { exact: true })).toBeVisible();
+    expect(screen.getByText("Start the conversation with Ankit Kumar Singh.")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh", exact: true })).toBeEnabled();
+    expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
+    expect(mocks.getConversationMessages).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Conversation", exact: true })).not.toBeInTheDocument();
+  });
+
+  it("opens the selected connected person's existing history using its conversation ID", async () => {
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [visibleMessage],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+    renderConnectionThread();
+
+    expect(await screen.findByText(visibleMessage.content)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Ankit Kumar Singh", exact: true })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh", exact: true })).toBeEnabled();
+    expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
+    expect(mocks.getConversationMessages).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1", limit: 60 });
+    expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+  });
+
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
