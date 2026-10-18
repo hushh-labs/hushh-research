@@ -40,7 +40,10 @@ Cancel and connector return, before failing an unsupported Release assertion:
 its final route guard requires a Debug-only host ledger. That failure does not
 prove a route leak. The corrected harness preserves that ledger assertion in
 Debug and separates observable Release route/keyboard checks from host-retirement
-proof; a focused continuation avoids repeating the ten completed cycles.
+proof. A focused continuation with runner `d19d59dcfc` and the unchanged installed
+`cbaa3849ec` app passes One/Connect/Feed withdrawal/return and keyboard/History
+return, preserving one composer and the draft. It does not repeat the ten
+completed cycles or claim the Debug-only host ledger was observed in Release.
 Two background/resume cycles and actual Control Center interruption also pass
 on the same installed Release candidate. The final canonical core passes in
 1,001 seconds, including protocol, web, package and integration gates.
@@ -73,7 +76,7 @@ physical visual/accessibility acceptance remains separate and build-bound.
 
 | Surface | Current evidence | Admission |
 | --- | --- | --- |
-| Profile navigation / privacy recovery | Installed `cbaa3849ec`: ten warm Preferences/Back/Close cycles, ten broader History/Profile/agent cycles, two background/resume cycles and a real Control Center interruption pass their interaction checks. The broader test's later Release route/keyboard check is separately unsupported until its harness correction. | Functional evidence only; staged reconstruction before uncovering, transition visuals and performance remain separate. |
+| Profile navigation / privacy recovery | Installed `cbaa3849ec`: ten warm Preferences/Back/Close cycles, ten broader History/Profile/agent cycles, two background/resume cycles and a real Control Center interruption pass their interaction checks. Corrected runner `d19d59dcfc` passes the separate Release route/keyboard continuation on that same app. | Functional evidence only; staged reconstruction before uncovering, transition visuals and performance remain separate. |
 | Full Memory workspace | `usePkmNaturalModel` retains the existing Saved/Add/Sharing owner and one `useSoulMemoryModel`; web bodies consume these models. Native route-body adoption is not yet enabled. | Established web fallback; no new native capability. |
 | Private Memory replicas and exports | Selected records/card caches are owner/key/unlock-tagged; token renewal preserves selection. Retired Save bindings cannot submit older drafts or credentials. Exports recheck owner/vault lifetime before handoff and reuse temporary Cache sharing, not Documents. | Source/core-contract evidence only; actual UAT writes and physical qualification remain separate. |
 
