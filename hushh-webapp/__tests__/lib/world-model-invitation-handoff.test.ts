@@ -60,7 +60,7 @@ it("sanitizes direct PWM fragment entries before a guard adds a query wrapper", 
 });
 
 it("fails closed if per-tab storage cannot save and clears successful decisions", () => {
-  vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => {
+  vi.spyOn(Object.getPrototypeOf(window.sessionStorage), "setItem").mockImplementationOnce(() => {
     throw new Error("blocked");
   });
   expect(createWorldModelInvitationHandoff(token)).toBeNull();

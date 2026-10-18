@@ -1501,7 +1501,6 @@ describe("supported connector catalog", () => {
         window.dispatchEvent(new StorageEvent("storage", {
           key: SETTLEMENT_KEY,
           newValue: JSON.stringify({ ...settlement(attempt.attemptId), sentAt: Date.now() }),
-          storageArea: window.localStorage,
         }));
       });
       expect(await screen.findByText("Calendar connected.")).toBeInTheDocument();

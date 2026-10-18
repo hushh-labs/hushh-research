@@ -512,22 +512,31 @@ it("keeps a non-cancelable wait single-flight through rapid pause/resume and rec
 });
 
 it("continues reconnect catch-up beyond the first five pages without waiting for a fallback timer", async () => {
-  api.open.mockImplementation(async (_session, item) => ({ text: `Message ${item.sequence}`, image: null }));
-  render(<CircleChat session={session} circleName="Family" initialOpen />);
-  await screen.findByText("Message 1");
-  api.messages.mockImplementation(async (_session, page) => {
-    const after = page.after ?? 0;
-    return {
-      items: Array.from({ length: Math.min(40, 206 - after) }, (_, i) => ({ ...message, id: `m${after + i + 1}`, sequence: after + i + 1 })),
-      hasMore: after + 40 < 206,
-    };
-  });
-  act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
-  // Seven pages and 206 decrypted rows take about 0.7 s locally and longer on shared CI runners.
-  await screen.findByText("Message 206", {}, { timeout: 8_000 });
-  const transcript = screen.getByRole("list");
-  expect(transcript.children).toHaveLength(206);
-  expect(api.messages).toHaveBeenCalledTimes(7);
+  // The five-second fallback must not supply any of the catch-up pages.
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    api.open.mockImplementation(async (_session, item) => ({ text: `Message ${item.sequence}`, image: null }));
+    render(<CircleChat session={session} circleName="Family" initialOpen />);
+    await screen.findByText("Message 1");
+    // Mount also queues a visibility refresh. Drain it before measuring the
+    // explicit reconnect, regardless of full-suite scheduling.
+    await waitFor(() => expect(api.messages).toHaveBeenCalledTimes(2));
+    api.messages.mockClear();
+    api.messages.mockImplementation(async (_session, page) => {
+      const after = page.after ?? 0;
+      return {
+        items: Array.from({ length: Math.min(40, 206 - after) }, (_, i) => ({ ...message, id: `m${after + i + 1}`, sequence: after + i + 1 })),
+        hasMore: after + 40 < 206,
+      };
+    });
+    act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
+    await screen.findByText("Message 206", {}, { timeout: 8_000 });
+    expect(screen.getByRole("list").children).toHaveLength(206);
+    expect(api.messages.mock.calls.map(([, page]) => page.after)).toEqual([1, 41, 81, 121, 161, 201]);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 }, 15_000);
 
 it("retains a newer receipt when the committed send response arrives late", async () => {

@@ -167,7 +167,6 @@ describe("connectGmailInPlace (web)", () => {
     window.dispatchEvent(new StorageEvent("storage", {
       key: GMAIL_SETTLEMENT_KEY,
       newValue: JSON.stringify({ ...gmailSettlement(attemptId), sentAt: Date.now() }),
-      storageArea: window.localStorage,
     }));
     await expect(start.result).resolves.toBe("connected");
   });
