@@ -232,7 +232,7 @@ struct NativeWorkspaceAction: Equatable {
             }
             if let search = model.state.search { NativeWorkspaceSearchField(model: model, search: search).padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8) }
             if let editor = model.editor {
-                NativeWorkspaceCircleForm(model: editor)
+                NativeWorkspaceCircleForm(model: editor, gutter: model.state.frame.gutter)
             } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -266,6 +266,7 @@ struct NativeWorkspaceAction: Equatable {
 }
 @available(iOS 26.0, *) private struct NativeWorkspaceCircleForm: View {
     @ObservedObject var model: NativeProfileEditorModel<NativeWorkspaceCircleProjection>
+    let gutter: CGFloat
     var body: some View {
         Form {
             Section("Circle name") {
@@ -279,7 +280,7 @@ struct NativeWorkspaceAction: Equatable {
                 Button(model.projection.busy ? "Saving…" : "Next") { model.action("save") }.disabled(!model.canSave).accessibilityIdentifier("native-referral-circle-next")
                 Button("Cancel") { model.action("cancel") }.disabled(!model.canCancel)
             }
-        }
+        }.contentMargins(.horizontal, gutter, for: .scrollContent)
     }
 }
 @available(iOS 26.0, *) private struct NativeWorkspaceSearchField: View {

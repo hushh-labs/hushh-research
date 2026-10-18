@@ -222,6 +222,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
   const phase = useNativeWorkspace({ owner, content, actions, current, editor, onRetirementOwner, contentFrame, back: () => { if (current()) unwindBackLayer(ROUTES.ONE_REFERRALS); } });
   useEffect(() => { if (phase === "web") onFallback(); }, [phase, onFallback]);
   return <AppPageShell as="div" ref={contentFrame} width="agent" aria-busy={phase === "checking"} data-native-referral-workspace={phase}
-    nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: "native-route-one-referrals", authState: "authenticated",
-      dataState: model.summaryRes.status === "loading" ? "loading" : model.summaryRes.status === "error" ? "unavailable-valid" : "loaded" }} />;
+    nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: phase === "native" ? "native-route-one-referrals" : "native-referral-admission", authState: "authenticated",
+      dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.summaryRes.status === "loading" ? "loading" : model.summaryRes.status === "error" ? "unavailable-valid" : "loaded",
+      errorCode: phase === "blocked" ? "NATIVE_WORKSPACE_ADMISSION_UNCERTAIN" : null }} />;
 }
