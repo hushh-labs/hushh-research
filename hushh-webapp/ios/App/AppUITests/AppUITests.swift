@@ -1266,16 +1266,24 @@ final class AppUITests: XCTestCase {
                 guard waitForAdmittedControl(preferences) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_PROFILE_MISSING"); return }
                 preferences.tap()
                 let back = nativeProfileBack(app, parent: "Profile")
-                let page = app.navigationBars["Preferences"].firstMatch
-                guard waitForAdmittedControl(page), waitForAdmittedControl(back) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_NESTED_MISSING"); return }
+                let theme = app.buttons["native-profile-row-preferences-theme"].firstMatch
+                // A navigation bar is a container, not a tappable control.
+                // Await the actual destination body and its admitted Back.
+                guard theme.waitForExistence(timeout: 10), waitForAdmittedControl(back) else {
+                    printCoherentPresentationAdmission(app)
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_NESTED_MISSING"); return
+                }
                 back.tap()
                 let close = app.buttons["Close Profile"].firstMatch
-                guard waitForAdmittedControl(preferences), waitForAdmittedControl(close) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_BACK_FAILED"); return }
+                guard waitForAdmittedControl(preferences), waitForAdmittedControl(close) else {
+                    printCoherentPresentationAdmission(app)
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_BACK_FAILED"); return
+                }
                 close.tap()
                 guard waitForAdmittedControl(editor), waitForAdmittedControl(profile) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_CLOSE_FAILED"); return }
                 continuity()
             }
-            print("NATIVE_PRODUCT_PERFORMANCE iterations=3 configuration=release warm=true mutated=false")
+            print("NATIVE_PRODUCT_PERFORMANCE requested_iterations=3 configuration=release warm=true mutated=false")
             return
             #endif
         }
@@ -1453,7 +1461,10 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
                     "A complete native Preferences page excludes the covered WebView from accessibility")
                 nativeStackBack.tap()
-                guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
+                guard waitForAdmittedControl(profileClose) else {
+                    printCoherentPresentationAdmission(app)
+                    XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return
+                }
                 profileClose.tap()
                 guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
                 continuity()
