@@ -854,6 +854,7 @@ def sms_schema(db):
         "134_one_location_named_circles.sql",
         "135_one_location_circle_connection_origins.sql",
         "136_one_location_circle_member_invites.sql",
+        "138_circle_member_connection_origin.sql",
         "160_one_location_system_circles.sql",
         "163_one_location_system_circle_kinds.sql",
     ):
@@ -861,6 +862,97 @@ def sms_schema(db):
             conn.exec_driver_sql(
                 (migrations / name).read_text(), execution_options={"no_parameters": True}
             )
+
+
+def test_sms_circle_allows_ten_contacts_plus_owner_and_preserves_them_on_rollback(db):
+    from hushh_mcp.services.one_location_circle_service import (
+        OneLocationCircleError,
+        OneLocationCircleService,
+    )
+
+    sms_schema(db)
+    service = OneLocationCircleService(db=db)
+    circle_id = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles
+             (id,owner_user_id,name,kind,member_limit,is_system,system_kind)
+           VALUES(CAST(:circle AS UUID),'owner','SMS Circle','other',10,TRUE,'sms');
+           INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+           VALUES(CAST(:circle AS UUID),'owner','owner','active')""",
+        {"circle": circle_id},
+    )
+    other_circle = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles(id,owner_user_id,name,kind,member_limit)
+           VALUES(CAST(:id AS UUID),'owner','Ordinary','other',10)""",
+        {"id": other_circle},
+    )
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for _ in range(2):
+        db.execute_raw((migrations / "363_sms_circle_ten_contacts.sql").read_text())
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": circle_id},
+    ).data == [{"member_limit": 11}]
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": other_circle},
+    ).data == [{"member_limit": 10}]
+
+    for index in range(11):
+        person = f"sms-contact-{index + 1}"
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES(:person)", {"person": person})
+        db.execute_raw(
+            "INSERT INTO actor_identity_cache(user_id,display_name) VALUES(:person,:person)",
+            {"person": person},
+        )
+        connection = db.execute_raw(
+            """INSERT INTO connections(user_a_id,user_b_id,status,source)
+               VALUES('owner',:person,'active','request') RETURNING id""",
+            {"person": person},
+        ).data[0]["id"]
+        db.execute_raw(
+            """INSERT INTO connection_origins(connection_id,origin_kind,origin_key)
+               VALUES(CAST(:connection AS UUID),'direct_request','direct_request')""",
+            {"connection": connection},
+        )
+
+    for index in range(10):
+        assert service.set_sms_contact(
+            owner_user_id="owner",
+            contact_user_id=f"sms-contact-{index + 1}",
+            added=True,
+        )["changed"]
+    assert service.get_remaining_invite_capacity(actor_user_id="owner", circle_id=circle_id) == 0
+    assert db.execute_raw(
+        """SELECT count(*) AS members FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data == [{"members": 11}]
+    with pytest.raises(OneLocationCircleError) as full:
+        service.set_sms_contact(
+            owner_user_id="owner",
+            contact_user_id="sms-contact-11",
+            added=True,
+        )
+    assert full.value.code == "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED"
+    assert (
+        db.execute_raw(
+            "SELECT contact_user_id FROM one_location_sms_contacts WHERE contact_user_id='sms-contact-11'"
+        ).data
+        == []
+    )
+
+    db.execute_raw((migrations / "rollback/363_sms_circle_ten_contacts.rollback.sql").read_text())
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": circle_id},
+    ).data == [{"member_limit": 10}]
+    assert db.execute_raw(
+        """SELECT count(*) AS members FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data == [{"members": 11}]
 
 
 @pytest.mark.asyncio

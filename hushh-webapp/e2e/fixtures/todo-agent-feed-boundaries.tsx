@@ -6,6 +6,7 @@ let state = {
   unlocked: true,
   error: false,
   failSave: false,
+  hideAgent: false,
   revision: 0,
   message: "",
   href: "",
@@ -59,7 +60,7 @@ export const items = [
 export function useFeedActionables({ enabled }: { enabled: boolean }) {
   const value = useFixture();
   return {
-    actionables: enabled ? items : [],
+    actionables: enabled && !value.hideAgent ? items : [],
     loading: false,
     progressLoading: false,
     progressError: null,
@@ -76,14 +77,17 @@ export function useFeedBriefing() {
   };
 }
 export function useCalendarConnectionStatus() {
-  return { connected: false };
+  return { connected: false, loaded: true, loading: false, error: null, refresh: () => {} };
 }
 // This persistence/lifecycle fixture has no linked Gmail account.
 export function useGmailConnectorStatus() {
   return { status: null };
 }
 export function useCalendarUpcomingEvents() {
-  return { events: [] };
+  return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
+}
+export function useGmailConnectorStatus() {
+  return { status: null };
 }
 let domain: Record<string, unknown> = { _private: { tasks: [] } };
 export const PersonalKnowledgeModelService = {
@@ -115,8 +119,8 @@ export const morphyToast = {
     );
   },
 };
-export function AppPageShell({ children }: { children: ReactNode }) {
-  return <main className="app-page-shell p-4">{children}</main>;
+export function AppPageShell({ children, ...props }: { children: ReactNode; [key: string]: unknown }) {
+  return <main {...props} className="app-page-shell p-4">{children}</main>;
 }
 export function AppPageHeaderRegion({ children }: { children: ReactNode }) {
   return <header>{children}</header>;

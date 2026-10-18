@@ -65,15 +65,24 @@ function Harness() {
     dismissDailyTip: () => undefined,
   };
   return (
-    <main className="min-h-dvh bg-background px-4 pt-5 text-foreground sm:px-6 lg:px-8">
+    <main data-agent-chat-workspace="page" data-profile-type-scale="chat" className="min-h-dvh bg-background px-4 pt-5 text-foreground sm:px-6 lg:px-8">
       <div data-testid="transcript" className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <AgentSuggestionList
-          suggestions={["What's on my calendar this week?", "Which emails need a reply?", "Who has access to my information?"]}
-          layout="starter-grid"
-          label="Start a conversation"
-          testId="agent-prompt-suggestions"
-          onSelect={() => undefined}
-        />
+        <div className="flex flex-col gap-2">
+          <AgentSuggestionList
+            suggestions={["What's on my calendar this week?", "Which emails need a reply?", "Who has access to my information?"]}
+            layout="starter-grid"
+            label="Start a conversation"
+            testId="agent-prompt-suggestions"
+            onSelect={() => undefined}
+          />
+          {tipOpen ? (
+            <ChatOnboardingDailyTip
+              tip="Which emails need a reply?"
+              onUse={() => undefined}
+              onDismiss={() => setTipOpen(false)}
+            />
+          ) : null}
+        </div>
         <ChatOnboardingTurns
           controller={controller}
           slot={{ kind: "top" }}
@@ -103,13 +112,6 @@ function Harness() {
           suggestions={["Show my connected apps", "Help me prepare for tomorrow with a short plan that I can review and edit before using it"]}
           onSelect={() => undefined}
         />
-        {tipOpen ? (
-          <ChatOnboardingDailyTip
-            tip="Which emails need a reply?"
-            onUse={() => undefined}
-            onDismiss={() => setTipOpen(false)}
-          />
-        ) : null}
       </div>
     </main>
   );

@@ -86,11 +86,11 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
         >
           {layout === "starter-grid" ? (
             <span aria-hidden className="flex h-6 w-8 shrink-0 items-center gap-1 text-current">
-              <span className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
+              <span data-profile-role="group-label" className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
               <ChevronRight className="h-3 w-3" />
             </span>
           ) : null}
-          <span className="min-w-0 whitespace-normal leading-6">{suggestion}</span>
+          <span data-profile-role={layout === "starter-grid" ? "label" : undefined} className="min-w-0 whitespace-normal leading-6 [overflow-wrap:anywhere]">{suggestion}</span>
           {layout === "list" ? <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden

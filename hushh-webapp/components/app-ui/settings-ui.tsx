@@ -406,6 +406,7 @@ export function SettingsGroup({
             {description ? (
               <RowDescription
                 compact={resolvedDensity === "compact"}
+                data-slot="settings-group-description"
                 className="max-w-2xl [overflow-wrap:anywhere]"
               >
                 {description}

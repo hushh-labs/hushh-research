@@ -404,6 +404,27 @@ it("reconciles reactions on loaded messages and interleaves membership events", 
     .toEqual(["m1", "joined-1"]);
 });
 
+it("shows one named activity line for each new group add and keeps old actions separate", async () => {
+  const at = (second: number) => `2026-10-02T10:00:${String(second).padStart(2, "0")}Z`;
+  api.messages.mockResolvedValue({ items: [], hasMore: false, events: [
+    { id: "old-1", kind: "member_joined", subjectName: "Asha", actorName: "Jhumma", createdAt: at(1) },
+    { id: "old-2", kind: "member_joined", subjectName: "Bina", actorName: "Jhumma", createdAt: at(2) },
+    ...["Divya", "Ms Divya 2", "Roopman", "Smrithi", "Smritika"].map((subjectName, index) => ({
+      id: `group-a-${index}`, kind: "member_joined", batchId: "group-a", subjectName,
+      actorName: "Jhumma", createdAt: at(3 + index),
+    })),
+    { id: "group-b-1", kind: "member_joined", batchId: "group-b", subjectName: "Nina", actorName: "Jhumma", createdAt: at(8) },
+    { id: "group-b-2", kind: "member_joined", batchId: "group-b", subjectName: "Omar", actorName: "Jhumma", createdAt: at(9) },
+  ] });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Divya, Ms Divya 2, Roopman, Smrithi and Smritika were added");
+  expect(screen.getByText("Jhumma added Asha")).toBeInTheDocument();
+  expect(screen.getByText("Jhumma added Bina")).toBeInTheDocument();
+  expect(screen.getByText("Nina and Omar were added")).toBeInTheDocument();
+  expect(screen.queryByText("Jhumma added Divya")).not.toBeInTheDocument();
+  expect(screen.getByRole("log", { name: "Circle message history" }).querySelectorAll("li[data-circle-membership-event]")).toHaveLength(4);
+});
+
 it("does not restore unread from a state response started before a successful read", async () => {
   render(<CircleChat session={session} circleName="Family" initialOpen />);
   await screen.findByText("Incoming private message");

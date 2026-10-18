@@ -133,20 +133,13 @@ for (const theme of ["light", "dark"]) {
   }
 }
 
-test("sign-in keeps the Contacts choice and returning sign-in control usable", async ({ page }) => {
+test("sign-in keeps provider choices without redundant account toggles", async ({ page }) => {
   await page.setViewportSize({ width: 402, height: 874 });
   await page.goto("/login");
   const screen = page.getByTestId("auth-step-primary");
-  const contacts = screen.getByRole("checkbox", { name: "Find people I know" });
-  await expect(contacts).toBeChecked();
-  await contacts.click();
-  await expect(contacts).not.toBeChecked();
-  await contacts.click();
-  await expect(contacts).toBeChecked();
-
-  await screen.getByRole("button", { name: "Already have an account? Sign in" }).click();
-  await expect(contacts).toHaveCount(0);
-  await expect(screen.getByRole("button", { name: "New to One? Get started" })).toBeVisible();
+  await expect(screen.getByRole("button", { name: "Already have an account? Sign in" })).toHaveCount(0);
+  await expect(screen.getByRole("button", { name: "New to One? Get started" })).toHaveCount(0);
+  await expect(screen.getByRole("checkbox", { name: "Find people I know" })).toHaveCount(0);
   await expect(screen.getByRole("button", { name: "Continue with Apple" })).toBeVisible();
   await expect(screen.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   await expect(screen.getByRole("button", { name: "Go back" })).toBeVisible();

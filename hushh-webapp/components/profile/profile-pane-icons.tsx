@@ -113,12 +113,54 @@ export function ProfilePaneInviteIcon(props: ProfilePaneIconProps) {
   );
 }
 
+export function ProfilePaneAddPeopleIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon {...props}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19c.3-4 2.2-6 5.5-6s5.2 2 5.5 6" />
+      <path className="profile-pane-icon-accent" d="M17.5 5.5v7M14 9h7" />
+    </PaneIcon>
+  );
+}
+
 export function ProfilePaneHelpIcon(props: ProfilePaneIconProps) {
   return (
     <PaneIcon {...props}>
       <circle cx="12" cy="12" r="9" />
       <path className="profile-pane-icon-accent" d="M9.7 9a2.5 2.5 0 1 1 4.1 1.9c-1 .7-1.8 1.2-1.8 2.6" />
       <path className="profile-pane-icon-accent" d="M12 17.3h.01" />
+    </PaneIcon>
+  );
+}
+
+/** Speech bubble in the family's recipe: label-colored outline, accent detail lines. */
+export function ProfilePaneMessageIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon {...props}>
+      <path d="M5 4.5h14a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2h-8.5L6 20.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z" />
+      <path className="profile-pane-icon-accent" d="M7.5 9.2h9M7.5 12.7h5.5" />
+    </PaneIcon>
+  );
+}
+
+/** A neutral task sheet with one accent action, for the To-do empty state. */
+export function ProfilePaneTaskAddIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon {...props}>
+      <path d="M7 4.5h9l3 3V20H5V6.5a2 2 0 0 1 2-2Z" />
+      <path d="M16 4.5V8h3M8.5 11h3.5M8.5 14h3" />
+      <path className="profile-pane-icon-accent" d="M15.5 13v5M13 15.5h5" />
+    </PaneIcon>
+  );
+}
+
+/** One voice control shares the Profile line and accent recipe. */
+export function ProfilePaneMicrophoneIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon {...props}>
+      <rect x="9" y="3" width="6" height="12" rx="3" />
+      <path d="M6.5 10.5a5.5 5.5 0 0 0 11 0M12 16v4M9 20h6" />
+      <path className="profile-pane-icon-accent" d="M12 5.5v2.5" />
     </PaneIcon>
   );
 }

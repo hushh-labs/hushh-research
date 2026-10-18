@@ -2214,8 +2214,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-pane-sheet[data-slot="sheet-content"],
 [data-app-side-pane],
 [data-agent-history-drawer],
-[data-app-pane-material="profile"] {
-  /* One material authority for panes and their portaled controls. */
+[data-app-pane-material="profile"],
+[data-profile-type-scale] {
+  /* One material authority for panes and their portaled controls.
+     `[data-profile-type-scale]` shares the type tokens below with a page that
+     opts in to the Profile scale (see the block after the Profile pane rules). */
   --app-side-pane-header-padding: 20px 68px 15px 20px;
   --app-side-pane-row-inset: 6px;
   --app-side-pane-row-gap: 5px;
@@ -9375,6 +9378,253 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
     :is(input, textarea)::placeholder {
     font-size: 13px !important;
+  }
+}
+
+/* Profile type scale for a surface that opts in with `data-profile-type-scale`
+   (Connect, the Feed "Needs you" list, the Agents roster, the Remove-connection
+   dialog). Values are the Profile pane's, read from the running native app on
+   2026-10-18: header 20/600, nav and tab label 13/550, detail row label 13/400,
+   detail description and action 12, group label 10/600, dialog title 15/600,
+   dialog description 11, dialog button 12/600. The pane tokens
+   (--app-side-pane-*) are shared by the selector list near the pane material
+   block; the roles Profile only spells as literals get tokens here, once.
+   The scope may sit on the page shell or on any element inside it. Only
+   `data-profile-type-scale="page"` also restyles the shared top-bar title, and
+   only while that page is mounted. */
+html:has([data-profile-type-scale]),
+[data-profile-type-scale] {
+  --profile-type-header-size: 20px;
+  --profile-type-header-line: 1.15;
+  --profile-type-header-weight: 600;
+  --profile-type-header-tracking: -0.025em;
+  --profile-type-header-description-line: 1.4;
+  --profile-type-identity-name-size: clamp(19px, 4vw, 24px);
+  --profile-type-identity-name-line: 1.1;
+  --profile-type-identity-name-tracking: -0.045em;
+  --profile-type-label-size: 13px;
+  --profile-type-label-line: 1.22;
+  --profile-type-label-weight: 400;
+  --profile-type-description-size: 12px;
+  --profile-type-description-line: 1.3;
+  --profile-type-action-size: 12px;
+  --profile-type-action-line: 1.3;
+  --profile-type-action-weight: 500;
+  --profile-type-dialog-title-size: 15px;
+  --profile-type-dialog-title-line: 1.2;
+  --profile-type-dialog-title-weight: 600;
+  --profile-type-dialog-description-size: 11px;
+  --profile-type-dialog-description-line: 1.25;
+  --profile-type-dialog-action-size: 12px;
+  --profile-type-dialog-action-weight: 600;
+}
+
+/* Same layer and `!important` as the Profile pane block above: an unlayered rule
+   loses to the base-layer `!important` role rules. Explicit `data-profile-role`
+   hooks name a role by purpose; the `data-slot` hooks cover the shared rows. */
+@layer base {
+  html:has([data-profile-type-scale="page"])
+    :is(
+      [data-testid="top-app-bar-breadcrumb-trail"],
+      [data-testid="top-app-bar-title"]
+    ) {
+    font-size: var(--profile-type-header-size) !important;
+    line-height: var(--profile-type-header-line) !important;
+    font-weight: var(--profile-type-header-weight) !important;
+    letter-spacing: var(--profile-type-header-tracking) !important;
+  }
+
+  /* Surface header: a page's own title. */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    [data-profile-role="header"] {
+    font-size: var(--profile-type-header-size) !important;
+    line-height: var(--profile-type-header-line) !important;
+    font-weight: var(--profile-type-header-weight) !important;
+    letter-spacing: var(--profile-type-header-tracking) !important;
+  }
+
+  /* Primary label: tab labels, the controls that name a list, and names of
+     things you open (an agent, a section). */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    :is(
+      [data-profile-role="label"],
+      [data-ui-role="agent-tab-label"],
+      .connect-section-control-label
+    ) {
+    font-size: var(--app-side-pane-row-title-size) !important;
+    line-height: var(--app-side-pane-row-title-line) !important;
+    font-weight: var(--app-side-pane-row-title-weight) !important;
+    letter-spacing: normal !important;
+  }
+
+  /* Group label: a heading nested under a list's own title. */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    :is([data-profile-role="group-label"], [data-slot="settings-group-heading"]) {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--app-side-pane-section-size) !important;
+    line-height: var(--app-side-pane-section-line) !important;
+    font-weight: var(--app-side-pane-section-weight) !important;
+    letter-spacing: var(--app-side-pane-section-tracking) !important;
+  }
+
+  /* Row label (Profile detail rows). */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    :is(
+      [data-profile-role="name"],
+      [data-row-layout] [data-slot="settings-row-title"]
+    ) {
+    color: var(--ios-account-label) !important;
+    font-size: var(--profile-type-label-size) !important;
+    line-height: var(--profile-type-label-line) !important;
+    font-weight: var(--profile-type-label-weight) !important;
+    letter-spacing: 0 !important;
+  }
+
+  /* Secondary line and count: one role, so a date, an email, a helper and a
+     "1 action" all read alike. */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    :is(
+      [data-profile-role="description"],
+      [data-row-layout] [data-slot="settings-row-description"],
+      [data-settings-density] [data-slot="settings-group-description"]
+    ) {
+    font-size: var(--profile-type-description-size) !important;
+    line-height: var(--profile-type-description-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    /* Two-line supporting text breaks evenly instead of leaving a word or a
+       date fragment alone on the second line. */
+    text-wrap: balance;
+  }
+
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    :is(
+      [data-row-layout] [data-slot="settings-row-description"],
+      [data-settings-density] [data-slot="settings-group-description"]
+    ) {
+    color: var(--ios-account-secondary-label) !important;
+  }
+
+  /* Action label (Profile's inline "Edit" / "Change"). */
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale])
+    [data-profile-role="action"] {
+    font-size: var(--profile-type-action-size) !important;
+    line-height: var(--profile-type-action-line) !important;
+    font-weight: var(--profile-type-action-weight) !important;
+    letter-spacing: 0 !important;
+  }
+
+  /* Dialog variant: Profile's own account-dialog roles (profile-your-account
+     .module.css), applied to a dialog that carries the scope on its content. */
+  [data-slot="alert-dialog-content"][data-profile-type-scale]
+    [data-slot="alert-dialog-title"] {
+    font-size: var(--profile-type-dialog-title-size) !important;
+    line-height: var(--profile-type-dialog-title-line) !important;
+    font-weight: var(--profile-type-dialog-title-weight) !important;
+  }
+
+  [data-slot="alert-dialog-content"][data-profile-type-scale]
+    [data-slot="alert-dialog-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--profile-type-dialog-description-size) !important;
+    line-height: var(--profile-type-dialog-description-line) !important;
+  }
+
+  [data-slot="alert-dialog-content"][data-profile-type-scale]
+    [data-slot="alert-dialog-footer"] > button {
+    font-size: var(--profile-type-dialog-action-size) !important;
+    font-weight: var(--profile-type-dialog-action-weight) !important;
+  }
+
+  /* To-do opts in as a page. The shared header and semantic text primitives
+     keep their defaults everywhere else. */
+  .app-page-shell[data-todo-list-page][data-profile-type-scale]
+    [data-slot="page-header"] [data-ui-role="agent-title"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-label) !important;
+    font-size: var(--profile-type-header-size) !important;
+    line-height: var(--profile-type-header-line) !important;
+    font-weight: var(--profile-type-header-weight) !important;
+    letter-spacing: var(--profile-type-header-tracking) !important;
+  }
+
+  .app-page-shell[data-todo-list-page][data-profile-type-scale]
+    [data-slot="page-header-eyebrow"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--profile-type-description-size) !important;
+    line-height: var(--profile-type-header-description-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+  }
+
+  .app-page-shell[data-todo-list-page][data-profile-type-scale]
+    [data-todo-add-item] {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--profile-type-action-size) !important;
+    line-height: var(--profile-type-action-line) !important;
+    font-weight: var(--profile-type-action-weight) !important;
+    letter-spacing: 0 !important;
+  }
+
+  /* Chat's welcome roles are local to the One workspace. The composer is
+     portalled, so it carries its own hook and stays at iOS-safe 16px. */
+  [data-agent-chat-workspace="page"][data-profile-type-scale="chat"]
+    [data-profile-role="identity-name"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-label) !important;
+    font-size: var(--profile-type-identity-name-size) !important;
+    line-height: var(--profile-type-identity-name-line) !important;
+    font-weight: 600 !important;
+    letter-spacing: var(--profile-type-identity-name-tracking) !important;
+  }
+
+  [data-agent-chat-workspace="page"][data-profile-type-scale="chat"]
+    [data-profile-role="header-description"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--profile-type-description-size) !important;
+    line-height: var(--profile-type-header-description-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+
+  [data-agent-chat-workspace="page"][data-profile-type-scale="chat"]
+    [data-profile-role="label"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-label) !important;
+    font-size: var(--app-side-pane-row-title-size) !important;
+    line-height: var(--app-side-pane-row-title-line) !important;
+    font-weight: var(--app-side-pane-row-title-weight) !important;
+    letter-spacing: normal !important;
+  }
+
+  [data-agent-chat-workspace="page"][data-profile-type-scale="chat"]
+    [data-profile-role="group-label"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--app-side-pane-section-size) !important;
+    line-height: var(--app-side-pane-section-line) !important;
+    font-weight: var(--app-side-pane-section-weight) !important;
+    letter-spacing: var(--app-side-pane-section-tracking) !important;
+  }
+
+  [data-agent-chat-workspace="page"][data-profile-type-scale="chat"]
+    [data-profile-role="description"] {
+    font-family: var(--font-app-body) !important;
+    color: var(--ios-account-secondary-label) !important;
+    font-size: var(--profile-type-description-size) !important;
+    line-height: var(--profile-type-description-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+
+  textarea[data-profile-composer="true"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    line-height: 1.5 !important;
   }
 }
 

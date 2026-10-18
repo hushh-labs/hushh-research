@@ -130,9 +130,8 @@ export function AuthStep({
   compact?: boolean;
 }) {
   const [hydrated, setHydrated] = useState(false);
-  const [returningSignIn, setReturningSignIn] = useState(false);
   const [findInitialContacts, setFindInitialContacts] = useState(true);
-  const initialContactsEnabled = !returningSignIn && AuthService.canRequestInitialGoogleContacts();
+  const initialContactsEnabled = AuthService.canRequestInitialGoogleContacts();
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
@@ -1106,12 +1105,6 @@ export function AuthStep({
                   onExpandedChange={setEmailExpanded}
                   onAuthenticated={handleEmailAuthenticated}
                 /> : null}
-
-                {!emailExpanded ? <button type="button" disabled={providerBusy}
-                  className={cn("min-h-11 w-full text-sm text-muted-foreground hover:text-foreground", lightStyles.returning)}
-                  onClick={() => setReturningSignIn((value) => !value)}>
-                  {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
-                </button> : null}
 
                 {showReviewer && !emailExpanded ? (
                   <AuthProviderButton

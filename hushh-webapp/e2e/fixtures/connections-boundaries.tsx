@@ -76,6 +76,13 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+export const app = null;
+export const auth = null;
+export const prepareRecaptchaVerifier = () => {
+  throw new Error("Authentication is outside the Connections layout fixture");
+};
+export const getRecaptchaVerifier = prepareRecaptchaVerifier;
+export const resetRecaptcha = () => {};
 // Profile settings import these cold native service paths into the bundle.
 // This browser fixture admits no native calls; fail if one is actually used.
 function unavailableNativeBridge(name: string) {

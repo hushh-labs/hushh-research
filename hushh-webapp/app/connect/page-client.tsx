@@ -10,7 +10,6 @@ import {
   Check,
   ChevronDown,
   Loader2,
-  MessageSquareText,
   RefreshCw,
   Trash2,
   Search as SearchIcon,
@@ -35,7 +34,11 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
-import { DirectoryPersonCard } from "@/components/connect/directory-person-card";
+import {
+  ConnectPersonRow,
+  DirectoryMutualLine,
+} from "@/components/connect/connect-person-row";
+import { ProfilePaneMessageIcon } from "@/components/profile/profile-pane-icons";
 import { LivingConnections } from "@/components/connect/living-connections";
 import {
   EMPTY_CIRCLES_SNAPSHOT,
@@ -143,7 +146,10 @@ import {
   VOICE_DISAMBIGUATION_DATA_KEY,
 } from "@/lib/kai/actions/voice-action-card";
 import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
-import { getDirectoryPersonDescription } from "./directory-person-label";
+import {
+  getDirectoryPersonDescription,
+  getDirectoryPersonEmail,
+} from "./directory-person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CONNECT_DIRECTORY_CONTENT_CLASSNAME,
@@ -159,9 +165,7 @@ import {
 } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import {
-  CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
-  CONNECT_ROW_TRAILING_CLASSNAME,
   CONNECT_SECTION_HEADING_CLASSNAME,
   CONNECT_SECTION_TITLE_CONTROL_CLASSNAME,
   CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
@@ -345,8 +349,19 @@ async function mapWithConcurrency<T, R>(
 
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
+/**
+ * A directory row's call to action. The button is the 44px target; the pill drawn
+ * inside it is a compact 32px, so the row stays small without shrinking the tap
+ * area (the shared Button clips overflow, so the target cannot be a pseudo-element).
+ * The label takes Profile's action typography through `data-profile-role="action"`
+ * on the button, which the pill inherits.
+ */
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
+  "!h-11 !min-h-11 min-w-[72px] !border-0 !bg-transparent !p-0 !text-[color:var(--app-accent)] disabled:opacity-60";
+const CONNECT_ROW_ACTION_PILL_CLASSNAME =
+  "inline-flex h-8 min-w-[72px] items-center justify-center rounded-full border border-[color:var(--app-accent)] px-3";
+/** An icon-only action: a 44px target around a 22px glyph. */
+const CONNECT_ROW_ICON_ACTION_CLASSNAME = "!size-11 !min-w-11 !bg-transparent !p-0";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label h-11 min-h-11 rounded-xl px-2.5 text-[13px] leading-4";
 const CONNECT_REMOVE_BUTTON_CLASSNAME =
@@ -3018,6 +3033,8 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       data-connect-page=""
+      // Opts the page in to the Profile type scale (app/globals.css, `data-profile-type-scale`).
+      data-profile-type-scale="page"
       fitContent
       width={circleFlowAction === "circle-detail" ? "agent" : "reading"}
       className="relative isolate"
@@ -3185,13 +3202,13 @@ export default function ConnectPageClient() {
                             headingClassName="!mt-0 !mb-2 !px-0"
                             contentId="connect-my-connections-panel"
                             shellClassName={cn(
-                              "!rounded-none !bg-transparent !shadow-none",
+                              // Visible, not clipped: the 44px action targets reach 11px past
+                              // the column, and a clipped shell scrolls sideways to reveal
+                              // whichever one takes focus.
+                              "!overflow-visible !rounded-none !bg-transparent !shadow-none",
                               !connectionsExpanded && "hidden",
                             )}
-                            contentClassName={cn(
-                              "!divide-y-0",
-                              sortedConnections.length > 0 && CONNECT_CONNECTION_LIST_CLASSNAME,
-                            )}
+                            contentClassName="!divide-y-0"
                             testId="connect-my-connections-group"
                           >
                             {connectionsRefreshError && (
@@ -3240,45 +3257,33 @@ export default function ConnectPageClient() {
                               connectionGroups.map((group) => (
                                 <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
                                   {group.label ? (
-                                    <div role="heading" aria-level={3} className="flex min-h-11 items-center gap-2.5 pb-1 pt-3 text-[14px] font-medium text-[color:var(--app-secondary-label)]">
-                                      <BookUser aria-hidden="true" className="size-[18px]" color="currentColor" />
+                                    <div
+                                      role="heading"
+                                      aria-level={3}
+                                      data-slot="settings-group-heading"
+                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
+                                    >
+                                      <BookUser aria-hidden="true" className="size-4" color="currentColor" />
                                       {group.label}
                                     </div>
                                   ) : null}
-                                  {group.items.map((connection) => (
-                                    <SettingsRow
+                                  {group.items.map((connection) => {
+                                    const connectionName =
+                                      connection.displayName || connection.userId;
+                                    return (
+                                    <ConnectPersonRow
                                       key={connection.connectionId}
-                                      className="!rounded-none border-b border-[color:var(--app-separator)] [--settings-row-px:0px] [--settings-row-py:16px] [--settings-row-gap:12px]"
                                       leading={
                                         <ConnectionPersonAvatar
-                                          size="list"
-                                          className="!size-11"
-                                          fallbackClassName={cn("text-[20px] font-medium text-white", connectionAvatarTone(connection.userId))}
+                                          size="compact"
+                                          className="!size-[26px]"
+                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                           photoUrl={connection.photoUrl ?? null}
-                                          label={
-                                            connection.displayName ||
-                                            connection.userId
-                                          }
+                                          label={connectionName}
                                           verified={Boolean(connection.isRia)}
                                         />
                                       }
-                                      // Deliberately NOT stackTrailingOnMobile. That prop drops
-                                      // the trailing control onto its own line below the name on
-                                      // every phone (`sm:` is 640px, so "mobile" here is every
-                                      // iPhone), and it was doing so for a single 72px "Remove"
-                                      // that had room to sit inline all along -- a connection
-                                      // read as two rows, and the list lost its right-hand
-                                      // column. The People list below has never stacked; these
-                                      // two lists sit on the same screen and now agree.
-                                      title={
-                                        <span
-                                          className="block min-w-0 truncate"
-                                          title={connection.displayName || connection.userId}
-                                        >
-                                            {connection.displayName ||
-                                              connection.userId}
-                                        </span>
-                                      }
+                                      title={connectionName}
                                       description={
                                         connection.createdAt &&
                                         !Number.isNaN(
@@ -3287,11 +3292,9 @@ export default function ConnectPageClient() {
                                           ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
                                           : "Connected"
                                       }
-                                      voiceLabel={
-                                        connection.displayName || connection.userId
-                                      }
-                                      density="comfortable"
-                                      onClick={
+                                      voiceLabel={connectionName}
+                                      openLabel={`Open ${connectionName}'s profile`}
+                                      onOpen={
                                         connection.publicPersonRef
                                           ? () =>
                                               router.push(
@@ -3303,26 +3306,20 @@ export default function ConnectPageClient() {
                                           : undefined
                                       }
                                       trailing={
-                                        <span
-                                          className={cn(
-                                            "flex shrink-0 items-center justify-end gap-0 whitespace-nowrap",
-                                            CONNECT_ROW_TRAILING_CLASSNAME,
-                                          )}
-                                        >
+                                        <span className="-mr-[11px] flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
                                           {connection.publicPersonRef ? (
                                             <Button
                                               type="button"
                                               variant="none"
                                               effect="fade"
                                               size="compact"
-                                              aria-label={`Message ${connection.displayName || connection.userId}`}
-                                              className="!size-11 !min-w-11 !bg-transparent !p-0"
-                                              onClick={(event) => {
-                                                event.stopPropagation();
+                                              aria-label={`Message ${connectionName}`}
+                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                              onClick={() => {
                                                 void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                               }}
                                             >
-                                              <MessageSquareText aria-hidden="true" weight="regular" color="currentColor" className="size-[22px] text-[color:var(--app-accent)]" />
+                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
                                             </Button>
                                           ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                           <Button
@@ -3330,14 +3327,13 @@ export default function ConnectPageClient() {
                                             variant="none"
                                             effect="fade"
                                             size="compact"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
+                                            onClick={() => {
                                               setPendingRemoveId(
                                                 connection.connectionId,
                                               );
                                             }}
-                                            aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                                            className="!size-11 !min-w-11 !bg-transparent !p-0 text-destructive"
+                                            aria-label={`Remove connection with ${connectionName}`}
+                                            className={cn(CONNECT_ROW_ICON_ACTION_CLASSNAME, "text-destructive")}
                                           >
                                             <Trash2
                                               aria-hidden="true"
@@ -3347,7 +3343,8 @@ export default function ConnectPageClient() {
                                         </span>
                                       }
                                     />
-                                  ))}
+                                    );
+                                  })}
                                 </section>
                               ))
                             )}
@@ -3647,33 +3644,30 @@ export default function ConnectPageClient() {
                                     person.userId,
                                   );
                                   return (
-                                    <DirectoryPersonCard
-                                      person={person}
+                                    <ConnectPersonRow
                                       key={person.userId}
-
+                                      testId="directory-person-row"
                                       // Verified is a state, and green is what this design
                                       // system already spends on a verified one. It is on the
                                       // row rather than on the tab so the mark still means
                                       // something in a search that spans both.
                                       leading={
                                         <ConnectionPersonAvatar
-                                          size="list"
+                                          size="compact"
+                                          className="!size-[26px]"
+                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
                                           verified={Boolean(person.isRia)}
                                         />
                                       }
-                                      title={
-                                        <span
-                                          className={
-                                            CONNECT_WRAPPING_TEXT_CLASSNAME
-                                          }
-                                        >
-                                          {title}
-                                        </span>
-                                      }
-                                      density="compact"
-                                      onClick={
+                                      title={title}
+                                      // An email the server already returned for this viewer
+                                      // (masked when it is not theirs to see), or no line.
+                                      // Never a phone number, never a phone fallback.
+                                      description={getDirectoryPersonEmail(person)}
+                                      openLabel={`Open ${title}'s profile`}
+                                      onOpen={
                                         !isSelectionMode &&
                                         person.publicPersonRef
                                           ? () =>
@@ -3685,13 +3679,22 @@ export default function ConnectPageClient() {
                                               )
                                           : undefined
                                       }
-                                      onOpenMutual={
-                                        !isSelectionMode && person.mutualConnectionPreview?.publicPersonRef
-                                          ? () => router.push(buildPersonProfileRoute(
-                                              person.mutualConnectionPreview!.publicPersonRef!,
-                                              { from: ROUTES.CONNECT },
-                                            ))
-                                          : undefined
+                                      supplement={
+                                        <DirectoryMutualLine
+                                          person={person}
+                                          onOpenMutual={
+                                            !isSelectionMode &&
+                                            person.mutualConnectionPreview?.publicPersonRef
+                                              ? () =>
+                                                  router.push(
+                                                    buildPersonProfileRoute(
+                                                      person.mutualConnectionPreview!.publicPersonRef!,
+                                                      { from: ROUTES.CONNECT },
+                                                    ),
+                                                  )
+                                              : undefined
+                                          }
+                                        />
                                       }
                                       trailing={
                                         isSelectionMode ? (
@@ -3774,7 +3777,7 @@ export default function ConnectPageClient() {
                                           <Button
                                             type="button"
                                             variant="none"
-                                            effect="fill"
+                                            effect="fade"
                                             size="compact"
                                             // One word at the width of every other action in
                                             // this column. "Cancel request" plus a 100px
@@ -3785,11 +3788,8 @@ export default function ConnectPageClient() {
                                             // in-flight state is a spinner in the same box
                                             // rather than a longer word, so the row never
                                             // reflows mid-tap. `loading` also sets aria-busy.
-                                            className={cn(
-                                              CONNECT_ROW_ACTION_CLASSNAME,
-                                              CONNECT_ROW_TRAILING_CLASSNAME,
-                                              "w-[72px] px-0",
-                                            )}
+                                            data-profile-role="action"
+                                            className={CONNECT_ROW_ACTION_CLASSNAME}
                                             loading={busyId === person.userId}
                                             aria-label={`Cancel your request to ${title}`}
                                             onClick={(event) => {
@@ -3799,26 +3799,25 @@ export default function ConnectPageClient() {
                                               );
                                             }}
                                           >
-                                            {busyId === person.userId ? (
-                                              <Loader2
-                                                className="h-4 w-4 animate-spin"
-                                                aria-hidden="true"
-                                              />
-                                            ) : (
-                                              "Cancel"
-                                            )}
+                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                              {busyId === person.userId ? (
+                                                <Loader2
+                                                  className="h-4 w-4 animate-spin"
+                                                  aria-hidden="true"
+                                                />
+                                              ) : (
+                                                "Cancel"
+                                              )}
+                                            </span>
                                           </Button>
                                         ) : (
                                           <Button
                                             type="button"
                                             variant="none"
-                                            effect="fill"
+                                            effect="fade"
                                             size="compact"
-                                            className={cn(
-                                              CONNECT_ROW_ACTION_CLASSNAME,
-                                              CONNECT_ROW_TRAILING_CLASSNAME,
-                                              "min-w-[72px]",
-                                            )}
+                                            data-profile-role="action"
+                                            className={CONNECT_ROW_ACTION_CLASSNAME}
                                             disabled={
                                               cta.disabled ||
                                               busyId === person.userId
@@ -3828,9 +3827,11 @@ export default function ConnectPageClient() {
                                               void handleConnect(person);
                                             }}
                                           >
-                                            {busyId === person.userId
-                                              ? "Sending..."
-                                              : cta.label}
+                                            <span className={CONNECT_ROW_ACTION_PILL_CLASSNAME}>
+                                              {busyId === person.userId
+                                                ? "Sending..."
+                                                : cta.label}
+                                            </span>
                                           </Button>
                                         )
                                       }
@@ -4199,7 +4200,9 @@ export default function ConnectPageClient() {
             if (!open && !busyId) setPendingRemoveId(null);
           }}
         >
-          <AlertDialogContent size="sm">
+          {/* The scope takes Profile's account-dialog roles (title, text, buttons)
+              for this dialog only; the shared dialog is unchanged elsewhere. */}
+          <AlertDialogContent size="sm" data-profile-type-scale="">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove connection?</AlertDialogTitle>
               <AlertDialogDescription>

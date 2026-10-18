@@ -1029,14 +1029,16 @@ describe("Connect — People", () => {
       await within(myConnections).findByText("Scoped Friend");
     expect(within(myConnections).queryByRole("heading", { name: "From contacts" })).toBeNull();
     expect(within(myConnections).getByRole("heading", { name: "Other connections" })).toBeTruthy();
-    // The whole row is the target. The name sits on the row's content layer,
-    // beside its one full-row action rather than inside a title-only button.
+    // The name and avatar are one control that opens the person. The actions sit
+    // beside it, never inside it, so a tap on an action cannot open the profile.
     const connectionRow = connectionName.closest<HTMLElement>(
-      '[data-row-surface="overlay"]',
+      '[data-testid="connect-person-row"]',
     );
-    expect(
-      connectionRow?.querySelectorAll('[data-slot="settings-row-action"]'),
-    ).toHaveLength(1);
+    const openControls = connectionRow?.querySelectorAll(
+      "button[aria-label=\"Open Scoped Friend's profile\"]",
+    );
+    expect(openControls).toHaveLength(1);
+    expect(openControls?.[0]).toContainElement(connectionName);
 
     fireEvent.click(connectionName);
 
@@ -2322,6 +2324,46 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
+  it("shows a directory person as one compact row: email only, never a phone, action apart from the profile", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        {
+          ...person("u1", "Avery Stone"),
+          publicPersonRef: "person-ref-avery",
+          email: null,
+          maskedEmail: "a***e@example.com",
+          maskedPhone: "98******10",
+        },
+        {
+          ...person("u2", "No Email"),
+          email: null,
+          maskedEmail: null,
+          maskedPhone: "97******66",
+        },
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+
+    const rows = await screen.findAllByTestId("directory-person-row");
+    expect(rows).toHaveLength(2);
+    expect(screen.queryByTestId("directory-person-card")).toBeNull();
+    // The masked email the server returned stays; a phone is never shown, not
+    // even as the fallback for a person with no email.
+    expect(rows[0]).toHaveTextContent("a***e@example.com");
+    expect(rows[1].querySelector('[data-slot="settings-row-description"]')).toBeNull();
+    for (const row of rows) {
+      expect(row.textContent).not.toMatch(/\d{2}\*{4,}\d{2}/);
+    }
+    // The call to action is a sibling of the control that opens the profile.
+    const connect = within(rows[0]).getByRole("button", { name: "Connect" });
+    const open = within(rows[0]).getByRole("button", { name: "Open Avery Stone's profile" });
+    expect(open).not.toContainElement(connect);
+    fireEvent.click(connect);
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
   it("does not expose bulk selection controls on the directory", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u1", "Selectable Sam")],
@@ -2739,18 +2781,22 @@ describe("Connect — the phone-width geometry QA reported", () => {
     // Messages is the iOS bubble glyph, not a text pill, so the name keeps the width.
     expect(message.textContent).not.toContain("Message");
     expect(message.querySelector("svg")).toBeTruthy();
-    expect(message.className).toContain("h-11");
+    expect(message.className).toContain("!size-11");
     expect(remove.className).toContain("text-destructive");
     expect(remove.className).toContain("h-11");
-    expect(remove.className).toContain("min-h-11");
+    // A 44px target around a 22px glyph.
+    expect(remove.className).toContain("!size-11");
+    expect(message.className).toContain("!size-11");
     expect(remove.querySelector("svg")).toBeTruthy();
     expect(remove).not.toHaveTextContent("Remove");
     expect(message).toBeEnabled();
-    expect(remove.className).not.toContain("h-9");
-    expect(remove.className).not.toContain("before:-inset-y-1.5");
-    const trailing = remove.closest("div");
+    const trailing = remove.closest("span");
     expect(trailing).toBeTruthy();
     expect(trailing).toContainElement(message);
+    // Beside the identity in the row's second column, not stacked below it.
+    const row = remove.closest<HTMLElement>('[data-testid="connect-person-row"]');
+    expect(row?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(row?.querySelector('[data-slot="settings-row-trailing"]')).toContainElement(remove);
 
     fireEvent.click(message);
     expect(mocks.toastInfo).not.toHaveBeenCalled();
@@ -2786,15 +2832,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(remove).toBeVisible();
   });
 
-  it("caps My connections on every viewport, phones included", async () => {
-    // Phones were once left uncapped because an earlier bound trapped touch
-    // gestures in the inner scroller and let the fixed bottom chrome cover the
-    // row owning the gesture. Uncapped is its own bug though: a long roster
-    // pushes the directory section below it out of reach. The bound is back,
-    // and `overscroll-contain` is what keeps it safe -- it stops a scroll that
-    // reaches the roster's end from chaining into the page behind it. The cap
-    // is measured in `dvh` so it tracks the visible viewport rather than
-    // measuring a phone as though its browser chrome were absent.
+  it("keeps My connections in the page scroll, not in a scroller of its own", async () => {
+    // A capped list with `overscroll-contain` kept a drag that started on a row
+    // inside the list, and refused to hand it to the page at either end, so
+    // People and everything below it could not be reached from there. The list
+    // now flows in the app scroll root; "Load more connections" still pages it.
     mocks.listConnections.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
         connectionId: `c-${index}`,
@@ -2811,18 +2853,10 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '#connect-my-connections-panel',
     );
     expect(list).toBeTruthy();
-    // Unprefixed, so the bound applies on phones too.
-    expect(list!.className).toContain("max-h-[min(60dvh,28rem)]");
-    expect(list!.className).toContain("overflow-y-auto");
-    // The mitigation the phone bound depends on. Without it the roster chains
-    // its scroll into the page and the old gesture trap comes back.
-    expect(list!.className).toContain("overscroll-contain");
-    // Not re-introduced behind a breakpoint: the cap is unconditional now.
-    expect(list!.className).not.toMatch(/(?:^|\s)sm:max-h-\[320px\](?:\s|$)/);
-    expect(list!.className).not.toMatch(/(?:^|\s)sm:overflow-y-auto(?:\s|$)/);
-    // A viewport unit that ignores browser chrome would let the list run under
-    // the fixed bottom bars on a phone.
-    expect(list!.className).not.toMatch(/max-h-\[[^\]]*\bvh\b/);
+    expect(list!.className).not.toMatch(/(?:^|\s)(?:sm:)?max-h-/);
+    expect(list!.className).not.toMatch(/(?:^|\s)(?:sm:)?overflow-y-(?:auto|scroll)(?:\s|$)/);
+    // The trap itself: a contained overscroll cannot chain to the page.
+    expect(list!.className).not.toContain("overscroll-contain");
   });
 
   it("asks for the search field in two words", async () => {
@@ -2867,9 +2901,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Cancel your request to Smirthika Dharmalingam",
     });
     expect(cancel.textContent).toBe("Cancel");
-    expect(cancel.className).toContain("h-11");
-    expect(cancel.className).toContain("min-h-11");
-    expect(cancel.className).toContain("rounded-xl");
+    // A 44px target holding a compact 32px pill, with the label taking Profile's
+    // action typography.
+    expect(cancel.className).toContain("!h-11");
+    expect(cancel.querySelector('span[class*="h-8"]')).not.toBeNull();
+    expect(cancel.getAttribute("data-profile-role")).toBe("action");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or
