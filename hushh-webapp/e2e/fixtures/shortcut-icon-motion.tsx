@@ -1,10 +1,21 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
-import { Download, Unplug, DownloadAppIcon, ConnectorsShortcutIcon, TodoListIcon } from "../../components/icons";
+import { Download, DownloadAppIcon, TodoListIcon } from "../../components/icons";
+
+import { weaveFrame } from "../../components/icons/ui/weave-geometry";
 
 function Fixture() {
   const [lastAction, setLastAction] = useState("");
+  if (location.search.includes("frames")) {
+    return <main style={{ padding: 32, display: "flex", flexWrap: "wrap", gap: 32 }}>
+      {[0, .2, .4, .6, .8, 1].map(progress => <figure key={progress} style={{ margin: 0, display: "grid", gap: 24, justifyItems: "center" }}>
+        <svg width="96" height="96" viewBox="0 0 32 32" style={{ overflow: "visible" }} dangerouslySetInnerHTML={{ __html: weaveFrame(progress) }} />
+        <svg width="22" height="22" viewBox="0 0 32 32" style={{ overflow: "visible" }} dangerouslySetInnerHTML={{ __html: weaveFrame(progress) }} />
+        <figcaption>{Math.round(progress * 1040)} ms</figcaption>
+      </figure>)}
+    </main>;
+  }
   if (location.search.includes("geometry")) {
     return <main style={{ display: "grid", gap: 32, padding: 32 }}>
       {[18, 22, 24].map(size => <div key={size} style={{ display: "flex", gap: 32 }}>
@@ -16,14 +27,15 @@ function Fixture() {
         <TodoListIcon width={size} height={size} className="text-muted-foreground" data-todo={size} />
         <Download size={size} className="text-muted-foreground" data-original-download={size} />
         <DownloadAppIcon width={size} height={size} className="text-muted-foreground" data-download={size} />
-        <Unplug size={size} className="text-muted-foreground" data-original-connectors={size} />
-        <ConnectorsShortcutIcon width={size} height={size} className="text-muted-foreground" data-connectors={size} />
+        <svg width={size} height={size} viewBox="0 0 32 32" data-weave-end={size} dangerouslySetInnerHTML={{ __html: weaveFrame(1, 0) }} />
+        <svg width={size} height={size} viewBox="0 0 32 32" data-weave-reset={size} dangerouslySetInnerHTML={{ __html: weaveFrame(0, 1) }} />
       </div>)}
     </main>;
   }
   return <>
-    <div style={{ height: 600, display: "flex" }}>
+    <div data-app-pane-material={location.search.includes("mobile") ? "profile" : undefined} style={{ height: 600, display: "flex" }}>
       <AgentHistorySidebar
+        className={location.search.includes("mobile") ? "h-full w-full" : undefined}
         mode={location.search.includes("mobile") ? "mobile" : "desktop"}
         conversations={[]}
         activeConversationId={null}

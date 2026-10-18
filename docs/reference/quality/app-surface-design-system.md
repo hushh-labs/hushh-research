@@ -907,14 +907,18 @@ Rules:
    pinpoint. Keys have no translucent interior fill and ignore legacy yellow/gray
    colour overrides.
    Field keys remain 18px and the shell key remains 20px.
-   Chat's To-do, Get the app and Connectors shortcuts use foreground ink.
-   All three use a finite 850ms registry-owned part animation on whole-row hover or
-   keyboard focus. Paper folds and redraws its text, the download arrow enters
-   a masked tray, and diagonal plug halves join briefly before separating.
-   Labels and whole glyphs stay anchored. Playback finishes on pointer leave,
-   ignores re-entry while running, and replays only on a later entry. Reduced
-   motion is static; touch actions remain immediate. The paper's soft hover
-   circle is a separate layer. Dark mode uses the corresponding semantic ink.
+   Chat's To-do, Get the app and Connectors shortcuts reuse Profile's
+   `--ios-account-label` structural ink and `--ios-account-accent` action details.
+   To-do keeps its 850ms paper fold/text redraw; Get the app keeps its 850ms
+   masked arrow/tray animation. Connectors uses the approved kit's four-loop
+   Weave, preserving its 1040ms unfold, quarter-turn, interlace and settling.
+   Two blue and two ink loops alternate, carrying their colour assignment
+   between quarter-turns so completion and replay have no colour reset.
+   Whole-row hover, keyboard focus and activation/tap play one finite cycle;
+   labels and glyph bounds stay anchored. Re-entry during playback is ignored.
+   Reduced motion is static, including live preference changes. Actions remain
+   immediate. The paper's soft hover circle is a separate layer. Dark mode
+   follows the same Profile tokens.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
    - native `viewBox="0 0 256 256"` and the registry's regular outline geometry, without translucent interior fills
