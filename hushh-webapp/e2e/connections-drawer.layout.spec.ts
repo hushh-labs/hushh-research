@@ -103,6 +103,12 @@ test.beforeAll(async () => {
             "e2e/fixtures/connections-boundaries.tsx",
           ),
         })),
+        // PKM imports these same providers as siblings. Keep their boundary
+        // synthetic for both import spellings instead of loading Firebase.
+        {
+          find: /^\.\/(?:api-service|auth-service)$/,
+          replacement: path.join(root, "e2e/fixtures/connections-boundaries.tsx"),
+        },
         { find: "@", replacement: root },
       ],
     },
@@ -283,7 +289,7 @@ test.beforeEach(async ({ page }) => {
     await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   } catch (error) {
     // Distinguish a synthetic startup failure from product geometry failures.
-    expect(fixtureErrors, "Connections fixture startup").toEqual([]);
+    expect(fixtureErrors, "Connections fixture initialization errors").toEqual([]);
     throw error;
   }
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
@@ -2476,7 +2482,9 @@ test.describe("One profile artwork and animated presence", () => {
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-        await expect(panel.getByRole("heading", { name: "Live memory" })).toBeVisible();
+        const memory = panel.getByRole("link", { name: "Open memory.md in Memory", exact: true });
+        await expect(memory).toBeVisible();
+        await expect(memory).toHaveAttribute("href", "/one/pkm");
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();

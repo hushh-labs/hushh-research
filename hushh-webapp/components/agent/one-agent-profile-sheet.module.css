@@ -1,3 +1,11 @@
+.sheet,
+.nativeBody {
+  --settings-group-stack-gap: 8px;
+  --settings-heading-stack-gap: 4px;
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 12px;
+}
 .sheet {
   display: flex;
   flex-direction: column;
@@ -23,6 +31,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  container: one-profile-content / inline-size;
   padding: 12px var(--page-inline-gutter-standard)
     max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
@@ -45,6 +54,10 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+.artwork {
+  width: 100%;
+  height: 100%;
 }
 .title {
   margin: 0;

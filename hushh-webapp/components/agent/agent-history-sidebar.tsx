@@ -764,7 +764,6 @@ export function AgentHistorySidebar({
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
-                {...shortcutInteraction}
               >
                 <ConnectorsShortcutIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
