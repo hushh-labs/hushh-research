@@ -451,6 +451,9 @@ class RequestContentCheck:
             candidates, now=moment, fresh_hours=budget.fresh_hours
         )
         queue = [(row, reasons) for row, reasons in selected if row["id"] not in results]
+        # Files a slice already tried (a transient failure, or OCR the slice
+        # could not afford) go first, so each one gets its fair retry.
+        queue.sort(key=lambda item: 0 if attempts.get(item[0]["id"]) else 1)
         counts: Counter = Counter()
         slice_ocr = [budget.max_ocr_pages_per_slice]
         started = time.monotonic()
@@ -529,91 +532,138 @@ class RequestContentCheck:
                     or taken[0] >= budget.max_files_per_slice
                 ):
                     return
-                used["files"] += 1
-                taken[0] += 1
-                file_id = row["id"]
-                in_flight[file_id] = (row, reasons)
-                limit = min(budget.max_file_bytes, budget.max_bytes - used["bytes"])
-                await fenced()
+                # Reserve this file's OCR pages before it starts, so files
+                # running side by side never spend more than the slice allows;
+                # what the child does not use is refunded when it ends. An
+                # image is one OCR page, a PDF may need the per-file maximum.
+                mime_hint = row.get("mimeType")
+                wanted = min(
+                    budget.max_ocr_pages_per_slice,
+                    min(1, budget.max_ocr_pages)
+                    if mime_hint in IMAGE_MIMES
+                    else budget.max_ocr_pages
+                    if mime_hint == PDF_MIME
+                    else 0,
+                )
+                ocr_pages = max(0, min(wanted, slice_ocr[0]))
+                if ocr_pages < wanted and (mime_hint in IMAGE_MIMES or attempts.get(row["id"])):
+                    # OCR is an image's only reader, and a retry is read with
+                    # its full OCR allowance: with this slice's OCR spent,
+                    # leave it pending, unread, for the next slice.
+                    return
+                slice_ocr[0] -= ocr_pages
+                consumed = [0]
                 try:
-                    payload = await reader.read(
-                        owner_id=owner_id,
-                        file_id=file_id,
-                        connection_generation=connection_generation,
-                        max_file_bytes=limit,
-                    )
-                except DriveOAuthError:
-                    # The grant is gone or changed: nothing more may be read.
+                    await read_one(row, reasons, ocr_pages, wanted, consumed)
+                finally:
+                    slice_ocr[0] += ocr_pages - consumed[0]
+
+        async def read_one(row, reasons, ocr_pages: int, wanted: int, consumed: list) -> None:
+            """Download, scan and read one file; ``consumed`` gets the OCR pages it used."""
+            used["files"] += 1
+            taken[0] += 1
+            file_id = row["id"]
+            in_flight[file_id] = (row, reasons)
+            limit = min(budget.max_file_bytes, budget.max_bytes - used["bytes"])
+            await fenced()
+            try:
+                payload = await reader.read(
+                    owner_id=owner_id,
+                    file_id=file_id,
+                    connection_generation=connection_generation,
+                    max_file_bytes=limit,
+                )
+            except DriveOAuthError:
+                # The grant is gone or changed: nothing more may be read.
+                halted[0] = True
+                raise
+            except DriveReadError as error:
+                code = str(error)
+                if code in _HALT:
                     halted[0] = True
                     raise
-                except DriveReadError as error:
-                    code = str(error)
-                    if code in _HALT:
-                        halted[0] = True
-                        raise
-                    if code == "file_too_large":
-                        finish(row, reasons, STATUS_TOO_LARGE, code=code)
-                    elif code == "unsupported_format":
-                        finish(row, reasons, STATUS_UNREADABLE, code=code)
-                    elif error.retryable or code in _TRANSIENT:
-                        finish(row, reasons, STATUS_DEFERRED, code=code)
-                    else:
-                        finish(row, reasons, STATUS_UNAVAILABLE, code=code)
+                if code == "file_too_large":
+                    finish(row, reasons, STATUS_TOO_LARGE, code=code)
+                elif code == "unsupported_format":
+                    finish(row, reasons, STATUS_UNREADABLE, code=code)
+                elif error.retryable or code in _TRANSIENT:
+                    finish(row, reasons, STATUS_DEFERRED, code=code)
+                else:
+                    finish(row, reasons, STATUS_UNAVAILABLE, code=code)
+                return
+            except Exception:  # noqa: BLE001 - one odd file never fails the search
+                finish(row, reasons, STATUS_DEFERRED, code="provider_unavailable")
+                return
+            # Access revoked during the read: drop the bytes, stop the check.
+            await fenced()
+            if not isinstance(payload, dict):
+                finish(row, reasons, STATUS_UNAVAILABLE, code="provider_response_invalid")
+                return
+            if "tooLarge" in payload:
+                size = payload["tooLarge"]
+                if type(size) is int and size > budget.max_file_bytes:
+                    finish(row, reasons, STATUS_TOO_LARGE, code="file_too_large")
+                else:
+                    # Only over what is left of this request's byte budget:
+                    # close the byte budget; the file stays unread (pending).
+                    in_flight.pop(file_id, None)
+                    used["bytes"] = budget.max_bytes
+                    counts["budget"] += 1
+                return
+            content = payload.get("content")
+            mime = payload.get("mimeType")
+            payload = None
+            if not isinstance(content, bytes) or not isinstance(mime, str):
+                finish(row, reasons, STATUS_UNAVAILABLE, code="provider_response_invalid")
+                return
+            used["bytes"] += len(content)
+            try:
+                leaf = await processor.check_content(
+                    content=content,
+                    mime_type=mime,
+                    concepts=groups,
+                    max_text_pages=budget.max_text_pages,
+                    max_ocr_pages=ocr_pages,
+                )
+            except DriveReadError as error:
+                code = str(error)
+                if code == "unsafe_document":
+                    finish(row, reasons, STATUS_UNSAFE, code=code)
+                elif code == "file_too_large":
+                    finish(row, reasons, STATUS_TOO_LARGE, code=code)
+                elif code in _TRANSIENT or error.retryable:
+                    finish(row, reasons, STATUS_DEFERRED, code=code)
+                else:
+                    finish(row, reasons, STATUS_UNREADABLE, code=code)
+                return
+            except Exception:  # noqa: BLE001 - one odd file never fails the search
+                finish(row, reasons, STATUS_DEFERRED, code="processor_unavailable")
+                return
+            finally:
+                # The bytes go no further than the scanner and the child.
+                content = None
+            consumed[0] = min(ocr_pages, max(0, int(leaf.get("ocr_pages") or 0)))
+            matched = leaf["matched"]
+            if (
+                ocr_pages < wanted
+                and int(leaf.get("gaps") or 0) > 0
+                and leaf.get("complete") is not True
+                and not any(
+                    all(index in matched for index in requirement) for requirement in required
+                )
+            ):
+                # Pages went unread only because this slice's OCR ran
+                # out: not final. A later slice reads it again, first in
+                # line and only with its full allowance, so a retry is
+                # never starved; a file whose pages exceed that allowance
+                # ends checked but not complete, and the caller reports
+                # it as partly read (partial coverage).
+                attempts[file_id] = attempts.get(file_id, 0) + 1
+                if attempts[file_id] < budget.max_attempts:
+                    in_flight.pop(file_id, None)
+                    counts["ocr_deferred"] += 1
                     return
-                except Exception:  # noqa: BLE001 - one odd file never fails the search
-                    finish(row, reasons, STATUS_DEFERRED, code="provider_unavailable")
-                    return
-                # Access revoked during the read: drop the bytes, stop the check.
-                await fenced()
-                if not isinstance(payload, dict):
-                    finish(row, reasons, STATUS_UNAVAILABLE, code="provider_response_invalid")
-                    return
-                if "tooLarge" in payload:
-                    size = payload["tooLarge"]
-                    if type(size) is int and size > budget.max_file_bytes:
-                        finish(row, reasons, STATUS_TOO_LARGE, code="file_too_large")
-                    else:
-                        # Only over what is left of this request's byte budget:
-                        # close the byte budget; the file stays unread (pending).
-                        in_flight.pop(file_id, None)
-                        used["bytes"] = budget.max_bytes
-                        counts["budget"] += 1
-                    return
-                content = payload.get("content")
-                mime = payload.get("mimeType")
-                payload = None
-                if not isinstance(content, bytes) or not isinstance(mime, str):
-                    finish(row, reasons, STATUS_UNAVAILABLE, code="provider_response_invalid")
-                    return
-                used["bytes"] += len(content)
-                ocr_pages = max(0, min(budget.max_ocr_pages, slice_ocr[0]))
-                try:
-                    leaf = await processor.check_content(
-                        content=content,
-                        mime_type=mime,
-                        concepts=groups,
-                        max_text_pages=budget.max_text_pages,
-                        max_ocr_pages=ocr_pages,
-                    )
-                except DriveReadError as error:
-                    code = str(error)
-                    if code == "unsafe_document":
-                        finish(row, reasons, STATUS_UNSAFE, code=code)
-                    elif code == "file_too_large":
-                        finish(row, reasons, STATUS_TOO_LARGE, code=code)
-                    elif code in _TRANSIENT or error.retryable:
-                        finish(row, reasons, STATUS_DEFERRED, code=code)
-                    else:
-                        finish(row, reasons, STATUS_UNREADABLE, code=code)
-                    return
-                except Exception:  # noqa: BLE001 - one odd file never fails the search
-                    finish(row, reasons, STATUS_DEFERRED, code="processor_unavailable")
-                    return
-                finally:
-                    # The bytes go no further than the scanner and the child.
-                    content = None
-                slice_ocr[0] -= leaf["ocr_pages"]
-                finish(row, reasons, STATUS_CHECKED, leaf=leaf)
+            finish(row, reasons, STATUS_CHECKED, leaf=leaf)
 
         outcome = "ok"
         try:
@@ -638,7 +688,8 @@ class RequestContentCheck:
             logger.info(
                 "drive_content_check.slice outcome=%s candidates=%d selected=%d unsupported=%d "
                 "checked=%d requirement_met=%d too_large=%d unreadable=%d unavailable=%d "
-                "unsafe=%d deferred=%d pending=%d budget_spent=%d bytes=%d duration_ms=%.1f",
+                "unsafe=%d deferred=%d ocr_deferred=%d pending=%d budget_spent=%d bytes=%d "
+                "duration_ms=%.1f",
                 outcome,
                 len(candidates),
                 len(selected),
@@ -650,6 +701,7 @@ class RequestContentCheck:
                 counts[STATUS_UNAVAILABLE],
                 counts[STATUS_UNSAFE],
                 counts["deferred"],
+                counts["ocr_deferred"],
                 pending,
                 int(spent),
                 used["bytes"],

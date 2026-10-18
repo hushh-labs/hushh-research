@@ -1854,8 +1854,12 @@ def check_rent_receipts(run: dict) -> None:
     for file_id in ("r1_walk_restricted", "ins_too_big", "ins_title_big"):
         assert not run["downloads"].get(file_id), file_id
     # 15 Drive-blind candidates; the export-capped Doc and the two files over
-    # the read cap are counted, not read.
+    # the read cap are counted, not read, and make coverage partial.
     assert (coverage["contentFilesSelected"], coverage["contentFilesRead"]) == (15, 12)
+    # Partly read scans add to the unread count where OCR is weak or absent;
+    # the three files nobody could download are always there.
+    assert coverage["contentFilesTooLarge"] == 3 and coverage["contentFilesUnread"] >= 3
+    assert coverage["contentCheck"] == "partial" and coverage["coveragePartial"] is True
     # Clearer error types: Google's export cap and rate limits keep their own
     # causes (fixed codes in logs), never a generic "no access".
     logs = run["logs"]
@@ -1931,10 +1935,6 @@ def check_fresh_uploads(run: dict) -> None:
 
 
 SEPTEMBER_NOTES = frozenset(note.id for note in gemini_notes() if in_september(note))
-MONTH_ONLY_TITLES = (
-    "the owner-search period rule (_in_requested_period) ignores month-only and year-less "
-    "title dates ('Aug 2026', '2026-08', 'Aug 28') and falls back to the created time"
-)
 
 REQUESTS = [
     RequestSpec(
@@ -1949,6 +1949,9 @@ REQUESTS = [
                 "r1_target",
                 "r1_priya_direct",
                 "r1_yearless_in",
+                # A month-only title inside the period decides, whatever the
+                # created time says (created 3 Oct, titled September).
+                "r1_monthyear_late",
                 "r1_in_folder",
                 "r1_team",
                 "r1_walk_title",
@@ -1984,6 +1987,11 @@ REQUESTS = [
                 "r1_dayfirst_ambiguous",
                 "r1_tz_created_out",
                 "r1_walk_old_scan",
+                # Month-only and year-less titles naming August decide the
+                # period, though each was created inside September.
+                "r1_monthyear_out",
+                "r1_isomonth_out",
+                "r1_yearless_out",
             }
         ),
         faults=_faults_rent_receipts,
@@ -1994,12 +2002,6 @@ REQUESTS = [
             "r1_unshare_later": "revoke",
         },
         owner_send=frozenset({"r1_content"}),
-        known_overshare={
-            "r1_monthyear_out": MONTH_ONLY_TITLES,
-            "r1_isomonth_out": MONTH_ONLY_TITLES,
-            "r1_yearless_out": MONTH_ONLY_TITLES,
-        },
-        known_undershare={"r1_monthyear_late": MONTH_ONLY_TITLES},
         checks=check_rent_receipts,
     ),
     RequestSpec(
@@ -2144,7 +2146,22 @@ def assert_exact_gold(spec: RequestSpec, run: dict, all_ids: set[str]) -> list[s
     assert coverage["ownerReviewRequired"] is False
     assert coverage["dateBasis"] == "title_date_then_created_then_modified"
     assert coverage["sharedFolderWalk"] == "complete", coverage
-    assert coverage["contentCheck"] == "complete", coverage
+    # Every selected Drive-blind candidate is either read in full or counted
+    # unread by cause; any unread one makes coverage partial (never "All
+    # files sent" over a file nobody could read).
+    unread = (
+        coverage["contentFilesTooLarge"]
+        + coverage["contentFilesUnreadable"]
+        + coverage["contentFilesUnavailable"]
+        + coverage["contentFilesUnsafe"]
+    )
+    assert unread == coverage["contentFilesSelected"] - coverage["contentFilesRead"], coverage
+    assert coverage["contentFilesUnread"] == unread + coverage["contentFilesPartlyRead"]
+    assert coverage["contentCheck"] == (
+        "partial" if coverage["contentFilesUnread"] else "complete"
+    ), coverage
+    assert coverage["coveragePartial"] is bool(coverage["contentFilesUnread"]), coverage
+    assert coverage["contentCheckIncomplete"] is bool(coverage["contentFilesUnread"]), coverage
     # One result per file, whichever gears found it (Drive's passes, Gear 1,
     # the walk, a shortcut, the content check).
     assert len(run["committedIds"]) == len(set(run["committedIds"])), run["committedIds"]
@@ -2320,15 +2337,6 @@ async def test_a_rate_limit_storm_past_six_attempts_fails_the_search_closed(
     assert run["shared"] == set() and run["possible"] == {}
 
 
-UNREAD_NOT_REPORTED = (
-    "a Drive-blind content candidate that ends too_large (Google's 10 MB export cap with no "
-    "Docs API fallback, or a file over the 32 MiB read cap) is dropped without a reason count "
-    "and coverage stays complete, so B reads 'All files sent' (_end_content counts only "
-    "budget-related unread files)"
-)
-
-
-@pytest.mark.xfail(strict=True, reason=UNREAD_NOT_REPORTED)
 @pytest.mark.asyncio
 async def test_drive_blind_files_left_unread_are_reported_as_partial_coverage(
     request_bulk, sharing, monkeypatch
@@ -2337,10 +2345,29 @@ async def test_drive_blind_files_left_unread_are_reported_as_partial_coverage(
     spec = REQUEST["insurance_policy_big_files"]
     run = await run_gold_request(monkeypatch, sharing, request_bulk, spec)
     coverage = run["coverage"]
-    # The walked export-capped Google Doc and the two PDFs over 32 MiB were
-    # selected as Drive-blind and never read.
-    assert coverage["contentFilesSelected"] - coverage["contentFilesRead"] == 3
-    assert coverage["coveragePartial"] is True
+    # The walked export-capped Google Doc and the 40 MB scan archive were
+    # selected as Drive-blind and never read. (The 45 MB policy schedule names
+    # the request in its title: it is shared on that evidence, never a content
+    # candidate here; the rent request counts all three.)
+    assert coverage["contentFilesSelected"] - coverage["contentFilesRead"] == 2
+    assert coverage["contentFilesTooLarge"] == 2 and coverage["contentFilesUnread"] >= 2
+    assert coverage["coveragePartial"] is True and coverage["contentCheckIncomplete"] is True
+    assert coverage["contentCheck"] == "partial"
+    # Partial coverage changes B's copy only: every exact set still holds.
+    assert run["shared"] == spec.auto and run["possible"] == spec.possible
+
+
+@pytest.mark.asyncio
+async def test_a_request_whose_candidates_are_all_read_keeps_full_coverage(
+    request_bulk, sharing, monkeypatch
+):
+    """Negative control: fresh uploads read in full leave coverage complete."""
+    spec = REQUEST["electricity_bill_fresh_uploads"]
+    run = await run_gold_request(monkeypatch, sharing, request_bulk, spec)
+    coverage = run["coverage"]
+    assert coverage["contentFilesRead"] == coverage["contentFilesSelected"] >= 1
+    assert coverage["contentFilesUnread"] == 0
+    assert coverage["contentCheck"] == "complete" and coverage["coveragePartial"] is False
 
 
 def test_gold_summary_has_no_unexplained_false_shares():
@@ -2373,5 +2400,5 @@ def test_gold_summary_has_no_unexplained_false_shares():
         if set(metrics["falseShares"] + metrics["missedShares"]) - known
     }
     assert not unexplained, unexplained
-    if totals["falseShares"] or totals["missedShares"]:
-        pytest.xfail(f"known product bugs: {MONTH_ONLY_TITLES}")
+    # No known product bug is left: every automatic share is exact.
+    assert (totals["falseShares"], totals["missedShares"]) == (0, 0), totals

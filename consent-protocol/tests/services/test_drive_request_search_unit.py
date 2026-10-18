@@ -23,6 +23,7 @@ from hushh_mcp.services.drive_request_bulk_service import (
     _deterministic_statement_plan,
 )
 from hushh_mcp.services.drive_request_package_store import _public_package, _review_status
+from hushh_mcp.services.drive_title_dates import period_decision
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
@@ -2129,6 +2130,31 @@ def test_autoshare_never_grants_a_title_date_outside_the_period(title, shared):
         "modified_time": "2026-09-10T00:00:00Z",
     }
     assert search_module._in_requested_period(match, period, precedence=True) is shared
+
+
+@pytest.mark.parametrize(
+    "title,created,shared",
+    [
+        # Month-only and year-less titles naming August decide, though each
+        # file was created inside September (the gold rent_receipts case).
+        ("Rent receipt Aug 2026.pdf", "2026-09-03T00:30:00Z", False),
+        ("rent_receipt_2026-08.pdf", "2026-09-03T00:30:00Z", False),
+        ("Rent receipt Aug 28.pdf", "2026-09-02T00:30:00Z", False),
+        # A September month title decides too, though created in October.
+        ("Rent receipt Sep 2026 scanned.pdf", "2026-10-03T00:30:00Z", True),
+        ("rent_receipt_2026-09.pdf", "2026-10-03T00:30:00Z", True),
+        ("Rent receipt Sept 4.pdf", "2026-09-05T00:30:00Z", True),
+        # Negative controls: an undated title still falls back to the created time.
+        ("Rent receipt.pdf", "2026-09-03T00:30:00Z", True),
+        ("Rent receipt.pdf", "2026-10-03T00:30:00Z", False),
+    ],
+)
+def test_autoshare_reads_month_only_and_year_less_title_dates(title, created, shared):
+    period = {"start": "2026-09-01", "end": "2026-09-30", "timezone": "Asia/Kolkata"}
+    match = {"name": title, "created_time": created, "modified_time": created}
+    assert search_module._in_requested_period(match, period, precedence=True) is shared
+    # The autoshare rule is the shared title-date rule Gear 1 and the walk use.
+    assert period_decision(match, period, precedence=True).in_period is shared
 
 
 @pytest.mark.asyncio

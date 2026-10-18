@@ -641,26 +641,43 @@ _IDENTIFIER_NOUNS = frozenset(
     account acct invoice bill receipt policy folio order ticket case claim
     """.split()
 )
-# Hindi and Hinglish filler: particles, pronouns, "send", "please", file and
-# period words, and month names (the picked dates bound the search, as they do
-# for English month names). Short romanised words ("ka", "se") are left out:
-# they collide with real subject words.
+# Hindi and Hinglish filler: particles, pronouns, "send", "give", "please",
+# file and period words, and month names (the picked dates bound the search,
+# as they do for English month names). Romanised particles and verbs ("ka",
+# "ki", "ke", "se", "bhej", "de do") are filler too: as required topic words
+# they made every ordinary Hinglish request find nothing ("mujhe bank ka
+# statement bhejo" asked every title to contain "ka"). Dropping one only
+# loosens the search; autoshare still needs title evidence of the subject.
 _HINDI_STOPWORDS = frozenset(
     """
     मुझे मेरे मेरा मेरी हमें हमारे हमारा हमारी आप आपके आपका आपकी कृपया
     भेजें भेजो भेजिए भेजिये भेज भेजना दें दो दीजिए दीजिये देना चाहिए
-    के का की को से में पर और या तथा सभी सारे सारी सब कोई
+    के का की को से में पर सभी सारे सारी सब कोई
     पिछले पिछला पिछली महीने महीना महीनों साल सालों वर्ष हफ्ते हफ़्ते सप्ताह
     वाला वाली वाले है हैं था थी थे यह ये वह वो इस उस इन उन लिए तक अभी
     फाइल फ़ाइल फाइलें फ़ाइलें फाइलों कॉपी प्रति नया नई नए पुराना पुरानी
     जनवरी फरवरी फ़रवरी मार्च अप्रैल मई जून जुलाई अगस्त सितंबर सितम्बर अक्टूबर
     नवंबर नवम्बर दिसंबर दिसम्बर
-    mujhe mere mera meri hamare kripya bhejo bhejiye bhejdo dijiye chahiye
-    pichle pichhle mahine mahina saare sabhi
+    mujhe mere mera meri hamare hamara hamari humein hume kripya
+    bhejo bhejiye bhejdo bhej bhejna bhejiyega bhejen dijiye dijiyega chahiye
+    de do dedo dena dein dijie karo kardo kar
+    ka ki ke ko se mein me pe par tak wala wali wale waala waali waale
+    apna apni apne sab saare saari sabhi pichle pichhle pichla mahine mahina mahino
+    hai hain tha thi the
     """.split()
 )
+# Romanised particles that are also abbreviations ("PE fund", "DE filings",
+# "SE tax"): typed in capitals they stay subject words; lowercase they are
+# Hinglish filler ("bank ka statement", "bill ki copy").
+_AMBIGUOUS_PARTICLES = frozenset(
+    {"ka", "ki", "ke", "ko", "se", "pe", "par", "de", "tak", "hai", "sab", "kar", "tha", "thi"}
+)
+_ABBREVIATION = re.compile(r"(?<![^\W\d_])[A-Z]{2,4}(?![^\W\d_])")
+# "PAN card और आधार", "bank statement ya salary slip": Hindi and romanised
+# "and"/"or" list separate documents, exactly as English "and"/"or" do.
+_HINDI_COORDINATORS = frozenset({"और", "या", "तथा", "अथवा", "aur", "ya", "athva", "athwa"})
 _STOPWORDS = _STOPWORDS | _HINDI_STOPWORDS
-_COORDINATORS = frozenset({"and", "or", "&", ",", "plus", "/"})
+_COORDINATORS = frozenset({"and", "or", "&", ",", "plus", "/", *_HINDI_COORDINATORS})
 # Words that make a subject-free request an explicit listing.
 _LISTING_CUES = frozenset({"all", "every", "everything", "entire", "whole", "anything"})
 _FILE_NOUNS = frozenset({"file", "files", "item", "items", *_KIND_WORDS})
@@ -1302,6 +1319,12 @@ def interpret_request(
     remainder, spans = _strip_dates(remainder, today, picked_period)
     remainder, result_limit = _strip_count(remainder)
     tokens = _tokens(remainder)
+    # Capitalised short words are abbreviations, never Hinglish filler.
+    abbreviations = {
+        word.casefold()
+        for word in _ABBREVIATION.findall(remainder)
+        if word.casefold() in _AMBIGUOUS_PARTICLES
+    }
     kinds: list[str] = []
     units: list[_Unit] = []
     typos: dict[int, str] = {}
@@ -1384,7 +1407,13 @@ def interpret_request(
             # "Google Drive", "Google Docs": the files' home or type. Anywhere
             # else ("Google invoices") Google is an issuer and a search word.
             continue
-        if word in _STOPWORDS or len(word) < 2 or word.isdigit() and len(word) < 3:
+        if (
+            word in _STOPWORDS
+            and word not in abbreviations
+            or len(word) < 2
+            or word.isdigit()
+            and len(word) < 3
+        ):
             # One- and two-digit numbers are counts or dates; longer ones
             # (account, invoice and form numbers) narrow the search.
             if not _explained_drop(word, tokens[position - 2] if position >= 2 else None):

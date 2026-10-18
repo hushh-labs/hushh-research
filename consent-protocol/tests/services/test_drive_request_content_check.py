@@ -319,6 +319,132 @@ async def test_slice_deadline_counts_an_attempt_so_a_stuck_file_is_not_retried_f
     assert result.status == "unavailable" and result.error_code == "processing_timeout"
 
 
+class ScanProcessor:
+    """Each file is a scan of ``pages`` pages that only OCR can read.
+
+    Mirrors the real leaf: pages past the OCR allowance are gaps and the
+    result is not complete; with enough OCR every page is read. Records the
+    allowance each call got and the most OCR pages ever in flight at once.
+    """
+
+    def __init__(self, pages: int = 3, delay: float = 0.01):
+        self.pages = pages
+        self.delay = delay
+        self.allowances: list[int] = []
+        self.running = 0
+        self.peak = 0
+
+    async def check_content(self, *, content, mime_type, concepts, max_text_pages, max_ocr_pages):
+        self.allowances.append(max_ocr_pages)
+        self.running += max_ocr_pages
+        self.peak = max(self.peak, self.running)
+        try:
+            await asyncio.sleep(self.delay)
+        finally:
+            self.running -= max_ocr_pages
+        needed = 1 if mime_type.startswith("image/") else self.pages
+        read = min(needed, max_ocr_pages)
+        return {
+            "matched": (),
+            "dates": (),
+            "pages_read": read,
+            "ocr_pages": read,
+            "gaps": needed - read,
+            "total_pages": needed,
+            "complete": read == needed,
+        }
+
+
+SCAN_BUDGET = ContentCheckBudget(
+    max_files_per_slice=6, max_ocr_pages_per_slice=6, max_ocr_pages=3, concurrency=2
+)
+
+
+async def test_scans_past_the_slice_ocr_budget_wait_and_are_each_read_in_full():
+    """Six 3-page scans, six OCR pages per slice: every scan is OCRed in full."""
+    ids = [f"scan{number}" for number in range(6)]
+    reader = FakeReader(
+        {file_id: {"mimeType": PDF, "content": file_id.encode()} for file_id in ids}
+    )
+    rows = [row(file_id, age=timedelta(minutes=10 + index)) for index, file_id in enumerate(ids)]
+    processor = ScanProcessor()
+    check = checker(reader, processor)
+    outcome = await run(check, rows, budget=SCAN_BUDGET)
+    calls = 1
+    # A slice never has more OCR pages reserved than it may spend.
+    assert processor.peak <= SCAN_BUDGET.max_ocr_pages_per_slice
+    # Scans the slice could not afford are not final: they stay pending.
+    assert outcome.status == "partial" and outcome.pending > 0
+    assert all(result.complete for result in outcome.results)
+    while outcome.status != "complete" and calls < 10:
+        outcome = await run(check, rows, budget=SCAN_BUDGET, checkpoint=outcome.checkpoint)
+        calls += 1
+        assert processor.peak <= SCAN_BUDGET.max_ocr_pages_per_slice
+    assert outcome.status == "complete" and outcome.pending == 0
+    assert sorted(result.file_id for result in outcome.results) == sorted(ids)
+    # Each scan ends read in full: 3 OCR pages, complete, no starved final result.
+    assert {(result.ocr_pages, result.complete) for result in outcome.results} == {(3, True)}
+    assert outcome.counts["byStatus"] == {"checked": 6}
+
+
+async def test_a_scan_longer_than_one_slice_can_ocr_is_final_and_partly_read():
+    """Negative control for the retry rule: a scan is never retried forever."""
+    reader = FakeReader({"scan": {"mimeType": PDF, "content": b"scan"}})
+    processor = ScanProcessor(pages=3)
+    # Two OCR pages per slice can never cover a 3-page scan: it is read once
+    # with all a slice can give, then final.
+    budget = ContentCheckBudget(max_ocr_pages_per_slice=2, max_ocr_pages=3)
+    outcome = await run(checker(reader, processor), [row("scan")], budget=budget)
+    [result] = outcome.results
+    assert outcome.status == "complete" and processor.allowances == [2]
+    # Final, checked, but not complete: the search reports it as partly read.
+    assert result.status == "checked" and result.complete is False and result.ocr_pages == 2
+    again = await run(
+        checker(reader, processor), [row("scan")], budget=budget, checkpoint=outcome.checkpoint
+    )
+    assert again.status == "complete" and reader.calls == ["scan"]
+
+
+async def test_a_starved_scan_is_retried_first_with_its_full_allowance():
+    """Two scans, one slice's OCR: the second waits and is then read in full."""
+    reader = FakeReader(
+        {
+            "newer": {"mimeType": PDF, "content": b"newer"},
+            "older": {"mimeType": PDF, "content": b"older"},
+        }
+    )
+    processor = ScanProcessor(pages=3, delay=0.05)
+    rows = [row("newer", age=timedelta(minutes=1)), row("older", age=timedelta(minutes=2))]
+    budget = ContentCheckBudget(max_ocr_pages_per_slice=3, max_ocr_pages=3, concurrency=2)
+    first = await run(checker(reader, processor), rows, budget=budget)
+    assert processor.peak <= 3 and first.pending == 1 and first.status == "partial"
+    second = await run(checker(reader, processor), rows, budget=budget, checkpoint=first.checkpoint)
+    assert second.status == "complete" and processor.allowances[-1] == 3
+    assert {(result.ocr_pages, result.complete) for result in second.results} == {(3, True)}
+
+
+async def test_an_image_is_not_downloaded_once_the_slice_ocr_is_spent():
+    """OCR is an image's only reader: with none left it waits, unread, for the next slice."""
+    reader = FakeReader(
+        {
+            "scan": {"mimeType": PDF, "content": b"scan"},
+            "photo": {"mimeType": "image/jpeg", "content": b"photo"},
+        }
+    )
+    processor = ScanProcessor(pages=3)
+    rows = [
+        row("scan", age=timedelta(minutes=1)),
+        row("photo", mime="image/jpeg", age=timedelta(minutes=2)),
+    ]
+    budget = ContentCheckBudget(max_ocr_pages_per_slice=3, max_ocr_pages=3, concurrency=1)
+    first = await run(checker(reader, processor), rows, budget=budget)
+    assert reader.calls == ["scan"] and first.pending == 1 and first.status == "partial"
+    second = await run(checker(reader, processor), rows, budget=budget, checkpoint=first.checkpoint)
+    assert reader.calls == ["scan", "photo"] and second.status == "complete"
+    photo = next(result for result in second.results if result.file_id == "photo")
+    assert photo.complete is True and photo.ocr_pages == 1
+
+
 @pytest.mark.parametrize(
     "error,status",
     [
@@ -380,9 +506,30 @@ async def test_kill_switch_off_means_no_drive_call_and_no_child():
 @pytest.mark.parametrize(
     "env,enabled",
     [
+        # Unset means off in UAT too: third-party files in shared folders
+        # reach native parsers, and the sandbox hardening (P1-11) has not
+        # landed. Only an explicit opt-in turns the check on.
         (
             {"DRIVE_WORKER_MODE": "true", "DRIVE_WORK_DRAIN_ENABLED": "true", "ENVIRONMENT": "uat"},
+            False,
+        ),
+        (
+            {
+                "DRIVE_WORKER_MODE": "true",
+                "DRIVE_WORK_DRAIN_ENABLED": "true",
+                "ENVIRONMENT": "uat",
+                port.CONTENT_CHECK_FLAG: "true",
+            },
             True,
+        ),
+        (
+            {
+                "DRIVE_WORKER_MODE": "true",
+                "DRIVE_WORK_DRAIN_ENABLED": "true",
+                "ENVIRONMENT": "uat",
+                port.CONTENT_CHECK_FLAG: "yes",
+            },
+            False,
         ),
         (
             {
@@ -434,9 +581,7 @@ async def test_kill_switch_off_means_no_drive_call_and_no_child():
         ),
     ],
 )
-def test_feature_flag_defaults_on_in_uat_off_in_production_and_obeys_kill_switches(
-    monkeypatch, env, enabled
-):
+def test_feature_flag_is_off_unless_set_true_and_obeys_kill_switches(monkeypatch, env, enabled):
     for name in (
         "DRIVE_WORKER_MODE",
         "DRIVE_WORK_DRAIN_ENABLED",

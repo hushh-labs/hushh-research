@@ -1364,3 +1364,157 @@ async def test_an_earlier_retry_cause_is_never_shown_for_a_later_failure(store):
     final = await store.status(user_id="owner", job_id=state["jobId"])
     assert final["errorCode"] == "connection_changed"
     assert "errorCause" not in final
+
+
+# --- the shared-folder walk's cursor and per-folder refusals ------------------
+
+
+def walk_checkpoint(*, queue, cursor=None):
+    state = checkpoint()
+    state.update(
+        phase="shared_walk",
+        coverage_counts={},
+        coverage_manifest={"sharedFolderWalk": "planned"},
+        shared_walk={
+            "stage": "folders",
+            "queue": queue,
+            "visited": ["0123456789abcdef"],
+            "token": cursor,
+            "tokens": ["fedcba9876543210"] if cursor else [],
+        },
+    )
+    return state
+
+
+async def run_walk(store, monkeypatch, state, read):
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
+    job, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Synthetic"},
+        checkpoint=state,
+        confirmed=True,
+    )
+    service = DriveOwnerSearchService(
+        store=store, transport=SimpleNamespace(read_owner_search_page=AsyncMock(side_effect=read))
+    )
+    outcomes = []
+    for _ in range(8):
+        outcome = await service.run_one(user_id="owner", job_id=job["jobId"])
+        outcomes.append(outcome)
+        if outcome != "queued":
+            break
+        sql(store, "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp()")
+    final = await store.status(user_id="owner", job_id=job["jobId"])
+    row = sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one()
+    return outcomes, final, store._checkpoint(row)
+
+
+def empty_walk_page(cursor=None):
+    return ExternalMcpToolResult(
+        False, {"files": [], "nextPageToken": cursor, "incompleteSearch": False}, False
+    )
+
+
+def token_rejected():
+    from hushh_mcp.services.google_drive_adapter import PAGE_TOKEN_INVALID, provider_failure
+
+    return provider_failure(PAGE_TOKEN_INVALID, status_code=400)
+
+
+async def test_a_rejected_walk_token_restarts_that_folder_listing(store, monkeypatch):
+    """Once: the rejected cursor is dropped and the folder is listed from page 1."""
+    calls = []
+
+    async def read(*, user_id, tool_name, arguments):
+        calls.append(arguments.get("pageToken"))
+        if arguments.get("pageToken") == "walk-token-2":
+            raise token_rejected()
+        return empty_walk_page()
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]], cursor="walk-token-2")
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert outcomes[-1] == "completed" and final["status"] == "completed"
+    assert calls == ["walk-token-2", None]
+    assert final["errorCode"] is None
+    counts = saved["coverage_counts"]
+    assert counts["pageTokenRestarts"] == 1 and counts["sharedFoldersWalked"] == 1
+    assert final["coverage"]["sharedFolderWalk"] == "complete"
+    assert final["coverage"]["coveragePartial"] is False
+
+
+async def test_a_walk_listing_rejected_three_times_is_skipped_and_the_search_completes(
+    store, monkeypatch
+):
+    """Never a failed search: past two restarts the folder is skipped, coverage partial."""
+    calls = []
+    fresh = iter(f"fresh-{number}" for number in range(10))
+
+    async def read(*, user_id, tool_name, arguments):
+        token = arguments.get("pageToken")
+        calls.append(token)
+        if token is not None:
+            raise token_rejected()
+        return empty_walk_page(next(fresh))
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]], cursor="walk-token-2")
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed" and "failed" not in outcomes
+    assert calls == ["walk-token-2", None, "fresh-0", None, "fresh-1"]
+    assert saved["shared_walk"]["token"] is None and saved["shared_walk"]["queue"] == []
+    assert saved["coverage_counts"]["sharedFolderWalkSkipped"] == 1
+    assert final["coverage"]["sharedFolderWalk"] == "partial"
+    assert final["coverage"]["coveragePartial"] is True
+
+
+async def test_a_shared_drive_folder_is_listed_again_without_its_drive(store, monkeypatch):
+    """Not a member of that shared drive: list the folder in A's own corpus."""
+    from hushh_mcp.services.google_drive_adapter import DRIVE_MEMBERSHIP_REQUIRED, provider_failure
+
+    calls = []
+
+    async def read(*, user_id, tool_name, arguments):
+        calls.append({key: arguments.get(key) for key in ("folderId", "driveId")})
+        if arguments.get("driveId"):
+            raise provider_failure(DRIVE_MEMBERSHIP_REQUIRED, status_code=403)
+        return empty_walk_page()
+
+    state = walk_checkpoint(queue=[["Folder1", None, "Drive1"]])
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed"
+    assert calls == [
+        {"folderId": "Folder1", "driveId": "Drive1"},
+        {"folderId": "Folder1", "driveId": None},
+    ]
+    counts = saved["coverage_counts"]
+    assert counts["sharedFoldersWalked"] == 1 and not counts.get("sharedFolderWalkUnavailable")
+    assert final["coverage"]["sharedFolderWalk"] == "complete"
+
+
+@pytest.mark.parametrize(
+    "cause,status,partial",
+    [
+        # Negative control: a real 404 is lost access; coverage stays whole.
+        ("source_unavailable", 404, False),
+        # A policy refusal or a 400 on one listing leaves files unsearched.
+        ("domain_policy", 403, True),
+        (None, 400, True),
+    ],
+)
+async def test_a_refused_folder_is_skipped_and_only_lost_access_keeps_coverage_whole(
+    store, monkeypatch, cause, status, partial
+):
+    from hushh_mcp.services.google_drive_adapter import provider_failure
+
+    async def read(*, user_id, tool_name, arguments):
+        if cause is None:
+            raise DriveReadError("provider_response_invalid", status_code=status)
+        raise provider_failure(cause, status_code=status)
+
+    state = walk_checkpoint(queue=[["Folder1", None, None]])
+    outcomes, final, saved = await run_walk(store, monkeypatch, state, read)
+    assert final["status"] == "completed" and outcomes == ["completed"]
+    assert final["coverage"]["sharedFolderWalk"] == ("partial" if partial else "complete")
+    assert final["coverage"]["coveragePartial"] is partial
+    counts = saved["coverage_counts"]
+    assert bool(counts.get("sharedFolderWalkUnavailable")) is (not partial)

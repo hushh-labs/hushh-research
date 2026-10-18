@@ -21,10 +21,14 @@ existing encrypted search checkpoint. Logs carry fixed codes and counts.
 
 Kill switch: the check runs only in the Drive worker deployment
 (``DRIVE_WORKER_MODE=true``) while drains are enabled
-(``DRIVE_WORK_DRAIN_ENABLED=true``). ``DRIVE_REQUEST_CONTENT_CHECK_ENABLED``
-turns it on or off explicitly; unset, it is on in UAT and off elsewhere
-(production stays off until the owner approves). The API process always gets
-the no-op. No Gemini, Vertex or any model is called on this path.
+(``DRIVE_WORK_DRAIN_ENABLED=true``) and only when
+``DRIVE_REQUEST_CONTENT_CHECK_ENABLED=true`` is set explicitly. Unset means
+off in every environment, UAT included: the check parses files other people
+put in folders shared with the owner, and the parser-child hardening the
+research made a precondition (P1-11: no network, no_new_privs, seccomp, a
+non-dumpable worker) has not landed. Turn it on only after that ships. The
+API process always gets the no-op. No Gemini, Vertex or any model is called
+on this path.
 
 Integrator contract::
 
@@ -222,15 +226,16 @@ class NoContentCheck:
 
 
 def content_check_enabled() -> bool:
-    """Worker-only, drain-gated, and on by default in UAT only."""
+    """Worker-only, drain-gated, and off unless the operator sets the flag to true.
+
+    Never on by default, in UAT either: third-party files reach native
+    parsers, so the sandbox hardening (P1-11) must land before anyone opts in.
+    """
     if os.getenv("DRIVE_WORKER_MODE", "").strip().lower() != "true":
         return False
     if os.getenv("DRIVE_WORK_DRAIN_ENABLED", "").strip().lower() != "true":
         return False
-    explicit = os.getenv(CONTENT_CHECK_FLAG, "").strip().lower()
-    if explicit in {"true", "false"}:
-        return explicit == "true"
-    return os.getenv("ENVIRONMENT", "").strip().lower() == "uat"
+    return os.getenv(CONTENT_CHECK_FLAG, "").strip().lower() == "true"
 
 
 def default_content_check() -> ContentCheck:

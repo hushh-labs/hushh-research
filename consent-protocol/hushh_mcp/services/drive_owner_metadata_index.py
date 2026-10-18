@@ -810,6 +810,31 @@ class OwnerMetadataIndexer:
             self._owners.popitem(last=False)
         return state
 
+    def _peek(self, owner_id: str, generation: int) -> _OwnerState | None:
+        """This owner's live state for ``generation``, never creating one.
+
+        A peek must not build an empty state for a cold owner: that would
+        claim a slot of the bounded cache and push a warm owner out.
+        """
+        if not isinstance(owner_id, str) or not 1 <= len(owner_id) <= 255:
+            raise DriveReadError("invalid_argument")
+        if type(generation) is not int or generation < 1:
+            raise DriveReadError("invalid_argument")
+        state = self._owners.get(owner_id)
+        if (
+            state is None
+            or state.generation != generation
+            or state.built_at is not None
+            and self._clock() - state.built_at > self._ttl
+        ):
+            return None
+        return state
+
+    def recent_ready(self, owner_id: str, *, connection_generation: int) -> bool:
+        """Whether ``recent`` can vouch for this owner's recent files: built, whole, current."""
+        state = self._peek(owner_id, connection_generation)
+        return bool(state is not None and state.ready and not state.incomplete)
+
     def forget(self, owner_id: str) -> None:
         self._owners.pop(owner_id, None)
 
@@ -1202,20 +1227,21 @@ class OwnerMetadataIndexer:
         mime_filter: Callable[[str], bool] | None = None,
         limit: int = DEFAULT_LIMIT,
     ) -> list[dict]:
-        """Recent rows this process already holds; never lists Drive (a peek)."""
-        state, status = await self._refresh(
-            owner_id,
-            connection_generation=connection_generation,
-            max_pages=0,
-            deadline_seconds=0.0,
-            require_current=None,
-        )
+        """Recent rows this process already holds; never lists Drive (a peek).
+
+        A cold, expired or other-generation owner returns nothing and creates
+        no state (see ``recent_ready`` for whether the rows are whole).
+        """
+        state = self._peek(owner_id, connection_generation)
+        if state is None:
+            logger.info("drive_metadata_index.recent returned=0 indexed=0 ready=0")
+            return []
         rows = state.index.recent(since_ts=since_ts, mime_filter=mime_filter, limit=limit)
         logger.info(
             "drive_metadata_index.recent returned=%d indexed=%d ready=%d",
             len(rows),
-            status.indexed,
-            int(status.ready),
+            len(state.index),
+            int(state.ready),
         )
         return rows
 

@@ -291,6 +291,49 @@ class MetadataOwnerIndex:
         )
         return [_rest_row(file) for file in rows]
 
+    async def prepare_recent_files(
+        self,
+        *,
+        owner_id: str,
+        connection_generation: int | None = None,
+        require_current: Callable[[], Awaitable[object]] | None = None,
+        **_: object,
+    ) -> bool:
+        """Spend a bounded, fenced listing so ``recent_files`` can vouch for this owner.
+
+        A ready index costs nothing. Otherwise at most INDEX_LISTING_PAGES
+        pages (INDEX_LISTING_SECONDS) build it further, as a search start
+        does. True only when the index is then whole and current.
+        """
+        if type(connection_generation) is not int:
+            return False
+        indexer = self._owner_indexer()
+        if indexer.recent_ready(owner_id, connection_generation=connection_generation):
+            return True
+        status = await indexer.refresh(
+            owner_id,
+            connection_generation=connection_generation,
+            max_pages=INDEX_LISTING_PAGES,
+            deadline_seconds=INDEX_LISTING_SECONDS,
+            require_current=require_current,
+        )
+        return status.complete is True
+
+    async def recent_files_ready(
+        self, *, owner_id: str, connection_generation: int | None = None, **_: object
+    ) -> bool:
+        """Whether ``recent_files`` holds this owner's whole, current index (no Drive call)."""
+        from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+        if type(connection_generation) is not int:
+            return False
+        try:
+            return self._owner_indexer().recent_ready(
+                owner_id, connection_generation=connection_generation
+            )
+        except DriveReadError:
+            return False
+
     async def owner_vocabulary(
         self, *, owner_id: str, connection_generation: int | None = None, **_: object
     ) -> Collection[str] | None:

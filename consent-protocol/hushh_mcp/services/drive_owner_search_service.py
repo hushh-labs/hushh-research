@@ -14,6 +14,7 @@ import os
 import re
 import time
 from calendar import monthrange
+from collections import Counter
 from contextlib import nullcontext
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -62,13 +63,18 @@ from hushh_mcp.services.drive_text_tokens import (
     separated_words,
     words,
 )
+from hushh_mcp.services.drive_title_dates import period_decision
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import (
+    DRIVE_MEMBERSHIP_REQUIRED,
     FILE_ID,
     LIVE_SUPPORTED_TYPES,
+    PAGE_TOKEN_INVALID,
     RESOURCE_KEY,
+    SOURCE_UNAVAILABLE,
     DriveReadError,
+    read_failure_reason,
 )
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
@@ -156,6 +162,14 @@ CONTENT_CHECK_BUDGET = ContentCheckBudget(
     max_files_per_slice=6,
     max_ocr_pages_per_slice=6,
 )
+# Coverage counts for selected candidates that ended without a full read.
+_CONTENT_UNREAD_KEYS = {
+    "checked": "contentFilesPartlyRead",
+    "too_large": "contentFilesTooLarge",
+    "unreadable": "contentFilesUnreadable",
+    "unavailable": "contentFilesUnavailable",
+    "unsafe": "contentFilesUnsafe",
+}
 # The slice's absolute deadline (``_clock`` time), so a content page fits it.
 _SLICE_DEADLINE: ContextVar[float | None] = ContextVar("drive_search_slice_deadline", default=None)
 _WALK_STAGES = frozenset({*_WALK_SEEDS, "folders", "done"})
@@ -183,12 +197,6 @@ _MONTH_WORDS = {
         1,
     )
 }
-_MONTH_NUMBERS = {
-    name: index
-    for index, name in enumerate(
-        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
-    )
-}
 # Title checks see through "_" and camelCase (_title_words), so title dates
 # must too: "2025_08_14", "2025.08.14" and compact "20250814" are dates. An
 # unread title date falls back to file activity, which would let an
@@ -196,22 +204,6 @@ _MONTH_NUMBERS = {
 _TITLE_DATE = re.compile(
     r"(?<!\d)(\d{4})[-/._](\d{1,2})[-/._](\d{1,2})(?!\d)"
     r"|(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)"
-)
-# Autoshare also reads day-first and month-name title dates ("16-06-2026",
-# "16/06/2026", "Jun 16, 2026", "16 June 2026"). A day-first date that could
-# also be month-first counts as both, so either reading outside the period
-# keeps the file out of an automatic grant.
-_DAY_FIRST_TITLE_DATE = re.compile(
-    r"(?<!\d)(?<!\d[-/.])(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?!\d)(?![-/.]\d)"
-)
-_MONTH_NAME = (
-    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
-    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
-)
-_MONTH_NAME_TITLE_DATE = re.compile(
-    rf"(?<![a-z]){_MONTH_NAME}\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})(?!\d)"
-    rf"|(?<!\d)(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MONTH_NAME}\.?,?\s+(\d{{4}})(?!\d)",
-    re.I,
 )
 _TITLE_TIME = re.compile(
     r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
@@ -511,26 +503,6 @@ def _brain_topic_evidence(brain, title: str) -> bool:
         if spelling.casefold() not in _GENERIC_SUBJECT
     ] + [item.phrase for part in brain.parts for item in part.standalone]
     return any(_brain_title_has(word, title) for word in words)
-
-
-def _other_title_days(title: str) -> list[date]:
-    """Day-first and month-name title dates, read only for autoshare."""
-    title = ascii_digits(title)
-    days = []
-    for found in _DAY_FIRST_TITLE_DATE.finditer(title):
-        first, second, year = (int(part) for part in found.groups())
-        for day, month in {(first, second), (second, first)}:
-            try:
-                days.append(date(year, month, day))
-            except ValueError:
-                continue
-    for found in _MONTH_NAME_TITLE_DATE.finditer(title):
-        month_name, day, year = found.group(1, 2, 3) if found.group(1) else found.group(5, 4, 6)
-        try:
-            days.append(date(int(year), _MONTH_NUMBERS[month_name[:3].casefold()], int(day)))
-        except ValueError:
-            continue
-    return days
 
 
 _SPAN_PHRASE = re.compile(
@@ -980,20 +952,36 @@ def _end_content(checkpoint: dict, outcome: str) -> bool:
     counts remain. Drive-blind candidates left unread make coverage partial.
     """
     state = checkpoint.get("content_phase")
+    unseen = False
     if isinstance(state, dict):
         for key in ("candidates", "check", "committed"):
             state.pop(key, None)
         state["stage"] = "done"
+        # A disabled check with candidates pooled, or a cold Gear 1 that
+        # could not offer this owner's recent files: some Drive-blind files
+        # were never looked at.
+        unseen = bool(state.pop("unread_pool", False) | state.pop("index_cold", False))
     counts = checkpoint.setdefault("coverage_counts", {})
-    unread = outcome in {"partial", "budget_exhausted"} or (
-        outcome == "complete" and bool(counts.get("contentCandidatesDropped"))
+    # Unread: the page or byte budget ran out, candidates did not fit the
+    # pool, or a selected candidate ended without a full read (too large,
+    # unreadable, unavailable, unsafe, or read without every page).
+    unread = (
+        outcome in {"partial", "budget_exhausted"}
+        or unseen
+        and outcome in {"complete", "not_needed", "disabled"}
+        or (
+            outcome == "complete"
+            and bool(counts.get("contentCandidatesDropped") or counts.get("contentFilesUnread"))
+        )
     )
     if unread:
         counts["contentCheckIncomplete"] = True
         counts["coveragePartial"] = True
     manifest = checkpoint.get("coverage_manifest")
     if isinstance(manifest, dict):
-        manifest["contentCheck"] = "partial" if unread and outcome == "complete" else outcome
+        manifest["contentCheck"] = (
+            "partial" if unread and outcome in {"complete", "not_needed"} else outcome
+        )
     return True
 
 
@@ -1521,9 +1509,16 @@ def _in_requested_period(match: dict, period: dict | None, *, precedence: bool =
     title dates (every one inside the period, including day-first and
     month-name dates), else created time, else modified time. Without it, any
     title date or either timestamp inside the period matches (file activity).
+
+    The autoshare rule is the shared title-date rule (drive_title_dates), the
+    one Gear 1, the walk and the content check use: month-only ("Aug 2026",
+    "2026-08") and year-less ("Aug 28") titles decide too, so a file named for
+    another month is never shared because it was created inside the period.
     """
     if period is None:
         return True
+    if precedence:
+        return period_decision(match, period, precedence=True).in_period
     start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
     zone = ZoneInfo(period["timezone"])
     # One ASCII digit per Unicode digit, so "२०२६-०९-१०" is read like 2026-09-10.
@@ -1570,12 +1565,8 @@ def _in_requested_period(match: dict, period: dict | None, *, precedence: bool =
             title_days.append(title_day)
         except ValueError:
             continue
-    if precedence:
-        title_days.extend(_other_title_days(match["name"]))
     if title_days:
-        inside = [start <= day <= end for day in title_days]
-        # Autoshare never grants a file with any title date outside the period.
-        return all(inside) if precedence else any(inside)
+        return any(start <= day <= end for day in title_days)
     for key in ("created_time", "modified_time"):
         value = match.get(key)
         if isinstance(value, str):
@@ -1588,9 +1579,6 @@ def _in_requested_period(match: dict, period: dict | None, *, precedence: bool =
                 continue
             if start <= day <= end:
                 return True
-            if precedence:
-                # The created time is present and outside: modified never decides.
-                return False
     return False
 
 
@@ -3090,10 +3078,37 @@ class DriveOwnerSearchService:
                 # never advances the walk or loses its rows.
                 walk["page_size"] = WALK_PAGE_SIZES[WALK_PAGE_SIZES.index(page_size) + 1]
                 return checkpoint, [], False, False
-            if str(error) != "source_unavailable" or stage != "folders":
+            cause = read_failure_reason(error)
+            if (
+                stage != "folders"
+                or error.retryable
+                or str(error) == "provider_unavailable"
+                or cause == PAGE_TOKEN_INVALID
+            ):
+                # Seeds, rate limits and outages retry the whole slice; a
+                # rejected page token restarts or skips this listing
+                # (restart_rejected_pass); grant failures stop the search.
                 raise
-            # Deleted, or the owner lost access: nothing in it can be shared.
-            _counter(checkpoint, "sharedFolderWalkUnavailable")
+            identity, key, drive = walk["queue"][0]
+            if cause == DRIVE_MEMBERSHIP_REQUIRED and drive:
+                # A folder in a shared drive A is not a member of (shared
+                # with A directly): list it by parent in A's own corpus,
+                # shared-drive items included, never by that drive's corpus.
+                walk["queue"][0] = [identity, key, None]
+                walk.update(token=None, tokens=[])
+                return checkpoint, [], False, False
+            if str(error) == "source_unavailable" and cause == SOURCE_UNAVAILABLE:
+                # Deleted, or the owner lost access (404/410, a plain 403):
+                # nothing in it can be shared, and coverage stays whole.
+                _counter(checkpoint, "sharedFolderWalkUnavailable")
+            elif str(error) == "source_unavailable" or error.status_code == 400:
+                # Any other refusal (a policy, membership, a 400 on this one
+                # listing) leaves files unsearched: skip the folder and say
+                # coverage is partial, without failing the search.
+                _counter(checkpoint, "sharedFolderWalkSkipped")
+                _walk_partial(checkpoint, "incomplete")
+            else:
+                raise
             walk["queue"].pop(0)
             walk.update(token=None, tokens=[])
             done = False
@@ -3276,7 +3291,25 @@ class DriveOwnerSearchService:
             or checkpoint.get("request_shared_with_me") is True
         ):
             return []
+        prepare = getattr(self.owner_index, "prepare_recent_files", None)
+        ready = getattr(self.owner_index, "recent_files_ready", None)
         try:
+            # Gear 1 holds this owner only on the worker that built it, for
+            # a while. A bounded, fenced listing first builds a cold or
+            # partial index further; one that still cannot vouch for the
+            # owner's recent files makes the phase report partial coverage.
+            if prepare is not None:
+                warm = await prepare(
+                    owner_id=job["user_id"],
+                    connection_generation=job.get("generation"),
+                    require_current=lambda: self.store.require_current(job),
+                )
+            elif ready is not None:
+                warm = await ready(
+                    owner_id=job["user_id"], connection_generation=job.get("generation")
+                )
+            else:
+                warm = True
             rows = await recent(
                 owner_id=job["user_id"],
                 since=_content_window_start(checkpoint),
@@ -3286,7 +3319,11 @@ class DriveOwnerSearchService:
             )
         except Exception:  # noqa: BLE001 - an accelerator never fails the search
             logger.info("drive_search.content_candidates status=index_unavailable")
-            return []
+            warm, rows = False, []
+        if warm is not True:
+            checkpoint["content_phase"]["index_cold"] = True
+            _counter(checkpoint, "contentIndexCold")
+            logger.info("drive_search.content_candidates status=index_cold")
         if not isinstance(rows, list) or not rows:
             return []
         try:
@@ -3334,7 +3371,10 @@ class DriveOwnerSearchService:
         check = self.content_check or default_content_check()
         if getattr(check, "enabled", False) is not True:
             # The operator's flag, a process that is not the worker, or a
-            # disabled drain: nothing is read and coverage is unchanged.
+            # disabled drain: nothing is read. Candidates already pooled (the
+            # walk's unmatched rows) stay unsearched: coverage is partial.
+            if any(isinstance(item, dict) for item in state.get("candidates") or []):
+                state["unread_pool"] = True
             return checkpoint, [], False, _end_content(checkpoint, "disabled")
         if not state.get("seeded"):
             state["seeded"] = True
@@ -3401,6 +3441,21 @@ class DriveOwnerSearchService:
         counts["contentFilesRead"] = sum(
             1 for result in outcome.results if result.status == "checked"
         )
+        # Final results that are not a full read, by cause (counts only):
+        # each one leaves a Drive-blind file unsearched, so coverage is partial.
+        unread = Counter(
+            _CONTENT_UNREAD_KEYS.get(result.status, "contentFilesUnavailable")
+            for result in outcome.results
+            if result.status != "checked"
+            or (
+                result.complete is not True
+                and not result.requirement_met
+                and result.in_period is not False
+            )
+        )
+        for key in set(_CONTENT_UNREAD_KEYS.values()):
+            counts[key] = unread.get(key, 0)
+        counts["contentFilesUnread"] = sum(unread.values())
         counts["contentPossibleMatches"] = counts.get("contentPossibleMatches", 0) + len(files)
         if outcome.status == "partial" and state["pages"] < MAX_CONTENT_CHECK_PAGES:
             return checkpoint, files, False, False

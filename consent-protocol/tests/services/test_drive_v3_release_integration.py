@@ -56,6 +56,7 @@ from hushh_mcp.services.drive_owner_search_service import (
     _remember_content_candidates,
 )
 from hushh_mcp.services.drive_request_brain import interpret_request, suggested_plan
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 REQUEST_ID = "12345678-1234-1234-1234-123456789012"
 NOW = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
@@ -394,7 +395,8 @@ def _compact(identity, title, *, source="walk"):
     }
 
 
-def _result(identity, *, met=True, in_period=True, status="checked"):
+def _result(identity, *, met=True, in_period=True, status="checked", complete=True):
+    # complete: the file was read in full (the leaf's own word for it).
     return ContentFileResult(
         file_id=identity,
         status=status,
@@ -404,6 +406,7 @@ def _result(identity, *, met=True, in_period=True, status="checked"):
         in_period=in_period,
         date_found="2026-09-14" if in_period else None,
         date_basis="content",
+        complete=complete and status == "checked",
     )
 
 
@@ -463,7 +466,7 @@ async def test_content_hits_become_possible_matches_and_the_phase_leaves_no_text
 
 
 @pytest.mark.asyncio
-async def test_disabled_or_api_process_content_check_reads_nothing_and_stays_full_coverage(
+async def test_disabled_or_api_process_content_check_reads_nothing_and_reports_unread_pool(
     monkeypatch,
 ):
     _, planned = await _planned()
@@ -476,7 +479,14 @@ async def test_disabled_or_api_process_content_check_reads_nothing_and_stays_ful
     )
     assert (files, done, check.calls) == ([], True, [])
     assert checkpoint["coverage_manifest"]["contentCheck"] == "disabled"
-    assert not checkpoint["coverage_counts"].get("coveragePartial")
+    # The walk's unmatched rows were pooled and never read: coverage is partial.
+    assert checkpoint["coverage_counts"]["coveragePartial"] is True
+    assert checkpoint["coverage_counts"]["contentCheckIncomplete"] is True
+    assert "unread_pool" not in checkpoint["content_phase"]
+    # Negative control: nothing pooled, nothing unread, coverage stays whole.
+    (empty, _, _, _), _ = await _content_page(_phase_checkpoint(planned, []), check)
+    assert empty["coverage_manifest"]["contentCheck"] == "disabled"
+    assert not empty["coverage_counts"].get("coveragePartial")
     # The default in a process that is not the drained worker is the no-op.
     monkeypatch.delenv("DRIVE_WORKER_MODE", raising=False)
     (checkpoint, files, _, done), _ = await _content_page(
@@ -516,6 +526,120 @@ async def test_files_left_unread_make_coverage_partial(monkeypatch, status):
     counts = checkpoint["coverage_counts"]
     assert counts["coveragePartial"] is True and counts["contentCheckIncomplete"] is True
     assert checkpoint["coverage_manifest"]["contentCheck"] == status
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "result,key",
+    [
+        (_result("scan", met=False, status="too_large"), "contentFilesTooLarge"),
+        (_result("scan", met=False, status="unreadable"), "contentFilesUnreadable"),
+        (_result("scan", met=False, status="unavailable"), "contentFilesUnavailable"),
+        (_result("scan", met=False, status="unsafe"), "contentFilesUnsafe"),
+        # Read, but not every page (OCR or the text budget stopped first).
+        (_result("scan", met=False, complete=False), "contentFilesPartlyRead"),
+    ],
+)
+async def test_a_candidate_ending_unread_makes_coverage_partial(result, key):
+    """Too large, unreadable, unavailable, unsafe or partly read: never "All files sent"."""
+    _, planned = await _planned()
+    checkpoint = _phase_checkpoint(
+        planned, [_compact("scan", "Scan_0042.pdf"), _compact("memo", "Memo.pdf")]
+    )
+    results = (result, _result("memo", met=False))
+    check = FakeContentCheck(
+        lambda kwargs: ContentCheckOutcome(
+            "complete", results=results, checkpoint={"version": 1}, counts={"selected": 2}
+        )
+    )
+    (checkpoint, files, _, done), _ = await _content_page(checkpoint, check)
+    assert (files, done) == ([], True)
+    counts = checkpoint["coverage_counts"]
+    assert counts[key] == 1 and counts["contentFilesUnread"] == 1
+    assert counts["coveragePartial"] is True and counts["contentCheckIncomplete"] is True
+    assert checkpoint["coverage_manifest"]["contentCheck"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_candidates_read_in_full_or_matched_keep_coverage_whole():
+    """Negative control: a matched file read in part is a possible match, not unread."""
+    _, planned = await _planned()
+    checkpoint = _phase_checkpoint(
+        planned, [_compact("scan", "Scan_0042.pdf"), _compact("memo", "Memo.pdf")]
+    )
+    results = (
+        _result("scan", complete=False),
+        _result("memo", met=False),
+        # Read in part but dated outside the period: it could never be listed.
+        _result("old", met=False, in_period=False, complete=False),
+    )
+    check = FakeContentCheck(
+        lambda kwargs: ContentCheckOutcome(
+            "complete", results=results, checkpoint={"version": 1}, counts={"selected": 3}
+        )
+    )
+    (checkpoint, files, _, done), _ = await _content_page(checkpoint, check)
+    assert [file["id"] for file in files] == ["scan"] and done is True
+    counts = checkpoint["coverage_counts"]
+    assert counts["contentFilesUnread"] == 0 and not counts.get("coveragePartial")
+    assert checkpoint["coverage_manifest"]["contentCheck"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_a_gear_one_peek_never_builds_owner_state():
+    """recent() on a cold owner returns nothing and claims no cache slot."""
+    indexer = OwnerMetadataIndexer(transport=SimpleNamespace())
+    assert await indexer.recent("owner", connection_generation=7, since_ts=None) == []
+    assert len(indexer._owners) == 0
+    assert indexer.recent_ready("owner", connection_generation=7) is False
+    index = MetadataOwnerIndex(indexer=indexer)
+    assert await index.recent_files_ready(owner_id="owner", connection_generation=7) is False
+    assert len(indexer._owners) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_cold_gear_one_that_cannot_build_makes_the_phase_partial():
+    """The content phase on a worker whose Gear 1 never saw this owner and cannot list now."""
+    _, planned = await _planned()
+    checkpoint = _phase_checkpoint(planned, [])
+    checkpoint["content_phase"].pop("seeded")
+    listing = AsyncMock(
+        side_effect=DriveReadError("provider_unavailable", retryable=True, reason="rate_limited")
+    )
+    indexer = OwnerMetadataIndexer(transport=SimpleNamespace(read_owner_search_page=listing))
+    check = FakeContentCheck(lambda kwargs: pytest.fail("no candidate: the check is never called"))
+    (checkpoint, _, _, done), _ = await _content_page(
+        checkpoint, check, owner_index=MetadataOwnerIndex(indexer=indexer)
+    )
+    assert done is True and check.calls == []
+    # The bounded build was tried, and could not make the index whole.
+    listing.assert_awaited()
+    counts = checkpoint["coverage_counts"]
+    assert counts["contentIndexCold"] == 1
+    assert counts["coveragePartial"] is True and counts["contentCheckIncomplete"] is True
+    assert checkpoint["coverage_manifest"]["contentCheck"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_a_warm_gear_one_with_nothing_recent_keeps_coverage_whole():
+    """Negative control: an index that vouches for the owner's recent files."""
+    _, planned = await _planned()
+    checkpoint = _phase_checkpoint(planned, [])
+    checkpoint["content_phase"].pop("seeded")
+
+    class WarmIndex:
+        enabled = True
+
+        async def recent_files(self, **kwargs):
+            return []
+
+        async def recent_files_ready(self, **kwargs):
+            return True
+
+    check = FakeContentCheck(lambda kwargs: pytest.fail("no candidate"))
+    (checkpoint, _, _, done), _ = await _content_page(checkpoint, check, owner_index=WarmIndex())
+    assert done is True and not checkpoint["coverage_counts"].get("coveragePartial")
+    assert checkpoint["coverage_manifest"]["contentCheck"] == "not_needed"
 
 
 @pytest.mark.asyncio

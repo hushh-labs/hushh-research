@@ -191,13 +191,61 @@ def _pass_identity(checkpoint: dict) -> str | None:
     return hashlib.sha256(material.encode()).hexdigest()[:24]
 
 
+def _restart_rejected_walk(checkpoint: dict) -> bool:
+    """A rejected shared-folder walk cursor: restart that listing, or skip it.
+
+    The walk keeps its cursor in ``shared_walk.token``. The rejected token is
+    always discarded first, so an owner's Retry never resends it. The current
+    seed or folder listing restarts from page 1 up to
+    PAGE_TOKEN_RESTARTS_PER_PASS times; past that the listing is skipped and
+    the walk reports partial coverage, so one bad folder never fails a nearly
+    finished search (and its already-found title matches) outright.
+    """
+    walk = checkpoint.get("shared_walk")
+    if not isinstance(walk, dict) or not walk.get("token"):
+        return False
+    stage = walk.get("stage")
+    queue = walk.get("queue") if isinstance(walk.get("queue"), list) else []
+    head = queue[0] if stage == "folders" and queue else None
+    scope = head[0] if isinstance(head, list) and head else None
+    material = json.dumps(["shared_walk", stage, scope], sort_keys=True)
+    identity = hashlib.sha256(material.encode()).hexdigest()[:24]
+    walk.update(token=None, tokens=[])
+    counts = checkpoint.setdefault("coverage_counts", {})
+    previous = checkpoint.get("page_token_restarts")
+    count = (
+        previous.get("count", 0)
+        if isinstance(previous, dict) and previous.get("pass") == identity
+        else 0
+    )
+    if type(count) is int and count < PAGE_TOKEN_RESTARTS_PER_PASS:
+        checkpoint["page_token_restarts"] = {"pass": identity, "count": count + 1}
+        counts["pageTokenRestarts"] = counts.get("pageTokenRestarts", 0) + 1
+        return True
+    checkpoint.pop("page_token_restarts", None)
+    if stage == "folders" and queue:
+        queue.pop(0)
+    elif stage == "seed_folders":
+        walk["stage"] = "seed_shortcuts"
+    elif stage == "seed_shortcuts":
+        walk["stage"] = "folders"
+    counts["sharedFolderWalkSkipped"] = counts.get("sharedFolderWalkSkipped", 0) + 1
+    counts["sharedFolderWalkIncomplete"] = True
+    counts["coveragePartial"] = True
+    return True
+
+
 def restart_rejected_pass(checkpoint: dict) -> bool:
     """Discard a rejected page token and restart its pass from page 1, twice at most.
 
     Returns False when the current phase carried no provider cursor or this
     pass already restarted PAGE_TOKEN_RESTARTS_PER_PASS times; a rejected
     cursor is discarded either way, so an owner's retry starts the pass afresh.
+    The shared-folder walk restarts its listing, then skips it with partial
+    coverage (``_restart_rejected_walk``); it never fails the search.
     """
+    if checkpoint.get("phase") == "shared_walk":
+        return _restart_rejected_walk(checkpoint)
     identity = _pass_identity(checkpoint)
     token_key = "drive_page_token" if checkpoint.get("phase") == "drives" else "page_token"
     if identity is None or not checkpoint.get(token_key):
@@ -384,6 +432,12 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                                 "contentCheckPages",
                                 "contentFilesSelected",
                                 "contentFilesRead",
+                                "contentFilesUnread",
+                                "contentFilesTooLarge",
+                                "contentFilesUnreadable",
+                                "contentFilesUnavailable",
+                                "contentFilesUnsafe",
+                                "contentFilesPartlyRead",
                                 "contentPossibleMatches",
                                 "contentCandidatesDropped",
                             )
