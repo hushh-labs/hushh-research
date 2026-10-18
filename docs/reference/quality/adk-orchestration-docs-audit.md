@@ -63,6 +63,23 @@ GCP's native sandbox probe ran as root and refused the required UID change
 stale, but native execution and privacy remain unqualified. Both adapters stay
 closed. See [native Browser evidence](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
+### Pending candidate corrections — 2026-10-18 UTC
+
+Files recovery now persists provider-confirmed cancellation before later checks and
+retains it across failure/restart. Exact-session HTTP 410 is a separate invalidation
+proof; HTTP 404/412 remain refused. Focused boundary checks pass. Gmail restart
+continuation now runs after authority recovery without blocking foreground admission;
+it retains an update permit and is cancelled and joined during shutdown.
+These changes are not deployed and do not establish a successful live erasure or
+a new cold-start percentile.
+
+Verified admin ADC repaired a missing Service Usage Consumer grant on the disposable
+GCP qualification workload. Current provisioning already declares that role; this
+was existing-resource drift. Its subsequent native owner-project request still
+returned HTTP 403 in 0.087 s. The diagnostic Job was deleted and absence verified.
+The original bounded observer timed out before reading that late execution receipt;
+retained Cloud Logging supplied the result. Native provider acceptance remains open.
+
 ### Retained Shared deletion
 
 The fresh synthetic Shared owner completed a normal cold unlock, 32 KiB upload,

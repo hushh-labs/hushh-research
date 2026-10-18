@@ -95,11 +95,14 @@ Exact per-operation SQL transitions fence stale writers and competing
 recovery. Completion requires exact ciphertext; cancellation requires the provider's
 terminal receipt and observed absence, unchanged predecessor, or exact completed bytes.
 An inconclusive status may be followed by an exact-session cancellation attempt;
-only a positive JSON HTTP 499 cancellation receipt and the existing object and
-bucket-incarnation checks allow settlement. Missing/expired sessions, HTTP 412
-and lost cancellation replies remain fenced. A validated successful upload settles
-its exact permit before the final access check; that check still controls whether
-information may be returned. This correction is local, not deployed acceptance.
+a positive JSON HTTP 499 cancellation receipt or HTTP 410 invalidation from the
+validated original session must be saved before further object/bucket verification.
+Recovery reuses that durable proof after a failed check; it still requires exact
+object bytes or the unchanged predecessor and the recorded bucket incarnation.
+Generic HTTP 404, HTTP 412 and lost cancellation replies remain fenced. A validated
+successful upload settles its exact permit before the final access check; that check
+still controls whether information may be returned. The terminal-proof correction
+is source-qualified, not deployed acceptance.
 See [GCS resumable cancellation](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads#cancel_an_upload). Legacy one-shot
 uncertainty is not automatically cleared. Account reset/deletion cannot claim erasure
 while a write might still complete. Cleanup validates the exact owner prefix, deletes

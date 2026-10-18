@@ -116,23 +116,38 @@ async def reconcile(
         if not isinstance(size, int) or not 28 <= size <= MAX_CIPHERTEXT_BYTES:
             raise FilesRefused("FILES_UPLOAD_CUSTODY_UNVERIFIED", 503)
         uri = write_receipts.restore(row, operation, claimed)
-        status = await store.status(uri, claimed["path"], size)
+        stopped = claimed.get("providerTerminal") in {"cancelled", "invalidated"}
+        status = "uncertain" if stopped else await store.status(uri, claimed["path"], size)
         # An inconclusive status probe may still identify a cancellable session.
-        # Only the provider's positive cancellation receipt (JSON HTTP 499)
-        # counts; missing sessions and lost replies remain uncertain.
-        cancelled = status != "complete" and await store.cancel(uri, claimed["path"])
-        if status != "complete" and not cancelled:
+        # JSON HTTP 499 confirms cancellation; an exact session's HTTP 410
+        # confirms invalidation. Generic 404/412 and lost replies prove neither.
+        if status != "complete" and not stopped:
+            outcome = "invalidated" if status == "invalidated" else None
+            if outcome is None and await store.cancel(uri, claimed["path"]):
+                outcome = "cancelled"
+            if outcome:
+                previous = claimed
+                claimed = {**claimed, "providerTerminal": outcome}
+                # Carry the new predecessor into finally before awaiting its
+                # shielded save. Cancellation cannot overwrite a saved proof
+                # with the older claim while the save is still settling.
+                if not await asyncio.shield(
+                    write_receipts.transition(row, operation, previous, claimed, mode="recovery")
+                ):
+                    return
+                stopped = True
+        if status != "complete" and not stopped:
             return
         data, version = await store.get_bounded_with_generation(
             claimed["path"],
             max_bytes=MAX_CIPHERTEXT_BYTES,
         )
         terminal = (
-            (status == "complete" or cancelled)
+            (status == "complete" or stopped)
             and data is not None
             and len(data) == size
             and hashlib.sha256(data).hexdigest() == claimed["digest"]
-        ) or (cancelled and (data is None or version == claimed["expectedGeneration"]))
+        ) or (stopped and (data is None or version == claimed["expectedGeneration"]))
         bucket_admission.verify(row, await bucket_admission.observe(store, row["bucket"]))
         if terminal:
             await write_receipts.transition(row, operation, claimed, None, mode="recovery")

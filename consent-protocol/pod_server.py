@@ -560,9 +560,7 @@ async def _pod_startup() -> None:
     _start_heartbeat_loop()
     # Bounded restart continuation; no polling worker or model inference. The
     # direct push and authenticated maintenance tick own subsequent wakes.
-    from api.routes.one.pod_maintenance import gmail_notification_job
-
-    await gmail_notification_job()
+    app.state.gmail_restart_consumer = asyncio.create_task(_continue_gmail_notifications())
     # Azure Queue wakes this same single-revision app through KEDA. The consumer
     # holds ordinary Files/update admission and never creates a second writer.
     from hushh_mcp.services.pod_platform import workload_platform
@@ -586,11 +584,33 @@ async def _pod_startup() -> None:
 
 @app.on_event("shutdown")
 async def _stop_files_queue() -> None:
-    task = getattr(app.state, "files_queue_consumer", None)
-    if task is not None:
+    names = ("files_queue_consumer", "gmail_restart_consumer")
+    tasks = [task for name in names if (task := getattr(app.state, name, None)) is not None]
+    for task in tasks:
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        app.state.files_queue_consumer = None
+    await asyncio.gather(*tasks, return_exceptions=True)
+    for name in names:
+        setattr(app.state, name, None)
+
+
+async def _continue_gmail_notifications() -> None:
+    """Keep notification restart work off admission startup and inside update drain."""
+    from api.routes.one.pod_maintenance import gmail_notification_job
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
+
+    permit = None
+    try:
+        permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+        await gmail_notification_job()
+    except PodUpgradeAdmissionRefused:
+        logger.info("pod.gmail_restart_deferred")
+    finally:
+        if permit is not None:
+            await permit.release()
 
 
 # -- heartbeat ---------------------------------------------------------------

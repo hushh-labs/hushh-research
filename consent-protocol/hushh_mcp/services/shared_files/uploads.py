@@ -145,6 +145,8 @@ class SharedCipherStore(FilesGcsStore):
             try:
                 if response.status_code in {200, 201}:
                     return "complete"
+                if response.status_code == 410:
+                    return "invalidated"
                 return "incomplete" if response.status_code == 308 else "uncertain"
             finally:
                 response.close()
