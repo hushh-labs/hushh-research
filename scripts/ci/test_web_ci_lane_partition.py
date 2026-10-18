@@ -356,6 +356,21 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
     assert_web_lane_topology(workflow, scripts, playwright)
+    # Keep failure evidence confined to the synthetic Wallet fixture.
+    evidence = re.search(
+        r"- name: Upload synthetic Wallet failure evidence\n(.*?)(?=\n      - name:)",
+        workflow, re.S,
+    )
+    assert evidence, "retain the failing Wallet layout trace before runner teardown"
+    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
+    assert "name: wallet-layout-failures-${{ matrix.label }}" in evidence[1]
+    paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
+    assert paths
+    assert [line.strip() for line in paths[1].splitlines()] == [
+        "hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip",
+        "hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md",
+    ], "do not broaden synthetic evidence into protected browser artifacts"
     shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
     broken = workflow.replace(shard, shard + shard, 1)
     assert broken != workflow

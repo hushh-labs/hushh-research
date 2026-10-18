@@ -28435,7 +28435,7 @@
       "limit": 500,
       "path": "scripts/ci/test_web_ci_lane_partition.py",
       "symbol": null,
-      "value": 542
+      "value": 557
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -71643,5 +71643,15 @@
         "source_sha256": "9b7789537f19fa95830b379350c60adce76b5a8763b00a73b648900536adfb8a"
       }
     ]
+  },
+  "completed_worktree_wallet_ci_preservation_review_20261018": {
+    "reviewer": "architecture_review",
+    "key": "module_size|scripts/ci/test_web_ci_lane_partition.py||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 542,
+    "after": 557,
+    "source_sha256": "fe9bfd241ab83926e6b22c3ff150bc4a03754c77a2d8cd82dae80407c8784ec5",
+    "review": "Fifteen lines extend the existing workflow test to retain only fixture-specific synthetic Wallet failure artifacts and refuse broader disclosure. Existing test remains29lines; independent131line collection function unchanged. Preserve all other findings, history, budgets and scanner behavior. Root retains newer split browser cases and current runtime implementation.",
+    "verification": "Workflow/topology assertion passes; broad-artifact-path negative is refused; existing Wallet unit suite passes6cases."
   }
 }

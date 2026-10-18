@@ -62,12 +62,25 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     expect(screen.getByText(/Last viewed/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
     expect(mocks.revoke).not.toHaveBeenCalled();
+    // Preserve Cancel -> Escape -> reopen -> commit in one mounted owner.
+    // Browser cases separately retain the pixel and focus/return contracts.
+    fireEvent.click(screen.getByRole("button", { name: "Keep sharing", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" })).toHaveFocus());
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" })).toHaveFocus());
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByText("Identity verification required")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
     fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
     await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(expect.objectContaining({ userId: context.userId, isCurrent: expect.any(Function) }), "First"));
+    expect(mocks.revoke).toHaveBeenCalledTimes(1);
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("First")).toBeVisible();

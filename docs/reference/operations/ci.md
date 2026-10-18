@@ -178,6 +178,12 @@ also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
 
+Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
+for seven days: only the synthetic workspace fixture's trace, failure screenshot
+and error context are admitted. Protected reviewer journeys must never enter
+these artifacts. Earlier commands can clear their output; this does not prove
+retention for preceding packs or failures that pass on retry.
+
 Fail-fast contract:
 
 1. Cheap authority checks run before expensive web/protocol/integration lanes:
