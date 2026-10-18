@@ -18,6 +18,17 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Current candidate and Memory owner boundary — 2026-10-18
 
+Back-label RCA now includes a controlled UIKit comparison: the labelled button
+blurs during both `setViewControllers` and ordinary `pushViewController` with no
+SwiftUI, bridge or product operations. The retained product fixture reproduces
+the same effect with zero title/tint/style writes. Those raster samples disprove
+an app-only rerender diagnosis; they do not establish physical compositor timing.
+The shared Profile page configuration now uses UIKit's `.minimal` Back display
+mode at every nesting level, preserving page titles and the system Back owner.
+This removes the expanding title pill rather than replacing navigation with a
+custom button or disabling its transition. Physical visual/accessibility
+acceptance remains build-bound; this source change is not yet installed.
+
 | Surface | Current evidence | Admission |
 | --- | --- | --- |
 | Profile navigation / privacy recovery | Installed `be6ed149f7`: background/Control Center recovery passes; later stress loses XCTest before a completed cycle and Retry is unavailable. Readback observes inactivity, not pending native retirement. Ordinary foreground activation then restores attach-only admission with the privacy cover retired, without reset. The original failure and causal uncertainty remain. | Not a ten-cycle, visual or performance pass. |

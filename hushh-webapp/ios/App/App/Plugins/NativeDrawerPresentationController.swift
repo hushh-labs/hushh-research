@@ -226,10 +226,14 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         delegate = self
         model.profileNavigationController = self
         configure(rootPage)
-        rootPage.navigationItem.backButtonDisplayMode = .default
         reconcile()
     }
     private func configure(_ page: NativeProfilePageController) {
+            // Use UIKit's compact Back indicator on every nesting level. The
+            // labelled glass button morphs the previous title during push/pop;
+            // keeping page titles as navigation metadata avoids that visual
+            // expansion without custom drawing or a second Back handler.
+            page.navigationItem.backButtonDisplayMode = .minimal
             let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in
                 guard let self, !self.retired, self.model.profileNavigationController === self,
                       self.model.interactionEnabled, self.model.allowsPageInteraction, !self.model.choicePending else { return }

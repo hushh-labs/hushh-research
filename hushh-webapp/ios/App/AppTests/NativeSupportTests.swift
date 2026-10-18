@@ -1357,6 +1357,7 @@ final class NativeSupportTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.backgroundColor = .systemGroupedBackground; window.isOpaque = true
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -1389,35 +1390,99 @@ final class NativeSupportTests: XCTestCase {
             }, object: nil)], timeout: 3)
         }
         await requireRow("row-handle")
+        let envelopeNavigation = try XCTUnwrap(controller.model.profileNavigationController)
+        let rootController = try XCTUnwrap(envelopeNavigation.viewControllers.first)
+        let rootNavigationItem = rootController.navigationItem
+        XCTAssertEqual(rootNavigationItem.backButtonDisplayMode, .minimal,
+            "Profile keeps a compact native Back indicator rather than a morphing title pill")
+        var repeatedBackTitleWrites = 0, repeatedTitleWrites = 0, repeatedBarTintWrites = 0
+        var repeatedTintWrites = 0, repeatedStyleWrites = 0
+        let backTitleObservation = rootNavigationItem.observe(\.backButtonTitle, options: [.new]) { _, _ in repeatedBackTitleWrites += 1 }
+        let titleObservation = rootController.observe(\.title, options: [.new]) { _, _ in repeatedTitleWrites += 1 }
+        let barTintObservation = envelopeNavigation.navigationBar.observe(\.tintColor, options: [.new]) { _, _ in repeatedBarTintWrites += 1 }
+        let tintObservation = controller.host.view.observe(\.tintColor, options: [.new]) { _, _ in repeatedTintWrites += 1 }
+        let styleObservation = controller.host.observe(\.overrideUserInterfaceStyle, options: [.new]) { _, _ in repeatedStyleWrites += 1 }
+        defer {
+            backTitleObservation.invalidate(); titleObservation.invalidate(); barTintObservation.invalidate()
+            tintObservation.invalidate(); styleObservation.invalidate()
+        }
+        func capturePublicHeader(_ phase: String) {
+            guard ProcessInfo.processInfo.environment["HUSHH_PROFILE_SYNTHETIC_VISUALS"] == "1" else { return }
+            // This owned window contains only the synthetic fixture. Its opaque
+            // canvas prevents a material backdrop from sampling another window.
+            let bar = envelopeNavigation.navigationBar
+            let frame = bar.convert(bar.bounds, to: window).integral
+            guard !frame.isEmpty, window.bounds.contains(frame) else { XCTFail("Public navigation header must be inside its owned window"); return }
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
+            guard let crop = image.cgImage?.cropping(to: frame.applying(CGAffineTransform(scaleX: image.scale, y: image.scale))) else {
+                XCTFail("Public navigation header capture failed"); return
+            }
+            let attachment = XCTAttachment(image: UIImage(cgImage: crop))
+            attachment.name = "synthetic-profile-\(phase)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
         let host = controller.host
         let requestBack = { controller.model.requestPath([], from: controller.model.projection) }
         controller.model.choose = { [weak controller] _, _, _ in controller?.model.pendingSequence = 10; return true }
         XCTAssertTrue(controller.model.choice("row", row: "row-handle"))
         controller.update(account)
+        envelopeNavigation.reconcile()
+        capturePublicHeader("first-push")
+        var duringFirstPush = privateDrawerState(update: 3, backEnabled: true)
+        duringFirstPush.surfaceOpen = true; duringFirstPush.profileStack = account.profileStack
+        duringFirstPush.profileDestinationId = account.profileDestinationId
+        try await Task.sleep(for: .milliseconds(34))
+        controller.update(duringFirstPush); envelopeNavigation.reconcile()
+        capturePublicHeader("first-push-refresh")
+        if ProcessInfo.processInfo.environment["HUSHH_PROFILE_SYNTHETIC_VISUALS"] == "1" {
+            for frame in 0..<6 {
+                try await Task.sleep(for: .milliseconds(34))
+                capturePublicHeader("push-frame-\(frame)")
+            }
+        }
         controller.model.settle(sequence: 10, success: true)
         await requireClose("Account")
         await requireRow("edit-name")
-        let envelopeNavigation = try XCTUnwrap(controller.model.profileNavigationController)
-        let rootNavigationItem = try XCTUnwrap(envelopeNavigation.viewControllers.first).navigationItem
-        var repeatedBackTitleWrites = 0
-        let backTitleObservation = rootNavigationItem.observe(\.backButtonTitle, options: [.new]) { _, _ in repeatedBackTitleWrites += 1 }
+        try await Task.sleep(for: .milliseconds(34))
+        capturePublicHeader("first-settled")
+        print("PUBLIC_PROFILE_TRANSITION back_writes=\(repeatedBackTitleWrites) title_writes=\(repeatedTitleWrites) bar_tint_writes=\(repeatedBarTintWrites) ancestor_tint_writes=\(repeatedTintWrites) style_writes=\(repeatedStyleWrites)")
+        let accountController = try XCTUnwrap(envelopeNavigation.visibleViewController)
+        let accountChildren = accountController.children
+        XCTAssertEqual(accountController.navigationItem.backButtonDisplayMode, .minimal,
+            "Nested pages must keep the same Back geometry for their own children")
+        repeatedBackTitleWrites = 0; repeatedTitleWrites = 0; repeatedBarTintWrites = 0
+        repeatedTintWrites = 0; repeatedStyleWrites = 0
+        for sequence in 4...6 {
+            var content = privateDrawerState(update: sequence, backEnabled: true)
+            content.surfaceOpen = true; content.profileStack = account.profileStack
+            content.profileDestinationId = account.profileDestinationId
+            controller.update(content); envelopeNavigation.reconcile()
+            // Yield so deferred representable reconciliation/layout is included.
+            try await Task.sleep(for: .milliseconds(34))
+            controller.view.layoutIfNeeded()
+            capturePublicHeader("refresh-\(sequence)")
+            XCTAssertTrue(controller.model.profileNavigationController === envelopeNavigation)
+            XCTAssertTrue(envelopeNavigation.viewControllers.first === rootController)
+            XCTAssertTrue(envelopeNavigation.visibleViewController === accountController)
+            XCTAssertEqual(accountController.children.count, accountChildren.count)
+            XCTAssertTrue(zip(accountController.children, accountChildren).allSatisfy { $0.0 === $0.1 })
+        }
+        XCTAssertEqual(repeatedBackTitleWrites, 0, "Compatible content refreshes must not rebuild the native Back label")
+        XCTAssertEqual(repeatedTitleWrites, 0, "Compatible refreshes must not reset its owning page title")
+        XCTAssertEqual(repeatedBarTintWrites, 0, "Compatible refreshes must not reapply navigation tint")
+        XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
+        XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
         let originalBackTitle = rootNavigationItem.backButtonTitle
+        repeatedBackTitleWrites = 0
         rootNavigationItem.backButtonTitle = originalBackTitle
         XCTAssertEqual(repeatedBackTitleWrites, 1, "Negative control must observe UIKit's redundant Back-label assignment")
-        repeatedBackTitleWrites = 0
-        var repeatedTintWrites = 0
-        var repeatedStyleWrites = 0
-        let tintObservation = controller.host.view.observe(\.tintColor, options: [.new]) { _, _ in repeatedTintWrites += 1 }
-        let styleObservation = controller.host.observe(\.overrideUserInterfaceStyle, options: [.new]) { _, _ in repeatedStyleWrites += 1 }
+        repeatedTintWrites = 0
         let originalTint = controller.host.view.tintColor
         controller.host.view.tintColor = originalTint
         XCTAssertEqual(repeatedTintWrites, 1, "Negative control must observe a redundant ancestor tint assignment")
-        repeatedTintWrites = 0
-        for _ in 0..<3 { controller.update(account); envelopeNavigation.reconcile() }
-        XCTAssertEqual(repeatedBackTitleWrites, 0, "Compatible content refreshes must not rebuild the native Back label")
-        XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
-        XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
-        backTitleObservation.invalidate()
+        capturePublicHeader("negative-redundant-writes")
+        backTitleObservation.invalidate(); titleObservation.invalidate(); barTintObservation.invalidate()
         tintObservation.invalidate(); styleObservation.invalidate()
         let navigationFrame = envelopeNavigation.view.convert(envelopeNavigation.view.bounds, to: window)
         let panelFrame = controller.host.view.convert(controller.host.view.bounds, to: window)
@@ -1439,14 +1504,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(controller.model.navigationPath, [], "SwiftUI's Back binding must synchronously reflect the presented pop")
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"], "Presentation does not commit the authored route")
         XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "Pending Back quarantines competing operations")
-        var refreshed = privateDrawerState(update: 3, backEnabled: true)
+        var refreshed = privateDrawerState(update: 7, backEnabled: true)
         refreshed.surfaceOpen = true; refreshed.profileStack = account.profileStack; refreshed.profileDestinationId = account.profileDestinationId
         controller.update(refreshed)
         controller.model.requestPath([], from: refreshed)
         XCTAssertEqual(backs, 1, "A compatible refresh must not release pending Back")
         XCTAssertEqual(controller.model.navigationPath, [], "A compatible old projection must not replay the pending pop")
         XCTAssertFalse(controller.model.allowsPageInteraction)
-        var returned = privateDrawerState(update: 4, backEnabled: true)
+        var returned = privateDrawerState(update: 8, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
         await requireClose("Returned Profile root")
@@ -1454,7 +1519,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
-        account = privateDrawerState(update: 5, backEnabled: true)
+        account = privateDrawerState(update: 9, backEnabled: true)
         account.surfaceOpen = true; account.profileDestinationId = "account-returned"
         account.profileStack = [controller.model.page("account")!]
         controller.update(account)
@@ -1485,7 +1550,7 @@ final class NativeSupportTests: XCTestCase {
         let navigation = try XCTUnwrap(controller.model.profileNavigationController)
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2, "A native pop cannot commit React Back before UIKit completes")
-        var replacement = privateDrawerState(update: 6, backEnabled: true, title: "Updated Profile")
+        var replacement = privateDrawerState(update: 10, backEnabled: true, title: "Updated Profile")
         replacement.surfaceOpen = true; replacement.profileDestinationId = "account-replacement"
         replacement.profileStack = account.profileStack
         let transitioningBackTitle = rootNavigationItem.backButtonTitle
@@ -1500,7 +1565,7 @@ final class NativeSupportTests: XCTestCase {
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 3 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [])
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"])
-        var preferences = privateDrawerState(update: 7, backEnabled: true)
+        var preferences = privateDrawerState(update: 11, backEnabled: true)
         preferences.surfaceOpen = true; preferences.profileDestinationId = "preferences-first"
         preferences.profileStack = [NativeProfilePage(id: "preferences", title: "Appearance & preferences", sections: [
             NativeDrawerSection(id: "appearance-settings", title: nil, rows: [
@@ -1531,7 +1596,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(navigation.view.backgroundColor, UIColor.systemGroupedBackground)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
-        var nested = privateDrawerState(update: 8, backEnabled: true)
+        var nested = privateDrawerState(update: 12, backEnabled: true)
         nested.surfaceOpen = true; nested.profileDestinationId = "security-session"
         nested.profileStack = [NativeProfilePage(id: "security", title: "Security", sections: []),
             NativeProfilePage(id: "session", title: "Account access", sections: [])]
@@ -1544,11 +1609,11 @@ final class NativeSupportTests: XCTestCase {
         navigation.popViewController(animated: true)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 4 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, ["security"], "A committed native Back pops one level, not the whole drawer")
-        var parent = privateDrawerState(update: 9, backEnabled: true)
+        var parent = privateDrawerState(update: 13, backEnabled: true)
         parent.surfaceOpen = true; parent.profileDestinationId = "security-parent"
         parent.profileStack = [nested.profileStack![0]]
         controller.update(parent)
-        nested = privateDrawerState(update: 10, backEnabled: true)
+        nested = privateDrawerState(update: 14, backEnabled: true)
         nested.surfaceOpen = true; nested.profileDestinationId = "security-session-reopened"
         nested.profileStack = parent.profileStack! + [NativeProfilePage(id: "session", title: "Account access", sections: [])]
         controller.update(nested)
@@ -1558,7 +1623,7 @@ final class NativeSupportTests: XCTestCase {
         navigation.popToRootViewController(animated: true)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 5 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [], "Back history can return to Profile through one bounded root intent")
-        var revisited = privateDrawerState(update: 11, backEnabled: true)
+        var revisited = privateDrawerState(update: 15, backEnabled: true)
         revisited.surfaceOpen = true; revisited.profileDestinationId = "preferences-returned"
         revisited.profileStack = preferences.profileStack
         controller.update(revisited)
@@ -1576,7 +1641,7 @@ final class NativeSupportTests: XCTestCase {
         // Force a real representable update while UIKit quarantines its page.
         // didShow must restore touch without another settings projection.
         navigation.navigationController(navigation, willShow: preferencesPage, animated: true)
-        var duringTransition = privateDrawerState(update: 12, backEnabled: true)
+        var duringTransition = privateDrawerState(update: 16, backEnabled: true)
         duringTransition.surfaceOpen = true
         duringTransition.profileDestinationId = revisited.profileDestinationId
         var updatedRow = revisited.profileStack![0].sections[0].rows[0]
@@ -1604,28 +1669,28 @@ final class NativeSupportTests: XCTestCase {
             next.profileStack = duringTransition.profileStack
             return next
         }
-        let compatible = compatibleState(13)
+        let compatible = compatibleState(17)
         controller.update(compatible)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 6 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [])
         XCTAssertEqual(navigation.viewControllers.count, 1, "A compatible update must not push the popped page back")
-        controller.update(compatibleState(14))
+        controller.update(compatibleState(18))
         navigation.reconcile()
         XCTAssertEqual(backs, 6, "Refresh while awaiting React Back cannot replay the operation")
         XCTAssertEqual(navigation.viewControllers.count, 1)
-        returned = privateDrawerState(update: 15, backEnabled: true)
+        returned = privateDrawerState(update: 19, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
         await requireRow("row-handle")
         XCTAssertTrue(controller.model.allowsPageInteraction)
 
-        controller.update(compatibleState(16))
+        controller.update(compatibleState(20))
         await requireRow("theme-selector")
         navigation.popViewController(animated: true)
-        controller.update(compatibleState(17, privacy: 1))
+        controller.update(compatibleState(21, privacy: 1))
         await requireRow("theme-selector")
         XCTAssertEqual(backs, 6, "A privacy change is not a compatible pop binding")
-        var sibling = privateDrawerState(update: 18, privacy: 1, backEnabled: true)
+        var sibling = privateDrawerState(update: 22, privacy: 1, backEnabled: true)
         sibling.surfaceOpen = true; sibling.profileDestinationId = "account-after-preferences"
         sibling.profileStack = account.profileStack
         controller.model.update(sibling)
