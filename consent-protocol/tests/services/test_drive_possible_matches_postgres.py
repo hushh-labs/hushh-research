@@ -617,3 +617,81 @@ async def test_owner_reviewed_search_is_never_reclassified(request_bulk, sharing
     assert (await store.possible_matches(user_id="owner", request_id=request_id))["count"] == 0
     with pytest.raises(DriveSharingError, match="request_changed"):
         await store.send(user_id="owner", request_id=request_id, match_refs=[f"{job}:2"])
+
+
+@pytest.mark.asyncio
+async def test_flat_checkout_sells_only_title_matches_until_the_owner_sends_one(
+    request_bulk, sharing, autoshare
+):
+    # Pay once (#8191) composed with D3: the autoshare checkout's purchase set
+    # is what the requester would get if the possible list did not exist.
+    request_id, job = await autoshare([TITLE_1, TITLE_2, CONTENT_HIT])
+    assert (
+        await _auto(sharing, request_bulk).share_available(user_id="owner", request_id=request_id)
+        == 0
+    )
+    assert _claims(sharing.db, request_id) == ([1, 2], [])
+    # The finished search's whole set is the frozen title batch, so the
+    # existing-access waiver may apply; the unsent match never holds it open.
+    sources = await request_bulk.autoshare_checkout_sources(user_id="owner", request_id=request_id)
+    assert sources["complete"] is True
+    assert [item["id"] for item in sources["files"]] == ["d3-file-1", "d3-file-2"]
+
+    # The owner's Send makes it part of the purchase, shared after payment:
+    # the set is no longer final, and Checkout still opens without it.
+    await _store(sharing, request_bulk).send(
+        user_id="owner", request_id=request_id, match_refs=[f"{job}:3"]
+    )
+    sources = await request_bulk.autoshare_checkout_sources(user_id="owner", request_id=request_id)
+    assert (sources["complete"], sources["files"]) == (False, [])
+
+
+@pytest.mark.asyncio
+async def test_flat_checkout_refuses_a_search_with_only_unsent_possible_matches(
+    request_bulk, sharing, autoshare
+):
+    # Nothing to sell, exactly as when nothing matched: B is never asked to pay.
+    request_id, _ = await autoshare([CONTENT_HIT, SYNONYM_HIT, BLOCKED_HIT])
+    with pytest.raises(DriveSharingError, match="payment_not_ready") as refused:
+        await request_bulk.autoshare_checkout_sources(user_id="owner", request_id=request_id)
+    assert refused.value.reason == "no_match"
+
+
+@pytest.mark.asyncio
+async def test_flat_manual_final_set_ignores_unsent_possible_matches(
+    request_bulk, sharing, autoshare
+):
+    # An older automatic search (selection v1) needs the owner's exact
+    # approval, so A approves the title matches before B pays and Checkout
+    # reads the flat manual lane.
+    request_id, job = await autoshare(
+        [TITLE_1, TITLE_2, CONTENT_HIT], patch={"request_selection_version": 1}
+    )
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=job,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1, 2],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    files = await request_bulk.legacy_manual_checkout_sources(
+        user_id="owner", request_id=request_id
+    )
+    assert [item["id"] for item in files] == ["d3-file-1", "d3-file-2"]
+    assert files.final is True
+    await _store(sharing, request_bulk).send(
+        user_id="owner", request_id=request_id, match_refs=[f"{job}:3"]
+    )
+    files = await request_bulk.legacy_manual_checkout_sources(
+        user_id="owner", request_id=request_id
+    )
+    assert [item["id"] for item in files] == ["d3-file-1", "d3-file-2"]
+    assert files.final is False
