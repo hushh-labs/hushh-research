@@ -133,7 +133,16 @@ final class AppUITests: XCTestCase {
         }
     }
 
+    private func printPrivacyAdmission(_ app: XCUIApplication) {
+        let cover = app.otherElements["session-privacy-shield"].firstMatch
+        guard cover.exists, let value = cover.value as? String,
+              value.range(of: #"^NATIVE_PRIVACY_STATE shielded=(true|false) lifecycle_active=(true|false) application_active=(true|false) recovery_visible=(true|false) recovery_scheduled=(true|false) retirement_pending=(true|false)$"#,
+                options: .regularExpression) != nil else { return }
+        print(value) // No identity, document, credential or private body.
+    }
+
     private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
+        printPrivacyAdmission(app)
         // Fixed authored identifiers/labels only. Never serialize a hierarchy,
         // profile identity, row label, draft or private presentation payload.
         for (kind, label) in [("view", "View photo"), ("options", "Photo options"),
@@ -580,6 +589,7 @@ final class AppUITests: XCTestCase {
         // Settle only authored recovery/dismissal layers before asking for
         // the host; its absence while covered is not a transport failure.
         print("NATIVE_ADMISSION_GATE privacy_cover=\(app.otherElements["session-privacy-shield"].exists) native_drawer=\(app.otherElements["native-private-drawer"].exists)")
+        printPrivacyAdmission(app)
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_PRIVACY"] == "true" {
             // An automatic authenticator prompt can keep the app inactive and
             // cover its fallback. Cancel only a recognized system prompt;
@@ -602,6 +612,7 @@ final class AppUITests: XCTestCase {
                 let retry = app.buttons["session-privacy-retry"].firstMatch
                 print("NATIVE_PRIVACY_RECOVERY_ENTRY cover_hittable=\(cover.isHittable) retry_present=\(retry.exists)")
                 guard waitForAdmittedControl(retry) else {
+                    printPrivacyAdmission(app)
                     XCTFail("PRIVACY_RECOVERY_UNAVAILABLE"); return
                 }
                 retry.tap()

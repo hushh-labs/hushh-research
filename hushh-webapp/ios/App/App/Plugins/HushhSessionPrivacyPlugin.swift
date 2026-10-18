@@ -16,6 +16,7 @@ struct HushhSessionPrivacyState {
     private(set) var cause = "inactive"
     private var inactiveCycleOpen = false
     private var presentationRetirements = Set<UUID>()
+    var hasPendingPresentationRetirement: Bool { !presentationRetirements.isEmpty }
     var shouldPublishRetirementCompletion: Bool { shielded }
     mutating func beginPresentationRetirement() -> UUID {
         let token = UUID()
@@ -102,6 +103,16 @@ struct HushhSessionPrivacyDocumentState {
         observed.contains(documentId) && !retired.contains(documentId)
     }
 }
+
+#if DEBUG
+private final class HushhPrivacyDiagnosticOverlay: UIView {
+    var readStatus: (() -> String?)?
+    override var accessibilityValue: String? {
+        get { readStatus?() }
+        set { /* Diagnostics are a read-only projection, never an unlock port. */ }
+    }
+}
+#endif
 
 /**
  * Native, process-local cover for the WebView while the app returns from the
@@ -348,7 +359,17 @@ final class HushhSessionPrivacyShield: NSObject {
             return
         }
 
+        #if DEBUG
+        let overlay = HushhPrivacyDiagnosticOverlay(frame: .zero)
+        overlay.readStatus = { [weak self] in
+            guard let self else { return nil }
+            // Read at observation time: a missing foreground callback must not
+            // make an earlier cached application-state value look current.
+            return "NATIVE_PRIVACY_STATE shielded=\(self.state.shielded) lifecycle_active=\(self.lifecycleIsActive) application_active=\(UIApplication.shared.applicationState == .active) recovery_visible=\(self.recoveryPanel?.isHidden == false) recovery_scheduled=\(self.recoveryWorkItem != nil) retirement_pending=\(self.state.hasPendingPresentationRetirement)"
+        }
+        #else
         let overlay = UIView(frame: .zero)
+        #endif
         overlay.translatesAutoresizingMaskIntoConstraints = false
         // Match LaunchScreen.storyboard exactly so the cover reads as the app
         // itself rather than a loading state.
