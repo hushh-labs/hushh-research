@@ -22,6 +22,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
   const quietNative = Capacitor.isNativePlatform() && [
     "native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled",
+    "native_chat_alerts_disabled", "native_chat_sound_disabled",
   ].includes(deliveryDetail ?? "");
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat"
       className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
     >
       <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-        {quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear Save My Soul and location alerts."
+        {quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
           : permission === "denied"
           ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
           : permission === "granted" ? "Reconnect notifications to receive message alerts."

@@ -456,11 +456,18 @@ async def _message_event_stream(
 ) -> AsyncGenerator[dict[str, str], None]:
     """Filter the shared user-state queue to direct-message doorbells."""
 
-    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+    from api.consent_listener import (
+        LOCAL_RESYNC_EVENT_TYPE,
+        subscribe_consent_queue,
+        unsubscribe_consent_queue,
+    )
 
-    queue = await subscribe_consent_queue(user_id)
+    queue = await subscribe_consent_queue(user_id, snapshot_resets=True)
     seen: set[str] = set()
     try:
+        # Subscribe before asking the client to reread. An initial page load
+        # and this stream can otherwise miss a commit between their requests.
+        yield {"event": "resync", "data": "{}"}
         while True:
             if await request.is_disconnected():
                 break
@@ -471,6 +478,10 @@ async def _message_event_stream(
                     "event": "heartbeat",
                     "data": json.dumps({"timestamp": int(time.time() * 1000)}),
                 }
+                continue
+            if isinstance(payload, dict) and payload.get("type") == LOCAL_RESYNC_EVENT_TYPE:
+                seen.clear()
+                yield {"event": "resync", "data": "{}"}
                 continue
             event = _direct_message_event(payload)
             if event is None:

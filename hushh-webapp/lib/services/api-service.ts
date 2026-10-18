@@ -2688,7 +2688,7 @@ export class ApiService {
           previewKeyId: device.keyId,
           previewPublicKey: device.publicKey,
         });
-        return new Response(JSON.stringify(result), {
+        return new Response(JSON.stringify({ ...result, chatReady: Boolean(device.keyId && device.publicKey) }), {
           status: result.success ? 200 : 500,
           headers: { "Content-Type": "application/json" },
         });
