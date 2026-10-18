@@ -1193,6 +1193,7 @@ final class AppUITests: XCTestCase {
         }
         let app = XCUIApplication()
         let agentSwitchOnly = ProcessInfo.processInfo.environment["HUSHH_COHERENT_AGENT_SWITCH_ONLY"] == "true"
+        let routeKeyboardOnly = ProcessInfo.processInfo.environment["HUSHH_COHERENT_ROUTE_KEYBOARD_ONLY"] == "true"
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             throw XCTSkip("Attach only; installation and unlock are separate")
         }
@@ -1307,7 +1308,7 @@ final class AppUITests: XCTestCase {
             return
             #endif
         }
-        for cycle in 0..<10 {
+        for cycle in 0..<(routeKeyboardOnly ? 0 : 10) {
             if !agentSwitchOnly {
                 guard waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_OPENER_NOT_READMITTED"); return }
                 let openerFrame = history.frame
@@ -1526,19 +1527,26 @@ final class AppUITests: XCTestCase {
             return
         }
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        #if DEBUG
         let historyProbe = app.buttons["native-history-continuity"].firstMatch
+        #endif
         for destination in ["One", "Connect", "Feed"] {
             let tab = bar.buttons[destination].firstMatch
             guard waitForAdmittedControl(tab) else { XCTFail("COHERENT_ROUTE_TAB_UNAVAILABLE"); return }
             tab.tap()
-            // AX withdrawal alone would pass on the broken suspend path. The
-            // native installation/removal ledger also proves the host retired.
+            // Release does not compile the private host ledger. Its observable
+            // check proves control withdrawal and routing, not host retirement.
+            // Keep the stronger Debug ledger assertion for that distinct proof.
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard !history.exists && !selector.exists && tab.isSelected else { return false }
+                #if DEBUG
                 guard historyProbe.exists, let json = historyProbe.value as? String,
                       let data = json.data(using: .utf8),
                       let counters = try? JSONSerialization.jsonObject(with: data) as? [String: Int] else { return false }
-                return counters["installs", default: 0] > 0 && counters["installs"] == counters["removals"] &&
-                    !history.exists && !selector.exists && tab.isSelected
+                return counters["installs", default: 0] > 0 && counters["installs"] == counters["removals"]
+                #else
+                return true
+                #endif
             }, object: app)
             guard XCTWaiter.wait(for: [retired], timeout: 15) == .completed else {
                 XCTFail("COHERENT_CHAT_CHROME_LEAKED_ON_ROUTE"); return
@@ -1563,7 +1571,11 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(editor) else { XCTFail("COHERENT_KEYBOARD_RETURN_FAILED"); return }
         XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing a menu must not summon editing")
         continuity()
-        print("COHERENT_NATIVE_SHELL_CONTINUITY cycles=10 keyboard=true single_composer=true warm=true")
+        if routeKeyboardOnly {
+            print("COHERENT_ROUTE_KEYBOARD_CONTINUITY destinations=3 keyboard=true single_composer=true warm=true")
+        } else {
+            print("COHERENT_NATIVE_SHELL_CONTINUITY cycles=10 keyboard=true single_composer=true warm=true")
+        }
     }
 
     func testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost() throws {

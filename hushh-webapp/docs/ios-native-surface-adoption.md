@@ -29,6 +29,37 @@ source-proven ordering defect, not yet physical acceptance of all reported flick
 The compact Back harness now awaits the Drive destination body before a second
 Back; a shared `Back` accessibility label alone cannot prove arrival.
 
+Installed stabilization candidate `cbaa3849ec` is a UAT-backed Release iPhone
+qualification build, with matching app and runner, strict signatures and bundled
+asset/runtime checks. It includes main through `135d3c9d2a`. Ten warm Profile →
+Preferences → Back → Close cycles and three further measured iterations pass,
+preserving the draft and one interactive native composer. This is functional
+evidence, not whole-Profile or release acceptance. The broader shared-shell
+journey completes ten History/Profile/One/Puppy cycles, including Rename/Delete
+Cancel and connector return, before failing an unsupported Release assertion:
+its final route guard requires a Debug-only host ledger. That failure does not
+prove a route leak. The corrected harness preserves that ledger assertion in
+Debug and separates observable Release route/keyboard checks from host-retirement
+proof; a focused continuation avoids repeating the ten completed cycles.
+Two background/resume cycles and actual Control Center interruption also pass
+on the same installed Release candidate. The final canonical core passes in
+1,001 seconds, including protocol, web, package and integration gates.
+
+The shared Back owner now explicitly returns `false` when a feature consumes
+Back locally and `true` when requesting the Profile query pop. Previously its
+implicit result was accepted by the native callback even when no destination
+change would follow. The nearest regression fails on that old result; static
+review confirms the current callback preserves the return value. This fixes a
+real contract defect, without attributing every earlier freeze to it.
+
+XCTest again reports zero frame counts alongside positive frame rates; these
+receipts do not qualify performance. A separate finalized Instruments capture
+contains 1,487 frame-lifetime records and six hitches (about 2.07 ms/s over its
+observed span). Frame lifetime is not a presented-frame interval, and the whole
+capture is not a gesture-only window. It is one diagnostic capture, not the
+three-run gesture/frame-limit acceptance. Ordinary custom-native admission
+remains OFF; the standard native bottom navigation remains independent.
+
 Back-label RCA now includes a controlled UIKit comparison: the labelled button
 blurs during both `setViewControllers` and ordinary `pushViewController` with no
 SwiftUI, bridge or product operations. The retained product fixture reproduces
@@ -37,12 +68,12 @@ an app-only rerender diagnosis; they do not establish physical compositor timing
 The shared Profile page configuration now uses UIKit's `.minimal` Back display
 mode at every nesting level, preserving page titles and the system Back owner.
 This removes the expanding title pill rather than replacing navigation with a
-custom button or disabling its transition. Physical visual/accessibility
-acceptance remains build-bound; this source change is not yet installed.
+custom button or disabling its transition. It is installed in `cbaa3849ec`;
+physical visual/accessibility acceptance remains separate and build-bound.
 
 | Surface | Current evidence | Admission |
 | --- | --- | --- |
-| Profile navigation / privacy recovery | Installed `be6ed149f7`: background/Control Center recovery passes; later stress loses XCTest before a completed cycle and Retry is unavailable. Readback observes inactivity, not pending native retirement. Ordinary foreground activation then restores attach-only admission with the privacy cover retired, without reset. The original failure and causal uncertainty remain. | Not a ten-cycle, visual or performance pass. |
+| Profile navigation / privacy recovery | Installed `cbaa3849ec`: ten warm Preferences/Back/Close cycles, ten broader History/Profile/agent cycles, two background/resume cycles and a real Control Center interruption pass their interaction checks. The broader test's later Release route/keyboard check is separately unsupported until its harness correction. | Functional evidence only; staged reconstruction before uncovering, transition visuals and performance remain separate. |
 | Full Memory workspace | `usePkmNaturalModel` retains the existing Saved/Add/Sharing owner and one `useSoulMemoryModel`; web bodies consume these models. Native route-body adoption is not yet enabled. | Established web fallback; no new native capability. |
 | Private Memory replicas and exports | Selected records/card caches are owner/key/unlock-tagged; token renewal preserves selection. Retired Save bindings cannot submit older drafts or credentials. Exports recheck owner/vault lifetime before handoff and reuse temporary Cache sharing, not Documents. | Source/core-contract evidence only; actual UAT writes and physical qualification remain separate. |
 
