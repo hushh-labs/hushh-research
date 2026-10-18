@@ -1095,7 +1095,14 @@ describe("DirectMessagesPage", () => {
     }));
     expect(mocks.morphyToast.promise).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    // Reply must work from the direct long-press opening too; changing a
+    // controlled Radix `open` prop does not call its onOpenChange callback.
+    vi.useFakeTimers();
+    try {
+      pointer("pointerdown");
+      act(() => vi.advanceTimersByTime(1_000));
+      pointer("pointerup");
+    } finally { vi.useRealTimers(); }
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
     expect(screen.getByText("Replying to yourself")).toBeVisible();
 

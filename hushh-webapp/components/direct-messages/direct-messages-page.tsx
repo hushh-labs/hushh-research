@@ -1307,6 +1307,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   };
 
   const openMessageActions = (message: DirectMessage) => {
+    replyFocus.current = null;
+    messageMenuOpening.current = {
+      generation: operationGeneration.current,
+      sequence: ++messageMenuSequence.current,
+      conversationId: message.conversationId,
+      messageId: message.id,
+    };
     setActiveMessageActions(message.id);
     setOpenReactionPicker(null);
     setOpenMessageMenu(message.id);
@@ -1864,16 +1871,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                   open={openMessageMenu === message.id}
                                   onOpenChange={(open) => {
                                     if (open) {
-                                      replyFocus.current = null;
-                                      messageMenuOpening.current = {
-                                        generation: operationGeneration.current,
-                                        sequence: ++messageMenuSequence.current,
-                                        conversationId: message.conversationId,
-                                        messageId: message.id,
-                                      };
-                                    }
-                                    setOpenMessageMenu(open ? message.id : null);
-                                    if (open) setActiveMessageActions(message.id);
+                                      openMessageActions(message);
+                                    } else setOpenMessageMenu(null);
                                   }}
                                 >
                                   <DropdownMenuTrigger asChild>

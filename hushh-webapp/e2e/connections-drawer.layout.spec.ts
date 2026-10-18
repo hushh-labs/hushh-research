@@ -2487,9 +2487,9 @@ test.describe("One profile artwork and animated presence", () => {
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-        const memory = panel.getByRole("link", { name: "Open memory.md in Memory", exact: true });
-        await expect(memory).toBeVisible();
-        await expect(memory).toHaveAttribute("href", "/one/pkm");
+        // This read-only fixture has a locked vault. Live Mirror replaces the
+        // former static card and must not expose an unlocked Memory link.
+        await expect(panel.getByTestId("live-mirror-status")).toContainText("Memory locked");
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();
