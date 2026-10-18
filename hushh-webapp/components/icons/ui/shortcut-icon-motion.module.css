@@ -31,7 +31,7 @@
 @media (prefers-reduced-motion: no-preference) {
   :global([data-shortcut-icon-playing="true"]) :is(
     .frontPaper, .backPage, .underPage, .paperCurl, .firstLine, .secondLine,
-    .downloadArrow, .downloadTray, .arrowReveal, .plugLeft, .plugRight, .prongOccluder
+    .downloadArrow, .downloadTray, .arrowReveal
   ) {
     animation-duration: var(--motion-shortcut-icon-cycle-duration, 850ms);
     animation-timing-function: var(--motion-ease-standard);
@@ -46,9 +46,6 @@
   :global([data-shortcut-icon-playing="true"]) .downloadArrow { animation-name: download-into-tray; }
   :global([data-shortcut-icon-playing="true"]) .downloadTray { animation-name: tray-settle; }
   :global([data-shortcut-icon-playing="true"]) .arrowReveal { animation-name: arrow-redraw; }
-  :global([data-shortcut-icon-playing="true"]) .plugLeft { animation-name: magnetic-plug-left; }
-  :global([data-shortcut-icon-playing="true"]) .plugRight { animation-name: magnetic-plug-right; }
-  :global([data-shortcut-icon-playing="true"]) .prongOccluder { animation-name: inserted-prongs; }
 }
 
 @keyframes paper-fold {
@@ -106,22 +103,4 @@
   0%, 44% { transform: none; }
   54%, 60% { transform: translateY(-144px); }
   95%, 100% { transform: none; }
-}
-@keyframes magnetic-plug-left {
-  0%, 100% { transform: none; }
-  16% { transform: translate(-8px, 8px); }
-  40%, 48%, 65.647% { transform: translate(24px, -24px); }
-  44% { transform: translate(23px, -23px); }
-}
-@keyframes magnetic-plug-right {
-  0%, 100% { transform: none; }
-  16% { transform: translate(8px, -8px); }
-  40%, 48%, 65.647% { transform: translate(-24px, 24px); }
-  44% { transform: translate(-23px, 23px); }
-}
-@keyframes inserted-prongs {
-  0%, 100% { transform: none; }
-  16% { transform: translate(16px, -16px); }
-  40%, 48%, 65.647% { transform: translate(-48px, 48px); }
-  44% { transform: translate(-46px, 46px); }
 }

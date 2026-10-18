@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
@@ -418,6 +418,11 @@ export function OneAgentProfileSheet({
     : "One";
   const router = useRouter();
   const [tab, setTab] = useState("feed");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const changeTab = (value: string) => {
+    setTab(value);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
   const navigate = (href: string) => {
     onOpenChange(false);
     router.push(href);
@@ -449,6 +454,7 @@ export function OneAgentProfileSheet({
       <SheetContent
         side="right"
         className={styles.sheet}
+        data-app-side-pane
         showCloseButton={false}
         contentDragDismiss={false}
         onCloseAutoFocus={(event) => {
@@ -463,39 +469,39 @@ export function OneAgentProfileSheet({
             <X className="size-4" aria-hidden />
           </button>
         </SheetClose>
-        <div className={styles.scroll}>
-          <div className={styles.hero}>
-            <div className={styles.avatar}>
-              <OnePresenceAvatar state={presenceState} />
-            </div>
-            <SheetTitle className={styles.title}>{profileName}</SheetTitle>
-            <SheetDescription>Your private agent</SheetDescription>
-            <span className={styles.privateBadge}>
-              <LockKeyhole className="size-3.5" aria-hidden /> Private to you
-            </span>
+        <div className={styles.hero}>
+          <div className={styles.avatar}>
+            <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
-          <Tabs value={tab} onValueChange={setTab} className={styles.tabs}>
-            <TabsList
-              className={styles.tabList}
-              aria-label="One profile sections"
-            >
-              <TabsTrigger value="feed">
-                <Newspaper aria-hidden /> Feed
-              </TabsTrigger>
-              <TabsTrigger value="todo">
-                <ClipboardList aria-hidden /> To-do
-              </TabsTrigger>
-              <TabsTrigger value="profile">
-                <Fingerprint aria-hidden /> Profile
-              </TabsTrigger>
-            </TabsList>
+          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
+          <SheetDescription>Your private agent</SheetDescription>
+          <span className={styles.privateBadge}>
+            <LockKeyhole className="size-3.5" aria-hidden /> Private to you
+          </span>
+        </div>
+        <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
+          <TabsList
+            className={styles.tabList}
+            aria-label="One profile sections"
+          >
+            <TabsTrigger value="feed">
+              <Newspaper aria-hidden /> Feed
+            </TabsTrigger>
+            <TabsTrigger value="todo">
+              <ClipboardList aria-hidden /> To-do
+            </TabsTrigger>
+            <TabsTrigger value="profile">
+              <Fingerprint aria-hidden /> Profile
+            </TabsTrigger>
+          </TabsList>
+          <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
             <TabsContent value="todo">{todo}</TabsContent>
             <TabsContent value="profile">
               <ProfileCards close={() => onOpenChange(false)} />
             </TabsContent>
-          </Tabs>
-        </div>
+          </div>
+        </Tabs>
       </SheetContent>
     </Sheet>
   );

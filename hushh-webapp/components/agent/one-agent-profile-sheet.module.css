@@ -4,52 +4,52 @@
   --settings-row-px: 16px;
   --settings-row-py: 9px;
   --settings-row-gap: 12px;
-  width: 100%;
-  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   gap: 0;
   padding: 0;
   overflow: hidden;
   font-family: var(--font-app-body);
   color: var(--foreground);
 }
-@media (min-width: 640px) {
-  .sheet {
-    width: min(92vw, 560px);
-    max-width: 560px;
-  }
-}
 .scroll {
   min-height: 0;
+  min-width: 0;
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: calc(52px + var(--app-safe-area-top-effective, 0px))
-    max(var(--page-inline-gutter-standard), calc(1rem + env(safe-area-inset-left)))
-    max(1.5rem, env(safe-area-inset-bottom));
+  scrollbar-gutter: stable;
+  container: one-profile-content / inline-size;
+  padding: 12px var(--page-inline-gutter-standard)
+    max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
   display: flex;
+  flex: none;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 0;
+  padding: 20px var(--page-inline-gutter-standard) 16px;
   text-align: center;
-  margin-bottom: 32px;
 }
 .avatar {
-  display: grid;
-  place-items: center;
-  width: 112px;
-  height: 112px;
+  --one-profile-artwork-size: clamp(208px, calc(100vw - 112px), 224px);
+  position: relative;
+  width: min(100%, var(--one-presence-size, var(--one-profile-artwork-size)));
+  aspect-ratio: 1;
+  margin-bottom: calc(var(--one-presence-size, var(--one-profile-artwork-size)) * -0.102);
   border: 0;
-  border-radius: 50%;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-.avatar canvas {
-  transform: scale(3);
+.artwork {
+  width: 100%;
+  height: 100%;
 }
 .title {
-  margin: 8px 0 0;
+  margin: 0;
   font-family: var(--font-app-display);
   font-size: 22px;
   font-weight: 700;
@@ -65,12 +65,21 @@
   color: var(--app-success-deep);
 }
 .tabs {
-  gap: 24px;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 0;
+  overflow: hidden;
 }
 .tabList {
-  width: 100%;
+  flex: none;
+  width: auto;
+  margin-inline: var(--page-inline-gutter-standard);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.tabList button {
+  min-height: 44px;
 }
 .feed,
 .todo,
