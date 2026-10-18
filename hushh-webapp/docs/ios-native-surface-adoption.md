@@ -16,6 +16,20 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Current candidate and Memory owner boundary — 2026-10-18
+
+| Surface | Current evidence | Admission |
+| --- | --- | --- |
+| Profile navigation / privacy recovery | Installed `be6ed149f7`: background/Control Center recovery passes; later stress loses XCTest before a completed cycle and Retry is unavailable. Readback observes inactivity, not pending native retirement. Ordinary foreground activation then restores attach-only admission with the privacy cover retired, without reset. The original failure and causal uncertainty remain. | Not a ten-cycle, visual or performance pass. |
+| Full Memory workspace | `usePkmNaturalModel` retains the existing Saved/Add/Sharing owner and one `useSoulMemoryModel`; web bodies consume these models. Native route-body adoption is not yet enabled. | Established web fallback; no new native capability. |
+| Private Memory replicas and exports | Selected records/card caches are owner/key/unlock-tagged; token renewal preserves selection. Retired Save bindings cannot submit older drafts or credentials. Exports recheck owner/vault lifetime before handoff and reuse temporary Cache sharing, not Documents. | Source/core-contract evidence only; actual UAT writes and physical qualification remain separate. |
+
+Keep feature models above renderer selection. They expose private in-process
+presentation values and existing operation callbacks, never vault credentials.
+Do not serialize the whole model into native metadata: each adopted scene still
+requires its closed, bounded projection and current owner/visit fence. Temporary
+file cleanup is best-effort; process termination is not proof of secure erasure.
+
 ### Profile roster and source coverage — 2026-10-18
 
 Installed `a8efed082b` (UAT Debug iPhone qualification, matching app and runner)

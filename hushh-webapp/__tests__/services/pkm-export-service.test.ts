@@ -11,6 +11,8 @@ vi.mock("@/lib/utils/native-download", () => ({ downloadTextFile: vi.fn() }));
 import { AccountService } from "@/lib/services/account-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { downloadTextFile } from "@/lib/utils/native-download";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   MemoryExportUnavailableError,
   PkmExportService,
@@ -29,6 +31,7 @@ const UNLOCKED = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(UNLOCKED.userId);
   loadFullBlob.mockResolvedValue({
     financial: { holdings: [{ ticker: "AAPL" }] },
     location: { savedPlaces: { home: "somewhere" } },
@@ -92,7 +95,8 @@ describe("buildMemoryExport", () => {
 
     expect(result.readable).toHaveProperty("financial");
     expect(result.restorable).toBeNull();
-    expect(result.meta.restorable_error).toContain("backend unavailable");
+    expect(result.meta.restorable_error).toBe("The encrypted copy could not be fetched.");
+    expect(JSON.stringify(result)).not.toContain("backend unavailable");
   });
 
   it("says in the file what the file does not contain", async () => {
@@ -104,6 +108,19 @@ describe("buildMemoryExport", () => {
 });
 
 describe("downloadMemoryExport", () => {
+  it.each(["owner", "vault"] as const)("does not hand plaintext to a file destination after %s replacement", async (replacement) => {
+    let finish!: (value: Record<string, unknown>) => void;
+    loadFullBlob.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const operation = PkmExportService.downloadMemoryExport(UNLOCKED);
+    const rejected = expect(operation).rejects.toMatchObject({ name: "AbortError" });
+    if (replacement === "owner") publishValidatedAuthSessionOwner("another-owner");
+    else advanceVaultSessionEpoch();
+    finish({ preferences: { note: "synthetic private note" } });
+    await rejected;
+    expect(exportData).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
+  });
+
   it("writes the assembled export and reports what the person got", async () => {
     const result = await PkmExportService.downloadMemoryExport(UNLOCKED);
 

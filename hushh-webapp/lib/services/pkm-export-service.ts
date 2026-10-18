@@ -38,6 +38,8 @@ import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 import { AccountService } from "@/lib/services/account-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { downloadTextFile } from "@/lib/utils/native-download";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 export const MEMORY_EXPORT_VERSION = 1;
 
@@ -69,6 +71,23 @@ export class MemoryExportUnavailableError extends Error {
   }
 }
 
+type MemoryExportOptions = {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+  isEffectCurrent?: () => boolean;
+};
+
+function memoryExportGuard(params: MemoryExportOptions): () => void {
+  const owner = snapshotValidatedAuthSessionOwner();
+  const epoch = snapshotVaultSessionEpoch();
+  return () => {
+    if (!owner || owner.userId !== params.userId || !isValidatedAuthSessionOwnerCurrent(owner) ||
+      !isVaultSessionEpochCurrent(epoch) || params.isEffectCurrent?.() === false)
+      throw new DOMException("The export request expired.", "AbortError");
+  };
+}
+
 function stripExcluded(
   data: Record<string, unknown> | undefined | null,
 ): Record<string, unknown> | null {
@@ -93,11 +112,7 @@ export const PkmExportService = {
    * nothing readable to assemble, and returning the ciphertext alone would be a
    * file that silently answers a different question than the one asked.
    */
-  async buildMemoryExport(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken: string;
-  }): Promise<MemoryExport> {
+  async buildMemoryExport(params: MemoryExportOptions): Promise<MemoryExport> {
     if (!params.userId) {
       throw new MemoryExportUnavailableError("Sign in first.");
     }
@@ -107,11 +122,14 @@ export const PkmExportService = {
       );
     }
 
+    const requireCurrent = memoryExportGuard(params);
+    requireCurrent();
     const readable = { ...await PersonalKnowledgeModelService.loadFullBlob({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
     }) };
+    requireCurrent();
     for (const domain of Object.keys(readable)) if (domain.trim().toLowerCase() === "wallet") readable[domain] = projectWalletConsent(readable[domain]);
 
     // The encrypted half is a bonus, not the point. If it cannot be fetched the
@@ -122,10 +140,10 @@ export const PkmExportService = {
     try {
       const result = await AccountService.exportData(params.vaultOwnerToken);
       restorable = stripExcluded(result?.data);
-    } catch (error) {
-      restorableError =
-        error instanceof Error ? error.message : "The encrypted copy could not be fetched.";
+    } catch {
+      restorableError = "The encrypted copy could not be fetched.";
     }
+    requireCurrent();
 
     const exportedAt = new Date().toISOString();
     const domains = Object.keys(readable).filter((key) => !key.startsWith("__"));
@@ -159,14 +177,15 @@ export const PkmExportService = {
    * browsable, so a write that nobody shared anywhere is not a file the person
    * actually has.
    */
-  async downloadMemoryExport(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken: string;
-  }): Promise<{ saved: boolean; filename: string; domainCount: number }> {
+  async downloadMemoryExport(params: MemoryExportOptions): Promise<{ saved: boolean; filename: string; domainCount: number }> {
+    const requireCurrent = memoryExportGuard(params);
+    requireCurrent();
     const memoryExport = await this.buildMemoryExport(params);
+    requireCurrent();
     const filename = memoryExportFilename(memoryExport.meta.exported_at);
-    const saved = await downloadTextFile(JSON.stringify(memoryExport, null, 2), filename);
+    const saved = await downloadTextFile(JSON.stringify(memoryExport, null, 2), filename, () => {
+      try { requireCurrent(); return true; } catch { return false; }
+    });
     return { saved, filename, domainCount: memoryExport.meta.domain_count };
   },
 };
