@@ -2479,6 +2479,32 @@ class DriveBulkShareStore(DriveLivePreferences):
                 AND other.approved_at IS NOT NULL
                 AND NOT (:origin IS NOT NULL AND other.progressive_batch=TRUE
                   AND other.origin_request_id=:origin)
+                -- An unpaid request with no possible provider POST is dormant.
+                -- Its later payment is serialized at due() and claim() below.
+                AND NOT (other.origin_request_id IS NOT NULL
+                  AND other.status='queued'
+                  AND EXISTS (SELECT 1 FROM drive_share_requests dormant_request
+                    JOIN drive_request_payment_orders dormant_order
+                      ON dormant_order.request_id=dormant_request.request_id
+                    WHERE dormant_request.request_id=other.origin_request_id
+                      AND dormant_request.payment_required=TRUE
+                      AND dormant_request.status=CASE WHEN other.progressive_batch
+                        THEN 'pending' ELSE 'approved' END
+                      AND dormant_request.expires_at>clock_timestamp()
+                      AND dormant_request.access_stop_requested_at IS NULL
+                      AND dormant_order.status IN ('awaiting_payment','checkout_open')
+                      AND dormant_order.paid_at IS NULL
+                      AND dormant_order.reconciliation_required=FALSE
+                      AND dormant_order.stripe_mode=:stripe_mode)
+                  AND EXISTS (SELECT 1 FROM drive_bulk_share_effects dormant_effect
+                    WHERE dormant_effect.share_id=other.share_id
+                      AND dormant_effect.state='queued')
+                  AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects live_effect
+                    WHERE live_effect.share_id=other.share_id
+                      AND (live_effect.state<>'queued'
+                        OR live_effect.attempts<>0
+                        OR live_effect.lease_id IS NOT NULL
+                        OR live_effect.receipt_envelope IS NOT NULL)))
                 AND (
                   (other.expires_at>clock_timestamp() AND (
                     other.status IN ('queued','running')
@@ -2497,10 +2523,54 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
             )
             """),
-            {"user": user_id, "share": share, "origin": origin},
+            {
+                "user": user_id,
+                "share": share,
+                "origin": origin,
+                "stripe_mode": configured_stripe_mode(),
+            },
         ).scalar_one()
         if overlapping:
             raise DriveSharingError("drive_share_in_progress")
+
+    def _paid_share_waits_for_other(self, connection, *, user_id, share_id):
+        """Serialize shares that coexisted only while one order was unpaid."""
+        return connection.execute(
+            text("""SELECT EXISTS (
+              SELECT 1 FROM drive_bulk_shares b
+              JOIN drive_request_payment_orders o ON o.request_id=b.origin_request_id
+              JOIN drive_bulk_shares other ON other.user_id=b.user_id
+                AND other.share_id<>b.share_id AND other.approved_at IS NOT NULL
+              LEFT JOIN drive_share_requests other_request
+                ON other_request.request_id=other.origin_request_id
+              LEFT JOIN drive_request_payment_orders other_order
+                ON other_order.request_id=other.origin_request_id
+              WHERE b.share_id=:share AND b.user_id=:user
+                AND o.status='paid' AND o.paid_at IS NOT NULL
+                AND NOT (b.origin_request_id IS NOT NULL
+                  AND other.progressive_batch=TRUE
+                  AND other.origin_request_id=b.origin_request_id)
+                AND ((other.expires_at>clock_timestamp()
+                  AND (other.status IN ('queued','running')
+                    OR EXISTS (SELECT 1 FROM drive_bulk_share_effects pending
+                      WHERE pending.share_id=other.share_id
+                        AND pending.state IN ('queued','dispatching','unknown'))))
+                  OR EXISTS (SELECT 1 FROM drive_bulk_share_effects inflight
+                    WHERE inflight.share_id=other.share_id
+                      AND inflight.state='dispatching'
+                      AND inflight.lease_expires_at>clock_timestamp()))
+                AND (EXISTS (SELECT 1 FROM drive_bulk_share_effects unresolved
+                    WHERE unresolved.share_id=other.share_id
+                      AND unresolved.state IN ('dispatching','unknown'))
+                  OR other.origin_request_id IS NULL
+                  OR other_request.payment_required IS NOT TRUE
+                  OR (other_order.status='paid' AND other_order.paid_at IS NOT NULL
+                    AND other_order.reconciliation_required=FALSE
+                    AND other_order.stripe_mode=:stripe_mode
+                    AND (other_order.paid_at,other.share_id)<(o.paid_at,b.share_id)))
+            )"""),
+            {"share": share_id, "user": user_id, "stripe_mode": configured_stripe_mode()},
+        ).scalar_one()
 
     async def approve(
         self,
@@ -3536,6 +3606,40 @@ class DriveBulkShareStore(DriveLivePreferences):
                             OR (o.status IN ('awaiting_payment','checkout_open')
                               AND o.paid_at IS NULL AND o.reconciliation_required=FALSE
                               AND o.stripe_mode=:stripe_mode)))
+                        -- A later payment must not start a second owner's
+                        -- provider stream while the first paid share drains.
+                        AND NOT (e.state='queued' AND r.payment_required IS TRUE
+                          AND o.status='paid' AND o.paid_at IS NOT NULL
+                          AND EXISTS (SELECT 1 FROM drive_bulk_shares other
+                            LEFT JOIN drive_share_requests other_request
+                              ON other_request.request_id=other.origin_request_id
+                            LEFT JOIN drive_request_payment_orders other_order
+                              ON other_order.request_id=other.origin_request_id
+                            WHERE other.user_id=b.user_id AND other.share_id<>b.share_id
+                              AND other.approved_at IS NOT NULL
+                              AND NOT (b.origin_request_id IS NOT NULL
+                                AND other.progressive_batch=TRUE
+                                AND other.origin_request_id=b.origin_request_id)
+                              AND ((other.expires_at>clock_timestamp()
+                                AND (other.status IN ('queued','running')
+                                  OR EXISTS (SELECT 1 FROM drive_bulk_share_effects pending
+                                    WHERE pending.share_id=other.share_id
+                                      AND pending.state IN ('queued','dispatching','unknown'))))
+                                OR EXISTS (SELECT 1 FROM drive_bulk_share_effects inflight
+                                  WHERE inflight.share_id=other.share_id
+                                    AND inflight.state='dispatching'
+                                    AND inflight.lease_expires_at>clock_timestamp()))
+                              AND (EXISTS (SELECT 1 FROM drive_bulk_share_effects unresolved
+                                  WHERE unresolved.share_id=other.share_id
+                                    AND unresolved.state IN ('dispatching','unknown'))
+                                OR other.origin_request_id IS NULL
+                                OR other_request.payment_required IS NOT TRUE
+                                OR (other_order.status='paid'
+                                  AND other_order.paid_at IS NOT NULL
+                                  AND other_order.reconciliation_required=FALSE
+                                  AND other_order.stripe_mode=:stripe_mode
+                                  AND (other_order.paid_at,other.share_id)
+                                    < (o.paid_at,b.share_id)))))
                         AND (:v1_only = FALSE OR (
                           b.v1_statement_search=TRUE
                           AND b.origin_request_id IS NOT NULL AND b.progressive_batch=TRUE
@@ -3721,6 +3825,9 @@ class DriveBulkShareStore(DriveLivePreferences):
                     return None
             if effect["state"] == "queued":
                 self._require_paid_for_origin(connection, row["origin_request_id"])
+                if self._paid_share_waits_for_other(connection, user_id=user_id, share_id=share):
+                    logger.info("drive_bulk_share.claim_deferred reason=prior_share")
+                    return None
             lease = str(uuid4())
             connection.execute(
                 text("""UPDATE drive_bulk_share_effects
