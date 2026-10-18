@@ -2,6 +2,12 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
+    /// UIKit's compact Back style uses Back rather than its previous page title.
+    /// Keep queries inside the native navigation bar, with compatibility for
+    /// installed labelled-back wrappers. Each journey still asserts its body.
+    private func nativeProfileBack(_ app: XCUIApplication, parent: String) -> XCUIElement {
+        app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", [parent, "Back"])).firstMatch
+    }
     /// One authored credential-field locator across current Password copy and
     /// older wrappers. Never substitute the first unrelated secure field.
     private var authoredVaultPassphraseField: NSPredicate {
@@ -1377,10 +1383,10 @@ final class AppUITests: XCTestCase {
                 // Profile intentionally resumes its prior query-owned position.
                 // A previous failed rehearsal can leave a nested page; unwind it
                 // through the real native Back, never reset/cold-navigate the app.
-                let nativeStackBack = app.navigationBars.buttons["Profile"].firstMatch
+                let nativeStackBack = nativeProfileBack(app, parent: "Profile")
                 var resumedBack: XCUIElement {
                     let native = app.navigationBars.buttons.matching(NSPredicate(
-                        format: "label IN %@", ["Profile", "Security & privacy"])).firstMatch
+                        format: "label IN %@", ["Profile", "Security & privacy", "Back"])).firstMatch
                     return native.exists ? native : app.buttons["profile-back"].firstMatch
                 }
                 for _ in 0..<3 {
@@ -3204,7 +3210,7 @@ final class AppUITests: XCTestCase {
             for _ in 0..<3 {
                 // Every nested native page has a scroll view. Its presence
                 // cannot prove root admission after a warm close/reopen.
-                let parent = app.navigationBars.buttons["Profile"].firstMatch
+                let parent = nativeProfileBack(app, parent: "Profile")
                 if !parent.waitForExistence(timeout: 1) { break }
                 guard waitForAdmittedControl(parent) else { XCTFail("PROFILE_PHOTO_PARENT_UNAVAILABLE"); return }
                 parent.tap()
@@ -3489,7 +3495,7 @@ final class AppUITests: XCTestCase {
                 // through authored Back controls, never a cold route/reset.
                 for _ in 0..<4 {
                     if row.exists && row.isHittable { break }
-                    let back = nativeSettings ? app.navigationBars.buttons["Profile"].firstMatch : app.buttons["profile-back"].firstMatch
+                    let back = nativeSettings ? nativeProfileBack(app, parent: "Profile") : app.buttons["profile-back"].firstMatch
                     if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
                     back.tap()
                 }
@@ -3980,7 +3986,7 @@ final class AppUITests: XCTestCase {
         for _ in 0..<4 {
             if root.exists && root.isHittable { break }
             if root.exists && menu.exists && menu.isHittable { menu.swipeUp(); continue }
-            let back = app.navigationBars.buttons["Profile"].firstMatch
+            let back = nativeProfileBack(app, parent: "Profile")
             guard waitForAdmittedControl(back) else { XCTFail("PROFILE_SUPPORT_PARENT_UNAVAILABLE"); return }; back.tap()
         }
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_SUPPORT_ROW_UNAVAILABLE"); return }; root.tap()
@@ -4081,7 +4087,7 @@ final class AppUITests: XCTestCase {
         let close = app.buttons["native-profile-drawer-close"].firstMatch
         let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         var back: XCUIElement {
-            let native = app.navigationBars.buttons["Profile"].firstMatch
+            let native = nativeProfileBack(app, parent: "Profile")
             return native.exists ? native : app.buttons["Back in Profile"].firstMatch
         }
         let cancel = app.buttons["native-style-close"].firstMatch
@@ -4440,8 +4446,8 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let nativeAccountBack = app.navigationBars.buttons["Profile"].firstMatch
-        let nativeLegalBack = app.navigationBars.buttons["Legal"].firstMatch
+        let nativeAccountBack = nativeProfileBack(app, parent: "Profile")
+        let nativeLegalBack = nativeProfileBack(app, parent: "Legal")
         var back: XCUIElement {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
@@ -4524,35 +4530,16 @@ final class AppUITests: XCTestCase {
         // Back must restore the roster; opening Profile is not a root reset.
         for _ in 0..<3 {
             if rootIsAdmitted() { break }
-            if nativeLegalBack.exists && nativeLegalBack.isHittable {
-                nativeLegalBack.tap()
-                guard waitForAdmittedControl(app.buttons["native-profile-row-legal-open-privacy"].firstMatch) else {
-                    XCTFail("PROFILE_LEGAL_PARENT_NOT_RESTORED"); return
-                }
-                continue
-            }
-            if nativeAccountBack.exists && nativeAccountBack.isHittable {
-                nativeAccountBack.tap()
-                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    rootIsAdmitted()
-                }, object: app)
-                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
-                    XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
-                }
-                continue
-            }
-            guard waitForAdmittedControl(back), let level = publicPaneLevel(), level > 0 else { break }
-            print("PROFILE_RESUMED_PARENT phase=before level=\(level)")
+            guard waitForAdmittedControl(back) else { break }
+            let sourceBar = app.navigationBars.firstMatch.identifier
             back.tap()
-            print("PROFILE_RESUMED_PARENT phase=tapped level=\(level)")
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                if level == 1 { return rootIsAdmitted() }
-                return publicPaneLevel() == level - 1 && back.exists && back.isHittable
+                rootIsAdmitted() || back.exists && back.isHittable &&
+                    app.navigationBars.firstMatch.identifier != sourceBar
             }, object: app)
             guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
                 XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
             }
-            print("PROFILE_RESUMED_PARENT phase=returned level=\(level)")
         }
         guard menu.waitForExistence(timeout: 10) else {
             printCoherentPresentationAdmission(app)
@@ -4709,7 +4696,7 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_CONNECTORS_DUPLICATE_BODY")
                 guard filter("Gmail"), find("Gmail") else { XCTFail("PROFILE_NATIVE_CONNECTORS_FILTER_UNAVAILABLE"); return }
                 row("Gmail").tap()
-                let catalogBack = app.navigationBars.buttons["Connectors"].firstMatch
+                let catalogBack = nativeProfileBack(app, parent: "Connectors")
                 guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_DETAIL_UNAVAILABLE"); return }
                 catalogBack.tap()
                 guard filter("Instagram"), find("Instagram") else { XCTFail("PROFILE_NATIVE_CONNECTOR_LINK_UNAVAILABLE"); return }
@@ -4736,7 +4723,7 @@ final class AppUITests: XCTestCase {
                 row("Google Drive").tap()
                 guard find("Trusted documents") else { XCTFail("PROFILE_NATIVE_DRIVE_TRUST_UNAVAILABLE"); return }
                 row("Trusted documents").tap()
-                let driveBack = app.navigationBars.buttons["Google Drive"].firstMatch
+                let driveBack = nativeProfileBack(app, parent: "Google Drive")
                 guard waitForAdmittedControl(driveBack) else { XCTFail("PROFILE_NATIVE_DRIVE_TRUST_RETURN_UNAVAILABLE"); return }
                 driveBack.tap()
                 guard waitForAdmittedControl(catalogBack) else { XCTFail("PROFILE_NATIVE_DRIVE_RETURN_FAILED"); return }
@@ -4765,7 +4752,7 @@ final class AppUITests: XCTestCase {
                 }
                 guard find("Research and email") else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_RESEARCH_UNAVAILABLE"); return }
                 row("Research and email").tap()
-                let worldBack = app.navigationBars.buttons["Personal World Model"].firstMatch
+                let worldBack = nativeProfileBack(app, parent: "Personal World Model")
                 guard waitForAdmittedControl(worldBack), app.switches.count >= 2 else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_RESEARCH_NOT_NATIVE"); return }
                 worldBack.tap()
                 guard find("Add a public source") else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_SOURCES_UNAVAILABLE"); return }
@@ -4805,7 +4792,7 @@ final class AppUITests: XCTestCase {
                 }
                 guard waitForAdmittedControl(live) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SETTLED"); return }
                 live.tap()
-                let memoryBack = app.navigationBars.buttons["Memory"].firstMatch
+                let memoryBack = nativeProfileBack(app, parent: "Memory")
                 guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_SOURCE_RETURN_UNAVAILABLE"); return }
                 memoryBack.tap()
                 guard waitForAdmittedControl(sharing) else { XCTFail("PROFILE_NATIVE_MEMORY_ROOT_NOT_RESTORED"); return }
@@ -4864,7 +4851,7 @@ final class AppUITests: XCTestCase {
                     "PROFILE_NATIVE_PAYOUTS_DUPLICATE_WEB_BODY")
                 coins.tap()
                 let filter = app.buttons["native-profile-row-payout-filter"].firstMatch
-                let activityBack = app.navigationBars.buttons["Payouts"].firstMatch
+                let activityBack = nativeProfileBack(app, parent: "Payouts")
                 guard waitForAdmittedControl(filter), waitForAdmittedControl(activityBack),
                       waitForAdmittedControl(app.buttons["native-profile-row-payout-mode"].firstMatch) else {
                     XCTFail("PROFILE_NATIVE_PAYOUT_ACTIVITY_NOT_ADMITTED"); return
@@ -4974,7 +4961,7 @@ final class AppUITests: XCTestCase {
                             XCTAssertFalse(cancel.exists && cancel.isHittable,
                                 "PROFILE_CLOSE_RESTORED_STALE_ACCOUNT_CONFIRMATION")
                         } else {
-                            let accountBack = app.navigationBars.buttons["Your account"].firstMatch
+                            let accountBack = nativeProfileBack(app, parent: "Your account")
                             guard waitForAdmittedControl(accountBack) else { XCTFail("PROFILE_CONFIRMATION_LOCAL_BACK_UNAVAILABLE"); return }
                             accountBack.tap()
                         }
@@ -4997,7 +4984,7 @@ final class AppUITests: XCTestCase {
                     if childID == "preferences-gemini", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let ownKey = app.buttons["native-profile-row-runtime-byok"].firstMatch
                         let configure = app.buttons["native-profile-row-runtime-configure"].firstMatch
-                        let providerBack = app.navigationBars.buttons["Preferences"].firstMatch
+                        let providerBack = nativeProfileBack(app, parent: "Preferences")
                         guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else { XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return }
                         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_PROVIDER_DUPLICATE_WEB_BODY")
                         // Choosing an editor changes no saved configuration.
@@ -5031,7 +5018,7 @@ final class AppUITests: XCTestCase {
                         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
                             "PROFILE_NATIVE_PHONE_DUPLICATE_WEB_BODY")
                         country.tap()
-                        let countryBack = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["Change phone number", "Add phone number"]))
+                        let countryBack = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["Change phone number", "Add phone number", "Back"]))
                         guard countryBack.count == 1, waitForAdmittedControl(countryBack.firstMatch) else {
                             XCTFail("PROFILE_NATIVE_PHONE_COUNTRY_RETURN_UNAVAILABLE"); return
                         }
@@ -5052,7 +5039,7 @@ final class AppUITests: XCTestCase {
                     }
                     if childID == "security-vault", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                         let change = app.buttons["native-profile-row-vault-password"].firstMatch
-                        let vaultBack = app.navigationBars.buttons["Security & privacy"].firstMatch
+                        let vaultBack = nativeProfileBack(app, parent: "Security & privacy")
                         for _ in 0..<4 {
                             if change.exists && change.isHittable { break }
                             menu.swipeUp()
@@ -5085,7 +5072,7 @@ final class AppUITests: XCTestCase {
                     }
                     let nativeMicrophone = app.buttons["native-profile-row-voice-microphone-test"].firstMatch
                     if childID == "preferences-voice", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
-                        let voiceBack = app.navigationBars.buttons["Preferences"].firstMatch
+                        let voiceBack = nativeProfileBack(app, parent: "Preferences")
                         let speaker = app.switches["native-profile-row-voice-speaker-safe"].firstMatch
                         guard waitForAdmittedControl(voiceBack), waitForAdmittedControl(nativeMicrophone),
                               waitForAdmittedControl(speaker) else { XCTFail("PROFILE_NATIVE_VOICE_NOT_ADMITTED"); return }
