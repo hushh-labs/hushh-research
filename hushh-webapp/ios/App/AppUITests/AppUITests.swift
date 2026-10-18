@@ -1247,6 +1247,7 @@ final class AppUITests: XCTestCase {
         }
         func continuity() {
             XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1)
             XCTAssertFalse(web.buttons["Unlock"].exists)
             XCTAssertTrue((editor.value as? String) == initialDraft, "COHERENT_SHELL_DRAFT_CHANGED")
             XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
@@ -1260,10 +1261,13 @@ final class AppUITests: XCTestCase {
             guard #available(iOS 26.0, *) else { throw XCTSkip("Native hitch measurement requires iOS 26") }
             let options = XCTMeasureOptions()
             options.iterationCount = 3
-            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app)], options: options) {
+            func exerciseProfile() -> Bool {
                 profile.tap()
                 let preferences = app.buttons["native-profile-row-preferences"].firstMatch
-                guard waitForAdmittedControl(preferences) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_PROFILE_MISSING"); return }
+                guard waitForAdmittedControl(preferences) else {
+                    printCoherentPresentationAdmission(app)
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_PROFILE_MISSING"); return false
+                }
                 preferences.tap()
                 let back = nativeProfileBack(app, parent: "Profile")
                 let theme = app.buttons["native-profile-row-preferences-theme"].firstMatch
@@ -1271,18 +1275,34 @@ final class AppUITests: XCTestCase {
                 // Await the actual destination body and its admitted Back.
                 guard theme.waitForExistence(timeout: 10), waitForAdmittedControl(back) else {
                     printCoherentPresentationAdmission(app)
-                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_NESTED_MISSING"); return
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_NESTED_MISSING"); return false
                 }
                 back.tap()
                 let close = app.buttons["Close Profile"].firstMatch
                 guard waitForAdmittedControl(preferences), waitForAdmittedControl(close) else {
                     printCoherentPresentationAdmission(app)
-                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_BACK_FAILED"); return
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_BACK_FAILED"); return false
                 }
                 close.tap()
-                guard waitForAdmittedControl(editor), waitForAdmittedControl(profile) else { XCTFail("NATIVE_PRODUCT_PERFORMANCE_CLOSE_FAILED"); return }
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(profile) else {
+                    printCoherentPresentationAdmission(app)
+                    XCTFail("NATIVE_PRODUCT_PERFORMANCE_CLOSE_FAILED"); return false
+                }
                 continuity()
+                return true
             }
+            for _ in 0..<10 {
+                guard exerciseProfile() else { return }
+            }
+            print("NATIVE_PRODUCT_WARM_PROFILE cycles=10 single_composer=true mutated=false")
+            var failed = false
+            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTHitchMetric(application: app)], options: options) {
+                // Do not replay a failed or uncertain navigation operation in
+                // a later measurement iteration.
+                guard !failed else { return }
+                failed = !exerciseProfile()
+            }
+            guard !failed else { return }
             print("NATIVE_PRODUCT_PERFORMANCE requested_iterations=3 configuration=release warm=true mutated=false")
             return
             #endif

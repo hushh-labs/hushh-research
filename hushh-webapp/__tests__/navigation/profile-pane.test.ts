@@ -102,11 +102,14 @@ describe("Profile pane navigation state", () => {
     const removeWorkspace = registerBackLayer({ pathname: "/one", depth: 100, back: workspaceBack });
     const removePhone = registerBackLayer({ pathname: "/one", depth: 2, query: { profile_pane: "1" }, back: phoneBack });
     try {
-      backProfilePane("/one", new URLSearchParams(window.location.search));
+      // A local step consumed Back without changing the pane's route. A
+      // native pop must be refused, not acknowledged while awaiting a route
+      // projection that will never arrive.
+      expect(backProfilePane("/one", new URLSearchParams(window.location.search))).toBe(false);
       expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(PHONE);
       expect(phoneBack).toHaveBeenCalledOnce();
       expect(workspaceBack).not.toHaveBeenCalled();
-      backProfilePane("/one", new URLSearchParams(window.location.search));
+      expect(backProfilePane("/one", new URLSearchParams(window.location.search))).toBe(true);
       expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
       expect(phoneBack).toHaveBeenCalledTimes(2);
       expect(workspaceBack).not.toHaveBeenCalled();
