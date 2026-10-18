@@ -1046,6 +1046,50 @@ describe("private native drawer action boundary", () => {
     await presentation.retire();
   });
 
+  it.each(["content", "delivery", "visit", "lock-cycle"] as const)("fences a committed native Back through a %s update without replaying it", async update => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true, compatibleBackRefreshes: true });
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(confirmation.promise);
+    const projection: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
+      profileDestinationId: "memory-live-first", profileStack: [
+        { id: "memory", title: "Memory", sections: [] }, { id: "memory-live", title: "Live memory", sections: [] },
+      ] };
+    const oldBack = vi.fn(), currentBack = vi.fn(), phases = vi.fn();
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back: oldBack, root: vi.fn() };
+    const presentation = new NativeDrawerPresentation(projection, bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(projection, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const back = { ...choice(), family: "profile" as const, action: "back" as const, rowId: undefined };
+    if (update !== "delivery") {
+      bridge.emit(back);
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
+    presentation.publish({ ...projection, updateSequence: 2, appearance: "dark",
+      ...(update === "visit" ? { profileDestinationId: "memory-live-reopened" } : {}),
+      ...(update === "lock-cycle" ? { navigationLocked: true } : {}) }, { ...actions, back: currentBack });
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    if (update === "lock-cycle") {
+      presentation.publish({ ...projection, updateSequence: 3 }, { ...actions, back: currentBack });
+      await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+    }
+    if (update === "delivery") {
+      bridge.emit(back);
+      await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    }
+    confirmation.resolve({ valid: true });
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
+    expect(oldBack).not.toHaveBeenCalled();
+    expect(currentBack).toHaveBeenCalledTimes(update === "content" || update === "delivery" ? 1 : 0);
+    bridge.emit(back);
+    await act(async () => { await Promise.resolve(); });
+    expect(currentBack).toHaveBeenCalledTimes(update === "content" || update === "delivery" ? 1 : 0);
+    await presentation.retire();
+  });
+
   it("refreshes a timed-out drawer presentation once without repeating any operation", async () => {
     const bridge = presentationBridge();
     const capability = await bridge.plugin.getCapabilities();

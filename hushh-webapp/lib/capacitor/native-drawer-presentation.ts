@@ -78,6 +78,7 @@ export class NativeDrawerPresentation {
         return false; // No native body has been prepared; established web fallback is safe.
       }
       if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
+      if (capability.profileNavigationStack === true && capability.compatibleBackRefreshes === true) this.fence.enableCompatibleBackRefreshes();
       this.backSettlements = capability.profileNavigationStack === true && this.identity.family === "profile";
       this.completionRequired = capability.presentationCompletion === true;
       if (this.completionRequired) {
@@ -247,13 +248,14 @@ export class NativeDrawerPresentation {
     }
     const action = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
     if (!action) return;
+    const followsCurrentBinding = terminal || this.fence.backIsCurrent(event);
     let invoked = false;
     let operationAccepted = true;
     try {
       const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
-        () => !this.disposed && this.phase === "active" && (terminal || this.current === current) && this.ownerIsCurrent(),
+        () => !this.disposed && this.phase === "active" && (followsCurrentBinding || this.current === current) && this.ownerIsCurrent(),
         async () => {
-          const owner = terminal ? this.current : current;
+          const owner = followsCurrentBinding ? this.current : current;
           const latest = event.action === "row" ? owner?.actions.rows.get(event.rowId ?? "") : owner?.actions[event.action];
           if (!latest) return;
           invoked = true;

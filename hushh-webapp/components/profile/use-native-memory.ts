@@ -93,7 +93,7 @@ export function useNativeMemory(model: NativeMemoryModel) {
   }, [visit]);
   const mirror = useLiveMirrorView(model.active);
   if (!model.active) return { pages: [] as NativeProfilePage[], rows: new Map<string, (choice?: NativeDrawerChoice) => void | Promise<void>>(),
-    back: () => false, ancestor: (_choice: { rowId?: string }) => false, nested: false, busy: false };
+    back: () => false, navigationBlocked: () => true, ancestor: (_choice: { rowId?: string }) => false, nested: false, busy: false };
   const change = (update: (value: Local) => Local) => {
     if (visit.current()) setStored(previous => ({ owner: visit.owner, visit, value: update(previous?.owner === visit.owner
       ? previous.visit === visit ? previous.value : retainedRoot(previous.value) : initial()) }));
@@ -405,8 +405,9 @@ export function useNativeMemory(model: NativeMemoryModel) {
       action("confirmation-cancel", "Cancel", () => change(value => ({ ...value, confirmation: null })), { enabled: !visit.pending }),
     ]);
   }
+  const navigationBlocked = () => !visit.current() || visit.pending || !!model.preview.deletingEntityKey || !!model.secrets?.pending;
   const back = () => {
-    if (visit.pending || model.preview.deletingEntityKey || model.secrets?.pending) return true;
+    if (navigationBlocked()) return true;
     if (model.secrets && local.secretsOpen) {
       if (model.secrets.target) model.secrets.askRemove(null);
       else if (model.secrets.filing) model.secrets.dismissFiling();
@@ -442,6 +443,6 @@ export function useNativeMemory(model: NativeMemoryModel) {
     else if (choice.rowId === "memory-live") change(value => ({ ...value, liveOpen: true }));
     return true;
   };
-  return { pages, rows: actions, back, ancestor, nested: local.secretsOpen || !!model.shared?.location || local.liveOpen || confirmationVisible || model.preview.open,
+  return { pages, rows: actions, back, ancestor, navigationBlocked, nested: local.secretsOpen || !!model.shared?.location || local.liveOpen || confirmationVisible || model.preview.open,
     busy: visit.pending || !!model.preview.deletingEntityKey || !!model.secrets?.pending };
 }

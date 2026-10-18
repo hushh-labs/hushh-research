@@ -802,6 +802,42 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(cancelledPreparation.retire(state.identity))
         XCTAssertFalse(cancelledPreparation.apply(state), "A lost apply cannot resurrect a cancelled private body")
         XCTAssertTrue(cancelledPreparation.retire(state.identity), "Exact absence proof is idempotent")
+
+        func navigation(_ update: Int, boundary: String? = nil) -> NativeDrawerProjection {
+            var next = privateDrawerState(open: boundary != "close", update: update,
+                appearance: update == 1 ? "light" : "dark", privacy: boundary == "privacy" ? 1 : 0,
+                enabled: boundary != "disabled", backEnabled: true)
+            next.surfaceOpen = true
+            next.profileDestinationId = boundary == "visit" ? "memory-reopened" : "memory-first"
+            next.navigationLocked = boundary == "lock"
+            next.profileStack = [NativeProfilePage(id: "memory", title: "Memory", sections: []),
+                                 NativeProfilePage(id: "memory-live", title: "Live memory", sections: [])]
+            return next
+        }
+        let initial = navigation(1)
+        var pop = NativeDrawerLease()
+        XCTAssertTrue(pop.apply(initial))
+        let back = pop.emit(action: "back", row: nil, state: initial)!
+        XCTAssertTrue(pop.apply(navigation(2)))
+        XCTAssertTrue(pop.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: back,
+            interaction: 1, action: "back", row: nil, allowed: true), "A compatible content refresh must not reverse UIKit's completed Back")
+        var returned = navigation(3)
+        returned.profileStack?.removeLast(); returned.profileDestinationId = "memory-returned"
+        XCTAssertTrue(pop.apply(returned))
+        XCTAssertTrue(pop.settle(identity: initial.identity, privacy: 0, sequence: back, success: true),
+            "The committed destination change must not invalidate its confirmed settlement")
+        XCTAssertFalse(pop.settle(identity: initial.identity, privacy: 0, sequence: back, success: true))
+        XCTAssertFalse(pop.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: back,
+            interaction: 1, action: "back", row: nil, allowed: true))
+        for boundary in ["visit", "lock", "close", "disabled", "privacy"] {
+            var stale = NativeDrawerLease()
+            XCTAssertTrue(stale.apply(initial))
+            let emitted = stale.emit(action: "back", row: nil, state: initial)!
+            XCTAssertTrue(stale.apply(navigation(2, boundary: boundary)))
+            XCTAssertTrue(stale.apply(navigation(3)))
+            XCTAssertFalse(stale.confirm(identity: initial.identity, update: 1, privacy: 0, sequence: emitted,
+                interaction: 1, action: "back", row: nil, allowed: true), "Returning from \(boundary) cannot revive the old Back")
+        }
     }
 
     @MainActor

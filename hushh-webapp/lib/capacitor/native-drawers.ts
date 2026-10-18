@@ -110,7 +110,7 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
   settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
@@ -443,13 +443,24 @@ export class NativeDrawerChoiceFence {
   private current: NativeDrawerProjection | null = null;
   private terminalRefreshes = false;
   private terminalUpdateFloor = 0;
+  private backRefreshes = false;
+  private backUpdateFloor = 0;
+  private backBoundary: string | null = null;
   constructor(readonly identity: NativeDrawerIdentity) {}
   enableTerminalRefreshes(): void { if (!this.current) this.terminalRefreshes = true; }
+  enableCompatibleBackRefreshes(): void { if (!this.current && this.identity.family === "profile") this.backRefreshes = true; }
   update(state: NativeDrawerProjection): boolean {
     if (this.retired || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
         (this.current && state.updateSequence <= this.current.updateSequence)) return false;
     if (!this.current || this.current.open !== state.open || this.current.enabled !== state.enabled ||
         this.current.privacyGeneration !== state.privacyGeneration) this.terminalUpdateFloor = state.updateSequence;
+    // Monotonic across A → B → A and lock/unlock, not a comparison with the
+    // original values at confirmation time. Only navigation metadata belongs
+    // here; row choices and private bodies retain their exact revision fence.
+    const backBoundary = JSON.stringify([state.privacyGeneration, state.open, state.enabled, state.backEnabled,
+      state.navigationLocked ?? false, state.surfaceOpen ?? null, state.profileDestinationId ?? null,
+      state.profileSupportDestinationId ?? null, state.profileStack?.map(page => page.id) ?? null]);
+    if (this.backBoundary !== backBoundary) { this.backUpdateFloor = state.updateSequence; this.backBoundary = backBoundary; }
     this.current = state;
     this.generation++;
     return true;
@@ -461,12 +472,20 @@ export class NativeDrawerChoiceFence {
       choice.updateSequence <= this.current.updateSequence &&
       nativeDrawerChoiceAllowed({ ...choice, updateSequence: this.current.updateSequence }, this.current);
   }
+  backIsCurrent(choice: NativeDrawerChoice): boolean {
+    if (!this.backRefreshes || this.retired || !this.current?.profileStack ||
+        !["back", "root", "ancestor"].includes(choice.action)) return false;
+    return validSequence(choice.updateSequence) && choice.updateSequence >= this.backUpdateFloor &&
+      choice.updateSequence <= this.current.updateSequence &&
+      nativeDrawerChoiceAllowed({ ...choice, updateSequence: this.current.updateSequence }, this.current);
+  }
   allows(choice: NativeDrawerChoice): boolean {
     if (this.retired || !this.current) return false;
+    if (this.backIsCurrent(choice)) return true;
     if (!this.terminalRefreshes || choice.action !== "open" && choice.action !== "close") {
       return nativeDrawerChoiceAllowed(choice, this.current);
     }
-    // Only terminal presentation intents survive compatible content updates.
+    // Drawer Open/Close use their own compatibility floor, separate from Back.
     // Native still confirms the exact emitted token and interaction generation.
     return this.terminalIsCurrent(choice);
   }
@@ -475,9 +494,10 @@ export class NativeDrawerChoiceFence {
     if (!this.current || choice.sequence <= this.consumed ||
         !this.allows(choice) || !isCurrent()) return false;
     const terminal = this.terminalRefreshes && (choice.action === "open" || choice.action === "close");
-    const generation = terminal ? this.terminalUpdateFloor : this.generation;
+    const compatibleBack = this.backIsCurrent(choice);
+    const generation = terminal ? this.terminalUpdateFloor : compatibleBack ? this.backUpdateFloor : this.generation;
     const result = await confirm();
-    if (!result.valid || generation !== (terminal ? this.terminalUpdateFloor : this.generation) || !this.current ||
+    if (!result.valid || generation !== (terminal ? this.terminalUpdateFloor : compatibleBack ? this.backUpdateFloor : this.generation) || !this.current ||
         choice.sequence <= this.consumed || !isCurrent() ||
         !this.allows(choice)) return false;
     this.consumed = choice.sequence;

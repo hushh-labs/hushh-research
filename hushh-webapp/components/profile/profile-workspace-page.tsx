@@ -5001,7 +5001,8 @@ function ProfilePageContent({
           }, save: handleSaveFinancialContext }}
         onClose={() => { setNativeContextOpen(false); setEditingFinancialContextId(null); setFinancialContextText(""); setFinancialContextCategory("general"); }}
         onSaved={() => setNativeContextOpen(false)} onFallback={() => { setNativeContextFailed(true); setNativeMemoryWebBody(true); }} /> : null,
-      back: () => { if (!nativeMemory.back()) popProfileStack(); }, root: () => updateProfileView({ panel: null, detail: null }, "replace")
+      back: () => { if (nativeMemory.navigationBlocked()) return false; if (!nativeMemory.back()) popProfileStack(); return true; },
+      root: () => { if (nativeMemory.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
     } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
       onPresented: nativePayout.onPresented,
       ancestor: nativePayout.ancestor,
@@ -5100,11 +5101,11 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
+      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
-      onClose: () => { if (!(nativeConnectorsActive && nativeConnectors.navigationBlocked()) && !(nativeWorldModelActive && nativeWorldModel.navigationBlocked()) && !(nativeRuntimeActive && runtimeSettings.operationPending())) closeNativeProfile(); },
+      onClose: () => { if (!(nativeConnectorsActive && nativeConnectors.navigationBlocked()) && !(nativeWorldModelActive && nativeWorldModel.navigationBlocked()) && !(nativeMemoryActive && nativeMemory.navigationBlocked()) && !(nativeRuntimeActive && runtimeSettings.operationPending())) closeNativeProfile(); },
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",

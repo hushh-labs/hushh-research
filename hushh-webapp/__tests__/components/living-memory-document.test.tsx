@@ -161,6 +161,25 @@ describe("native Memory operation boundary", () => {
       previewPermission: vi.fn().mockResolvedValue(undefined), setPosture: vi.fn().mockResolvedValue(undefined),
       removeEntity: vi.fn().mockResolvedValue(true), editEntity: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined), ...overrides };
   }
+  it("returns Live memory to its retained root and distinguishes blocked Back from a committed pop", () => {
+    const input = model();
+    const hook = renderHook(({ value }) => useNativeMemory(value), { initialProps: { value: input } });
+    const live = hook.result.current.pages[0].sections.flatMap(section => section.rows).find(row => row.label === "Live memory")!;
+    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    expect(hook.result.current.navigationBlocked()).toBe(false);
+    act(() => { expect(hook.result.current.back()).toBe(true); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory"]);
+    act(() => { void hook.result.current.rows.get(live.id)!({} as NativeDrawerChoice); });
+    hook.rerender({ value: { ...input, preview: { ...input.preview, deletingEntityKey: "synthetic-pending-write" } } });
+    expect(hook.result.current.navigationBlocked()).toBe(true);
+    act(() => { expect(hook.result.current.back()).toBe(true); });
+    expect(hook.result.current.pages.map(page => page.id)).toEqual(["memory", "memory-live"]);
+    hook.rerender({ value: input });
+    m.privacy.shielded = true;
+    expect(hook.result.current.navigationBlocked()).toBe(true);
+  });
+
   it("keeps shared grants opaque and fences sensitive disclosure and asynchronous copying", async () => {
     let copyAllowed = true;
     const person = { personRef: "private-person-ref", person: "Synthetic person", labels: ["Legal entity"], items: [] };

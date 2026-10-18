@@ -58,6 +58,29 @@ redundant ancestor tint/style writes for three compatible content updates. This
 establishes the redundant appearance writes, not their physical pixel effect.
 Expansion is held until the corrected integrated transition is reviewed.
 
+Installed `bf3c5a1620` passes Account/Phone, Payouts and Pricing read/Cancel
+journeys. The combined traversal then fails Live memory → Memory return; its
+failure diagnostic sees the privacy cover. Later attach-only admission restores
+interactive Chat in the same unlocked session. The cover's triggering path is
+not yet established, and the remaining destinations in that run are not passes.
+
+The nearest bridge regression separately reproduces a completed Back being
+dropped when compatible content refreshes during native confirmation. The
+qualification candidate adds `compatibleBackRefreshes`: Back/root/ancestor keep
+their exact native emission and one-shot consumption but survive updates within
+one destination. Owner/document/revision, privacy, destination/path, open/enabled,
+Back eligibility and navigation-lock transitions fence that compatibility;
+A → B → A does not revive an old choice. Older wrappers and row operations stay
+strict. Confirmed settlements survive their own committed destination change.
+Memory also projects its busy navigation lock and rejects a native pop that its
+existing feature Back handler merely consumes without committing. These are
+source/contract corrections, not proof of the physical failure's cause or visual
+acceptance. Ordinary native admission remains disabled.
+The bounded review identifies no blocking Back defect in this correction. The
+pre-existing terminal-Close acknowledgement cannot yet distinguish an authored
+busy rejection from acceptance; it remains a separate dismissal qualification
+gap, not an explanation established for the Memory failure.
+
 Referrals continuation (qualification-only candidate): the standard route has a
 private body projection independent of Profile's modal lifetime. It maps You,
 Ranking, Rewards, rules, existing Share, Circle selection/joining, creation and

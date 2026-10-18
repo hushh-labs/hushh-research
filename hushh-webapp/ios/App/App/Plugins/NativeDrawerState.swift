@@ -316,6 +316,20 @@ struct NativeDrawerMotion {
 /// Bounded, volatile choice snapshots, including exact rename text until
 /// confirmation. No credentials, persistence, diagnostics or provider bodies.
 struct NativeDrawerLease {
+    private struct BackBoundary: Equatable {
+        let privacy: Int
+        let open, enabled, backEnabled, locked: Bool
+        let surfaceOpen: Bool?
+        let destination, supportDestination: String?
+        let path: [String]?
+        init(_ state: NativeDrawerProjection) {
+            privacy = state.privacyGeneration
+            open = state.open; enabled = state.enabled; backEnabled = state.backEnabled
+            locked = state.navigationLocked == true; surfaceOpen = state.surfaceOpen
+            destination = state.profileDestinationId; supportDestination = state.profileSupportDestinationId
+            path = state.profileStack?.map(\.id)
+        }
+    }
     private(set) var identity: NativeDrawerIdentity?
     private(set) var retiredIdentity: NativeDrawerIdentity?
     private(set) var sequence = 0
@@ -326,6 +340,8 @@ struct NativeDrawerLease {
     private var retiredDocuments = Set<String>()
     private var consumed = 0
     private var terminalUpdateFloor = 0
+    private var backUpdateFloor = 0
+    private var backBoundary: BackBoundary?
     private var terminalOpen = false
     private var terminalEnabled = false
     private var settlesBack = false
@@ -346,6 +362,7 @@ struct NativeDrawerLease {
             identity = projection.identity
             sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll()
             terminalUpdateFloor = 0
+            backUpdateFloor = 0; backBoundary = nil
         }
         guard projection.updateSequence > updateSequence else { return false }
         if terminalUpdateFloor == 0 || terminalOpen != projection.open || terminalEnabled != projection.enabled ||
@@ -354,6 +371,11 @@ struct NativeDrawerLease {
         }
         terminalOpen = projection.open
         terminalEnabled = projection.enabled
+        let nextBackBoundary = BackBoundary(projection)
+        if nextBackBoundary != backBoundary {
+            backUpdateFloor = projection.updateSequence
+            backBoundary = nextBackBoundary
+        }
         settlesBack = projection.profileStack != nil
         updateSequence = projection.updateSequence
         privacyGeneration = projection.privacyGeneration
@@ -375,7 +397,9 @@ struct NativeDrawerLease {
     mutating func confirm(identity: NativeDrawerIdentity, update: Int, privacy: Int, sequence: Int, interaction: Int,
                           action: String, row: String?, allowed: Bool, text: String? = nil) -> Bool {
         let terminal = action == "open" || action == "close"
-        let currentUpdate = terminal ? update >= terminalUpdateFloor && update <= updateSequence : update == updateSequence
+        let back = settlesBack && ["back", "root", "ancestor"].contains(action)
+        let currentUpdate = terminal ? update >= terminalUpdateFloor && update <= updateSequence :
+            back ? update >= backUpdateFloor && update <= updateSequence : update == updateSequence
         guard allowed, identity == self.identity, currentUpdate, privacy == privacyGeneration,
               interaction == interactionGeneration,
               sequence > consumed, let choice = emitted[sequence], choice.update == update,
