@@ -176,10 +176,11 @@ export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
 function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
   const { isVaultUnlocked } = useVault();
   const panePresentation = useProfilePanePresentation();
+  const presented = open && panePresentation?.open === true;
   // The controller is prepared while closed. Only the native root or its
   // same-owner React detail is presented; the Chat route tree never moves.
   if (!isVaultUnlocked || !panePresentation) return null;
-  return <VoiceSurfaceActivityBoundary active={open}><ProfilePage presentation="native-page" paneLocation={panePresentation.location} panePresentation={panePresentation} nativeMenuOpen={open}
+  return <VoiceSurfaceActivityBoundary active={presented}><ProfilePage presentation="native-page" paneLocation={panePresentation.location} panePresentation={panePresentation} nativeMenuOpen={presented}
     onNativeMenuClose={() => onOpenChange(false)} nativeControlsEligible={false} /></VoiceSurfaceActivityBoundary>;
 }
 

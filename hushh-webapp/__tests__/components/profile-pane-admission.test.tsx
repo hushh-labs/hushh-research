@@ -6,6 +6,12 @@ import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { previewProfilePane } from "@/lib/navigation/profile-pane";
 
 const vault = vi.hoisted(() => ({ isVaultUnlocked: false }));
+const native = vi.hoisted(() => ({ enabled: false }));
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => native.enabled }));
+vi.mock("@/lib/capacitor/native-drawers", async (original) => ({
+  ...await original<typeof import("@/lib/capacitor/native-drawers")>(),
+  nativeDrawersPlatformEligible: () => native.enabled,
+}));
 const url = vi.hoisted(() => ({
   query: "profile_pane=1&profile_panel=preferences",
 }));
@@ -16,10 +22,10 @@ vi.mock("next/navigation", () => ({
 }));
 const profilePage = vi.hoisted(() => ({ renders: 0 }));
 vi.mock("@/components/profile/profile-workspace-page", () => ({
-  ProfilePage: ({ paneLocation }: { paneLocation?: { panel: string | null } }) => {
+  ProfilePage: ({ paneLocation, nativeMenuOpen }: { paneLocation?: { panel: string | null }; nativeMenuOpen?: boolean }) => {
     profilePage.renders += 1;
     return (
-      <div data-testid="pane-body" data-panel={paneLocation?.panel ?? "root"}>
+      <div data-testid="pane-body" data-panel={paneLocation?.panel ?? "root"} data-native-open={nativeMenuOpen}>
         Preferences content
       </div>
     );
@@ -31,6 +37,7 @@ vi.mock("@/components/profile/profile-workspace-page", () => ({
 let pendingFrames = new Map<number, FrameRequestCallback>();
 let nextFrameId = 1;
 beforeEach(() => {
+  native.enabled = false;
   vault.isVaultUnlocked = false;
   url.query = "profile_pane=1&profile_panel=preferences";
   pendingFrames = new Map();
@@ -43,6 +50,20 @@ beforeEach(() => {
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
     pendingFrames.delete(id);
   });
+});
+
+it("closes the native presentation with its browser entry even while the shell's open prop lags", () => {
+  native.enabled = true;
+  vault.isVaultUnlocked = true;
+  window.history.replaceState({ __hushhProfilePane: { depth: 2, parentPanel: null } }, "", "/one?profile_pane=1&profile_panel=preferences");
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  expect(screen.getByTestId("pane-body")).toHaveAttribute("data-native-open", "true");
+  act(() => {
+    window.history.replaceState(null, "", "/one");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(screen.getByTestId("pane-body")).toHaveAttribute("data-native-open", "false");
+  view.unmount();
 });
 afterEach(() => {
   vi.useRealTimers();
