@@ -1220,6 +1220,10 @@ test("background processing needs explicit consent and can be paused without rem
 
 for (const readiness of ["busy", "unavailable"] as const)
 test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, async ({ page }) => {
+  // Every step crosses the drawer, the Connectors pane or a dialog. That motion
+  // is not under test, and on a loaded WebKit runner it outlasted the budget.
+  test.slow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const attemptId = "synthetic-blocked-popup-attempt";
   let starts = 0;
   page.on("request", (request) => {
