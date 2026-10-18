@@ -39,7 +39,7 @@ export type NativeDrawerSection = { id: string; title?: string; rows: readonly N
 /** Bounded native destinations, not URLs or another routing authority. */
 export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record";
-export type NativeProfilePage = { id: NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
+export type NativeProfilePage = { id: NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
   /** Private Memory filter, submitted explicitly; not a public search index. */
   memorySearch?: { id: string; query: string } };
@@ -88,7 +88,7 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean }>;
   applyProfilePricingScene?(options: Parameters<NativeProfilePricingScenePort["applyProfilePricingScene"]>[0]): ReturnType<NativeProfilePricingScenePort["applyProfilePricingScene"]>;
   confirmProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["confirmProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["confirmProfilePricingAction"]>;
   settleProfilePricingAction?(options: Parameters<NativeProfilePricingScenePort["settleProfilePricingAction"]>[0]): ReturnType<NativeProfilePricingScenePort["settleProfilePricingAction"]>;
@@ -238,6 +238,13 @@ export function validNativeMemoryPath(pages: readonly NativeProfilePage[]): bool
   return pages.slice(1).every((page, index) => children[pages[index]!.id as NativeMemoryPageId]?.includes(page.id as NativeMemoryPageId));
 }
 
+export function validNativeFinancePath(pages: readonly NativeProfilePage[]): boolean {
+  const path = pages.map(page => page?.id);
+  const start = path[0] === "preferences" ? 1 : 0;
+  return path[start] === "finance-preferences" && path.length <= start + 2 &&
+    (path.length === start + 1 || path[start + 1] === "finance-anchor");
+}
+
 /** Bounded authored projections only: no DOM inference, URL, token, credential,
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
@@ -259,11 +266,13 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       value.profileStack.length > (value.profileStack[0]?.id === "payouts" ? 8 : value.profileStack[0]?.id === "memory" ? 5 : 3) ||
       value.profileStack[0]?.id === "payouts" && !validNativePayoutPath(value.profileStack) ||
       value.profileStack[0]?.id === "memory" && !validNativeMemoryPath(value.profileStack) ||
+      value.profileStack.some(page => page && ["finance-preferences", "finance-anchor"].includes(page.id)) && !validNativeFinancePath(value.profileStack) ||
       new Set(value.profileStack.map(page => page?.id)).size !== value.profileStack.length ||
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument", "memorySearch"]) ||
         page.memorySearch !== undefined && (page.id !== "memory" || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
           !validIdentifier(page.memorySearch.id) || typeof page.memorySearch.query !== "string" || page.memorySearch.query.length > 256) ||
-        !(index === 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+          validNativeFinancePath(value.profileStack!) ||
           value.profileStack?.[0]?.id === "memory" && validNativeMemoryPath(value.profileStack) ||
           value.profileStack?.[0]?.id === "payouts" && validNativePayoutPath(value.profileStack) ||
           ["account-reset", "account-delete"].includes(page.id) && index === 1 && value.profileStack?.[0]?.id === "account" ||
@@ -349,7 +358,7 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "root") return state.family === "profile" && state.backEnabled && (state.profileStack?.length ?? 0) > 1 && choice.rowId === undefined;
   if (choice.action === "ancestor") return state.family === "profile" && state.backEnabled &&
     (choice.rowId === "security" && ["security/devices/device-unlink", "security/vault/vault-method", "security/vault/vault-remove"].includes(state.profileStack?.map(page => page.id).join("/") ?? "") ||
-      !!state.profileStack && (validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
+      !!state.profileStack && (validNativePayoutPath(state.profileStack) || validNativeMemoryPath(state.profileStack) || validNativeFinancePath(state.profileStack)) && state.profileStack.slice(0, -2).some(page => page.id === choice.rowId));
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
   if (state.profileStack?.at(-1)?.memorySearch?.id === choice.rowId) return typeof choice.text === "string" && choice.text.length <= 256;
   const document = valueDocument(state);

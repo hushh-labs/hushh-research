@@ -58,6 +58,8 @@ import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
 import { useNativeMemory } from "./use-native-memory";
+import { useProfileFinancePreferences } from "./use-profile-finance-preferences";
+import { projectNativeFinancePreferences } from "./native-finance-preferences";
 import { pkmPreviewEntityTarget, validPkmPreviewPath } from "@/lib/profile/pkm-section-preview";
 import { ProfileMemoryOperations } from "./profile-memory-operations";
 import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
@@ -1270,6 +1272,14 @@ function ProfilePageContent({
   });
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
   const voiceParent = profilePanelParentForPresentation("preferences");
+  const [nativeFinanceAvailable, setNativeFinanceAvailable] = useState(false);
+  const nativeFinanceActive = nativeFinanceAvailable && voiceParent !== null && presentation === "native-page" &&
+    nativeMenuOpen && activePanel === "preferences" && activeDetail === "kai-preferences" && isVaultUnlocked && vaultAccess.canMutateSecureData;
+  const financePreferences = useProfileFinancePreferences({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    canEdit: Boolean(user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData), active: nativeFinanceActive });
+  const nativeFinance = projectNativeFinancePreferences(financePreferences);
+  useBackLayer(pathname, nativeFinanceActive && (financePreferences.wizard.step > 0 || financePreferences.wizard.horizonDialogOpen || nativeFinance.busy) ? 3 : 0,
+    nativeFinance.back, isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeVoice = useNativeVoiceProfile({
     enabled: nativeVoiceAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && activeDetail === "voice" && isVaultUnlocked,
     userId: user?.uid ?? null, vaultOwnerToken, getIdToken: voiceGetIdToken,
@@ -4345,6 +4355,7 @@ function ProfilePageContent({
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
+            model={nativeFinanceActive ? financePreferences : undefined}
             userId={user.uid}
             vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
@@ -4883,7 +4894,7 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onFinanceCapability={setNativeFinanceAvailable}
     workspace={activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
       pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
       back: () => { if (!nativeMemory.back()) popProfileStack(); }, root: () => updateProfileView({ panel: null, detail: null }, "replace")
@@ -4920,15 +4931,26 @@ function ProfilePageContent({
           updateProfileView({ panel: null, detail: null }, "replace");
         },
       }} /> }}
-    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null) ||
+    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive) ||
         activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
           vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
       requiresVoice: activePanel === "preferences" && activeDetail === "voice",
+      requiresFinance: nativeFinanceActive,
       requiresDevices: devicesActive,
       requiresVault: vaultNativeActive,
       ...(devicesActive && devicesModel.confirmation ? { back: devicesModel.cancel } : {}),
       ...(vaultNativeActive && nativeVault.nested ? { back: () => { if (switchingVaultMethod) return false; return nativeVault.back(); } } : {}),
+      ...(nativeFinanceActive ? { back: () => {
+        if (nativeFinance.busy) return false;
+        if (financePreferences.wizard.horizonDialogOpen) { nativeFinance.back(); return true; }
+        if (financePreferences.wizard.step > 0) { nativeFinance.back(); return false; }
+        popProfileStack(); return true;
+      } } : {}),
       ancestor: choice => {
+        if (choice.rowId === "preferences" && nativeFinanceActive && voiceParent === true) {
+          if (nativeFinance.busy) return false;
+          financePreferences.wizard.cancelHorizon(); popProfilePaneLocation(pathname, searchParams); return true;
+        }
         if (choice.rowId === "security" && vaultNativeActive && vaultParent === true) {
           if (switchingVaultMethod) return false;
           nativeVault.back(); popProfilePaneLocation(pathname, searchParams); return true;
@@ -4939,11 +4961,11 @@ function ProfilePageContent({
         // not-yet-committed confirmation instead of reaching Security.
         devicesModel.cancel(); popProfilePaneLocation(pathname, searchParams); return true;
       },
-      pages: activePanel === "preferences" ? activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : vaultNativeActive ? [...(vaultParent === true ? [nativeSecurityPage] : []), ...nativeVault.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
-      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows, ...nativeVault.rows,
+      pages: activePanel === "preferences" ? nativeFinanceActive ? [...(voiceParent === true ? [nativePreferences.page] : []), ...nativeFinance.pages] : activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : vaultNativeActive ? [...(vaultParent === true ? [nativeSecurityPage] : []), ...nativeVault.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows, ...nativeVault.rows, ...nativeFinance.rows,
         ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
         ["security-sign-out", () => handleSignOut()] as const,
-      ]), root: () => { if (switchingVaultMethod) return false; vaultMethods.cancelRemove(); devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); return true; },
+      ]), root: () => { if (switchingVaultMethod || nativeFinanceActive && nativeFinance.busy) return false; vaultMethods.cancelRemove(); devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); return true; },
       editor: destinationId => <>{nativePreferences.editor(destinationId)}
         {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
@@ -4971,7 +4993,7 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) &&
+      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait, onClose: closeNativeProfile,
       groups: menuGroups, actions: menuActions }}

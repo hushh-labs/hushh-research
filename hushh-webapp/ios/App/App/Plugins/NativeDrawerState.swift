@@ -131,9 +131,11 @@ struct NativeDrawerProjection: Codable {
             guard family == "profile", stack.count <= (stack.first?.id == "payouts" ? 8 : stack.first?.id == "memory" ? 5 : 3), Set(stack.map(\.id)).count == stack.count,
                   stack.first?.id != "payouts" || Self.validPayoutPath(stack.map(\.id)),
                   stack.first?.id != "memory" || Self.validMemoryPath(stack.map(\.id)),
+                  !stack.contains(where: { ["finance-preferences", "finance-anchor"].contains($0.id) }) || Self.validFinancePath(stack.map(\.id)),
                   stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
                   stack.enumerated().allSatisfy({ index, page in
-                      (index == 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                      (index == 0 ? ["memory", "payouts", "request-pricing", "account", "preferences", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].contains(page.id) :
+                        Self.validFinancePath(stack.map(\.id)) ||
                         stack.first?.id == "memory" && Self.validMemoryPath(stack.map(\.id)) ||
                         stack.first?.id == "payouts" && Self.validPayoutPath(stack.map(\.id)) ||
                         ["account-reset", "account-delete"].contains(page.id) && index == 1 && stack.first?.id == "account" ||
@@ -216,6 +218,11 @@ struct NativeDrawerProjection: Codable {
         ]
         return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }
     }
+    static func validFinancePath(_ path: [String]) -> Bool {
+        let start = path.first == "preferences" ? 1 : 0
+        guard path.count > start, path[start] == "finance-preferences", path.count <= start + 2 else { return false }
+        return path.count == start + 1 || path[start + 1] == "finance-anchor"
+    }
     private static func text(_ value: String, _ maximum: Int) -> Bool { !value.isEmpty && value.utf16.count <= maximum }
     var cleared: NativeDrawerProjection {
         NativeDrawerProjection(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family,
@@ -234,7 +241,7 @@ struct NativeDrawerProjection: Codable {
             let path = profileStack?.map(\.id) ?? []
             return family == "profile" && backEnabled &&
                 (row == "security" && [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(path) ||
-                  (Self.validPayoutPath(path) || Self.validMemoryPath(path)) && path.dropLast(2).contains(where: { $0 == row }))
+                  (Self.validPayoutPath(path) || Self.validMemoryPath(path) || Self.validFinancePath(path)) && path.dropLast(2).contains(where: { $0 == row }))
         }
         guard action == "row", let row else { return false }
         if profileStack?.last?.memorySearch?.id == row { return text.map { $0.utf16.count <= 256 } == true }

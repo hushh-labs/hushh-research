@@ -18,7 +18,7 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Complete Profile roster and Payouts integration — 2026-10-17
 
-Memory continuation (source only; not installed/qualified): the retained native
+Memory continuation (bounded physical journey verified; not whole-family qualification): the retained native
 stack now maps categories, sections, entity details, permission choices,
 connections, revocation/removal confirmations and Live Memory facts/history/preview.
 The private native search submits to the existing complete category model; it
@@ -46,11 +46,11 @@ source coverage, not whole-program or installed-candidate acceptance:
 | Destination | Native source coverage / remaining body mapping |
 |---|---|
 | Your account | Rows, name, Phone/OTP and Reset/Delete confirmation; photo actions retain the existing presentation owner |
-| Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; current batch awaiting installed qualification |
+| Payouts | Native balances, activity/filter/pagination, Stripe detail, bank actions, redemption and linked receipts; installed activity/filter/Back journey passes, mutation and receipt-path qualification remain separate |
 | Request pricing | Native rows and amount editor; existing confirmed/conflict-aware writer |
 | Memory | Native category/section/entity browsing, search, sharing and Live Memory source mapping; shared/protected bodies and ordinary editing still require native conversion/qualification |
 | Personal World Model | Research, facts, sources, decisions and invitations still require native mapping |
-| Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance/provider nested bodies still require native mapping |
+| Appearance & preferences | Native appearance, accent, haptics, writing and Voice; Finance wizard/anchor now source-mapped through its shared controller, awaiting candidate qualification; provider body remains unmapped |
 | Security & privacy | Native Security, Session and Vault methods/details/password; system authentication remains with existing owners |
 | Trusted devices | Native list/details/unlink confirmation; existing session authority |
 | Connectors | Catalog, details, configuration and authorization-return bodies still require native mapping |
@@ -75,6 +75,35 @@ Shared web/native bank guards preserve informational `in_review`
 states. Vault mutation outcomes now also project into the native page instead
 of relying only on a covered web toast. Ordinary custom-native admission stays
 off. This entry does not establish device, mutation or release acceptance.
+
+Installed Memory candidate `82f9dd038c`, Agent One 1.4.1 (69), UAT Debug
+qualification, passes both native host contracts, credential-free UI admission,
+normal configured passphrase unlock and one attach-only Memory journey. The
+native Memory body opens Live Memory and sharing, returns to Profile, retains
+one WebView and changes no records. Search is exercised only when its existing
+category threshold admits it. The executable digest is
+`132d103fd4b6fea14d3fe6b3cfab2342fc1ca38c47f81b6ced039c5c28a113c7`;
+1,681 bundled/exported assets match at
+`da8961f8839d8cb5f4bd0336d42286fa6068acae82ae8b1ef113db6e2f84d909`.
+Strict signatures, seven UAT targets and no remote override pass. The first UI
+admission attempt reached the test body but found the app stopped after host
+testing; separate normal preparation resolved that precondition. This is not
+an automation-authorization failure or a broad visual/performance pass.
+A separate attach-only Payouts activity/filter/Back journey also passes on that
+same installed candidate, retaining the warm single-WebView session and making
+no financial mutation. Receipt, bank and redemption outcomes do not inherit
+that read-only journey's acceptance.
+
+Finance continuation (source only): Profile and the existing onboarding wizard
+now share one answer/step/anchor controller. The complete native finite wizard
+retains the explicit horizon-date confirmation and existing encrypted save;
+neither native choices nor voice bypass that confirmation. Owner/epoch fences
+reject retired reads/actions, a synchronous guard rejects duplicate saves, and
+the confirmed writer result is used without a potentially misleading second
+read. Async onboarding draft echoes do not reset the active question. Native
+ancestor Back returns from the anchor to Preferences through the existing
+owner. The old source-string layout test is replaced by focused behavior
+contracts; Finance is not included in the installed Memory candidate's proof.
 
 The subsequent cold export exposed an independent source-discovery problem:
 the compiler opened ignored `ios/App/build` object/dependency files and its

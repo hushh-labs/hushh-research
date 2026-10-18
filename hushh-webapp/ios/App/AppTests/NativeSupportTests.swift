@@ -988,6 +988,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(memory.allows(action: "ancestor", row: "account"))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "memory-confirm"]))
         XCTAssertFalse(NativeDrawerProjection.validMemoryPath(["memory", "account-delete"]))
+        var finance = account
+        finance.profileStack = ["preferences", "finance-preferences", "finance-anchor"].map {
+            NativeProfilePage(id: $0, title: "Synthetic Finance preference navigation", sections: [])
+        }
+        XCTAssertTrue(finance.valid)
+        XCTAssertTrue(finance.allows(action: "ancestor", row: "preferences"))
+        XCTAssertFalse(finance.allows(action: "ancestor", row: "account"))
+        let financeNavigation = NativeDrawerModel(finance)
+        financeNavigation.interactionEnabled = true
+        var financeAncestor: String?
+        financeNavigation.choose = { action, row, _ in financeAncestor = row; return action == "ancestor" }
+        financeNavigation.requestPath(["preferences"], from: finance)
+        XCTAssertEqual(financeAncestor, "preferences")
+        XCTAssertEqual(financeNavigation.navigationPath, ["preferences"])
+        XCTAssertFalse(NativeDrawerProjection.validFinancePath(["preferences", "finance-anchor"]))
+        finance.profileStack![0] = NativeProfilePage(id: "security", title: "Wrong parent", sections: [])
+        XCTAssertFalse(finance.valid)
         for kind in ["account-reset", "account-delete"] {
             var confirmation = account
             confirmation.profileStack = account.profileStack! + [NativeProfilePage(id: kind, title: "Confirm account action", sections: [])]
