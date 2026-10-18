@@ -193,7 +193,7 @@ export function ReferralDashboardPage() {
   return <ReferralDashboardContent key={ownerId ?? "signed-out"} />;
 }
 
-function ReferralDashboardContent() {
+export function useReferralDashboardModel() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("you");
   const [showHowItWorks, setShowHowItWorks] = useState(false);
@@ -290,6 +290,17 @@ function ReferralDashboardContent() {
     }
   }, [link]);
 
+  return { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
+    leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
+    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement };
+}
+export type ReferralDashboardModel = ReturnType<typeof useReferralDashboardModel>;
+
+/** Presentation consumes the same retained operation model as native. */
+function ReferralDashboardContent() {
+  const { user, tab, setTab, board, setBoard, showHowItWorks, setShowHowItWorks, summaryRes, pointsRes,
+    leaderboardRes, policyRes, milestonesRes, engagementRes, circleRefresh, link, onShare, reloadAll,
+    reloadSummary, reloadPoints, reloadLeaderboard, reloadMilestones, reloadPolicy, reloadEngagement } = useReferralDashboardModel();
   const dataState =
     summaryRes.status === "loading"
       ? "loading"
