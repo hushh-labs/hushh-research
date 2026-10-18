@@ -8,10 +8,12 @@ signed webhook settles it, and the buyer's Drive ACL read is a stub.
 
 # ruff: noqa: F401, F811 -- isolated PostgreSQL fixtures imported from their owners
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -1204,3 +1206,193 @@ async def test_requester_payment_view_names_the_autoshare_flow_on_every_read(flo
         assert (reply["payment"]["state"], reply["payment"]["withdrawn"]) == ("closed", True)
         assert _flow_marks(reply["payment"]) == marks
         assert (await _requester_payment_reads(flow, request_id))["payment"] == reply["payment"]
+
+
+# -- Two drains on one paid request --------------------------------------------
+
+RACE_WAIT_SECONDS = 10
+
+
+async def _wait_for_any(*events):
+    """Wait, bounded, in this drain's own loop until the other drain gets there."""
+
+    def wait():
+        deadline = time.monotonic() + RACE_WAIT_SECONDS
+        while not any(event.is_set() for event in events) and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+    await asyncio.to_thread(wait)
+
+
+class DrainRace:
+    """Two suggestions drains on one request, interleaved where they collide.
+
+    Each drain runs continue_batches in its own thread and event loop, as two
+    warm worker instances do. due_trusted_batches skips a request only while a
+    transaction holds its row, and a pass is many short transactions. So drain
+    2 claims while drain 1 is inside its pass between two of them, lists the
+    pending reviews before drain 1 freezes its next batch and reads unclaimed
+    positions after that freeze, while drain 1 waits to approve it: the window
+    in which a second freeze meets a batch still waiting for approval. Every
+    wait is bounded, and a finished drain releases the other at once. Batches
+    hold 3 files and a pass freezes one, so each round has a next batch to
+    collide on (the real bounds are 25 files and 8 batches a pass).
+    """
+
+    def __init__(self, flow, monkeypatch, *, batch_size):
+        self.flow = flow
+        self.round = self._arm()
+        sharing, bulk, auto = flow.sharing, flow.bulk, flow.auto
+        claim = sharing.due_trusted_batches
+        listed = bulk.pending_request_reviews
+        unclaimed = bulk.unclaimed_positions
+        freeze = bulk.create_review
+        share = auto.share_available
+
+        def drain():
+            return threading.current_thread().name
+
+        async def due_trusted_batches(**kwargs):
+            if drain() == "drain-2":
+                await _wait_for_any(self.round["inside"], self.round["done"]["drain-1"])
+            rows = await claim(**kwargs)
+            self.round["claims"][drain()] = len(rows)
+            return rows
+
+        async def pending_request_reviews(**kwargs):
+            rows = await listed(**kwargs)
+            if drain() == "drain-2":
+                self.round["listed"].set()
+            return rows
+
+        async def unclaimed_positions(**kwargs):
+            if drain() not in self.round["read"]:
+                self.round["read"].add(drain())
+                if drain() == "drain-1":
+                    self.round["inside"].set()
+                    await _wait_for_any(self.round["listed"], self.round["done"]["drain-2"])
+                elif drain() == "drain-2":
+                    await _wait_for_any(self.round["frozen"], self.round["done"]["drain-1"])
+            return await unclaimed(**{**kwargs, "limit": min(kwargs["limit"], batch_size)})
+
+        async def create_review(**kwargs):
+            review = await freeze(**kwargs)
+            if drain() == "drain-1" and not self.round["frozen"].is_set():
+                self.round["frozen"].set()
+                await _wait_for_any(self.round["done"]["drain-2"])
+            return review
+
+        async def share_available(**kwargs):
+            try:
+                queued = await share(**{**kwargs, "max_batches": 1})
+            except DriveSharingError as error:
+                self.round["passes"][drain()] = str(error)
+                raise
+            self.round["passes"][drain()] = queued
+            return queued
+
+        monkeypatch.setattr(sharing, "due_trusted_batches", due_trusted_batches)
+        monkeypatch.setattr(bulk, "pending_request_reviews", pending_request_reviews)
+        monkeypatch.setattr(bulk, "unclaimed_positions", unclaimed_positions)
+        monkeypatch.setattr(bulk, "create_review", create_review)
+        monkeypatch.setattr(auto, "share_available", share_available)
+
+    @staticmethod
+    def _arm():
+        return {
+            "inside": threading.Event(),
+            "listed": threading.Event(),
+            "frozen": threading.Event(),
+            "done": {name: threading.Event() for name in ("drain-1", "drain-2")},
+            "read": set(),
+            "claims": {},
+            "passes": {},
+        }
+
+    async def run(self):
+        """One round: both drains at once. Returns what each claimed and queued."""
+        self.round = self._arm()
+        errors = []
+
+        def drain():
+            name = threading.current_thread().name
+            try:
+                asyncio.run(self.flow.auto.continue_batches(max_jobs=1))
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                self.round["done"][name].set()
+
+        threads = [threading.Thread(target=drain, name=name) for name in ("drain-1", "drain-2")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            await asyncio.to_thread(thread.join, 60)
+        assert not errors and not any(thread.is_alive() for thread in threads)
+        return self.round
+
+
+@pytest.mark.asyncio
+async def test_two_drains_on_one_paid_request_grant_every_file_exactly_once(flow, monkeypatch):
+    """Two warm worker instances can drain one paid request at the same moment
+    (the Scheduler tick and the payment webhook's wake). The second freeze then
+    met the first batch still waiting for approval: bulk_conflict, counted as a
+    failed preparation, so three overlaps parked a paid request for good
+    (preparation_unavailable) and its unsent files were refunded instead."""
+    await flow.request(trusted=False)
+    await flow.start_search()
+    assert (await flow.checkout())["checkoutUrl"]
+    await flow.pay()
+    with monkeypatch.context() as quiet:
+        # Every match is committed before either drain hands one off.
+        quiet.setattr(flow.auto, "after_search_page", AsyncMock(return_value=0))
+        quiet.setattr(flow.auto, "after_search_slice", AsyncMock(return_value=0))
+        await flow.page(15)
+        await flow.finish()
+    race = DrainRace(flow, monkeypatch, batch_size=3)
+
+    def preparation():
+        with flow.db.engine.connect() as connection:
+            return tuple(
+                connection.execute(
+                    text("""SELECT preparation_error_code,preparation_attempts
+                      FROM drive_share_requests WHERE request_id=:request"""),
+                    {"request": flow.request_id},
+                ).one()
+            )
+
+    seen, rounds = [], []
+    for _ in range(3):
+        with flow.db.engine.begin() as connection:
+            # A later tick finds the request due, also after any deferral.
+            connection.execute(
+                text("""UPDATE drive_share_requests SET preparation_next_at=clock_timestamp()
+                  WHERE request_id=:request"""),
+                {"request": flow.request_id},
+            )
+        rounds.append(await race.run())
+        seen.append(preparation())
+
+    # Never a failed attempt, so never parked.
+    assert seen == [("trusted_auto_active", 0)] * 3
+    for outcome in rounds:
+        # Both drains took the same request; one froze and approved a batch,
+        # the other found the request held and stepped aside.
+        assert outcome["claims"] == {"drain-1": 1, "drain-2": 1}
+        assert sorted(outcome["passes"].values(), key=str) == [0, 1]
+
+    for _ in range(10):
+        if sum(batch["file_count"] for batch in flow.batches()) == 15:
+            break
+        await flow.auto.continue_batches(max_jobs=1)
+    assert await flow.grant_all() == 15
+    await flow.bulk.refresh_request(user_id="owner", request_id=flow.request_id)
+
+    # Every match was frozen once and granted once.
+    assert flow.shared_positions() == dict.fromkeys(range(1, 16), 1)
+    assert flow.effect_count() == 15
+    assert [batch["file_count"] for batch in flow.batches()] == [3] * 5
+    assert {batch["approval_source"] for batch in flow.batches()} == {"trusted_auto"}
+    assert flow.request_status() == "completed"
+    code, attempts = preparation()
+    assert code != "preparation_unavailable" and attempts == 0

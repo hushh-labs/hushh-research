@@ -7,14 +7,18 @@ recipient email addresses are never stored in plaintext.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hmac
 import json
 from collections import Counter
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
@@ -39,6 +43,7 @@ from hushh_mcp.services.drive_v1_manual_review import (
     require_manual_selection,
     require_manual_share_files,
 )
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 from hushh_mcp.services.google_drive_permission_adapter import SHARE_HINTS
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -53,6 +58,11 @@ _TERMINAL = frozenset(
 )
 _ACTIVE = frozenset({"queued", "running"})
 _ROW = "SELECT * FROM drive_bulk_shares WHERE share_id=:share AND user_id=:user"
+# One worker at a time freezes and approves a request's automatic batches
+# (request_batch_hold). A session lock outlives the pass's own transactions and
+# ends with its connection, so a worker that dies never keeps it.
+_HOLD_REQUEST_BATCHES = "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"
+_RELEASE_REQUEST_BATCHES = "SELECT pg_advisory_unlock(hashtextextended(:key,0))"
 _SAFE_REASONS = frozenset(
     {
         "source_changed",
@@ -255,6 +265,57 @@ class DriveBulkShareStore(DriveLivePreferences):
     def __init__(self, db=None, *, cipher=None):
         super().__init__(db)
         self.cipher = cipher or DriveSharingCipher()
+
+    @asynccontextmanager
+    async def request_batch_hold(self, *, request_id) -> AsyncIterator[bool]:
+        """Hold one request's automatic batches for this worker, or yield False.
+
+        Two drains can pick the same request at once (the scheduled tick and a
+        payment wake on two instances, or one instance's search slice and the
+        other's continue_batches): due_trusted_batches' SKIP LOCKED covers only
+        its own claim. While one pass waits to approve the batch it froze,
+        create_review refuses the other's next freeze as bulk_conflict, which
+        the drain counts as a failed attempt. This session lock spans the whole
+        freeze-and-approve pass and never waits: another holder means skip.
+        """
+        key = f"drive-request-batches:{_uuid(request_id)}"
+
+        def acquire():
+            connection = self.db.engine.connect()
+            try:
+                held = connection.execute(text(_HOLD_REQUEST_BATCHES), {"key": key}).scalar_one()
+                connection.commit()
+            except BaseException:
+                connection.invalidate()
+                connection.close()
+                raise
+            if held is not True:
+                connection.close()
+                return None
+            return connection
+
+        def release(connection):
+            try:
+                connection.execute(text(_RELEASE_REQUEST_BATCHES), {"key": key})
+                connection.commit()
+            except Exception:
+                # Ending the session is what frees a session lock.
+                connection.invalidate()
+                logger.warning("drive_bulk_share.request_hold_release outcome=session_closed")
+            finally:
+                connection.close()
+
+        try:
+            connection = await asyncio.to_thread(acquire)
+        except SQLAlchemyError:
+            raise ConnectorLifecycleError("connector_storage_unavailable") from None
+        if connection is None:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            await asyncio.to_thread(release, connection)
 
     def _require_paid_for_origin(self, connection, request_id):
         if request_id is None:

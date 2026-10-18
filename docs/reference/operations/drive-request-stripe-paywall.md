@@ -372,7 +372,10 @@ finds only files the owner cannot share ends as `no_match`. Checkout never opens
 for an allowed autoshare request whose automatic search start has failed for good
 (the refusal reason is `search_parked`), and a payment on a link opened before
 that is refunded in full. A search that waits for another of the owner's searches
-(one runs at a time) is waiting, never a failed start.
+(one runs at a time) is waiting, never a failed start. Two worker instances can
+reach the same request at once (a scheduled drain and a payment wake): one holds
+its batches while it freezes and approves them, and the other skips that request,
+which is also waiting, never a failed attempt.
 
 Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
 payment processing fee** on that charge, with the deduction capped at the
