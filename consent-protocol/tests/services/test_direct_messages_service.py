@@ -324,16 +324,20 @@ def test_send_encrypts_content_and_returns_a_participant_safe_projection(
     assert "senderUserId" not in result["message"]
     assert "_peerUserId" not in result["conversation"]
     assert duplicate_feed_writes == []
-    assert feed_events == ([] if use_default_feed else [
-        (
-            "bob",
-            {
-                "actor_label": "Alice",
-                "conversation_id": _CONVERSATION_ID,
-                "message_id": _MESSAGE_ID,
-            },
-        )
-    ])
+    assert feed_events == (
+        []
+        if use_default_feed
+        else [
+            (
+                "bob",
+                {
+                    "actor_label": "Alice",
+                    "conversation_id": _CONVERSATION_ID,
+                    "message_id": _MESSAGE_ID,
+                },
+            )
+        ]
+    )
 
 
 def test_send_persists_a_reply_only_after_the_target_is_checked_in_the_same_conversation(

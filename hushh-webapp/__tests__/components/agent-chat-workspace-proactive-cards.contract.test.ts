@@ -123,6 +123,14 @@ describe("Agent One chat workspace wiring contract", () => {
 });
 
 describe("Agent One proactive Calendar cards wiring contract", () => {
+  it("never starts first-connect memory offers from the general chat workspace", () => {
+    // This global mount could read a newly connected Calendar and append Keep /
+    // Forget boxes during an unrelated conversation or an in-flight response.
+    expect(source).not.toContain("FirstConnectInsightsCard");
+    expect(source).not.toContain("fetchFirstConnectInsights");
+    expect(source).not.toContain("first-connect-insights");
+  });
+
   // Calendar's separate proactive cards were intentionally removed when the
   // shared chat shell was tightened to prevent setup noise and clipping. The
   // connected Calendar capability remains available through explicit chat

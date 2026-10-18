@@ -104,7 +104,6 @@ import {
 } from "@/components/agent/mcp-call-review-card";
 import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
-import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -9678,16 +9677,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   />
                 ),
               )}
-
-              <FirstConnectInsightsCard
-                ownerId={user?.uid ?? null}
-                vaultKey={vaultKey ?? null}
-                vaultOwnerToken={vaultOwnerToken ?? null}
-                enabled={hasChatAccess && !isPuppySurface}
-                onPromptSelect={handleWelcomePromptSelect}
-                promptDisabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
-              />
-
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard
