@@ -154,6 +154,20 @@ describe("presentRequesterPayment for an autoshare request", () => {
     }
   });
 
+  // Once the order exists (its link pending, bound or expired) the server stops
+  // reporting automatic progress; the payment copy must not claim a search either.
+  it("never says files are being found once the payment link exists", () => {
+    for (const overrides of [
+      { state: "preparing" as const, nextAction: "wait_owner" as const, checkoutPending: true },
+      {},
+      { state: "link_expired" as const, nextAction: "new_request" as const },
+    ]) {
+      const shown = presentRequesterPayment(view({ autoshare: true, ...overrides }), NOW);
+      expect(`${shown.title} ${shown.line ?? ""}`).not.toMatch(/search|finding|looking/i);
+      expect(shown.line ?? "").not.toBe("You pay only if files are found.");
+    }
+  });
+
   it("keeps an older request's copy, even beside a stray pending link (negative control)", () => {
     expect(presentRequesterPayment(view({ state: "preparing", nextAction: "wait_owner", checkoutPending: true }), NOW))
       .toEqual({ title: "No payment due yet", line: "You pay only if files are found.", remaining: null, action: "withdraw" });

@@ -831,8 +831,20 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             # a frozen file set. Older automatic requests keep the complete-set
             # checkout; a selection the owner must review keeps the manual lane.
             from hushh_mcp.services.drive_owner_allowed import autoshare_request
+            from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
             autoshare_flow = bool(private is not None and autoshare_request(private))
+            # The payment view follows the sealed flow in every state, also once
+            # the request closed (a refund then says which files were not sent),
+            # exactly as the request's status read builds it.
+            sealed = (
+                private
+                if private is not None
+                else DriveSharingStore(db=self.db)._open_request(request)
+                if request.get("request_envelope")
+                else None
+            )
+            autoshare_view = sealed is not None and autoshare_request(sealed)
             autoshare_lane = bool(
                 autoshare_flow
                 and private is not None
@@ -929,6 +941,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     else None
                 ),
                 configured_mode=configured_stripe_mode(),
+                autoshare=autoshare_view,
             )
             if disclosure_required:
                 # This authenticated read knows whether sealed terms are current.

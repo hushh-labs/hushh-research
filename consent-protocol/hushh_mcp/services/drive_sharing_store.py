@@ -684,11 +684,13 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     @staticmethod
-    def _payment_metadata(connection, request_id):
+    def _payment_metadata(connection, request_id, *, autoshare=False):
         """Requester-only payment fields: the legacy order keys plus ``payment``.
 
         ``payment`` is the shared RequesterPaymentView, present only when the
         request requires payment; free requests keep their exact legacy shape.
+        ``autoshare`` is the request's sealed flow (``autoshare_request``),
+        known only to a caller that opened the envelope; lists never do.
         """
         row = (
             connection.execute(
@@ -761,6 +763,7 @@ class DriveSharingStore(DriveDocumentStore):
                 ),
                 owner_payout_ready=row["owner_payout_ready"],
                 configured_mode=configured_stripe_mode(),
+                autoshare=autoshare is True,
             ),
         }
 
@@ -2809,7 +2812,13 @@ class DriveSharingStore(DriveDocumentStore):
                     if not recipient and payout_setup_relevant
                     else {}
                 ),
-                **(self._payment_metadata(connection, request_id) if recipient else {}),
+                **(
+                    self._payment_metadata(
+                        connection, request_id, autoshare=autoshare_request(private)
+                    )
+                    if recipient
+                    else {}
+                ),
                 **setup,
                 **({} if recipient else self._owner_drive_setup(connection, row)),
             }

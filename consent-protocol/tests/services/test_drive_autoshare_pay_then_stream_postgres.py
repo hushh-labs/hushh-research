@@ -37,12 +37,14 @@ from hushh_mcp.services.drive_request_payment_checkout_worker import (
 )
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
     ShareRequestPurpose,
     VerifiedGoogleRecipient,
 )
+from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from tests.services.test_drive_request_bulk_postgres import _recipient, request_bulk
 from tests.services.test_drive_sharing_store import (
@@ -1132,3 +1134,73 @@ async def test_every_refusal_logs_one_fixed_line_without_identifiers(caplog):
     assert all(
         reason == reason.strip() and " " not in reason for reason in CHECKOUT_REFUSAL_REASONS
     )
+
+
+# -- The requester's payment view names the sealed flow ------------------------
+
+
+async def _requester_payment_reads(flow, request_id):
+    """B's payment view from each single-request read; all three must agree."""
+    status = await flow.sharing.request_status(user_id="recipient", request_id=request_id)
+    payment = await flow.payment.get_payment(requester_user_id="recipient", request_id=request_id)
+    delivery = await DriveSuggestionStore(
+        db=flow.db, authority_key="synthetic-ledger-key"
+    ).delivery_snapshot(user_id="recipient", request_id=request_id, views=True)
+    assert payment["paymentView"] == status["payment"]
+    assert delivery["result"]["payment"] == status["payment"]
+    return status
+
+
+def _flow_marks(view):
+    return view.get("autoshare"), view.get("checkoutPending")
+
+
+@pytest.mark.asyncio
+async def test_requester_payment_view_names_the_autoshare_flow_on_every_read(flow, monkeypatch):
+    """2026-10-18: with payment asked at Allow, B still read "No payment due yet
+    · You pay only if files are found": the copy existed, but no read passed
+    the request's sealed flow. Production's requests keep their old view."""
+    with monkeypatch.context() as production:
+        production.setattr(
+            "hushh_mcp.services.drive_sharing_store.autoshare_enabled", lambda: False
+        )
+        await flow.request(trusted=False)
+    assert "request_flow" not in flow.private()
+    legacy = flow.request_id
+    await flow.request(trusted=False)
+    assert autoshare_request(flow.private())
+    sealed = flow.request_id
+
+    # Allowed: the order exists and its payment link is being made.
+    for request_id, marks in ((sealed, (True, True)), (legacy, (None, None))):
+        status = await _requester_payment_reads(flow, request_id)
+        assert status["payment"]["state"] == "preparing"
+        assert _flow_marks(status["payment"]) == marks
+
+    # The link is bound and B can pay. Neither side is told One is searching.
+    assert (await flow.checkout())["checkoutUrl"]
+    status = await _requester_payment_reads(flow, sealed)
+    assert status["payment"]["state"] == "payable"
+    assert _flow_marks(status["payment"]) == (True, None)
+    # The status's own autoshare key is B's "Finding files" line.
+    assert "autoshare" not in status
+    center = DriveSharingCenterContributor(db=flow.db)
+    for user_id, bucket in (("recipient", "outgoing_requests"), ("owner", "incoming_requests")):
+        page = await center.page(user_id, bucket=bucket, limit=10)
+        [entry] = [item for item in page["items"] if item["request_id"] == sealed]
+        assert entry["metadata"]["automatic_progress_active"] is False
+        assert entry["metadata"]["automatic_progress_state"] is None
+
+    # Withdrawn: the reply and every read still name the flow. GET /payment
+    # now reads a closed request, whose envelope it otherwise leaves sealed.
+    for request_id, marks in ((sealed, (True, None)), (legacy, (None, None))):
+        current = await flow.sharing.request_status(user_id="recipient", request_id=request_id)
+        reply = await flow.sharing.decline_or_cancel(
+            user_id="recipient",
+            request_id=request_id,
+            revision=current["revision"],
+            decision="cancelled",
+        )
+        assert (reply["payment"]["state"], reply["payment"]["withdrawn"]) == ("closed", True)
+        assert _flow_marks(reply["payment"]) == marks
+        assert (await _requester_payment_reads(flow, request_id))["payment"] == reply["payment"]
