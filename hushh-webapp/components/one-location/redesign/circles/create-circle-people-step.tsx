@@ -86,10 +86,13 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
       if (mountedRef.current) onComplete(circleId);
     } catch {
       if (!mountedRef.current) return;
-      inFlight.current = false;
-      setSaving(false);
-      onSavingChange(false);
       toast.error("Could not add those people. Try again or add people later.");
+    } finally {
+      inFlight.current = false;
+      if (mountedRef.current) {
+        setSaving(false);
+        onSavingChange(false);
+      }
     }
   };
 
