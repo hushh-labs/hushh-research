@@ -389,10 +389,14 @@ describe("executeVerifiedAccountDeletion", () => {
       message: ACCOUNT_DELETION_PAUSED_MESSAGE, paused: true },
     { status: 409, code: "FILES_ERASURE_IN_PROGRESS", active: true, pending: true,
       message: "Files cleanup is still in progress. Account not deleted. Try again to continue.", paused: false },
+    { status: 409, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: true, pending: true,
+      message: "An upload outcome is unverified. Account not deleted. Contact support before retrying.", paused: false },
+    { status: 500, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: true, pending: false },
+    { status: 409, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: false, pending: false },
     { status: 500, code: "FILES_ERASURE_IN_PROGRESS", active: true, pending: false },
     { status: 409, code: "FILES_ERASURE_IN_PROGRESS", active: false, pending: false },
     { status: 409, code: "FILES_ERASURE_LIST_UNCONFIRMED", active: true, pending: false },
-  ])("keeps settled deletion failures retryable only with an exact response and active owner: $status/$code/$active", async ({ status, code, active, pending, ...outcome }) => {
+  ])("keeps the session only with an exact refusal and active owner: $status/$code/$active", async ({ status, code, active, pending, ...outcome }) => {
     const failure = new ApiError("untrusted detail", status, { code });
     mockDeleteAccount.mockRejectedValue(failure);
     mockGetAccountSessionStatus.mockImplementation(async () => active

@@ -584,8 +584,10 @@ encryption remain owner-local. Files setup includes the selected processing
 project in its frozen approval and shows the provider boundary before opt-in.
 
 The dev hub's model project is selected by the governed build's
-`_GENAI_PROJECT_ID` setting and cross-project allowlist in
-`deploy/backend.cloudbuild.yaml`; the dev managed-AI default is `hushh-vertex-personal54`.
+`_GENAI_PROJECT_ID` setting in `deploy/backend.cloudbuild.yaml`, which must match
+the checked-in environment profile in `consent-protocol/config/managed-ai-runtime.json`.
+The current dev profile names `hushh-gemini-bridge`. The separately approved
+`hushh-vertex-personal54` diagnostic bridge is not that managed default.
 That setting alone does not redirect private-pod inference: the pod needs its own
 verified configuration and prediction permission for that project.
 Its native project and billing linkage remain separate. Verify the serving

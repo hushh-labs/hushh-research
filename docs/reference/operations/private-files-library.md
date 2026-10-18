@@ -55,7 +55,7 @@ flowchart LR
   D <-->|"WSS: sealed inference frames"| P
 ```
 
-## Shared Files — source pilot, not deployed acceptance
+## Shared Files — dev pilot, partial live acceptance
 
 Shared reuses this explorer and `agent_files`, with encryption in the unlocked
 browser. A random library key is wrapped under the existing vault key; the user
@@ -94,7 +94,13 @@ and a live upload must prove use.
 Exact per-operation SQL transitions fence stale writers and competing
 recovery. Completion requires exact ciphertext; cancellation requires the provider's
 terminal receipt and observed absence, unchanged predecessor, or exact completed bytes.
-Missing/expired sessions and lost cancellation replies remain fenced. Legacy one-shot
+An inconclusive status may be followed by an exact-session cancellation attempt;
+only a positive JSON HTTP 499 cancellation receipt and the existing object and
+bucket-incarnation checks allow settlement. Missing/expired sessions, HTTP 412
+and lost cancellation replies remain fenced. A validated successful upload settles
+its exact permit before the final access check; that check still controls whether
+information may be returned. This correction is local, not deployed acceptance.
+See [GCS resumable cancellation](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads#cancel_an_upload). Legacy one-shot
 uncertainty is not automatically cleared. Account reset/deletion cannot claim erasure
 while a write might still complete. Cleanup validates the exact owner prefix, deletes
 bounded version batches and waits for soft-deletion/retention to complete. Trash is
@@ -142,12 +148,18 @@ listing is mandatory; an unsupported listing is never proof of absence.
 Account deletion processes bounded object batches. A settled batch with remaining
 generations returns `409 FILES_ERASURE_IN_PROGRESS`; the account keys and write
 fence remain. After confirming the same account is still active, the UI preserves
-the session and offers deliberate retry. Unknown delivery, retention or identity
-failures do not authorize replay or establish completed erasure.
+the session and offers deliberate retry. An uncertain upload instead returns
+`409 FILES_ERASURE_WAITING_FOR_WRITES`, retains its encrypted provider-session
+receipt and calls for reconciliation before another deletion attempt. This safe
+refusal response is locally verified; the deployed generic 500 failure remains
+recorded. Neither outcome authorizes automatic resubmission. Unknown delivery,
+retention or identity failures do not establish completed erasure.
 
 Enable only after workload-identity storage checks, exact-SHA CI and governed deployment.
-Owner transfer, foreground consent, recovery and deletion acceptance still requires a
-live rehearsal. Admin probes alone do not qualify the application.
+The existing readiness memo records live Shared transfers, foreground consent,
+reversible management and cold unlock. The fresh 18 October Move/Undo passed,
+but normal deletion remains fenced on an uncertain upload. Admin probes alone
+do not qualify the application or ordinary provider onboarding.
 
 ```mermaid
 flowchart LR

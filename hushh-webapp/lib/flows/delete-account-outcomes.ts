@@ -10,6 +10,9 @@ export const ACCOUNT_DELETION_PAUSED_MESSAGE =
 export const FILES_ERASURE_IN_PROGRESS_CODE = "FILES_ERASURE_IN_PROGRESS";
 const FILES_ERASURE_IN_PROGRESS_MESSAGE =
   "Files cleanup is still in progress. Account not deleted. Try again to continue.";
+const FILES_ERASURE_WAITING_FOR_WRITES_CODE = "FILES_ERASURE_WAITING_FOR_WRITES";
+const FILES_ERASURE_WAITING_FOR_WRITES_MESSAGE =
+  "An upload outcome is unverified. Account not deleted. Contact support before retrying.";
 
 export function isReportedAccountDeletionFailure(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
@@ -17,7 +20,8 @@ export function isReportedAccountDeletionFailure(error: unknown): boolean {
   return (
     (error.status === 500 && code === ACCOUNT_DELETION_FAILED_CODE) ||
     (error.status === 503 && code === ACCOUNT_DELETION_PAUSED_CODE) ||
-    (error.status === 409 && code === FILES_ERASURE_IN_PROGRESS_CODE)
+    (error.status === 409 &&
+      (code === FILES_ERASURE_IN_PROGRESS_CODE || code === FILES_ERASURE_WAITING_FOR_WRITES_CODE))
   );
 }
 
@@ -35,12 +39,15 @@ export class AccountDeletionNotCompletedError extends Error {
   constructor(readonly originalError: unknown) {
     const paused = apiErrorCode(originalError) === ACCOUNT_DELETION_PAUSED_CODE;
     const filesPending = apiErrorCode(originalError) === FILES_ERASURE_IN_PROGRESS_CODE;
+    const filesUnverified = apiErrorCode(originalError) === FILES_ERASURE_WAITING_FOR_WRITES_CODE;
     super(
       paused
         ? ACCOUNT_DELETION_PAUSED_MESSAGE
         : filesPending
           ? FILES_ERASURE_IN_PROGRESS_MESSAGE
-          : ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
+          : filesUnverified
+            ? FILES_ERASURE_WAITING_FOR_WRITES_MESSAGE
+            : ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
     );
     this.name = "AccountDeletionNotCompletedError";
     this.paused = paused;

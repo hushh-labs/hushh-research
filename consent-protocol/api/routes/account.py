@@ -2070,13 +2070,18 @@ async def delete_account(
     return await _perform_account_deletion(user_id, target=target)
 
 
-def _files_erasure_pending_response() -> JSONResponse:
+def _files_erasure_pending_response(code: str) -> JSONResponse:
+    messages = {
+        "FILES_ERASURE_IN_PROGRESS": (
+            "Files cleanup is still in progress. Account not deleted. Try again to continue."
+        ),
+        "FILES_ERASURE_WAITING_FOR_WRITES": (
+            "An upload outcome is unverified. Account not deleted. Contact support before retrying."
+        ),
+    }
     return JSONResponse(
         status_code=409,
-        content={
-            "detail": "Files cleanup is still in progress. Account not deleted. Try again to continue.",
-            "code": "FILES_ERASURE_IN_PROGRESS",
-        },
+        content={"detail": messages[code], "code": code},
     )
 
 
@@ -2116,10 +2121,13 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 status_code=503,
                 content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
-        if result.get("error_code") == "FILES_ERASURE_IN_PROGRESS":
-            # A settled bounded batch retained the write fence and account keys.
-            # The owner may deliberately continue; this is not a lost response.
-            return _files_erasure_pending_response()
+        if result.get("error_code") in {
+            "FILES_ERASURE_IN_PROGRESS",
+            "FILES_ERASURE_WAITING_FOR_WRITES",
+        }:
+            # Preserve the exact safe refusal. Unverified uploads require
+            # reconciliation; only a settled bounded batch invites continuation.
+            return _files_erasure_pending_response(result["error_code"])
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))

@@ -62,7 +62,8 @@ async def test_absence_is_the_absent_version(store):
 
 
 @pytest.mark.parametrize(
-    "outcome", ["complete", "incomplete", "cancel_completed", "expired", "lost_cancel"]
+    "outcome",
+    ["complete", "incomplete", "cancel_completed", "uncertain_cancel", "expired", "lost_cancel"],
 )
 async def test_shared_resumable_recovery_requires_provider_terminal_proof(monkeypatch, outcome):
     import hashlib
@@ -90,12 +91,12 @@ async def test_shared_resumable_recovery_requires_provider_terminal_proof(monkey
     store = type("Store", (), {})()
     store.status = AsyncMock(
         return_value="uncertain"
-        if outcome == "expired"
+        if outcome in {"expired", "uncertain_cancel"}
         else "complete"
         if outcome == "complete"
         else "incomplete"
     )
-    store.cancel = AsyncMock(return_value=True)
+    store.cancel = AsyncMock(return_value=outcome != "expired")
     if outcome == "lost_cancel":
         store.cancel.side_effect = TimeoutError("synthetic lost response")
     store.get_bounded_with_generation = AsyncMock(
@@ -107,9 +108,11 @@ async def test_shared_resumable_recovery_requires_provider_terminal_proof(monkey
     else:
         await writes.reconcile(store, row, "operation", receipt)
     terminal = [call for call in transitions.await_args_list if call.args[3] is None]
-    assert bool(terminal) == (outcome in {"complete", "incomplete", "cancel_completed"})
+    assert bool(terminal) == (
+        outcome in {"complete", "incomplete", "cancel_completed", "uncertain_cancel"}
+    )
     if outcome == "expired":
-        store.cancel.assert_not_awaited()
+        store.cancel.assert_awaited_once_with("private-session-memory-only", receipt["path"])
         store.get_bounded_with_generation.assert_not_awaited()
     assert transitions.await_args_list[-1].args[3]["state"] == "uncertain"
 

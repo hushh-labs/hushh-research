@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -137,7 +138,20 @@ class TestAccountDeleteErrorDetail:
         }
         assert self._SENTINEL not in resp.text
 
-    def test_bounded_files_cleanup_preserves_pending_without_deleting_identity(self):
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (
+                "FILES_ERASURE_IN_PROGRESS",
+                "Files cleanup is still in progress. Account not deleted. Try again to continue.",
+            ),
+            (
+                "FILES_ERASURE_WAITING_FOR_WRITES",
+                "An upload outcome is unverified. Account not deleted. Contact support before retrying.",
+            ),
+        ],
+    )
+    def test_bounded_files_cleanup_preserves_pending_without_deleting_identity(self, code, message):
         with (
             patch.object(
                 account_module.AccountService,
@@ -146,7 +160,7 @@ class TestAccountDeleteErrorDetail:
                 return_value={
                     "success": False,
                     "account_deleted": False,
-                    "error_code": "FILES_ERASURE_IN_PROGRESS",
+                    "error_code": code,
                     "message": self._SENTINEL,
                 },
             ) as delete,
@@ -158,8 +172,8 @@ class TestAccountDeleteErrorDetail:
 
         assert resp.status_code == 409
         assert resp.json() == {
-            "detail": "Files cleanup is still in progress. Account not deleted. Try again to continue.",
-            "code": "FILES_ERASURE_IN_PROGRESS",
+            "detail": message,
+            "code": code,
         }
         assert self._SENTINEL not in resp.text
         delete.assert_awaited_once_with("test-uid", target="both")

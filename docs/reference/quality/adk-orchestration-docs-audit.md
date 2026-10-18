@@ -17,8 +17,9 @@ No other model was tested. An initial setup-progress lock refusal was retained;
 one normal retry completed the same approved operation. Its owner-first journal
 repair now serves dev after exact-source CI and governed deployment.
 Shared Files transfer, consented analysis and reversible management pass. Personal
-Files Move/download/undo pass; Shared-specific Move, cold latency, connectors and
-full lifecycle acceptance remain gates. Computer Use, managed Hussh provisioning
+Files and fresh Shared Move/download/undo pass. Shared deletion remains fenced
+on an uncertain upload; cold latency, connectors and full lifecycle acceptance
+remain gates. Computer Use, managed Hussh provisioning
 and cross-cloud Files moves stay disabled.
 
 ## Source and serving evidence
@@ -44,9 +45,14 @@ No model fallback, personal-resource change or further IAM widening is justified
 An authorized personal-account read at 22:47 UTC independently confirms the fixture
 identity already has both declared roles on the approved dev bridge, whose billing
 and Vertex API are enabled. Chat's `user_adc` binding resolves the owner project;
-the separate Files bridge setting does not select chat's project. Bridge inference
-and an explicitly authorized chat binding remain unverified; this does not establish
-the cause of the owner-project 403.
+the separate Files bridge setting does not select chat's project. On 18 October,
+one native-identity diagnostic against that bridge returned HTTP 200 and nonempty
+text in 1.046 s: three input tokens and one output token, with no retry. The exact
+current image and workload identity were verified; its temporary Job was deleted
+and absence confirmed. No IAM or service configuration changed. This proves access
+to that explicit bridge, not readiness of the owner's Vertex project. An authorized
+native-ADC chat selection is still missing; Files approval and generic environment
+overrides cannot supply it.
 
 The workflow-only Admin repair and `azfx` removal landed separately through
 [PR #8121](https://github.com/hushh-labs/hushh-research/pull/8121), with live protection
@@ -57,14 +63,14 @@ parity and landed-SHA smoke verified. Neither grants application promotion.
 | Journey | Demonstrated | Remaining condition / owner |
 | --- | --- | --- |
 | Normal private chat | Latest Dev 23 post-update normal owner UI: unchanged tool catalog, HTTP 200 and `RUN_FINISHED`; first content 4.410 s, completion 5.600 s from POST. Prior same-session synthetic history remains | One warm sample; cold p95 and recorded voice/connector journeys remain Engineering acceptance |
-| Files workspace | Dedicated `agent_files` explorer. On deployed `f378a75b5588`, normal owner navigation, folder creation, 32 KiB upload, actual Move dialog, destination readback, byte-exact download and undo with stable identity pass. Only the new synthetic file/folder were trashed. Earlier interrupted transfers, rename/undo, trash/restore and cold unlock receipts remain | Personal-pod acceptance does not prove Shared-specific Move. Fresh/existing setup and UAT storage/IAM acceptance remain; trash is not immediate physical erasure |
+| Files workspace | Dedicated `agent_files` explorer. On deployed `f378a75b5588`, normal owner navigation, folder creation, 32 KiB upload, actual Move dialog, destination readback, byte-exact download and undo with stable identity pass. Only the new synthetic file/folder were trashed. Earlier interrupted transfers, rename/undo, trash/restore and cold unlock receipts remain | Fresh Shared Move is separately verified below. Fresh/existing setup and UAT storage/IAM acceptance remain; trash is not immediate physical erasure |
 | Organization | Prior normal Azure owner queue/terminal result preserves original bytes. Exact earlier target completed automatic synthetic jobs on GCP Cloud Tasks and Azure Storage Queue; original content remained byte-exact and settings restored | Current-image live foreground analysis and fresh provisioning are not inferred from older receipts |
 | Software update | Dev 25 normal approval and one retained operation finish with recovery/digest verification and exactly one Feed event. Prior Dev 23 separately proved active-chat drain, durable idle and refresh/re-unlock | The first Dev 25 job hit the unchanged owner-lock guard before any ARM mutation. One normal retry reused the same approved operation. Owner-first progress hardening now serves in `e9482e4319ad`; no additional owner installation or live rollback fault injection |
 | Puppy | Dev 25: existing Hermes identity/grant, fresh signed binding, sealed WSS and nonempty streamed Gemma 12B response; UI idle and aligned. Request-to-first-text 35.257 s, completion 35.509 s; device first content 25.308 s. No cloud fallback or model sweep | One post-update sample, not cold or p95. Prior Stop, withdrawal, refusal and re-enable receipts remain; phone was waived. Independent-network and cold-model percentiles are unclaimed |
 | Restart continuation | New installed image includes sealed private command/MCP recovery; Files jobs and updates retain their existing durable owners | Source/recovery tests do not prove every live connector/command continuation. Current admission and exact review remain necessary; uncertain effects cannot be blindly replayed |
 | AI / setup | Provider-aware Shared/GCP/Azure defaults, encrypted Azure custom keys, public-destination validation, quota preflight, billing recovery and durable setup retry are implemented and serving | Live custom-key/default responses, missing-billing return and fresh native sign-in on both platforms remain acceptance rows. Cloud readiness cannot imply available model quota |
-| Shared Files | Same disposable owner selected Shared and managed AI, created its vault normally, then cold-unlocked the same library. Interrupted/resumed 4,195,328-byte upload and byte-exact download pass; first chunk written once. Folder creation, inline rename/undo, trash/restore, warm-route vault continuity and explicit selected-file analysis pass; original bytes remain intact and Shared automatic organization stays unavailable | Move focus repair now serves and passes focused Chromium/WebKit cases; old-source negative control fails. Live repaired Move remains pending. Product cleanup succeeded after an operator-reviewed continuation of the settled first batch; this is not normal-UI deletion proof. Phone setup used a separately declared official Firebase configured-number fixture with signed proof and verified temporary-identity cleanup; ordinary CAPTCHA/SMS/legal UX is **not** passed. Original failed attempts remain recorded. A host restart ended the memory-only harness session; the same synthetic library and identity were subsequently erased through the product API without reset or recreation |
-| Account/cloud cleanup | Disposable Shared product deletion completed at 08:03 UTC; independent reads verify active/versioned object absence and Firebase identity absence. The original 500 and retained fence are preserved. Deployed fix returns exact `409 FILES_ERASURE_IN_PROGRESS`, keeps keys/session only after active-owner proof and permits deliberate retry; 68 web / 7 route tests and architecture ratchet pass | The exact pending-cleanup response fix now serves in `0b1d4202d9`; normal deletion-UI acceptance remains unperformed. Provider soft-deletion listing is unavailable without versioning; this fixture has creation-bound no-soft-delete history, not universal physical-erasure proof. Azure full lifecycle remains separate; personal accounts were not deleted |
+| Shared Files | Earlier 4,195,328-byte interrupted/resumed transfer, selected analysis and reversible management pass. On 18 October, a fresh disposable Shared owner cold-unlocked normally; 32 KiB upload, actual Move dialog closure, source/destination readback, stable identity, byte-exact download and Undo pass on frontend `991a06ccbc` / hub `e9482e4319` | Dev operator-issued authentication and the official configured-phone fixture do not qualify ordinary Google/CAPTCHA/SMS/legal onboarding. Background analysis stayed unavailable; no model call occurred. Normal deletion returned 500 twice, including one deliberate continuation after active-owner readback; the exact synthetic owner and encrypted retry custody remain preserved. Earlier failures and the separately erased 15 October fixture remain recorded |
+| Account/cloud cleanup | Earlier disposable Shared product erasure verified active/versioned object and Firebase absence. The fresh 18 October UI rehearsal instead retains an erasing inventory, one uncertain protocol-2 create-only upload and its vault. Exact-session empty status returns 412; this is **not** terminal evidence | Local correction settles validated successful sends before the final access check; recovery may attempt cancellation after an uncertain status, but requires HTTP 499 plus existing object/bucket proof and exact CAS. A safe `409 FILES_ERASURE_WAITING_FOR_WRITES` preserves the confirmed-active session without automatic retry. 99 focused Python and 37 frontend cases pass; these corrections are not deployed. No fence or provider object was manually cleared |
 | Existing users | Explicit Shared choice and evidenced legacy cohort; assigned/pending/unresolved pods cannot silently become Shared. Existing-user changelog excludes new users | Environment-specific cohort/schema graduation and reviewed changelog content require UAT/production readback |
 | Computer Use / scheduling | Responsive local preview/takeover/handback, owner fencing and metadata-only recovery tested. Files-only scheduling/outbox preserved | Native GCP identity/bridge and Azure execution/privacy gates remain closed. Azure due-time delivery, general goals and scheduled browser work unavailable |
 | Hussh-managed hosting / moves | Project-shard custody/capacity design; fail-closed provisioning and transfer admission | No qualified shard or migration offer. Shared-to-pod, reverse and cross-cloud moves require verified destination readability and source-cleanup receipts |
@@ -193,7 +199,7 @@ thresholds warn without stopping service. See [whole-package and VM assumptions]
 
 ## Owners and next gate
 
-1. **Engineering:** Shared Files owner acceptance, native connectors/recorded commands and measured cold latency; preserve exact approval authority.
+1. **Engineering:** release and verify the upload-reconciliation/refusal correction, finish the retained synthetic deletion, then native connectors/recorded commands and measured cold latency. Shared Move is now verified; preserve exact approval authority.
 2. **Operations:** complete disposable lifecycle cleanup, production migration/release graduation, erasure/retention, IAM, billing, recovery and independent UAT acceptance.
 3. **Owner/device:** Dev 25’s selected Gemma 12B response is verified; preserve that default without further model sweeps. Cold-model percentiles and independent-network acceptance remain unclaimed. Phone testing is outside this pass.
 

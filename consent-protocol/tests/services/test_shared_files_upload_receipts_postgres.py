@@ -153,3 +153,83 @@ async def test_upload_session_custody_is_bound_and_not_exposed_on_failure(monkey
         with pytest.raises(FilesRefused, match="FILES_UPLOAD_CUSTODY_UNVERIFIED") as error:
             write_receipts.restore(changed, "operation", receipt)
         assert uri not in str(error.value)
+
+
+@pytest.mark.parametrize("authority_changed", [False, True])
+async def test_completed_upload_settles_before_post_send_authority_check(
+    shared_storage, monkeypatch, authority_changed
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.shared_files import writes
+
+    row, epoch, lease, operation, reserved = await _reserve_receipt()
+    assert await write_receipts.transition(row, operation, reserved, None, mode="live", lease=lease)
+    monkeypatch.setattr(write_receipts, "seal", lambda *_: {"opaque": "encrypted-fixture"})
+
+    async def send(*_):
+        if authority_changed:
+            # Erasure may fence access while the provider finishes the exact upload.
+            with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+                await registry.fence("alice")
+        return "2"  # Validated terminal response from SharedCipherStore.send.
+
+    check = AsyncMock(side_effect=[None, FilesRefused("FILES_STORAGE_IDENTITY_CHANGED", 409)])
+    store = SimpleNamespace(initiate=AsyncMock(return_value="synthetic"), send=send)
+    with pytest.raises(FilesRefused, match="FILES_STORAGE_IDENTITY_CHANGED"):
+        await writes.write(store, row, lease, "a" * 64 + "/" + "b" * 64, b"K" * 28, "", check)
+    assert check.await_count == 2
+    retained = (await registry.resource("alice"))["writes"]
+    assert not (json.loads(retained) if isinstance(retained, str) else retained)
+    assert (await registry.fence("alice"))["state"] == "erasing"
+    assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
+
+
+@pytest.mark.parametrize("cancellation", ["unconfirmed", "confirmed", "changed_bucket"])
+async def test_uncertain_create_only_session_requires_terminal_cancellation_and_bucket_identity(
+    shared_storage, monkeypatch, cancellation
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.shared_files import writes
+
+    row, epoch, lease, operation, reserved = await _reserve_receipt()
+    uncertain = {**reserved, "state": "uncertain", "session": {"opaque": "encrypted-fixture"}}
+    assert await write_receipts.transition(row, operation, reserved, uncertain, mode="recovery")
+    monkeypatch.setattr(write_receipts, "restore", lambda *_: "synthetic")
+    monkeypatch.setattr(
+        bucket_admission,
+        "observe",
+        AsyncMock(
+            return_value={**BUCKET, "generation": "2"}
+            if cancellation == "changed_bucket"
+            else BUCKET
+        ),
+    )
+    store = SimpleNamespace(
+        status=AsyncMock(return_value="uncertain"),
+        cancel=AsyncMock(return_value=cancellation != "unconfirmed"),
+        get_bounded_with_generation=AsyncMock(return_value=(b"K" * 28, "2")),
+    )
+    if cancellation == "changed_bucket":
+        with pytest.raises(FilesRefused, match="FILES_STORAGE_IDENTITY_CHANGED"):
+            await writes.reconcile(store, row, operation, uncertain)
+    else:
+        await writes.reconcile(store, row, operation, uncertain)
+    store.cancel.assert_awaited_once_with("synthetic", uncertain["path"])
+    if cancellation == "confirmed":
+        assert (await registry.fence("alice"))["state"] == "erasing"
+    else:
+        with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+            await registry.fence("alice")
+    retained = await registry.resource("alice")
+    pending = retained["writes"]
+    assert retained["state"] == "erasing"
+    assert bool(json.loads(pending) if isinstance(pending, str) else pending) == (
+        cancellation != "confirmed"
+    )
+    assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
+    if cancellation == "unconfirmed":
+        store.get_bounded_with_generation.assert_not_awaited()

@@ -62,13 +62,18 @@ async def write(
             raise FilesRefused("FILES_UPLOAD_OPERATION_CHANGED", 409)
         receipt = sending
         written = await store.send(uri, path, data)
+        if written is not None:
+            # A validated terminal provider response settles this exact permit
+            # even if access changes next. This is recovery bookkeeping, not
+            # authorization to return information or to issue another upload.
+            # The CAS cannot erase a competing recovery claim.
+            if not await asyncio.shield(
+                write_receipts.transition(row, operation, receipt, None, mode="recovery")
+            ):
+                raise FilesRefused("FILES_UPLOAD_OPERATION_CHANGED", 409)
         await check()
         if written is None:
             raise FilesRefused("FILES_REVISION_CONFLICT", 409)
-        if not await write_receipts.transition(
-            row, operation, receipt, None, mode="live", lease=lease
-        ):
-            raise FilesRefused("FILES_UPLOAD_OPERATION_CHANGED", 409)
         return written
     except BaseException:
         # A stale exception cannot overwrite a recovery claim or resurrect an
@@ -112,7 +117,10 @@ async def reconcile(
             raise FilesRefused("FILES_UPLOAD_CUSTODY_UNVERIFIED", 503)
         uri = write_receipts.restore(row, operation, claimed)
         status = await store.status(uri, claimed["path"], size)
-        cancelled = status == "incomplete" and await store.cancel(uri, claimed["path"])
+        # An inconclusive status probe may still identify a cancellable session.
+        # Only the provider's positive cancellation receipt (JSON HTTP 499)
+        # counts; missing sessions and lost replies remain uncertain.
+        cancelled = status != "complete" and await store.cancel(uri, claimed["path"])
         if status != "complete" and not cancelled:
             return
         data, version = await store.get_bounded_with_generation(
