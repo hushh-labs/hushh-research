@@ -85,6 +85,124 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
 
 
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "missing",
+        "invalid_plan",
+        "input_required",
+        "digest",
+        "origin",
+        "revision",
+        "expired",
+        "failed",
+        "generation",
+    ],
+)
+def test_semantic_checkout_requires_current_bound_ready_interpretation(monkeypatch, fault):
+    from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
+
+    monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
+    request_id, job_id = str(uuid4()), str(uuid4())
+    request_row = {
+        "user_id": "owner",
+        "request_id": request_id,
+        "revision": 3,
+        "recipient_user_id": "recipient",
+        "expires_at": datetime.now(UTC) + timedelta(hours=1),
+        "access_stop_requested_at": None,
+        "status": "approved",
+    }
+    plan = {
+        "version": 1,
+        "status": "ready",
+        "clauses": [
+            {
+                "predicates": [
+                    {
+                        "id": "topic",
+                        "kind": "content",
+                        "value": "example",
+                        "match": "token",
+                        "negated": False,
+                        "discovery_terms": [],
+                    }
+                ]
+            }
+        ],
+        "metadata_listing": False,
+        "date_basis": "title_created_modified",
+        "clarification": None,
+    }
+    checkpoint = {
+        "semantic_plan": plan,
+        "semantic_plan_digest": semantic_plan_digest(plan),
+        "request_origin_id": request_id,
+        "request_revision": 3,
+    }
+    if fault == "invalid_plan":
+        checkpoint["semantic_plan"] = {**plan, "version": 2}
+    elif fault == "input_required":
+        unresolved = {**plan, "status": "input_required", "clarification": "Which person?"}
+        checkpoint.update(
+            semantic_plan=unresolved, semantic_plan_digest=semantic_plan_digest(unresolved)
+        )
+    elif fault == "digest":
+        checkpoint["semantic_plan_digest"] = "0" * 64
+    elif fault == "origin":
+        checkpoint["request_origin_id"] = str(uuid4())
+    elif fault == "revision":
+        checkpoint["request_revision"] = 2
+    sharing = DriveSharingStore(db=object())
+    search = {
+        "job_id": job_id,
+        "status": "failed" if fault == "failed" else "running",
+        "incomplete_search": False,
+        "live": fault != "expired",
+        "connection_generation": 2 if fault == "generation" else 1,
+        "checkpoint_envelope": sharing.sharing_cipher.seal(
+            checkpoint, user_id="owner", resource_id=job_id, purpose="owner-search-checkpoint"
+        ),
+    }
+    payment = DriveRequestPaymentService(db=object(), stripe_api=Mock())
+    monkeypatch.setattr(
+        payment,
+        "_row",
+        Mock(side_effect=[{"user_id": "owner"}, None if fault == "missing" else search]),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.DriveSharingStore", lambda **_: sharing
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.connector_feature_enabled",
+        lambda *_: True,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.DriveLivePreferences",
+        lambda **_: SimpleNamespace(
+            live_active=lambda *args, **kwargs: {"connection_generation": 1}
+        ),
+    )
+    monkeypatch.setattr(sharing, "_sharing_admission", lambda *_: None)
+    monkeypatch.setattr(sharing, "_participant_gate", lambda *_: {"recipient_user_id": "recipient"})
+    monkeypatch.setattr(sharing, "_related_request", lambda *_: request_row)
+    monkeypatch.setattr(
+        sharing,
+        "_open_request",
+        lambda *_: {"request_flow": "oct17_autoshare", "semantic_search_policy_version": 1},
+    )
+    if fault is None:
+        payment._current_checkout_authority(
+            object(), request_id=request_id, requester_user_id="recipient"
+        )
+    else:
+        with pytest.raises(DriveSharingError, match="payment_not_ready"):
+            payment._current_checkout_authority(
+                object(), request_id=request_id, requester_user_id="recipient"
+            )
+
+
 def _offline_absent_drive_acl(monkeypatch):
     """Replace only live Google reads in persisted payment lifecycle tests.
 

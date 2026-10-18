@@ -689,6 +689,71 @@ def test_terminal_outcome_fence_rejects_unbound_or_stopped_evidence_without_data
     connection.execute.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("partial_coverage", "delivered", "expected"),
+    [(True, 0, "partial"), (False, 0, "no_match"), (True, 1, "partial"), (False, 1, "completed")],
+)
+def test_semantic_terminal_coverage_never_claims_exhaustive_outcome_without_database(
+    partial_coverage,
+    delivered,
+    expected,
+):
+    request_id, job_id = str(uuid4()), str(uuid4())
+    request = {
+        "request_id": request_id,
+        "user_id": "owner",
+        "recipient_user_id": "recipient",
+        "status": "pending",
+        "revision": 2,
+        "access_stop_requested_at": None,
+        "payment_required": False,
+    }
+    checkpoint = {
+        "request_origin_id": request_id,
+        "request_revision": 2,
+        "request_shareability_version": 1,
+        "semantic_plan": {"version": 1},
+        "semantic_coverage_incomplete": partial_coverage,
+    }
+    source = {
+        "job_id": job_id,
+        "status": "completed",
+        "incomplete_search": False,
+        "checkpoint_envelope": {},
+        "matched": delivered,
+    }
+    states = [("succeeded", delivered)] if delivered else []
+    # SQL I/O supplies completed batches and no outstanding/unclaimed files.
+    # The production finalizer, rather than this fixture, decides the outcome.
+    connection = SimpleNamespace(
+        execute=Mock(
+            return_value=SimpleNamespace(
+                scalar_one=lambda: False,
+                mappings=lambda: [],
+                all=lambda: states,
+            )
+        )
+    )
+    bulk = DriveBulkShareStore(
+        db=SimpleNamespace(),
+        cipher=SimpleNamespace(open=Mock(return_value=checkpoint)),
+    )
+    terminal = []
+
+    def row(connection, query, params):
+        if query.startswith("SELECT * FROM drive_share_requests"):
+            return request
+        if query.startswith("SELECT * FROM drive_owner_search_jobs"):
+            return source
+        assert query.startswith("UPDATE drive_share_requests")
+        terminal.append(params["status"])
+        return None  # Outcome notification I/O is outside this regression.
+
+    bulk._row = row
+    bulk._finalize_progressive_request(connection, request_id)
+    assert terminal == [expected]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "binding", ["request_origin_id", "request_revision", "request_shareability_version"]
