@@ -8907,7 +8907,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onOpenConnectors={!isPuppySurface
         ? (trigger) => { historyDrawerTriggerRef.current = trigger; openHistoryConnectors(); }
         : undefined}
-      onOpenTodoList={!isPuppySurface ? () => router.push(ROUTES.ONE_TODOS) : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface && !customNativePresentationEnabled()

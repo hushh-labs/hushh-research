@@ -112,7 +112,7 @@ export function LiveMirrorPreview({
             <Link
               href={buildProfileRoute({ panel: "my-data" })}
               onClick={onNavigate}
-              className="inline-flex min-h-11 items-center rounded-md px-1 text-xs font-medium text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ui-text-trailing-action inline-flex min-h-11 items-center rounded-md px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               See all
             </Link>

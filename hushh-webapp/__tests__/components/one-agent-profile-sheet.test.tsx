@@ -379,7 +379,7 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
-  it("loads the shared To-do preview only when selected and closes before opening its workspace", async () => {
+  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
     const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
@@ -389,10 +389,10 @@ describe("One agent profile feed preview", () => {
     expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
     expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
-    fireEvent.click(screen.getByRole("button", { name: /Open To-do List/i }));
-    expect(mocks.close).toHaveBeenCalledWith(false);
-    expect(mocks.push).toHaveBeenCalledWith("/one/todos");
-    expect(mocks.close.mock.invocationCallOrder.at(-1)).toBeLessThan(mocks.push.mock.invocationCallOrder.at(-1)!);
+    expect(screen.queryByRole("button", { name: /Open To-do List/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open To-do List/i })).toBeNull();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("shows the shared live memory preview instead of static file cards, and closes before navigating", async () => {

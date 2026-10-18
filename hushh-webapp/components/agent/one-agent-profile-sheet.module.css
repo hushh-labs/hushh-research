@@ -62,6 +62,10 @@
 .title {
   margin: 0;
   font-family: var(--font-app-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 27px;
+  letter-spacing: normal;
 }
 .tabs {
   min-height: 0;

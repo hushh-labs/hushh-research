@@ -43,7 +43,6 @@ function Fixture() {
         onSelectConversation={() => {}}
         onRenameConversation={() => {}}
         onDeleteConversation={() => {}}
-        onOpenTodoList={() => setLastAction("todo")}
         onGetApp={() => setLastAction("app")}
         onOpenConnectors={() => setLastAction("connectors")}
       />

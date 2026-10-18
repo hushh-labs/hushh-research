@@ -21,7 +21,6 @@ import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import {
   ClipboardList,
   Fingerprint,
-  LockKeyhole,
   Newspaper,
   ArrowUpRight,
   X,
@@ -201,13 +200,11 @@ function OneTodoPreview({
   vaultKey,
   vaultOwnerToken,
   isVaultUnlocked,
-  onNavigate,
 }: {
   user: User;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
-  onNavigate: (href: string) => void;
 }) {
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -316,9 +313,6 @@ function OneTodoPreview({
     <div className={`${styles.todo} profile-home-content`}>
       <div className={styles.sectionHeading}>
         <h3>To-do list</h3>
-        <button type="button" onClick={() => onNavigate(ROUTES.ONE_TODOS)}>
-          Open To-do List <ArrowUpRight className="size-4" aria-hidden />
-        </button>
       </div>
 
       {!isVaultUnlocked ? (
@@ -429,7 +423,7 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
   let todo: ReactNode = <p className={styles.notice}>Sign in to view your to-do list.</p>;
   if (open && tab === "todo" && user) {
     todo = <OneTodoPreview key={user.uid} user={user} vaultKey={vaultKey}
-      vaultOwnerToken={vaultOwnerToken} isVaultUnlocked={isVaultUnlocked} onNavigate={navigate} />;
+      vaultOwnerToken={vaultOwnerToken} isVaultUnlocked={isVaultUnlocked} />;
   }
 
   return <div className={styles.content}>
@@ -438,7 +432,6 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
             <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
           </div>
           {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
-          <span className={styles.privateBadge}><LockKeyhole className="size-3.5" aria-hidden /> Private to you</span>
         </div>
         {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>

@@ -77,16 +77,17 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
         aria-label="memory.md"
         className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col items-start gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <p className="ui-text-row-description min-w-0 flex-1">
             The memory One uses in every conversation.
           </p>
           {editing ? (
-            <div className="flex gap-2">
-              <Button variant="muted" disabled={saving} onClick={cancelEdit}>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="muted" className="min-h-11" disabled={saving} onClick={cancelEdit}>
                 Cancel
               </Button>
               <Button
+                className="min-h-11"
                 disabled={
                   saving ||
                   current.draft === current.document.markdown ||
@@ -100,6 +101,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
           ) : (
             <Button
               variant="muted"
+              className="min-h-11 shrink-0"
               disabled={loading}
               onClick={model.beginEdit}
             >
